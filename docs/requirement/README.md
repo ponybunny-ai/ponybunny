@@ -1,396 +1,295 @@
-# 需求文档索引 (Requirements Index)
+# 需求文档导航 (Requirements Navigation)
 
-## ⚠️ 重大范式转变：从"AI助手"到"AI员工"
-
-PonyBunny的需求文档已经**彻底重构**，反映核心定位的根本性转变：
-
-```
-旧范式：AI助手（响应式工具）
-新范式：AI员工（目标驱动的自主工作者）
-```
-
-**核心差异**：
-- 不是"帮人类做事"，而是**"替代人类完成整个工作流"**
-- 不是"等待指令"，而是**"主动执行工作订单"**
-- 不是"单次任务"，而是**"多日长期项目"**
-- 不是"报错给人类"，而是**"自动重试 + Plan B + 升级"**
+**文档版本**: 3.0 (从第一性原理重组)  
+**最后更新**: 2026-01-31  
+**状态**: Phase 1 完成，Tier 1基础文档已建立
 
 ---
 
-## 📚 核心文档导航
+## ⚡ 快速开始
 
-### 🎯 1. [项目概述](./overview.md) `必读 - 已完全重写`
-**目标受众**：所有角色（产品、开发、管理层）
+### 新成员入口（30分钟理解核心）
 
-**核心内容**：
-- **Work Order System生命周期**：
-  ```
-  Goal Intake → Planning → Execute → Verify → Publish → Monitor
-  ```
-- **六大自主能力**：
-  1. Goal-Driven Execution（目标驱动）
-  2. Autonomous Loop（自主循环）
-  3. Self-Verification（自我验证）
-  4. Multi-Day Persistence（多日持久化）
-  5. Error Recovery（错误恢复）
-  6. Continuous Operation（持续运行）
+**第一步** → 阅读 [00-vision-and-problem.md](./00-vision-and-problem.md)  
+理解：为什么PonyBunny存在？什么是"自主完成"？
 
-- **新成功指标**：
-  - Work Item自主完成率 > 70%
-  - 连续工作时长 ≥ 8小时
-  - Quality Gate通过率 > 80%
-  - 月API成本 < $10（保持）
+**第二步** → 阅读 [01-ai-employee-paradigm.md](./01-ai-employee-paradigm.md)  
+理解：AI与人类的责任边界，何时自主、何时升级
 
-**关键结论**：
-> PonyBunny不是"更好的ChatGPT"，而是**"你的第一个数字员工"**
+**第三步** → 浏览 [02-glossary-and-terminology.md](./02-glossary-and-terminology.md)  
+熟悉：Work Order、Goal、Escalation等核心术语
+
+**完成标志**: 你能用一句话解释PonyBunny，并判断特定情况下AI应自主还是升级
 
 ---
 
-### 🏗️ 2. [Work Order System](./work-order-system.md) `全新核心架构`
-**目标受众**：架构师、开发工程师
+## 📚 按角色导航
 
-**核心内容**：
-- **数据模型设计**：
-  - Goals表（高层目标）
-  - Work Items表（具体任务）
-  - Runs表（执行记录）
-  - Artifacts表（交付物）
-  - Decisions表（决策日志）
+### 产品经理 / 战略决策者
 
-- **Autonomy Daemon**：
-  ```python
-  while True:
-      work_item = select_next()  # 优先级+依赖
-      run = execute_react_cycle(budget)
-      if success: verify_and_publish()
-      elif stuck: escalate(packet)
-      else: retry_with_plan_b()
-  ```
+**阅读路径**: 00 → 01 → 10 → 20 → 21
 
-- **Quality Gates架构**：
-  ```
-  Tests Pass ✓ → Build ✓ → Lint ✓ → LLM Review（辅助）
-  核心原则：LLM判断不能override failing tests
-  ```
+| 顺序 | 文档 | 核心问题 |
+|:-----|:-----|:---------|
+| 1 | [00-vision-and-problem.md](./00-vision-and-problem.md) | 为什么做？目标用户是谁？成功指标是什么？ |
+| 2 | [01-ai-employee-paradigm.md](./01-ai-employee-paradigm.md) | AI员工vs助手的本质区别？ |
+| 3 | `10-autonomous-execution-model.md` ⏳ | 自主性如何运作？（Phase 2） |
+| 4 | `20-capability-requirements.md` ⏳ | 必须实现哪些能力？（Phase 3） |
+| 5 | `21-scenarios-and-user-stories.md` ⏳ | 真实用户旅程如何？（Phase 3） |
 
-- **实施路线**：
-  - Week 1-2: MVP（数据模型 + 基础循环）
-  - Week 3-4: 质量增强（Verification + Escalation）
-  - Week 5-8: 多日持久化（Artifacts + Checkpoint）
-
-**关键结论**：
-> Work Order System是从"被动响应"到"主动工作"的架构核心
+**关键交付物**:
+- 成功指标定义（Autonomy Rate >70%, Shift ≥8h）
+- 目标用户画像（独立开发者、自雇者、小团队）
+- 非目标边界（不做企业协作、No-Code、通用框架）
 
 ---
 
-### 📋 3. [功能需求](./functional-requirements.md) `部分调整`
-**目标受众**：产品经理、开发工程师
+### 架构师 / 技术Leader
 
-**主要调整**：
-- **多租户 → 多Session隔离**（个人/小团队场景）
-- **成本优化升至P0**（个人用户核心）
-- **规模指标降低**（10,000用户 → 10用户）
+**阅读路径**: 01 → 02 → 10 → 11 → 20 → 22
 
-**优先级重排**：
-- P0（MVP核心）：7个需求（+Work Order System）
-- P1（体验增强）：6个需求
-- P2（社区生态）：4个需求
+| 顺序 | 文档 | 核心问题 |
+|:-----|:-----|:---------|
+| 1 | [01-ai-employee-paradigm.md](./01-ai-employee-paradigm.md) | 责任边界和升级规则是什么？ |
+| 2 | [02-glossary-and-terminology.md](./02-glossary-and-terminology.md) | 术语规范（建立共同语言） |
+| 3 | `10-autonomous-execution-model.md` ⏳ | 执行生命周期机制？（Phase 2） |
+| 4 | `11-work-order-system.md` ⏳ | Work Order实体模型和不变量？（Phase 2） |
+| 5 | `20-capability-requirements.md` ⏳ | 能力需求详细规范？（Phase 3） |
+| 6 | `22-quality-risk-and-compliance.md` ⏳ | 安全、性能、成本约束？（Phase 3） |
 
----
+**关键交付物**:
+- Work Order System架构设计
+- Autonomy Daemon调度机制
+- Quality Gates验证流程
+- Escalation升级策略
 
-### 📊 4. [非功能需求](./non-functional-requirements.md) `部分调整`
-**目标受众**：架构师、运维工程师、QA
-
-**主要调整**：
-- **吞吐量**：500+连接 → 10+连接
-- **可用性**：99.5% → 99%（个人可接受）
-- **扩展性**：水平扩展 → 单机优化
-- **部署**：Kubernetes → Docker Compose
-
-**关键指标保持**：
-- P95响应延迟 < 2秒
-- Docker沙箱逃逸率 0%
-- 内存占用 < 2GB
+**现有参考**（待重组）:
+- [work-order-system.md](./work-order-system.md) — Phase 2将拆分为10+11
+- [system-boundaries.md](./system-boundaries.md) — Phase 2将重构为13
 
 ---
 
-### 📖 5. [用户故事](./user-stories.md) `已完全重写`
-**目标受众**：产品经理、UX设计师
+### 开发工程师
 
-**新增个人自主场景**：
-- ✅ 早晨自动唤醒与信息汇总（Cron + TTS）
-- ✅ 长期学习伙伴（6个月记忆）
-- ✅ 个人日记分析（隐私保护）
-- ✅ 自动代码审查（GitHub Webhook）
-- ✅ 完全本地运行（Ollama零成本）
+**阅读路径**: 01 → 02 → 10 → 11 → 20 → 22
 
-**移除企业场景**：
-- ❌ 100人企业部署
-- ❌ SOC 2审计
-- ❌ RBAC权限管理
+| 顺序 | 文档 | 核心问题 |
+|:-----|:-----|:---------|
+| 1 | [01-ai-employee-paradigm.md](./01-ai-employee-paradigm.md) | 我需要实现哪些责任边界？ |
+| 2 | [02-glossary-and-terminology.md](./02-glossary-and-terminology.md) | 代码中使用哪些标准术语？ |
+| 3 | `10-autonomous-execution-model.md` ⏳ | 状态机和生命周期如何实现？（Phase 2） |
+| 4 | `11-work-order-system.md` ⏳ | 数据模型schema和API？（Phase 2） |
+| 5 | `20-capability-requirements.md` ⏳ | 每个能力的验收标准？（Phase 3） |
+| 6 | `22-quality-risk-and-compliance.md` ⏳ | 安全和质量约束？（Phase 3） |
 
-**新格式强调自主性**：
-```
-作为 个人开发者
-我想 Agent自主完成"实现登录功能"
-以便 我专注于架构设计，而非重复编码
+**现有参考**（待重组）:
+- [functional-requirements.md](./functional-requirements.md) — Phase 3将重组为20
+- [non-functional-requirements.md](./non-functional-requirements.md) — Phase 3将整合到22
 
-验收标准：
-- [ ] Agent自主分解为5个work items
-- [ ] 自主执行（写代码+测试+修复）
-- [ ] 通过Quality Gates才标记完成
-- [ ] 生成PR并等待人类review
-```
+**工程文档**（技术实现）:
+- [../engineering/architecture.md](../engineering/architecture.md) — 系统架构
+- [../engineering/work-order-system.md](../engineering/work-order-system.md) — Work Order实现
 
 ---
 
-### 🔗 6. [系统边界与集成点](./system-boundaries.md) `保持不变`
-**目标受众**：架构师、集成工程师
+### 安全工程师 / 运维
 
-**内容**：技术架构边界，无需调整
+**阅读路径**: 02 → 13 → 22 → 11
 
----
+| 顺序 | 文档 | 核心问题 |
+|:-----|:-----|:---------|
+| 1 | [02-glossary-and-terminology.md](./02-glossary-and-terminology.md) | 术语规范 |
+| 2 | `13-system-boundaries-and-operating-context.md` ⏳ | 系统边界和权限范围？（Phase 2） |
+| 3 | `22-quality-risk-and-compliance.md` ⏳ | 威胁模型和控制措施？（Phase 3） |
+| 4 | `11-work-order-system.md` ⏳ | 审计日志和可追溯性？（Phase 2） |
 
-### 🔒 7. [安全威胁模型与防护](./security-threat-model.md) `保持不变`
-**目标受众**：安全工程师、合规团队
-
-**内容**：安全标准不降低，无需调整
-
----
-
-### 💰 8. [关键价值主张](./value-propositions.md) `已完全重写`
-**目标受众**：管理层、投资人
-
-**新价值主张**：
-- **Durable** — "像老员工一样可靠"（Work Orders + Artifacts + Decisions Log）
-- **Fast** — "高效执行不拖延"（Lane调度 + Parallel Subagents）
-- **Local-first** — "你的员工你控制"（本地运行 + 完全可审计）
-- **Security-first** — "可信赖的员工"（明确权限边界）
-- **Trim-to-fit** — "按需雇佣成本可控"（实习生模型 vs 高级工程师模型）
-- **Know Your AI** — "像了解员工一样"（工作计划可见 + 执行可追溯）
-
-**新ROI分析**（个人用户）：
-- 成本节约：月$20 → $5-10（节省70%）
-- 生产力提升：每天节省2小时（年价值$39K）
-- 隐私价值：数据泄露风险为0（无价）
+**现有参考**（待重组）:
+- [security-threat-model.md](./security-threat-model.md) — Phase 3将整合到22
+- [system-boundaries.md](./system-boundaries.md) — Phase 2将重构为13
 
 ---
 
-### 📝 9. [CHANGELOG](./CHANGELOG.md) `变更说明`
-详细记录从"企业级AI Gateway"到"个人AI员工"的所有调整
+## 🗂️ 文档结构（4层金字塔）
+
+### ✅ Tier 1: 基础文档 (WHY + WHAT) — 已完成
+
+战略层，定义愿景和范式
+
+| 文档 | 状态 | 目标受众 |
+|:-----|:-----|:---------|
+| [00-vision-and-problem.md](./00-vision-and-problem.md) | ✅ v2.0 | 所有角色 |
+| [01-ai-employee-paradigm.md](./01-ai-employee-paradigm.md) | ✅ v2.0 | 所有角色 |
+| [02-glossary-and-terminology.md](./02-glossary-and-terminology.md) | ✅ v2.0 | 所有角色 |
+| README.md (本文档) | ✅ v3.0 | 所有角色 |
+
+### ⏳ Tier 2: 能力文档 (HOW - 概念) — Phase 2
+
+架构层，定义核心机制
+
+| 文档 | 状态 | 来源 |
+|:-----|:-----|:-----|
+| `10-autonomous-execution-model.md` | ⏳ Phase 2 | 从 work-order-system.md 拆分生命周期部分 |
+| `11-work-order-system.md` | ⏳ Phase 2 | 从 work-order-system.md 保留实体模型 |
+| `12-human-interaction-contracts.md` | ⏳ Phase 2 | 从 user-stories.md + system-boundaries.md 提取 |
+| `13-system-boundaries-and-operating-context.md` | ⏳ Phase 2 | 从 system-boundaries.md 重构 |
+
+### ⏳ Tier 3: 规范文档 (HOW - 详细) — Phase 3
+
+实现层，定义详细需求
+
+| 文档 | 状态 | 来源 |
+|:-----|:-----|:-----|
+| `20-capability-requirements.md` | ⏳ Phase 3 | 重组 functional-requirements.md + non-functional-requirements.md |
+| `21-scenarios-and-user-stories.md` | ⏳ Phase 3 | 重构 user-stories.md（成功+失败路径） |
+| `22-quality-risk-and-compliance.md` | ⏳ Phase 3 | 合并 security-threat-model.md + NFR安全部分 |
+
+### Tier 4: 治理
+
+| 文档 | 状态 |
+|:-----|:-----|
+| [CHANGELOG.md](./CHANGELOG.md) | ✅ 持续更新 |
+| [REORGANIZATION_PLAN.md](./REORGANIZATION_PLAN.md) | ✅ 重组计划 |
 
 ---
 
-## 🎯 新版快速查找指南
+## 🔄 重组进度
 
-### 按角色查找
+### ✅ Phase 1: 基础文档（已完成 2026-01-31）
 
-| 角色 | 核心文档 | 重点关注 |
-|:-----|:--------|:--------|
-| **产品经理** | Overview, Work Order System, User Stories | 自主能力、工作流设计 |
-| **架构师** | Work Order System, Non-Functional | Autonomy Daemon、Quality Gates |
-| **开发工程师** | Work Order System, Functional | 数据模型、执行循环实现 |
-| **个人用户** | Overview, Value Propositions | 成本、隐私、自主性 |
+**交付物**:
+- ✅ `00-vision-and-problem.md` (1067行)
+- ✅ `01-ai-employee-paradigm.md` (573行)
+- ✅ `02-glossary-and-terminology.md` (680行)
+- ✅ `README.md` 更新（角色导航）
 
----
+**总计**: 2320行新文档，建立从第一性原理的需求基础
 
-### 按核心能力查找
+### ⏳ Phase 2: 能力文档（计划 Week 2）
 
-| 能力 | 相关文档 |
-|:-----|:--------|
-| **Goal-Driven（目标驱动）** | Work Order System 1, Overview |
-| **Autonomous Loop（自主循环）** | Work Order System 2, Overview |
-| **Self-Verification（自我验证）** | Work Order System 3, Functional 需求 |
-| **Multi-Day Persistence（多日持久化）** | Work Order System 5, Non-Functional |
-| **Error Recovery（错误恢复）** | Work Order System 2, Functional 1.1 |
-| **Continuous Operation（持续运行）** | Overview, User Stories |
+**待创建**:
+- `10-autonomous-execution-model.md` — 生命周期机制
+- `11-work-order-system.md` — 实体模型
+- `12-human-interaction-contracts.md` — 人类交互
+- `13-system-boundaries-and-operating-context.md` — 边界和上下文
 
----
+### ⏳ Phase 3: 规范文档（计划 Week 3）
 
-### 按开发阶段查找
-
-| 阶段 | 关键文档 | 核心交付 |
-|:-----|:--------|:--------|
-| **Phase 1 (Week 1-2)** | Work Order System | Goals/Work Items表, Autonomy Daemon基础 |
-| **Phase 2 (Week 3-4)** | Work Order System | Quality Gates, Escalation Packet |
-| **Phase 3 (Week 5-8)** | Work Order System | Artifacts管理, Checkpoint/Resume |
+**待创建**:
+- `20-capability-requirements.md` — 按能力组织的需求
+- `21-scenarios-and-user-stories.md` — 用户旅程
+- `22-quality-risk-and-compliance.md` — 质量和安全
 
 ---
 
-## 📊 新版需求统计
+## 📋 旧文档状态
 
-### 自主性指标（新增）
+### 保留（暂时）
 
-| 指标类型 | 核心KPI |
-|:--------|:--------|
-| **自主性** | Work Item自主完成率 > 70% |
-| **效率** | 连续工作时长 ≥ 8小时 |
-| **质量** | Quality Gate通过率 > 80% |
-| **成本** | 月API开支 < $10 |
+在Phase 2-3完成前，以下文档继续有效：
 
-### 功能需求优先级（更新）
+| 文档 | 状态 | 说明 |
+|:-----|:-----|:-----|
+| [overview.md](./overview.md) | 📦 归档参考 | 内容已拆分到00+01 |
+| [value-propositions.md](./value-propositions.md) | 📦 归档参考 | 核心隐喻已迁移到01 |
+| [work-order-system.md](./work-order-system.md) | ✅ 有效 | Phase 2将拆分为10+11 |
+| [functional-requirements.md](./functional-requirements.md) | ✅ 有效 | Phase 3将重组为20 |
+| [non-functional-requirements.md](./non-functional-requirements.md) | ✅ 有效 | Phase 3将整合到22 |
+| [user-stories.md](./user-stories.md) | ✅ 有效 | Phase 3将重构为21 |
+| [system-boundaries.md](./system-boundaries.md) | ✅ 有效 | Phase 2将拆分为12+13 |
+| [security-threat-model.md](./security-threat-model.md) | ✅ 有效 | Phase 3将整合到22 |
+| [CHANGELOG.md](./CHANGELOG.md) | ✅ 持续维护 | 记录所有变更 |
 
-| 优先级 | 需求数量 | 主要变化 |
-|:------|:--------|:--------|
-| P0（MVP） | 7 | **+Work Order System** |
-| P1（增强） | 6 | -RBAC, -水平扩展 |
-| P2（社区） | 4 | +Tool Market, +模板 |
+### 迁移计划
 
-### 用户故事分布（更新）
-
-| Epic类别 | 故事数量 | 主要变化 |
-|:--------|:--------|:--------|
-| **24x7自主化** | 3 | **新增：早晨播报、智能家居** |
-| **个人知识管理** | 3 | **新增：日记分析、文献管理** |
-| **生产力倍增** | 3 | **新增：自动代码审查、本地零成本** |
-| 设备协同 | 3 | 保持 |
-| 安全隐私 | 3 | 保持 |
-| 用户体验 | 3 | 保持 |
+完成Phase 2-3后，旧文档将移至 `archive/v1.0/` 目录。
 
 ---
 
-## 🔄 核心特性追溯矩阵（更新）
+## 🎯 核心要点速查
 
-### 新核心特性："Work Order System"
+### 第一性原理
 
-| 需求文档 | 章节 | 关键内容 |
-|:--------|:-----|:--------|
-| **Overview** | Work Order生命周期 | 8步流程、自主能力架构 |
-| **Work Order System** | 完整设计 | 数据模型、Autonomy Daemon、Quality Gates |
-| **Functional需求** | 新增P0需求 | 目标管理、自主执行、质量验证 |
-| **User Stories** | 自主工作场景 | Agent独立完成"实现登录功能" |
-| **Value Propositions** | 范式转变 | 从"工具"到"员工" |
+> **知识工作的委派瓶颈**：即使任务明确，人类仍需持续监督（澄清、分解、监控、恢复、打包）。  
+> **PonyBunny解决方案**：将可委派工作转为自主、持久的执行——人类设定目标，AI完整交付。
 
-### 保留核心特性："Docker沙箱隔离"
+### 成功指标（北极星）
 
-| 需求文档 | 章节 | 关键内容 |
-|:--------|:-----|:--------|
-| **Functional需求** | 1.3 沙箱执行 | 三层权限验证（不变） |
-| **Non-Functional** | 4.3 沙箱安全 | 只读根文件系统（不变） |
-| **Security Model** | 威胁3 沙箱逃逸 | 防护措施（不变） |
+| 指标 | 目标值 | 为什么重要 |
+|:-----|:-------|:----------|
+| **Work Item自主完成率** | \u003e 70% | 核心自主性指标 |
+| **连续工作时长（Shift）** | ≥ 8小时 | 验证"可放手不管" |
+| **Quality Gate通过率** | \u003e 80% | 验证自我质量保证 |
 
----
+### AI vs 人类责任边界
 
-## 🚀 新版实施路线
+**AI负责（自主执行）**:
+- 分解目标为work items
+- 执行代码/测试/工具调用
+- 运行Quality Gates
+- 从错误恢复（<3次重试）
+- 打包Artifacts和Escalation Packet
 
-### Week 1-2: Work Order MVP
-**目标**：验证自主工作循环
+**人类负责（目标和审批）**:
+- 设定高层目标
+- 批准风险操作（DB migration、生产部署）
+- 处理Escalation
+- Review最终PR
 
-**关键交付**：
-- ✅ Goals/Work Items/Runs表
-- ✅ Autonomy Daemon基础循环
-- ✅ 简单Quality Gates（test/build/lint）
+### 何时升级？
 
-**验证场景**：
-```
-Goal: "添加health check端点"
-→ Agent自主分解为3个work items
-→ 自主执行（写代码+测试）
-→ 通过gates后标记完成
-```
-
----
-
-### Week 3-4: 质量与升级
-**目标**：支持错误恢复和人类升级
-
-**关键交付**：
-- ✅ Verification Plan自动生成
-- ✅ Escalation Packet完整实现
-- ✅ 多层retry机制
-
-**验证场景**：
-```
-Goal: "实现JWT认证"
-→ 遇到错误（缺少secret）
-→ 自动重试2次
-→ 生成Escalation Packet升级
-→ 人类提供secret后恢复
-```
-
----
-
-### Week 5-8: 多日持久化
-**目标**：支持跨天/跨周长期项目
-
-**关键交付**：
-- ✅ Context Packs（结构化快照）
-- ✅ Artifacts管理
-- ✅ Daily Rollup
-- ✅ Checkpoint/Resume
-
-**验证场景**：
-```
-Goal: "重构认证模块"（5天）
-→ Day 1: 分析生成plan
-→ Day 2-4: 逐步重构（每天checkpoint）
-→ Day 5: 完成并生成PR
-```
-
----
-
-## 📝 文档维护策略（更新）
-
-### 优先级更新频率
-- **Work Order System**：每Sprint审查（核心架构）
-- **功能需求**：每Sprint更新
-- **用户故事**：基于用户反馈迭代
-- **价值主张**：每季度审查（市场定位）
-
-### 版本管理
-- 所有变更遵循Git Flow
-- 重大范式调整需要团队review
-- 变更记录在CHANGELOG.md
-
----
-
-## ✅ 新版验收检查清单
-
-在开始开发前，确保理解以下核心转变：
-
-- [ ] **范式理解**：从"AI助手"到"AI员工"的本质差异
-- [ ] **Work Order System**：完整生命周期和数据模型
-- [ ] **自主能力**：6大支柱的技术实现
-- [ ] **质量保证**：确定性验证优先于LLM判断
-- [ ] **升级策略**：何时自主处理 vs 何时升级人类
-- [ ] **成本目标**：月API开支 < $10（个人用户）
-- [ ] **成功指标**：70%自主完成率、8小时连续工作
+- 连续3次相同错误
+- Budget耗尽（Token/时间/成本）
+- 目标定义模糊
+- 缺少凭证（API Key）
+- 触及风险边界（删除生产数据）
 
 ---
 
 ## 🔗 相关资源
 
 ### 工程文档（技术实现）
-- [系统架构](../engineering/architecture.md) — ReAct循环、Lane调度
-- [调度机制](../engineering/scheduling.md) — Cron Lane实现
-- [内存管理](../engineering/memory-management.md) — Compaction算法
-- [模型性能](../engineering/model-performance.md) — Failover策略
 
-### 新增文档
-- [CHANGELOG](./CHANGELOG.md) — 完整变更记录
-- [Work Order System](./work-order-system.md) — 核心架构设计
+- [../engineering/](../engineering/) — 工程实现文档（8文档，8359行）
+  - [architecture.md](../engineering/architecture.md) — 系统架构
+  - [work-order-system.md](../engineering/work-order-system.md) — Work Order实现
+  - [scheduling.md](../engineering/scheduling.md) — Lane调度
+  - [database.md](../engineering/database.md) — 数据库设计
 
----
+### 代码仓库
 
-## 🎯 核心要点总结
-
-### 第一性原理
-> **接收问题 → 完全自主地解决 → 交付验证过的结果**
-
-### 人类角色
-- 目标设定者（定义high-level goals）
-- 质量审批者（review最终PR）
-- 异常处理者（处理Agent升级的复杂决策）
-
-### Agent角色
-- 计划制定者（将goal分解为work items）
-- 执行者（coding/testing/debugging）
-- 质量保证者（运行确定性验证）
-- 持续改进者（从失败中学习）
+- [/src/work-order/](../../src/work-order/) — Work Order System实现
+- [/src/autonomy/](../../src/autonomy/) — Autonomy Daemon实现
 
 ---
 
-**文档版本**：2.0（自主员工范式）  
-**最后更新**：2026-01-31  
-**维护者**：PonyBunny Product Team  
-**核心变更**：从"AI Gateway"到"Autonomous AI Employee System"
+## ❓ 常见问题
+
+**Q: 我应该从哪个文档开始？**  
+A: 新成员从 [00-vision-and-problem.md](./00-vision-and-problem.md) 开始。按角色选择阅读路径（见上方）。
+
+**Q: Phase 2/3什么时候完成？**  
+A: Phase 2计划Week 2（能力文档），Phase 3计划Week 3（规范文档）。关注 [CHANGELOG.md](./CHANGELOG.md) 获取更新。
+
+**Q: 旧文档（overview.md等）还能看吗？**  
+A: 可以参考，但Tier 1新文档（00-02）是权威来源。旧文档在Phase 2-3完成后归档。
+
+**Q: 术语不一致怎么办？**  
+A: [02-glossary-and-terminology.md](./02-glossary-and-terminology.md) 是单一真理来源。发现冲突请提Issue。
+
+**Q: 如何贡献/修改需求？**  
+A: 提交PR，修改对应Tier文档。重大变更需团队review。更新CHANGELOG.md。
+
+---
+
+**文档维护**:
+- 负责人：PonyBunny Product Team
+- 更新频率：按Sprint审查核心文档（00-02），按需更新其他
+- 反馈渠道：GitHub Issues
+- 变更记录：[CHANGELOG.md](./CHANGELOG.md)
+
+---
+
+**版本历史**:
+- v3.0 (2026-01-31): 从第一性原理重组，建立4层文档架构，完成Phase 1
+- v2.0 (2026-01-15): AI员工范式转变（已归档）
+- v1.0 (2025-12-01): 初始版本（已归档）
