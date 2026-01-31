@@ -2,7 +2,7 @@
 
 **文档版本**: 3.0 (从第一性原理重组)  
 **最后更新**: 2026-01-31  
-**状态**: Phase 1 完成，Tier 1基础文档已建立
+**状态**: Phase 2 完成，Tier 2 能力文档已建立
 
 ---
 
@@ -33,7 +33,7 @@
 |:-----|:-----|:---------|
 | 1 | [00-vision-and-problem.md](./00-vision-and-problem.md) | 为什么做？目标用户是谁？成功指标是什么？ |
 | 2 | [01-ai-employee-paradigm.md](./01-ai-employee-paradigm.md) | AI员工vs助手的本质区别？ |
-| 3 | `10-autonomous-execution-model.md` ⏳ | 自主性如何运作？（Phase 2） |
+| 3 | [10-autonomous-execution-model.md](./10-autonomous-execution-model.md) | 自主性如何运作？ |
 | 4 | `20-capability-requirements.md` ⏳ | 必须实现哪些能力？（Phase 3） |
 | 5 | `21-scenarios-and-user-stories.md` ⏳ | 真实用户旅程如何？（Phase 3） |
 
@@ -52,8 +52,8 @@
 |:-----|:-----|:---------|
 | 1 | [01-ai-employee-paradigm.md](./01-ai-employee-paradigm.md) | 责任边界和升级规则是什么？ |
 | 2 | [02-glossary-and-terminology.md](./02-glossary-and-terminology.md) | 术语规范（建立共同语言） |
-| 3 | `10-autonomous-execution-model.md` ⏳ | 执行生命周期机制？（Phase 2） |
-| 4 | `11-work-order-system.md` ⏳ | Work Order实体模型和不变量？（Phase 2） |
+| 3 | [10-autonomous-execution-model.md](./10-autonomous-execution-model.md) | 执行生命周期机制？ |
+| 4 | [11-work-order-system.md](./11-work-order-system.md) | Work Order实体模型和不变量？ |
 | 5 | `20-capability-requirements.md` ⏳ | 能力需求详细规范？（Phase 3） |
 | 6 | `22-quality-risk-and-compliance.md` ⏳ | 安全、性能、成本约束？（Phase 3） |
 
@@ -64,8 +64,8 @@
 - Escalation升级策略
 
 **现有参考**（待重组）:
-- [work-order-system.md](./work-order-system.md) — Phase 2将拆分为10+11
-- [system-boundaries.md](./system-boundaries.md) — Phase 2将重构为13
+- [work-order-system.md](./work-order-system.md) — 已拆分为10+11（Phase 2完成）
+- [system-boundaries.md](./system-boundaries.md) — 已拆分为12+13（Phase 2完成）
 
 ---
 
@@ -77,8 +77,8 @@
 |:-----|:-----|:---------|
 | 1 | [01-ai-employee-paradigm.md](./01-ai-employee-paradigm.md) | 我需要实现哪些责任边界？ |
 | 2 | [02-glossary-and-terminology.md](./02-glossary-and-terminology.md) | 代码中使用哪些标准术语？ |
-| 3 | `10-autonomous-execution-model.md` ⏳ | 状态机和生命周期如何实现？（Phase 2） |
-| 4 | `11-work-order-system.md` ⏳ | 数据模型schema和API？（Phase 2） |
+| 3 | [10-autonomous-execution-model.md](./10-autonomous-execution-model.md) | 状态机和生命周期如何实现？ |
+| 4 | [11-work-order-system.md](./11-work-order-system.md) | 数据模型schema和API？ |
 | 5 | `20-capability-requirements.md` ⏳ | 每个能力的验收标准？（Phase 3） |
 | 6 | `22-quality-risk-and-compliance.md` ⏳ | 安全和质量约束？（Phase 3） |
 
@@ -99,13 +99,13 @@
 | 顺序 | 文档 | 核心问题 |
 |:-----|:-----|:---------|
 | 1 | [02-glossary-and-terminology.md](./02-glossary-and-terminology.md) | 术语规范 |
-| 2 | `13-system-boundaries-and-operating-context.md` ⏳ | 系统边界和权限范围？（Phase 2） |
+| 2 | [13-system-boundaries-and-operating-context.md](./13-system-boundaries-and-operating-context.md) | 系统边界和权限范围？ |
 | 3 | `22-quality-risk-and-compliance.md` ⏳ | 威胁模型和控制措施？（Phase 3） |
-| 4 | `11-work-order-system.md` ⏳ | 审计日志和可追溯性？（Phase 2） |
+| 4 | [11-work-order-system.md](./11-work-order-system.md) | 审计日志和可追溯性？ |
 
 **现有参考**（待重组）:
 - [security-threat-model.md](./security-threat-model.md) — Phase 3将整合到22
-- [system-boundaries.md](./system-boundaries.md) — Phase 2将重构为13
+- [system-boundaries.md](./system-boundaries.md) — 已拆分为12+13（Phase 2完成）
 
 ---
 
@@ -122,16 +122,16 @@
 | [02-glossary-and-terminology.md](./02-glossary-and-terminology.md) | ✅ v2.0 | 所有角色 |
 | README.md (本文档) | ✅ v3.0 | 所有角色 |
 
-### ⏳ Tier 2: 能力文档 (HOW - 概念) — Phase 2
+### ✅ Tier 2: 能力文档 (HOW - 概念) — 已完成
 
 架构层，定义核心机制
 
 | 文档 | 状态 | 来源 |
 |:-----|:-----|:-----|
-| `10-autonomous-execution-model.md` | ⏳ Phase 2 | 从 work-order-system.md 拆分生命周期部分 |
-| `11-work-order-system.md` | ⏳ Phase 2 | 从 work-order-system.md 保留实体模型 |
-| `12-human-interaction-contracts.md` | ⏳ Phase 2 | 从 user-stories.md + system-boundaries.md 提取 |
-| `13-system-boundaries-and-operating-context.md` | ⏳ Phase 2 | 从 system-boundaries.md 重构 |
+| [10-autonomous-execution-model.md](./10-autonomous-execution-model.md) | ✅ v2.0 | 从 work-order-system.md 拆分生命周期部分 |
+| [11-work-order-system.md](./11-work-order-system.md) | ✅ v2.0 | 从 work-order-system.md 保留实体模型 |
+| [12-human-interaction-contracts.md](./12-human-interaction-contracts.md) | ✅ v2.0 | 从 user-stories.md + system-boundaries.md 提取 |
+| [13-system-boundaries-and-operating-context.md](./13-system-boundaries-and-operating-context.md) | ✅ v2.0 | 从 system-boundaries.md 重构 |
 
 ### ⏳ Tier 3: 规范文档 (HOW - 详细) — Phase 3
 
@@ -164,13 +164,15 @@
 
 **总计**: 2320行新文档，建立从第一性原理的需求基础
 
-### ⏳ Phase 2: 能力文档（计划 Week 2）
+### ⏳ Phase 2: 能力文档（已完成 2026-01-31）
 
-**待创建**:
-- `10-autonomous-execution-model.md` — 生命周期机制
-- `11-work-order-system.md` — 实体模型
-- `12-human-interaction-contracts.md` — 人类交互
-- `13-system-boundaries-and-operating-context.md` — 边界和上下文
+**交付物**:
+- ✅ `10-autonomous-execution-model.md` (810行) — 8阶段执行生命周期
+- ✅ `11-work-order-system.md` (1117行) — 实体模型、SQL schema、ERD
+- ✅ `12-human-interaction-contracts.md` (920行) — 7个人类交互接触点
+- ✅ `13-system-boundaries-and-operating-context.md` (600行) — 系统边界、依赖、集成接口
+
+**总计**: 3447行新文档，建立自主执行的概念架构
 
 ### ⏳ Phase 3: 规范文档（计划 Week 3）
 
@@ -191,11 +193,11 @@
 |:-----|:-----|:-----|
 | [overview.md](./overview.md) | 📦 归档参考 | 内容已拆分到00+01 |
 | [value-propositions.md](./value-propositions.md) | 📦 归档参考 | 核心隐喻已迁移到01 |
-| [work-order-system.md](./work-order-system.md) | ✅ 有效 | Phase 2将拆分为10+11 |
+| [work-order-system.md](./work-order-system.md) | 📦 归档参考 | 已拆分为10+11 |
 | [functional-requirements.md](./functional-requirements.md) | ✅ 有效 | Phase 3将重组为20 |
 | [non-functional-requirements.md](./non-functional-requirements.md) | ✅ 有效 | Phase 3将整合到22 |
-| [user-stories.md](./user-stories.md) | ✅ 有效 | Phase 3将重构为21 |
-| [system-boundaries.md](./system-boundaries.md) | ✅ 有效 | Phase 2将拆分为12+13 |
+| [user-stories.md](./user-stories.md) | 📦 归档参考 | 已拆分为12+21 |
+| [system-boundaries.md](./system-boundaries.md) | 📦 归档参考 | 已拆分为12+13 |
 | [security-threat-model.md](./security-threat-model.md) | ✅ 有效 | Phase 3将整合到22 |
 | [CHANGELOG.md](./CHANGELOG.md) | ✅ 持续维护 | 记录所有变更 |
 
