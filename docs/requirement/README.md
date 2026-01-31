@@ -2,7 +2,7 @@
 
 **文档版本**: 3.0 (从第一性原理重组)  
 **最后更新**: 2026-01-31  
-**状态**: Phase 2 完成，Tier 2 能力文档已建立
+**状态**: Phase 3 完成，全部Tier 3 规范文档已建立
 
 ---
 
@@ -34,8 +34,8 @@
 | 1 | [00-vision-and-problem.md](./00-vision-and-problem.md) | 为什么做？目标用户是谁？成功指标是什么？ |
 | 2 | [01-ai-employee-paradigm.md](./01-ai-employee-paradigm.md) | AI员工vs助手的本质区别？ |
 | 3 | [10-autonomous-execution-model.md](./10-autonomous-execution-model.md) | 自主性如何运作？ |
-| 4 | `20-capability-requirements.md` ⏳ | 必须实现哪些能力？（Phase 3） |
-| 5 | `21-scenarios-and-user-stories.md` ⏳ | 真实用户旅程如何？（Phase 3） |
+| 4 | [20-capability-requirements.md](./20-capability-requirements.md) | 必须实现哪些能力？ |
+| 5 | [21-scenarios-and-user-stories.md](./21-scenarios-and-user-stories.md) | 真实用户旅程如何？ |
 
 **关键交付物**:
 - 成功指标定义（Autonomy Rate >70%, Shift ≥8h）
@@ -54,8 +54,8 @@
 | 2 | [02-glossary-and-terminology.md](./02-glossary-and-terminology.md) | 术语规范（建立共同语言） |
 | 3 | [10-autonomous-execution-model.md](./10-autonomous-execution-model.md) | 执行生命周期机制？ |
 | 4 | [11-work-order-system.md](./11-work-order-system.md) | Work Order实体模型和不变量？ |
-| 5 | `20-capability-requirements.md` ⏳ | 能力需求详细规范？（Phase 3） |
-| 6 | `22-quality-risk-and-compliance.md` ⏳ | 安全、性能、成本约束？（Phase 3） |
+| 5 | [20-capability-requirements.md](./20-capability-requirements.md) | 能力需求详细规范？ |
+| 6 | [22-quality-risk-and-compliance.md](./22-quality-risk-and-compliance.md) | 安全、性能、成本约束？ |
 
 **关键交付物**:
 - Work Order System架构设计
@@ -79,8 +79,8 @@
 | 2 | [02-glossary-and-terminology.md](./02-glossary-and-terminology.md) | 代码中使用哪些标准术语？ |
 | 3 | [10-autonomous-execution-model.md](./10-autonomous-execution-model.md) | 状态机和生命周期如何实现？ |
 | 4 | [11-work-order-system.md](./11-work-order-system.md) | 数据模型schema和API？ |
-| 5 | `20-capability-requirements.md` ⏳ | 每个能力的验收标准？（Phase 3） |
-| 6 | `22-quality-risk-and-compliance.md` ⏳ | 安全和质量约束？（Phase 3） |
+| 5 | [20-capability-requirements.md](./20-capability-requirements.md) | 每个能力的验收标准？ |
+| 6 | [22-quality-risk-and-compliance.md](./22-quality-risk-and-compliance.md) | 安全和质量约束？ |
 
 **现有参考**（待重组）:
 - [functional-requirements.md](./functional-requirements.md) — Phase 3将重组为20
@@ -100,7 +100,7 @@
 |:-----|:-----|:---------|
 | 1 | [02-glossary-and-terminology.md](./02-glossary-and-terminology.md) | 术语规范 |
 | 2 | [13-system-boundaries-and-operating-context.md](./13-system-boundaries-and-operating-context.md) | 系统边界和权限范围？ |
-| 3 | `22-quality-risk-and-compliance.md` ⏳ | 威胁模型和控制措施？（Phase 3） |
+| 3 | [22-quality-risk-and-compliance.md](./22-quality-risk-and-compliance.md) | 威胁模型和控制措施？ |
 | 4 | [11-work-order-system.md](./11-work-order-system.md) | 审计日志和可追溯性？ |
 
 **现有参考**（待重组）:
@@ -133,15 +133,15 @@
 | [12-human-interaction-contracts.md](./12-human-interaction-contracts.md) | ✅ v2.0 | 从 user-stories.md + system-boundaries.md 提取 |
 | [13-system-boundaries-and-operating-context.md](./13-system-boundaries-and-operating-context.md) | ✅ v2.0 | 从 system-boundaries.md 重构 |
 
-### ⏳ Tier 3: 规范文档 (HOW - 详细) — Phase 3
+### ✅ Tier 3: 规范文档 (HOW - 详细) — 已完成
 
 实现层，定义详细需求
 
 | 文档 | 状态 | 来源 |
 |:-----|:-----|:-----|
-| `20-capability-requirements.md` | ⏳ Phase 3 | 重组 functional-requirements.md + non-functional-requirements.md |
-| `21-scenarios-and-user-stories.md` | ⏳ Phase 3 | 重构 user-stories.md（成功+失败路径） |
-| `22-quality-risk-and-compliance.md` | ⏳ Phase 3 | 合并 security-threat-model.md + NFR安全部分 |
+| [20-capability-requirements.md](./20-capability-requirements.md) | ✅ v2.0 | 重组 functional-requirements.md + non-functional-requirements.md |
+| [21-scenarios-and-user-stories.md](./21-scenarios-and-user-stories.md) | ✅ v2.0 | 重构 user-stories.md（成功+失败路径） |
+| [22-quality-risk-and-compliance.md](./22-quality-risk-and-compliance.md) | ✅ v2.0 | 合并 security-threat-model.md + NFR安全部分 |
 
 ### Tier 4: 治理
 
@@ -164,7 +164,7 @@
 
 **总计**: 2320行新文档，建立从第一性原理的需求基础
 
-### ⏳ Phase 2: 能力文档（已完成 2026-01-31）
+### ✅ Phase 2: 能力文档（已完成 2026-01-31）
 
 **交付物**:
 - ✅ `10-autonomous-execution-model.md` (810行) — 8阶段执行生命周期
@@ -174,12 +174,14 @@
 
 **总计**: 3447行新文档，建立自主执行的概念架构
 
-### ⏳ Phase 3: 规范文档（计划 Week 3）
+### ✅ Phase 3: 规范文档（已完成 2026-01-31）
 
-**待创建**:
-- `20-capability-requirements.md` — 按能力组织的需求
-- `21-scenarios-and-user-stories.md` — 用户旅程
-- `22-quality-risk-and-compliance.md` — 质量和安全
+**交付物**:
+- ✅ `20-capability-requirements.md` (1100行) — 按8个能力域组织需求（FR+NFR融合）
+- ✅ `21-scenarios-and-user-stories.md` (950行) — 5个完整用户旅程（成功+失败路径）
+- ✅ `22-quality-risk-and-compliance.md` (1200行) — 质量框架、STRIDE威胁模型、安全控制
+
+**总计**: 3250行新文档，完整规范实现要求
 
 ---
 
@@ -194,16 +196,18 @@
 | [overview.md](./overview.md) | 📦 归档参考 | 内容已拆分到00+01 |
 | [value-propositions.md](./value-propositions.md) | 📦 归档参考 | 核心隐喻已迁移到01 |
 | [work-order-system.md](./work-order-system.md) | 📦 归档参考 | 已拆分为10+11 |
-| [functional-requirements.md](./functional-requirements.md) | ✅ 有效 | Phase 3将重组为20 |
-| [non-functional-requirements.md](./non-functional-requirements.md) | ✅ 有效 | Phase 3将整合到22 |
-| [user-stories.md](./user-stories.md) | 📦 归档参考 | 已拆分为12+21 |
+| [functional-requirements.md](./functional-requirements.md) | 📦 归档参考 | 已重组为20 |
+| [non-functional-requirements.md](./non-functional-requirements.md) | 📦 归档参考 | 已整合到20+22 |
+| [user-stories.md](./user-stories.md) | 📦 归档参考 | 已重构为21 |
 | [system-boundaries.md](./system-boundaries.md) | 📦 归档参考 | 已拆分为12+13 |
-| [security-threat-model.md](./security-threat-model.md) | ✅ 有效 | Phase 3将整合到22 |
+| [security-threat-model.md](./security-threat-model.md) | 📦 归档参考 | 已整合到22 |
 | [CHANGELOG.md](./CHANGELOG.md) | ✅ 持续维护 | 记录所有变更 |
 
 ### 迁移计划
 
-完成Phase 2-3后，旧文档将移至 `archive/v1.0/` 目录。
+**下一步**: 旧文档（v1.0）将移至 `archive/v1.0/` 目录：
+- overview.md, value-propositions.md, work-order-system.md, functional-requirements.md, 
+- non-functional-requirements.md, user-stories.md, system-boundaries.md, security-threat-model.md
 
 ---
 
