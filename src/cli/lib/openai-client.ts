@@ -1,4 +1,4 @@
-import { accountManager } from './auth-manager.js';
+import { accountManagerV2 } from './auth-manager-v2.js';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -45,7 +45,7 @@ export class OpenAIClient {
     path: string,
     options: RequestInit = {}
   ): Promise<T> {
-    const token = await accountManager.getAccessToken();
+    const token = await accountManagerV2.getAccessToken('codex');
     
     if (!token) {
       throw new Error('Not authenticated. Run `pb auth login` first.');
@@ -109,7 +109,7 @@ export class OpenAIClient {
     request: ChatCompletionRequest,
     onChunk: (chunk: string) => void
   ): Promise<void> {
-    const token = await accountManager.getAccessToken();
+    const token = await accountManagerV2.getAccessToken('codex');
     
     if (!token) {
       throw new Error('Not authenticated. Run `pb auth login` first.');

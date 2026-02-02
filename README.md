@@ -94,6 +94,30 @@ OPENAI_API_KEY=sk-... \
 node dist/main.js
 ```
 
+### CLI Authentication
+
+OpenAI Codex:
+
+```bash
+pb auth login
+pb auth list
+```
+
+Antigravity (Google):
+
+```bash
+pb auth antigravity login
+pb auth antigravity list
+pb auth antigravity remove <email>
+```
+
+Antigravity environment overrides:
+
+```bash
+PB_ANTIGRAVITY_ENV=prod pb auth antigravity login
+PB_ANTIGRAVITY_ENDPOINT=https://cloudcode-pa.googleapis.com pb auth antigravity login
+```
+
 ## Usage Example
 
 ```typescript

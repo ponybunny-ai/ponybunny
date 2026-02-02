@@ -4,7 +4,9 @@ import ora from 'ora';
 import open from 'open';
 import { createServer } from 'http';
 import { randomBytes, createHash } from 'crypto';
-import { accountManager } from '../lib/auth-manager.js';
+import { accountManagerV2 } from '../lib/auth-manager-v2.js';
+import { antigravityAuthCommand } from './auth-antigravity.js';
+import type { CodexAccount } from '../lib/account-types.js';
 
 // OpenAI Codex CLI OAuth configuration
 // Using the official Codex CLI Client ID to ensure compatibility
@@ -155,7 +157,7 @@ async function loginWithOAuth(): Promise<void> {
       }
     }
 
-    const account = accountManager.addAccount({
+    const account = accountManagerV2.addCodexAccount({
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
       expiresAt: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined,
@@ -177,7 +179,7 @@ async function loginWithOAuth(): Promise<void> {
         server.close();
         spinner.succeed('Successfully authenticated!');
         
-        const accounts = accountManager.listAccounts();
+        const accounts = accountManagerV2.listAccounts('codex');
         console.log(chalk.green(`\n✓ Logged in as: ${email || userId || 'User'}`));
         console.log(chalk.cyan(`✓ Account added (${accounts.length} total account${accounts.length > 1 ? 's' : ''})`));
         
@@ -219,18 +221,18 @@ async function loginWithOAuth(): Promise<void> {
 }
 
 async function logout(): Promise<void> {
-  accountManager.clearAllAccounts();
+  accountManagerV2.clearAllAccounts();
   console.log(chalk.green('✓ Successfully logged out all accounts'));
 }
 
 async function whoami(): Promise<void> {
-  if (!accountManager.isAuthenticated()) {
+  if (!accountManagerV2.isAuthenticated('codex')) {
     console.log(chalk.red('Not authenticated. Run `pb auth login` first.'));
     process.exit(1);
   }
 
-  const account = accountManager.getCurrentAccount();
-  const strategy = accountManager.getStrategy();
+  const account = accountManagerV2.getCurrentAccount('codex') as CodexAccount | undefined;
+  const strategy = accountManagerV2.getStrategy();
   
   console.log(chalk.cyan('\nCurrent Account:'));
   console.log(chalk.white(`  User: ${account?.email || account?.userId || 'Unknown'}`));
@@ -240,8 +242,8 @@ async function whoami(): Promise<void> {
 }
 
 async function listAccounts(): Promise<void> {
-  const accounts = accountManager.listAccounts();
-  const config = accountManager.getConfig();
+  const accounts = accountManagerV2.listAccounts('codex') as CodexAccount[];
+  const config = accountManagerV2.getConfig();
   const strategy = config.strategy;
   
   if (accounts.length === 0) {
@@ -277,7 +279,7 @@ async function listAccounts(): Promise<void> {
 }
 
 async function switchAccount(identifier: string): Promise<void> {
-  const success = accountManager.setCurrentAccount(identifier);
+  const success = accountManagerV2.setCurrentAccount(identifier);
   
   if (!success) {
     console.log(chalk.red(`\n✗ Account not found: ${identifier}`));
@@ -285,14 +287,14 @@ async function switchAccount(identifier: string): Promise<void> {
     process.exit(1);
   }
   
-  const account = accountManager.getAccount(identifier);
+  const account = accountManagerV2.getAccount(identifier, 'codex');
   console.log(chalk.green(`\n✓ Switched to account: ${account?.email || account?.userId}`));
   console.log(chalk.gray('  Strategy set to: stick'));
   console.log();
 }
 
 async function removeAccount(identifier: string): Promise<void> {
-  const account = accountManager.getAccount(identifier);
+  const account = accountManagerV2.getAccount(identifier, 'codex');
   
   if (!account) {
     console.log(chalk.red(`\n✗ Account not found: ${identifier}`));
@@ -300,12 +302,12 @@ async function removeAccount(identifier: string): Promise<void> {
     process.exit(1);
   }
   
-  const success = accountManager.removeAccount(identifier);
+  const success = accountManagerV2.removeAccount(identifier);
   
   if (success) {
     console.log(chalk.green(`\n✓ Removed account: ${account.email || account.userId}`));
     
-    const remaining = accountManager.listAccounts();
+    const remaining = accountManagerV2.listAccounts('codex');
     if (remaining.length > 0) {
       console.log(chalk.gray(`  ${remaining.length} account${remaining.length > 1 ? 's' : ''} remaining`));
     } else {
@@ -322,16 +324,16 @@ async function setStrategy(strategy: string): Promise<void> {
     process.exit(1);
   }
   
-  accountManager.setStrategy(strategy as 'stick' | 'round-robin');
+  accountManagerV2.setStrategy(strategy as 'stick' | 'round-robin');
   console.log(chalk.green(`\n✓ Load balancing strategy set to: ${chalk.bold(strategy)}`));
   
   if (strategy === 'stick') {
-    const current = accountManager.getCurrentAccount();
+    const current = accountManagerV2.getCurrentAccount('codex');
     if (current) {
       console.log(chalk.gray(`  Using account: ${current.email || current.userId}`));
     }
   } else {
-    const accounts = accountManager.listAccounts();
+    const accounts = accountManagerV2.listAccounts('codex');
     console.log(chalk.gray(`  Requests will rotate through ${accounts.length} account${accounts.length > 1 ? 's' : ''}`));
   }
   console.log();
@@ -381,3 +383,5 @@ authCommand
   .command('set-strategy <strategy>')
   .description('Set load balancing strategy (stick or round-robin)')
   .action(setStrategy);
+
+authCommand.addCommand(antigravityAuthCommand);

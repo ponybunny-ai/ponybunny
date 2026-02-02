@@ -1,9 +1,9 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { authManager } from '../lib/auth-manager.js';
+import { authManagerV2 } from '../lib/auth-manager-v2.js';
 
 async function showConfig(): Promise<void> {
-  const config = authManager.getConfig();
+  const config = authManagerV2.getConfig();
   
   console.log(chalk.cyan('\nCurrent Configuration:\n'));
   console.log(chalk.white('  Authenticated:'), config.accessToken ? chalk.green('Yes') : chalk.red('No'));

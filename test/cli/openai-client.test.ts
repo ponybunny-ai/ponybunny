@@ -1,7 +1,11 @@
 import { OpenAIClient } from '../../src/cli/lib/openai-client.js';
-import { authManager } from '../../src/cli/lib/auth-manager.js';
+import { accountManager } from '../../src/cli/lib/auth-manager.js';
 
-jest.mock('../../src/cli/lib/auth-manager.js');
+jest.mock('../../src/cli/lib/auth-manager.js', () => ({
+  accountManager: {
+    getAccessToken: jest.fn(),
+  },
+}));
 
 describe('OpenAIClient', () => {
   let client: OpenAIClient;
@@ -11,7 +15,14 @@ describe('OpenAIClient', () => {
     mockFetch = jest.fn();
     global.fetch = mockFetch;
 
-    jest.spyOn(authManager, 'getAccessToken').mockReturnValue('test-token');
+    const mockPayload = {
+      'https://api.openai.com/auth': {
+        chatgpt_account_id: 'test-account-id',
+      },
+    };
+    const mockToken = `header.${Buffer.from(JSON.stringify(mockPayload)).toString('base64')}.signature`;
+    
+    (accountManager.getAccessToken as jest.Mock).mockResolvedValue(mockToken);
     
     client = new OpenAIClient();
   });
@@ -47,12 +58,11 @@ describe('OpenAIClient', () => {
       });
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.openai.com/v1/chat/completions',
+        expect.stringContaining('/backend-api/codex/responses'),
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
-            'Authorization': 'Bearer test-token',
-            'Content-Type': 'application/json',
+            'ChatGPT-Account-Id': 'test-account-id',
           }),
         })
       );
@@ -62,7 +72,7 @@ describe('OpenAIClient', () => {
     });
 
     test('throws error when not authenticated', async () => {
-      jest.spyOn(authManager, 'getAccessToken').mockReturnValue(undefined);
+      (accountManager.getAccessToken as jest.Mock).mockResolvedValue(undefined);
 
       await expect(
         client.chatCompletion({

@@ -1,9 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import * as React from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { render, Box, Text, useInput, useApp } from 'ink';
 import TextInput from 'ink-text-input';
 import Spinner from 'ink-spinner';
+import SelectInput from 'ink-select-input';
 import { openaiClient } from '../lib/openai-client.js';
 import type { ChatMessage } from '../lib/openai-client.js';
+import type { CodexAccount } from '../lib/account-types.js';
 import { accountManager } from '../lib/auth-manager.js';
 
 interface Message {
@@ -18,13 +21,15 @@ interface ChatUIProps {
   system?: string;
 }
 
-const ChatUI: React.FC<ChatUIProps> = ({ model: initialModel = 'gpt-5.2', system }) => {
+
+const ChatUI = ({ model: initialModel = 'gpt-5.2', system }: ChatUIProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [accountInfo, setAccountInfo] = useState<string>('');
   const [currentModel, setCurrentModel] = useState(initialModel);
+  const [showModelSelector, setShowModelSelector] = useState(false);
   const { exit } = useApp();
 
   useEffect(() => {
@@ -81,7 +86,7 @@ const ChatUI: React.FC<ChatUIProps> = ({ model: initialModel = 'gpt-5.2', system
         break;
 
       case 'status':
-        const account = accountManager.getCurrentAccount();
+        const account = accountManager.getCurrentAccount('codex') as CodexAccount | undefined;
         const strategy = accountManager.getStrategy();
         const accounts = accountManager.listAccounts();
         response = `Status:
@@ -94,9 +99,8 @@ const ChatUI: React.FC<ChatUIProps> = ({ model: initialModel = 'gpt-5.2', system
 
       case 'model':
         if (args.length === 0) {
-          response = `Current model: ${currentModel}
-Available models: gpt-5.2, gpt-5.2-codex, gpt-4o, gpt-4
-Usage: /model <name>`;
+          setShowModelSelector(true);
+          return true;
         } else {
           const newModel = args[0];
           setCurrentModel(newModel);
@@ -168,7 +172,11 @@ Type /help for available commands.`;
 
   useInput((input: string, key: any) => {
     if (key.escape || (key.ctrl && input === 'c')) {
-      exit();
+      if (showModelSelector) {
+        setShowModelSelector(false);
+      } else {
+        exit();
+      }
     }
   });
 
@@ -241,78 +249,121 @@ Type /help for available commands.`;
     setInput('');
   }, [input, sendMessage, exit]);
 
+  const availableModels = [
+    { label: 'GPT-5.2 (Latest)', value: 'gpt-5.2' },
+    { label: 'GPT-5.2 Codex (Code optimized)', value: 'gpt-5.2-codex' },
+    { label: 'GPT-4o (Fast)', value: 'gpt-4o' },
+    { label: 'GPT-4 (Stable)', value: 'gpt-4' },
+  ];
+
+  const handleModelSelect = useCallback((item: { label: string; value: string }) => {
+    setCurrentModel(item.value);
+    setShowModelSelector(false);
+    setMessages(prev => [...prev, {
+      role: 'system',
+      content: `Model switched to: ${item.value}`,
+      isCommand: true
+    }]);
+  }, []);
+
   const visibleMessages = messages.filter(m => m.role !== 'system' || m.isCommand);
 
   return (
     <Box flexDirection="column" height="100%">
-      <Box borderStyle="round" borderColor="cyan" paddingX={1} marginBottom={1}>
-        <Text bold color="cyan">PonyBunny Chat</Text>
-        <Text dimColor> - </Text>
-        <Text color="yellow">{currentModel}</Text>
-        <Text dimColor> - </Text>
-        <Text color="green">{accountInfo}</Text>
-      </Box>
-
-      <Box flexDirection="column" flexGrow={1} marginBottom={1} overflow="hidden">
-        {visibleMessages.length === 0 && (
-          <Box paddingX={2}>
-            <Text dimColor>Type your message or /help for commands.</Text>
+      {showModelSelector ? (
+        <>
+          <Box borderStyle="round" borderColor="cyan" paddingX={1} marginBottom={1}>
+            <Text bold color="cyan">Select Model</Text>
           </Box>
-        )}
-        
-        {visibleMessages.map((msg, idx) => (
-          <Box key={idx} flexDirection="column" marginBottom={1} paddingX={2}>
-            {msg.isCommand ? (
-              <>
-                <Text bold color="cyan">ℹ System</Text>
-                <Text color="gray">{msg.content}</Text>
-              </>
-            ) : (
-              <>
-                <Text bold color={msg.role === 'user' ? 'green' : 'blue'}>
-                  {msg.role === 'user' ? '➤ You' : '🤖 Assistant'}
-                </Text>
-                <Text>
-                  {msg.content}
-                  {msg.streaming && <Text color="gray"> ▊</Text>}
-                </Text>
-              </>
-            )}
-          </Box>
-        ))}
-      </Box>
-
-      {error && (
-        <Box paddingX={2} marginBottom={1}>
-          <Text color="red">✗ Error: {error}</Text>
-        </Box>
-      )}
-
-      <Box borderStyle="single" borderColor="gray" paddingX={1}>
-        <Box marginRight={1}>
-          {isLoading ? (
-            <>
+          
+          <Box flexDirection="column" paddingX={2}>
+            <Box marginBottom={1}>
               <Text color="yellow">
-                <Spinner type="dots" />
+                Current: {currentModel}
               </Text>
-              <Text color="yellow"> Thinking...</Text>
-            </>
-          ) : (
-            <Text color="green">➤</Text>
-          )}
-        </Box>
-        <TextInput
-          value={input}
-          onChange={setInput}
-          onSubmit={handleSubmit}
-          placeholder="Type your message..."
-          showCursor={!isLoading}
-        />
-      </Box>
+            </Box>
+            <SelectInput
+              items={availableModels}
+              onSelect={handleModelSelect}
+            />
+          </Box>
+          
+          <Box paddingX={2} marginTop={1}>
+            <Text dimColor>Use ↑↓ arrow keys to navigate, Enter to select, ESC to cancel</Text>
+          </Box>
+        </>
+      ) : (
+        <>
+          <Box borderStyle="round" borderColor="cyan" paddingX={1} marginBottom={1}>
+            <Text bold color="cyan">PonyBunny Chat</Text>
+            <Text dimColor> - </Text>
+            <Text color="yellow">{currentModel}</Text>
+            <Text dimColor> - </Text>
+            <Text color="green">{accountInfo}</Text>
+          </Box>
 
-      <Box paddingX={2} paddingY={0}>
-        <Text dimColor>Press ESC or Ctrl+C to exit | Type /help for commands</Text>
-      </Box>
+          <Box flexDirection="column" flexGrow={1} marginBottom={1} overflow="hidden">
+            {visibleMessages.length === 0 && (
+              <Box paddingX={2}>
+                <Text dimColor>Type your message or /help for commands.</Text>
+              </Box>
+            )}
+            
+            {visibleMessages.map((msg, idx) => (
+              <Box key={idx} flexDirection="column" marginBottom={1} paddingX={2}>
+                {msg.isCommand ? (
+                  <>
+                    <Text bold color="cyan">ℹ System</Text>
+                    <Text color="gray">{msg.content}</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text bold color={msg.role === 'user' ? 'green' : 'blue'}>
+                      {msg.role === 'user' ? '➤ You' : '🤖 Assistant'}
+                    </Text>
+                    <Text>
+                      {msg.content}
+                      {msg.streaming && <Text color="gray"> ▊</Text>}
+                    </Text>
+                  </>
+                )}
+              </Box>
+            ))}
+          </Box>
+
+          {error && (
+            <Box paddingX={2} marginBottom={1}>
+              <Text color="red">✗ Error: {error}</Text>
+            </Box>
+          )}
+
+          <Box borderStyle="single" borderColor="gray" paddingX={1}>
+            <Box marginRight={1}>
+              {isLoading ? (
+                <>
+                  <Text color="yellow">
+                    <Spinner type="dots" />
+                  </Text>
+                  <Text color="yellow"> Thinking...</Text>
+                </>
+              ) : (
+                <Text color="green">➤</Text>
+              )}
+            </Box>
+            <TextInput
+              value={input}
+              onChange={setInput}
+              onSubmit={handleSubmit}
+              placeholder="Type your message..."
+              showCursor={!isLoading}
+            />
+          </Box>
+
+          <Box paddingX={2} paddingY={0}>
+            <Text dimColor>Press ESC or Ctrl+C to exit | Type /help for commands</Text>
+          </Box>
+        </>
+      )}
     </Box>
   );
 };

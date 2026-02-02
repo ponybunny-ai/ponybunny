@@ -1,15 +1,15 @@
 import chalk from 'chalk';
-import { authManager } from '../lib/auth-manager.js';
+import { authManagerV2 } from '../lib/auth-manager-v2.js';
 import { openaiClient } from '../lib/openai-client.js';
 
 export async function statusCommand(): Promise<void> {
   console.log(chalk.cyan('\n🔍 PonyBunny Status\n'));
 
-  const isAuth = authManager.isAuthenticated();
+  const isAuth = authManagerV2.isAuthenticated();
   console.log(chalk.white('Authentication:'), isAuth ? chalk.green('✓ Authenticated') : chalk.red('✗ Not authenticated'));
 
   if (isAuth) {
-    const config = authManager.getConfig();
+    const config = authManagerV2.getConfig();
     console.log(chalk.white('  User:'), config.email || config.userId || 'Unknown');
     
     try {

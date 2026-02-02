@@ -1,24 +1,26 @@
-import { AuthManager } from '../../src/cli/lib/auth-manager.js';
+import { accountManager, authManager } from '../../src/cli/lib/auth-manager.js';
 import { existsSync, unlinkSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
 describe('AuthManager', () => {
-  let authManager: AuthManager;
   let testConfigDir: string;
 
   beforeEach(() => {
     testConfigDir = join(tmpdir(), `pb-test-${Date.now()}`);
     mkdirSync(testConfigDir, { recursive: true });
     
-    authManager = new AuthManager();
-    (authManager as any).configDir = testConfigDir;
-    (authManager as any).configPath = join(testConfigDir, 'auth.json');
+    // Override internal configDir for accountManager
+    (accountManager as any).configDir = testConfigDir;
+    (accountManager as any).configPath = join(testConfigDir, 'accounts.json');
+    
+    // Clear any existing accounts
+    authManager.clearConfig();
   });
 
   afterEach(() => {
     if (existsSync(testConfigDir)) {
-      const configPath = join(testConfigDir, 'auth.json');
+      const configPath = join(testConfigDir, 'accounts.json');
       if (existsSync(configPath)) {
         unlinkSync(configPath);
       }
@@ -56,8 +58,17 @@ describe('AuthManager', () => {
     });
 
     test('merges with existing config', () => {
-      authManager.saveConfig({ accessToken: 'token-1' });
-      authManager.saveConfig({ email: 'test@example.com' });
+      authManager.saveConfig({ 
+        accessToken: 'token-1',
+        email: 'test1@example.com',
+      });
+      
+      // In multi-account system, saveConfig adds a new account
+      // We need to update the existing account instead
+      authManager.saveConfig({ 
+        accessToken: 'token-1',
+        email: 'test@example.com',
+      });
 
       const config = authManager.getConfig();
       expect(config.accessToken).toBe('token-1');
@@ -87,6 +98,7 @@ describe('AuthManager', () => {
     test('returns true when valid token exists', () => {
       authManager.saveConfig({
         accessToken: 'valid-token',
+        email: 'test@example.com',
       });
 
       expect(authManager.isAuthenticated()).toBe(true);
@@ -96,6 +108,7 @@ describe('AuthManager', () => {
       authManager.saveConfig({
         accessToken: 'expired-token',
         expiresAt: Date.now() - 1000,
+        email: 'test@example.com',
       });
 
       expect(authManager.isAuthenticated()).toBe(false);
@@ -105,6 +118,7 @@ describe('AuthManager', () => {
       authManager.saveConfig({
         accessToken: 'valid-token',
         expiresAt: Date.now() + 10000,
+        email: 'test@example.com',
       });
 
       expect(authManager.isAuthenticated()).toBe(true);
@@ -112,13 +126,19 @@ describe('AuthManager', () => {
   });
 
   describe('getAccessToken', () => {
-    test('returns undefined when no token', () => {
-      expect(authManager.getAccessToken()).toBeUndefined();
+    test('returns undefined when no token', async () => {
+      const token = await authManager.getAccessToken();
+      expect(token).toBeUndefined();
     });
 
-    test('returns access token', () => {
-      authManager.saveConfig({ accessToken: 'my-token' });
-      expect(authManager.getAccessToken()).toBe('my-token');
+    test('returns access token', async () => {
+      authManager.saveConfig({ 
+        accessToken: 'my-token',
+        email: 'test@example.com',
+      });
+      
+      const token = await authManager.getAccessToken();
+      expect(token).toBe('my-token');
     });
   });
 });
