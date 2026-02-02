@@ -3,40 +3,81 @@ import chalk from 'chalk';
 import ora from 'ora';
 import open from 'open';
 import { createServer } from 'http';
-import { authManager } from '../lib/auth-manager.js';
+import { randomBytes, createHash } from 'crypto';
+import { accountManager } from '../lib/auth-manager.js';
+
+// OpenAI Codex CLI OAuth configuration
+// Using the official Codex CLI Client ID to ensure compatibility
+const OAUTH_CONFIG = {
+  authUrl: 'https://auth.openai.com/oauth/authorize',
+  tokenUrl: 'https://auth.openai.com/oauth/token',
+  clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
+  redirectUri: 'http://localhost:1455/auth/callback',
+  scope: 'openid profile email offline_access',
+};
+
+interface PKCEPair {
+  verifier: string;
+  challenge: string;
+}
 
 interface OAuthTokenResponse {
   access_token: string;
   refresh_token?: string;
   expires_in?: number;
-  user_id?: string;
-  email?: string;
+  id_token?: string;
+}
+
+// Generate PKCE (Proof Key for Code Exchange) for secure OAuth
+function generatePKCE(): PKCEPair {
+  const verifier = randomBytes(32).toString('base64url');
+  const challenge = createHash('sha256')
+    .update(verifier)
+    .digest('base64url');
+  
+  return { verifier, challenge };
+}
+
+function createState(): string {
+  return randomBytes(16).toString('hex');
 }
 
 async function loginWithOAuth(): Promise<void> {
-  const spinner = ora('Initializing OAuth login...').start();
+  const spinner = ora('Initializing OpenAI Codex OAuth login...').start();
   
-  const gatewayUrl = authManager.getGatewayUrl();
-  const callbackPort = 8765;
-  const redirectUri = `http://localhost:${callbackPort}/callback`;
+  // Generate PKCE and state
+  const pkce = generatePKCE();
+  const state = createState();
   
-  const authUrl = `${gatewayUrl}/oauth/authorize?` + 
-    `response_type=code&` +
-    `client_id=ponybunny-cli&` +
-    `redirect_uri=${encodeURIComponent(redirectUri)}&` +
-    `scope=openai:gpt5.2 goals:read goals:write`;
+  // Construct OAuth URL with Codex-specific parameters
+  const url = new URL(OAUTH_CONFIG.authUrl);
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('client_id', OAUTH_CONFIG.clientId);
+  url.searchParams.set('redirect_uri', OAUTH_CONFIG.redirectUri);
+  url.searchParams.set('scope', OAUTH_CONFIG.scope);
+  url.searchParams.set('code_challenge', pkce.challenge);
+  url.searchParams.set('code_challenge_method', 'S256');
+  url.searchParams.set('state', state);
+  
+  // Critical parameters for Codex flow
+  url.searchParams.set('id_token_add_organizations', 'true');
+  url.searchParams.set('codex_cli_simplified_flow', 'true');
+  url.searchParams.set('originator', 'codex_cli_rs');
+  
+  const authUrl = url.toString();
 
   return new Promise((resolve, reject) => {
     const server = createServer(async (req, res) => {
-      if (!req.url?.startsWith('/callback')) {
+      if (!req.url?.startsWith('/auth/callback')) {
         res.writeHead(404);
         res.end();
         return;
       }
 
-      const url = new URL(req.url, `http://localhost:${callbackPort}`);
-      const code = url.searchParams.get('code');
-      const error = url.searchParams.get('error');
+      const callbackUrl = new URL(req.url, OAUTH_CONFIG.redirectUri);
+      const code = callbackUrl.searchParams.get('code');
+      const returnedState = callbackUrl.searchParams.get('state');
+      const error = callbackUrl.searchParams.get('error');
 
       if (error) {
         res.writeHead(200, { 'Content-Type': 'text/html' });
@@ -55,6 +96,15 @@ async function loginWithOAuth(): Promise<void> {
         return;
       }
 
+      if (returnedState !== state) {
+        res.writeHead(400);
+        res.end('State mismatch - possible CSRF attack');
+        server.close();
+        spinner.fail('State validation failed');
+        reject(new Error('State mismatch'));
+        return;
+      }
+
       if (!code) {
         res.writeHead(400);
         res.end('Missing authorization code');
@@ -67,33 +117,51 @@ async function loginWithOAuth(): Promise<void> {
       spinner.text = 'Exchanging authorization code for tokens...';
 
       try {
-        const tokenResponse = await fetch(`${gatewayUrl}/oauth/token`, {
+        const tokenResponse = await fetch(OAUTH_CONFIG.tokenUrl, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
           },
-          body: JSON.stringify({
+          body: new URLSearchParams({
             grant_type: 'authorization_code',
             code,
-            redirect_uri: redirectUri,
-            client_id: 'ponybunny-cli',
-          }),
+            redirect_uri: OAUTH_CONFIG.redirectUri,
+            client_id: OAUTH_CONFIG.clientId,
+            code_verifier: pkce.verifier,
+          }).toString(),
         });
 
         if (!tokenResponse.ok) {
-          throw new Error(`Token exchange failed: ${tokenResponse.statusText}`);
+          const errorText = await tokenResponse.text();
+          throw new Error(`Token exchange failed: ${tokenResponse.statusText} - ${errorText}`);
         }
 
         const tokens: OAuthTokenResponse = await tokenResponse.json() as OAuthTokenResponse;
 
-        authManager.saveConfig({
-          accessToken: tokens.access_token,
-          refreshToken: tokens.refresh_token,
-          expiresAt: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined,
-          userId: tokens.user_id,
-          email: tokens.email,
-          gatewayUrl,
-        });
+        // Parse ID token to get user info
+        let email: string | undefined;
+        let userId: string | undefined;
+        
+        if (tokens.id_token) {
+          try {
+            // Decode JWT payload (not validating signature since we trust the source)
+            const payload = JSON.parse(
+              Buffer.from(tokens.id_token.split('.')[1], 'base64').toString()
+            );
+        email = payload.email;
+        userId = payload.sub;
+      } catch (e) {
+        console.log(chalk.yellow('Warning: Could not parse user info from token'));
+      }
+    }
+
+    const account = accountManager.addAccount({
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresAt: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined,
+      userId,
+      email,
+    });
 
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(`
@@ -109,8 +177,16 @@ async function loginWithOAuth(): Promise<void> {
         server.close();
         spinner.succeed('Successfully authenticated!');
         
-        console.log(chalk.green(`\n✓ Logged in as: ${tokens.email || tokens.user_id || 'User'}`));
-        console.log(chalk.cyan(`✓ Access to GPT-5.2 model enabled`));
+        const accounts = accountManager.listAccounts();
+        console.log(chalk.green(`\n✓ Logged in as: ${email || userId || 'User'}`));
+        console.log(chalk.cyan(`✓ Account added (${accounts.length} total account${accounts.length > 1 ? 's' : ''})`));
+        
+        if (accounts.length === 1) {
+          console.log(chalk.gray('  This is your first account and will be used by default'));
+        } else {
+          console.log(chalk.gray(`  Use 'pb auth switch ${email}' to make this the active account`));
+          console.log(chalk.gray(`  Use 'pb auth list' to see all accounts`));
+        }
         
         resolve();
       } catch (error) {
@@ -122,8 +198,9 @@ async function loginWithOAuth(): Promise<void> {
       }
     });
 
-    server.listen(callbackPort, () => {
-      spinner.succeed('OAuth server started');
+    const port = 1455; // Must use port 1455 for Codex CLI client
+    server.listen(port, () => {
+      spinner.succeed('OAuth server started on port 1455');
       console.log(chalk.cyan(`\nOpening browser for authentication...`));
       console.log(chalk.gray(`If browser doesn't open, visit: ${authUrl}\n`));
       
@@ -132,6 +209,7 @@ async function loginWithOAuth(): Promise<void> {
       });
     });
 
+    // 2 minute timeout
     setTimeout(() => {
       server.close();
       spinner.fail('Authentication timeout (2 minutes)');
@@ -141,21 +219,122 @@ async function loginWithOAuth(): Promise<void> {
 }
 
 async function logout(): Promise<void> {
-  authManager.clearConfig();
-  console.log(chalk.green('✓ Successfully logged out'));
+  accountManager.clearAllAccounts();
+  console.log(chalk.green('✓ Successfully logged out all accounts'));
 }
 
 async function whoami(): Promise<void> {
-  if (!authManager.isAuthenticated()) {
+  if (!accountManager.isAuthenticated()) {
     console.log(chalk.red('Not authenticated. Run `pb auth login` first.'));
     process.exit(1);
   }
 
-  const config = authManager.getConfig();
-  console.log(chalk.cyan('Authentication Status:'));
-  console.log(chalk.white(`  User: ${config.email || config.userId || 'Unknown'}`));
-  console.log(chalk.white(`  Gateway: ${config.gatewayUrl || 'Default'}`));
-  console.log(chalk.white(`  Token expires: ${config.expiresAt ? new Date(config.expiresAt).toLocaleString() : 'Never'}`));
+  const account = accountManager.getCurrentAccount();
+  const strategy = accountManager.getStrategy();
+  
+  console.log(chalk.cyan('\nCurrent Account:'));
+  console.log(chalk.white(`  User: ${account?.email || account?.userId || 'Unknown'}`));
+  console.log(chalk.white(`  Token expires: ${account?.expiresAt ? new Date(account.expiresAt).toLocaleString() : 'Never'}`));
+  console.log(chalk.white(`  Strategy: ${strategy}`));
+  console.log();
+}
+
+async function listAccounts(): Promise<void> {
+  const accounts = accountManager.listAccounts();
+  const config = accountManager.getConfig();
+  const strategy = config.strategy;
+  
+  if (accounts.length === 0) {
+    console.log(chalk.yellow('\nNo accounts found. Run `pb auth login` to add an account.\n'));
+    return;
+  }
+  
+  console.log(chalk.cyan(`\n📋 Accounts (${accounts.length} total) - Strategy: ${chalk.bold(strategy)}\n`));
+  
+  accounts.forEach((account, index) => {
+    const isCurrent = config.currentAccountId === account.id;
+    const prefix = isCurrent ? chalk.green('➤') : ' ';
+    const label = isCurrent ? chalk.green.bold(account.email || account.userId || 'Unknown') : chalk.white(account.email || account.userId || 'Unknown');
+    
+    console.log(`${prefix} ${index + 1}. ${label}`);
+    console.log(`     ID: ${chalk.gray(account.id)}`);
+    console.log(`     Added: ${chalk.gray(new Date(account.addedAt).toLocaleString())}`);
+    
+    if (account.expiresAt) {
+      const expired = account.expiresAt < Date.now();
+      const expireText = expired ? chalk.red('Expired') : chalk.green('Valid');
+      console.log(`     Status: ${expireText} (expires ${new Date(account.expiresAt).toLocaleString()})`);
+    }
+    console.log();
+  });
+  
+  if (strategy === 'stick' && config.currentAccountId) {
+    console.log(chalk.gray('Currently using the account marked with ➤'));
+  } else if (strategy === 'round-robin') {
+    console.log(chalk.gray('Round-robin mode: requests will rotate through all accounts'));
+  }
+  console.log();
+}
+
+async function switchAccount(identifier: string): Promise<void> {
+  const success = accountManager.setCurrentAccount(identifier);
+  
+  if (!success) {
+    console.log(chalk.red(`\n✗ Account not found: ${identifier}`));
+    console.log(chalk.yellow('Run `pb auth list` to see available accounts\n'));
+    process.exit(1);
+  }
+  
+  const account = accountManager.getAccount(identifier);
+  console.log(chalk.green(`\n✓ Switched to account: ${account?.email || account?.userId}`));
+  console.log(chalk.gray('  Strategy set to: stick'));
+  console.log();
+}
+
+async function removeAccount(identifier: string): Promise<void> {
+  const account = accountManager.getAccount(identifier);
+  
+  if (!account) {
+    console.log(chalk.red(`\n✗ Account not found: ${identifier}`));
+    console.log(chalk.yellow('Run `pb auth list` to see available accounts\n'));
+    process.exit(1);
+  }
+  
+  const success = accountManager.removeAccount(identifier);
+  
+  if (success) {
+    console.log(chalk.green(`\n✓ Removed account: ${account.email || account.userId}`));
+    
+    const remaining = accountManager.listAccounts();
+    if (remaining.length > 0) {
+      console.log(chalk.gray(`  ${remaining.length} account${remaining.length > 1 ? 's' : ''} remaining`));
+    } else {
+      console.log(chalk.yellow('  No accounts remaining. Run `pb auth login` to add an account'));
+    }
+    console.log();
+  }
+}
+
+async function setStrategy(strategy: string): Promise<void> {
+  if (strategy !== 'stick' && strategy !== 'round-robin') {
+    console.log(chalk.red(`\n✗ Invalid strategy: ${strategy}`));
+    console.log(chalk.yellow('Valid strategies: stick, round-robin\n'));
+    process.exit(1);
+  }
+  
+  accountManager.setStrategy(strategy as 'stick' | 'round-robin');
+  console.log(chalk.green(`\n✓ Load balancing strategy set to: ${chalk.bold(strategy)}`));
+  
+  if (strategy === 'stick') {
+    const current = accountManager.getCurrentAccount();
+    if (current) {
+      console.log(chalk.gray(`  Using account: ${current.email || current.userId}`));
+    }
+  } else {
+    const accounts = accountManager.listAccounts();
+    console.log(chalk.gray(`  Requests will rotate through ${accounts.length} account${accounts.length > 1 ? 's' : ''}`));
+  }
+  console.log();
 }
 
 export const authCommand = new Command('auth')
@@ -163,13 +342,8 @@ export const authCommand = new Command('auth')
 
 authCommand
   .command('login')
-  .description('Login with OAuth')
-  .option('--gateway <url>', 'Gateway URL (default: https://api.ponybunny.ai)')
-  .action(async (options) => {
-    if (options.gateway) {
-      authManager.saveConfig({ gatewayUrl: options.gateway });
-    }
-    
+  .description('Login with OpenAI Codex OAuth')
+  .action(async () => {
     try {
       await loginWithOAuth();
     } catch (error) {
@@ -187,3 +361,23 @@ authCommand
   .command('whoami')
   .description('Show current user information')
   .action(whoami);
+
+authCommand
+  .command('list')
+  .description('List all authenticated accounts')
+  .action(listAccounts);
+
+authCommand
+  .command('switch <identifier>')
+  .description('Switch to a specific account (email, userId, or account ID)')
+  .action(switchAccount);
+
+authCommand
+  .command('remove <identifier>')
+  .description('Remove an account (email, userId, or account ID)')
+  .action(removeAccount);
+
+authCommand
+  .command('set-strategy <strategy>')
+  .description('Set load balancing strategy (stick or round-robin)')
+  .action(setStrategy);

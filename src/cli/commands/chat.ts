@@ -1,8 +1,7 @@
 import chalk from 'chalk';
 import inquirer from 'inquirer';
-import ora from 'ora';
-import { gatewayClient } from '../lib/gateway-client.js';
-import type { ChatMessage } from '../lib/gateway-client.js';
+import { openaiClient } from '../lib/openai-client.js';
+import type { ChatMessage } from '../lib/openai-client.js';
 
 interface ChatOptions {
   model?: string;
@@ -53,7 +52,7 @@ export async function chatCommand(options: ChatOptions): Promise<void> {
       
       let assistantMessage = '';
       
-      await gatewayClient.streamChatCompletion(
+      await openaiClient.streamChatCompletion(
         {
           model,
           messages,

@@ -3,7 +3,6 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { authCommand } from './commands/auth.js';
 import { chatCommand } from './commands/chat.js';
-import { goalCommand } from './commands/goal.js';
 import { statusCommand } from './commands/status.js';
 import { configCommand } from './commands/config.js';
 
@@ -22,8 +21,6 @@ program
   .option('-m, --model <model>', 'Model to use (default: gpt-5.2)', 'gpt-5.2')
   .option('-s, --system <message>', 'System message')
   .action(chatCommand);
-
-program.addCommand(goalCommand);
 
 program
   .command('status')

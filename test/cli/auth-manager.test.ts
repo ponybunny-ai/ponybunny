@@ -121,15 +121,4 @@ describe('AuthManager', () => {
       expect(authManager.getAccessToken()).toBe('my-token');
     });
   });
-
-  describe('getGatewayUrl', () => {
-    test('returns default gateway when not set', () => {
-      expect(authManager.getGatewayUrl()).toBe('https://api.ponybunny.ai');
-    });
-
-    test('returns custom gateway when set', () => {
-      authManager.saveConfig({ gatewayUrl: 'https://custom.gateway.com' });
-      expect(authManager.getGatewayUrl()).toBe('https://custom.gateway.com');
-    });
-  });
 });

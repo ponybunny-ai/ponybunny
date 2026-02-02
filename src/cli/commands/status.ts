@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import { authManager } from '../lib/auth-manager.js';
-import { gatewayClient } from '../lib/gateway-client.js';
+import { openaiClient } from '../lib/openai-client.js';
 
 export async function statusCommand(): Promise<void> {
   console.log(chalk.cyan('\n🔍 PonyBunny Status\n'));
@@ -11,14 +11,19 @@ export async function statusCommand(): Promise<void> {
   if (isAuth) {
     const config = authManager.getConfig();
     console.log(chalk.white('  User:'), config.email || config.userId || 'Unknown');
-    console.log(chalk.white('  Gateway:'), config.gatewayUrl || 'Default');
     
     try {
-      console.log(chalk.white('\nTesting API connection...'));
-      const goals = await gatewayClient.listGoals();
-      console.log(chalk.green(`✓ API connection successful (${goals.length} goals)`));
+      console.log(chalk.white('\nTesting OpenAI API connection...'));
+      let response = '';
+      await openaiClient.streamChatCompletion({
+        model: 'gpt-5.2',
+        messages: [{ role: 'user', content: 'Say "OK"' }],
+      }, (chunk) => {
+        response += chunk;
+      });
+      console.log(chalk.green('✓ OpenAI API connection successful'));
     } catch (error) {
-      console.log(chalk.red(`✗ API connection failed: ${(error as Error).message}`));
+      console.log(chalk.red(`✗ OpenAI API connection failed: ${(error as Error).message}`));
     }
   } else {
     console.log(chalk.yellow('\nRun `pb auth login` to authenticate'));

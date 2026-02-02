@@ -42,7 +42,6 @@ describe('CLI Integration Tests', () => {
       expect(output).toContain('PonyBunny - Autonomous AI Employee CLI');
       expect(output).toContain('auth');
       expect(output).toContain('chat');
-      expect(output).toContain('goal');
       expect(output).toContain('status');
       expect(output).toContain('config');
     });
@@ -64,7 +63,7 @@ describe('CLI Integration Tests', () => {
         encoding: 'utf-8',
       });
 
-      expect(output).toContain('Manage autonomous goals');
+      expect(output).toContain('Authentication commands');
     });
   });
 
