@@ -14,10 +14,7 @@ program
   .description('PonyBunny - Autonomous AI Employee CLI')
   .version('1.0.0');
 
-program
-  .command('auth')
-  .description('Authentication commands')
-  .addCommand(authCommand);
+program.addCommand(authCommand);
 
 program
   .command('chat')
@@ -26,20 +23,14 @@ program
   .option('-s, --system <message>', 'System message')
   .action(chatCommand);
 
-program
-  .command('goal')
-  .description('Create and manage autonomous goals')
-  .addCommand(goalCommand);
+program.addCommand(goalCommand);
 
 program
   .command('status')
   .description('Check system and authentication status')
   .action(statusCommand);
 
-program
-  .command('config')
-  .description('Manage CLI configuration')
-  .addCommand(configCommand);
+program.addCommand(configCommand);
 
 program.on('command:*', () => {
   console.error(chalk.red(`Invalid command: ${program.args.join(' ')}`));
