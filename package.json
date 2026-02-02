@@ -9,7 +9,9 @@
   "scripts": {
     "build": "tsc",
     "build:cli": "tsc && chmod +x dist/cli/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
   "bin": {
     "pb": "./dist/cli/index.js"
@@ -27,7 +29,10 @@
   },
   "homepage": "https://github.com/DarkhorseOne/PonyBunny#readme",
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/node": "^25.1.0",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6",
     "typescript": "^5.9.3"
   },
   "dependencies": {
