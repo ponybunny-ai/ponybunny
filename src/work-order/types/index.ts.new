@@ -1,0 +1,100 @@
+export type GoalStatus = 'queued' | 'active' | 'blocked' | 'completed' | 'cancelled';
+
+export type WorkItemStatus = 
+  | 'queued'       
+  | 'ready'        
+  | 'in_progress'  
+  | 'verify'       
+  | 'done'         
+  | 'failed'       
+  | 'blocked';     
+
+export type WorkItemType = 
+  | 'code'         
+  | 'test'         
+  | 'doc'          
+  | 'refactor'     
+  | 'analysis';    
+
+export type EffortEstimate = 'S' | 'M' | 'L' | 'XL';
+
+export type VerificationStatus = 'not_started' | 'passed' | 'failed' | 'skipped';
+
+export type RunStatus = 
+  | 'running'
+  | 'success'
+  | 'failure'
+  | 'timeout'
+  | 'aborted';
+
+export type ArtifactType = 
+  | 'patch'        
+  | 'test_result'  
+  | 'log'          
+  | 'report'       
+  | 'binary';      
+
+export type StorageType = 
+  | 'inline'       
+  | 'file'         
+  | 'blob';        
+
+export type DecisionType = 
+  | 'approach'     
+  | 'tool'         
+  | 'model'        
+  | 'retry'        
+  | 'escalate';    
+
+export type EscalationType = 
+  | 'stuck'                
+  | 'ambiguous'            
+  | 'risk'                 
+  | 'credential'           
+  | 'validation_failed';   
+
+export type EscalationSeverity = 'low' | 'medium' | 'high' | 'critical';
+
+export type EscalationStatus = 
+  | 'open'          
+  | 'acknowledged'  
+  | 'resolved'      
+  | 'dismissed';    
+
+export type ResolutionAction = 
+  | 'user_input'              
+  | 'skip'                    
+  | 'retry'                   
+  | 'alternative_approach';   
+
+export type ContextPackType = 
+  | 'daily_checkpoint'   
+  | 'error_recovery'     
+  | 'handoff';           
+
+export interface Goal {
+  id: string;
+  created_at: number;
+  updated_at: number;
+  
+  title: string;
+  description: string;
+  success_criteria: SuccessCriterion[];
+  
+  status: GoalStatus;
+  priority: number;
+  
+  allowed_actions?: string[];
+  
+  budget_tokens?: number;
+  budget_time_minutes?: number;
+  budget_cost_usd?: number;
+  spent_tokens: number;
+  spent_time_minutes: number;
+  spent_cost_usd: number;
+  
+  parent_goal_id?: string;
+  
+  tags?: string[];
+  context?: Record<string, any>;
+}
