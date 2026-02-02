@@ -2,25 +2,32 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { authCommand } from './commands/auth.js';
-import { chatCommand } from './commands/chat.js';
 import { statusCommand } from './commands/status.js';
 import { configCommand } from './commands/config.js';
+import { startChatUI } from './ui/chat-ui.js';
 
 const program = new Command();
 
 program
   .name('pb')
   .description('PonyBunny - Autonomous AI Employee CLI')
-  .version('1.0.0');
+  .version('1.0.0')
+  .option('-m, --model <model>', 'Model to use (default: gpt-5.2)', 'gpt-5.2')
+  .option('-s, --system <message>', 'System message')
+  .action(async (options) => {
+    await startChatUI(options);
+  });
 
 program.addCommand(authCommand);
 
 program
   .command('chat')
-  .description('Interactive chat with AI assistant')
+  .description('Interactive chat with AI assistant (same as running pb without command)')
   .option('-m, --model <model>', 'Model to use (default: gpt-5.2)', 'gpt-5.2')
   .option('-s, --system <message>', 'System message')
-  .action(chatCommand);
+  .action(async (options) => {
+    await startChatUI(options);
+  });
 
 program
   .command('status')
