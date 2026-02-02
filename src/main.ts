@@ -1,15 +1,33 @@
 import { AutonomyDaemon } from './autonomy/daemon.js';
 import { WorkOrderDatabase } from './work-order/database/manager.js';
+import { ExecutionService } from './app/lifecycle/execution/execution-service.js';
+import { VerificationService } from './app/lifecycle/verification/verification-service.js';
+import { EvaluationService } from './app/lifecycle/evaluation/evaluation-service.js';
 
 const DB_PATH = process.env.PONY_DB_PATH || './pony-work-orders.db';
 
 async function main() {
-  const daemon = new AutonomyDaemon({
-    dbPath: DB_PATH,
-    maxConcurrentRuns: 2,
-    pollingIntervalMs: 5000,
+  const repository = new WorkOrderDatabase(DB_PATH);
+  await repository.initialize();
+
+  const executionService = new ExecutionService(repository, {
     maxConsecutiveErrors: 3,
   });
+  
+  const verificationService = new VerificationService();
+  
+  const evaluationService = new EvaluationService(repository);
+
+  const daemon = new AutonomyDaemon(
+    repository,
+    executionService,
+    verificationService,
+    evaluationService,
+    {
+      maxConcurrentRuns: 2,
+      pollingIntervalMs: 5000,
+    }
+  );
 
   process.on('SIGINT', () => {
     console.log('\n[PonyBunny] Shutting down gracefully...');

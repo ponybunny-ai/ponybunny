@@ -1,32 +1,20 @@
-/**
- * Work Order System Type Definitions
- * 
- * Core types for autonomous AI agent task management.
- * Maps directly to database schema in schema.sql
- */
-
-// ============================================================================
-// Enums & Constants
-// ============================================================================
-
-export type GoalStatus = 'pending' | 'active' | 'completed' | 'cancelled' | 'blocked';
+export type GoalStatus = 'queued' | 'active' | 'blocked' | 'completed' | 'cancelled';
 
 export type WorkItemStatus = 
-  | 'pending'      // Not yet ready to execute
-  | 'ready'        // Dependencies satisfied, can execute
-  | 'in_progress'  // Currently being worked on
-  | 'completed'    // Successfully finished
-  | 'failed'       // Execution failed
-  | 'blocked'      // Waiting on external factors
-  | 'skipped';     // Intentionally skipped
+  | 'queued'       
+  | 'ready'        
+  | 'in_progress'  
+  | 'verify'       
+  | 'done'         
+  | 'failed'       
+  | 'blocked';     
 
 export type WorkItemType = 
-  | 'code'         // Write/modify code
-  | 'test'         // Create/run tests
-  | 'doc'          // Documentation
-  | 'research'     // Investigation/exploration
-  | 'review'       // Code/design review
-  | 'deploy';      // Deployment tasks
+  | 'code'         
+  | 'test'         
+  | 'doc'          
+  | 'refactor'     
+  | 'analysis';    
 
 export type EffortEstimate = 'S' | 'M' | 'L' | 'XL';
 
@@ -40,72 +28,64 @@ export type RunStatus =
   | 'aborted';
 
 export type ArtifactType = 
-  | 'patch'        // Code diff
-  | 'test_result'  // Test output
-  | 'log'          // Execution log
-  | 'report'       // Analysis/summary report
-  | 'binary';      // Binary file
+  | 'patch'        
+  | 'test_result'  
+  | 'log'          
+  | 'report'       
+  | 'binary';      
 
 export type StorageType = 
-  | 'inline'       // Stored in 'content' column
-  | 'file'         // Stored as file on disk
-  | 'blob';        // Stored in blob storage
+  | 'inline'       
+  | 'file'         
+  | 'blob';        
 
 export type DecisionType = 
-  | 'approach'     // Which implementation approach
-  | 'tool'         // Which tool to use
-  | 'model'        // Which LLM model
-  | 'retry'        // Whether to retry
-  | 'escalate';    // Whether to escalate to human
+  | 'approach'     
+  | 'tool'         
+  | 'model'        
+  | 'retry'        
+  | 'escalate';    
 
 export type EscalationType = 
-  | 'stuck'                // Unable to make progress
-  | 'ambiguous'            // Requirements unclear
-  | 'risk'                 // Potential danger (security/data loss)
-  | 'credential'           // Missing credentials
-  | 'validation_failed';   // Quality gates failed
+  | 'stuck'                
+  | 'ambiguous'            
+  | 'risk'                 
+  | 'credential'           
+  | 'validation_failed';   
 
 export type EscalationSeverity = 'low' | 'medium' | 'high' | 'critical';
 
 export type EscalationStatus = 
-  | 'open'          // Awaiting human response
-  | 'acknowledged'  // Human has seen it
-  | 'resolved'      // Human provided resolution
-  | 'dismissed';    // No longer relevant
+  | 'open'          
+  | 'acknowledged'  
+  | 'resolved'      
+  | 'dismissed';    
 
 export type ResolutionAction = 
-  | 'user_input'              // Human provided input/decision
-  | 'skip'                    // Skip this work item
-  | 'retry'                   // Try again
-  | 'alternative_approach';   // Use different approach
+  | 'user_input'              
+  | 'skip'                    
+  | 'retry'                   
+  | 'alternative_approach';   
 
 export type ContextPackType = 
-  | 'daily_checkpoint'   // End-of-day snapshot
-  | 'error_recovery'     // State before error
-  | 'handoff';           // Transfer to different agent
+  | 'daily_checkpoint'   
+  | 'error_recovery'     
+  | 'handoff';           
 
-// ============================================================================
-// Core Entities
-// ============================================================================
-
-/**
- * Goal - High-level objective with success criteria and resource budgets
- */
 export interface Goal {
   id: string;
   created_at: number;
   updated_at: number;
   
-  // Core
   title: string;
   description: string;
   success_criteria: SuccessCriterion[];
   
-  // State
   status: GoalStatus;
-  priority: number; // 0-100
+  priority: number;
   
-  // Budget
+  allowed_actions?: string[];
+  
   budget_tokens?: number;
   budget_time_minutes?: number;
   budget_cost_usd?: number;
@@ -113,10 +93,8 @@ export interface Goal {
   spent_time_minutes: number;
   spent_cost_usd: number;
   
-  // Relationships
   parent_goal_id?: string;
   
-  // Metadata
   tags?: string[];
   context?: Record<string, any>;
 }

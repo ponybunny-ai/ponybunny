@@ -1,4 +1,11 @@
 import type { WorkItem, Run } from '../work-order/types/index.js';
+import type { ILLMProvider, LLMMessage } from '../infra/llm/llm-provider.js';
+import type { ToolEnforcer } from '../infra/tools/tool-registry.js';
+import { readFileSync, writeFileSync } from 'fs';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 export interface ReActCycleParams {
   workItem: WorkItem;
@@ -30,6 +37,11 @@ export interface ReActContext {
 }
 
 export class ReActIntegration {
+  constructor(
+    private llmProvider?: ILLMProvider,
+    private toolEnforcer?: ToolEnforcer
+  ) {}
+
   async executeWorkCycle(params: ReActCycleParams): Promise<ReActCycleResult> {
     const context: ReActContext = {
       workItem: params.workItem,
@@ -252,23 +264,67 @@ Be methodical, verify your work, and handle errors gracefully.`;
     messages: Array<{ role: string; content: string }>;
     prompt?: string;
   }): Promise<{ text: string; tokensUsed: number; cost: number }> {
-    return {
-      text: 'Placeholder LLM response',
-      tokensUsed: 500,
-      cost: 0.005,
-    };
+    if (!this.llmProvider) {
+      return {
+        text: 'Mock LLM response - no provider configured',
+        tokensUsed: 500,
+        cost: 0.005,
+      };
+    }
+
+    const messages: LLMMessage[] = [
+      { role: 'system', content: params.system },
+      ...params.messages.map(m => ({
+        role: m.role as 'system' | 'user' | 'assistant',
+        content: m.content,
+      })),
+    ];
+
+    if (params.prompt) {
+      messages.push({ role: 'user', content: params.prompt });
+    }
+
+    try {
+      const response = await this.llmProvider.complete(messages);
+      const cost = this.llmProvider.estimateCost(response.tokensUsed);
+
+      return {
+        text: response.content,
+        tokensUsed: response.tokensUsed,
+        cost,
+      };
+    } catch (error) {
+      throw new Error(`LLM call failed: ${(error as Error).message}`);
+    }
   }
 
   private async readFile(path: string): Promise<string> {
-    return `Contents of ${path}`;
+    try {
+      return readFileSync(path, 'utf-8');
+    } catch (error) {
+      return `Error reading file: ${(error as Error).message}`;
+    }
   }
 
   private async writeFile(path: string, content: string): Promise<string> {
-    return `Wrote ${content.length} bytes to ${path}`;
+    try {
+      writeFileSync(path, content, 'utf-8');
+      return `Successfully wrote ${content.length} bytes to ${path}`;
+    } catch (error) {
+      return `Error writing file: ${(error as Error).message}`;
+    }
   }
 
   private async executeCommand(command: string): Promise<string> {
-    return `Executed: ${command}\nExit code: 0`;
+    try {
+      const { stdout, stderr } = await execAsync(command, {
+        timeout: 30000,
+        maxBuffer: 1024 * 1024,
+      });
+      return stdout || stderr || 'Command executed successfully (no output)';
+    } catch (error: any) {
+      return `Command failed (exit code ${error.code || 'unknown'}): ${error.stderr || error.message}`;
+    }
   }
 
   private async searchCode(pattern: string): Promise<string> {

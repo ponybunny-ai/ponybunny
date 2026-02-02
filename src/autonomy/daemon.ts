@@ -1,35 +1,27 @@
-import { WorkOrderDatabase } from '../work-order/database/manager.js';
-import { ReActIntegration } from './react-integration.js';
-import type { Goal, WorkItem, Run } from '../work-order/types/index.js';
+import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
+import type { IExecutionService, IVerificationService, IEvaluationService } from '../app/lifecycle/stage-interfaces.js';
+import type { WorkItem } from '../work-order/types/index.js';
 
 export interface AutonomyDaemonConfig {
-  dbPath: string;
   maxConcurrentRuns: number;
   pollingIntervalMs: number;
-  maxConsecutiveErrors: number;
-}
-
-export interface WorkCycleResult {
-  success: boolean;
-  run: Run;
-  shouldEscalate: boolean;
-  escalationReason?: string;
 }
 
 export class AutonomyDaemon {
-  private db: WorkOrderDatabase;
-  private reactIntegration: ReActIntegration;
   private isRunning = false;
   private pollingTimer?: NodeJS.Timeout;
   private activeRuns = new Map<string, AbortController>();
 
-  constructor(private config: AutonomyDaemonConfig) {
-    this.db = new WorkOrderDatabase(config.dbPath);
-    this.reactIntegration = new ReActIntegration();
-  }
+  constructor(
+    private repository: IWorkOrderRepository,
+    private executionService: IExecutionService,
+    private verificationService: IVerificationService,
+    private evaluationService: IEvaluationService,
+    private config: AutonomyDaemonConfig
+  ) {}
 
   async start(): Promise<void> {
-    await this.db.initialize();
+    await this.repository.initialize();
     this.isRunning = true;
     await this.mainLoop();
   }
@@ -41,7 +33,7 @@ export class AutonomyDaemon {
     }
     this.activeRuns.forEach(controller => controller.abort());
     this.activeRuns.clear();
-    this.db.close();
+    this.repository.close();
   }
 
   private async mainLoop(): Promise<void> {
@@ -64,7 +56,7 @@ export class AutonomyDaemon {
     }
 
     const availableSlots = this.config.maxConcurrentRuns - this.activeRuns.size;
-    const readyWorkItems = this.db.getReadyWorkItems().slice(0, availableSlots);
+    const readyWorkItems = this.repository.getReadyWorkItems().slice(0, availableSlots);
 
     if (readyWorkItems.length === 0) {
       this.updatePendingWorkItemStatuses();
@@ -75,13 +67,16 @@ export class AutonomyDaemon {
   }
 
   private updatePendingWorkItemStatuses(): void {
-    const pendingItems = this.db.listGoals({ status: 'active' })
-      .flatMap(goal => this.db.getReadyWorkItems(goal.id))
-      .filter(item => item.status === 'pending');
-
-    pendingItems.forEach(item => {
-      this.db.updateWorkItemStatusIfDependenciesMet(item.id);
-    });
+    const activeGoals = this.repository.listGoals({ status: 'active' });
+    
+    for (const goal of activeGoals) {
+      const goalWorkItems = this.repository.getReadyWorkItems(goal.id);
+      const pendingItems = goalWorkItems.filter(item => item.status === 'queued');
+      
+      for (const item of pendingItems) {
+        this.repository.updateWorkItemStatusIfDependenciesMet(item.id);
+      }
+    }
   }
 
   private async executeWorkItem(workItem: WorkItem): Promise<void> {
@@ -89,212 +84,91 @@ export class AutonomyDaemon {
     this.activeRuns.set(workItem.id, controller);
 
     try {
-      this.db.updateWorkItemStatus(workItem.id, 'in_progress');
+      this.repository.updateWorkItemStatus(workItem.id, 'in_progress');
 
-      const runSequence = this.db.getRunsByWorkItem(workItem.id).length + 1;
-      const run = this.db.createRun({
-        work_item_id: workItem.id,
-        goal_id: workItem.goal_id,
-        agent_type: workItem.assigned_agent || 'default',
-        run_sequence: runSequence,
-      });
+      const executionResult = await this.executionService.executeWorkItem(workItem);
 
-      const result = await this.executeReActCycle(workItem, run, controller.signal);
+      if (executionResult.success) {
+        const verificationResult = await this.verificationService.verifyWorkItem(
+          workItem,
+          executionResult.run
+        );
 
-      if (result.success) {
-        await this.handleSuccessfulRun(workItem, result);
+        const evaluationResult = await this.evaluationService.evaluateRun(
+          workItem,
+          executionResult.run,
+          verificationResult
+        );
+
+        await this.applyEvaluationDecision(workItem, evaluationResult);
       } else {
-        await this.handleFailedRun(workItem, result);
+        const verificationResult = { passed: false, gateResults: [] };
+        const evaluationResult = await this.evaluationService.evaluateRun(
+          workItem,
+          executionResult.run,
+          verificationResult
+        );
+
+        await this.applyEvaluationDecision(workItem, evaluationResult);
       }
     } catch (error) {
       console.error(`[AutonomyDaemon] Error executing work item ${workItem.id}:`, error);
-      this.db.updateWorkItemStatus(workItem.id, 'failed');
+      this.repository.updateWorkItemStatus(workItem.id, 'failed');
     } finally {
       this.activeRuns.delete(workItem.id);
     }
   }
 
-  private async executeReActCycle(
+  private async applyEvaluationDecision(
     workItem: WorkItem,
-    run: Run,
-    signal: AbortSignal
-  ): Promise<WorkCycleResult> {
-    const startTime = Date.now();
+    evaluation: { decision: 'publish' | 'retry' | 'replan' | 'escalate'; reasoning: string; nextActions: string[] }
+  ): Promise<void> {
+    switch (evaluation.decision) {
+      case 'publish':
+        this.repository.updateWorkItemStatus(workItem.id, 'done');
+        this.unblockDependentWorkItems(workItem);
+        this.checkGoalCompletion(workItem.goal_id);
+        break;
 
-    try {
-      const agentResult = await this.callReActAgent({
-        workItem,
-        run,
-        signal,
-      });
+      case 'retry':
+        this.repository.incrementWorkItemRetry(workItem.id);
+        this.repository.updateWorkItemStatus(workItem.id, 'ready');
+        break;
 
-      const timeSeconds = Math.floor((Date.now() - startTime) / 1000);
+      case 'escalate':
+        this.repository.createEscalation({
+          work_item_id: workItem.id,
+          goal_id: workItem.goal_id,
+          escalation_type: 'stuck',
+          severity: 'high',
+          title: `Work item stuck: ${workItem.title}`,
+          description: evaluation.reasoning,
+        });
+        this.repository.updateWorkItemStatus(workItem.id, 'blocked');
+        break;
 
-      this.db.completeRun(run.id, {
-        status: agentResult.success ? 'success' : 'failure',
-        error_message: agentResult.error,
-        tokens_used: agentResult.tokensUsed,
-        time_seconds: timeSeconds,
-        cost_usd: agentResult.costUsd,
-        artifacts: agentResult.artifactIds || [],
-        execution_log: agentResult.log,
-      });
-
-      this.db.updateGoalSpending(
-        workItem.goal_id,
-        agentResult.tokensUsed,
-        Math.ceil(timeSeconds / 60),
-        agentResult.costUsd
-      );
-
-      if (agentResult.success) {
-        const verificationResult = await this.runQualityGates(workItem);
-        return {
-          success: verificationResult.passed,
-          run,
-          shouldEscalate: !verificationResult.passed,
-          escalationReason: verificationResult.failureReason,
-        };
-      }
-
-      const shouldEscalate = this.shouldEscalateError(workItem);
-      return {
-        success: false,
-        run,
-        shouldEscalate,
-        escalationReason: shouldEscalate ? `Repeated error pattern detected` : undefined,
-      };
-    } catch (error) {
-      const timeSeconds = Math.floor((Date.now() - startTime) / 1000);
-      this.db.completeRun(run.id, {
-        status: 'failure',
-        error_message: String(error),
-        tokens_used: 0,
-        time_seconds: timeSeconds,
-        cost_usd: 0,
-        artifacts: [],
-      });
-
-      return {
-        success: false,
-        run,
-        shouldEscalate: true,
-        escalationReason: `Execution exception: ${error}`,
-      };
-    }
-  }
-
-  private async callReActAgent(params: {
-    workItem: WorkItem;
-    run: Run;
-    signal: AbortSignal;
-  }): Promise<{
-    success: boolean;
-    error?: string;
-    tokensUsed: number;
-    costUsd: number;
-    artifactIds?: string[];
-    log?: string;
-  }> {
-    return await this.reactIntegration.executeWorkCycle(params);
-  }
-
-  private async runQualityGates(workItem: WorkItem): Promise<{
-    passed: boolean;
-    failureReason?: string;
-  }> {
-    if (!workItem.verification_plan) {
-      return { passed: true };
-    }
-
-    for (const gate of workItem.verification_plan.quality_gates) {
-      if (!gate.required) continue;
-
-      if (gate.type === 'deterministic') {
-        const result = await this.runDeterministicGate(gate);
-        if (!result.passed) {
-          return { passed: false, failureReason: `Gate '${gate.name}' failed: ${result.reason}` };
-        }
-      }
-    }
-
-    return { passed: true };
-  }
-
-  private async runDeterministicGate(gate: any): Promise<{
-    passed: boolean;
-    reason?: string;
-  }> {
-    return { passed: true };
-  }
-
-  private shouldEscalateError(workItem: WorkItem): boolean {
-    if (workItem.retry_count >= workItem.max_retries) {
-      return true;
-    }
-
-    const repeatedErrors = this.db.getRepeatedErrorSignatures(
-      workItem.id,
-      this.config.maxConsecutiveErrors
-    );
-    
-    return repeatedErrors.length > 0;
-  }
-
-  private async handleSuccessfulRun(workItem: WorkItem, result: WorkCycleResult): Promise<void> {
-    if (result.shouldEscalate) {
-      this.db.createEscalation({
-        work_item_id: workItem.id,
-        goal_id: workItem.goal_id,
-        run_id: result.run.id,
-        escalation_type: 'validation_failed',
-        severity: 'medium',
-        title: `Quality gates failed for: ${workItem.title}`,
-        description: result.escalationReason || 'Verification failed',
-      });
-      this.db.updateWorkItemStatus(workItem.id, 'blocked');
-    } else {
-      this.db.updateWorkItemStatus(workItem.id, 'completed');
-      this.unblockDependentWorkItems(workItem);
-      this.checkGoalCompletion(workItem.goal_id);
-    }
-  }
-
-  private async handleFailedRun(workItem: WorkItem, result: WorkCycleResult): Promise<void> {
-    this.db.incrementWorkItemRetry(workItem.id);
-
-    if (result.shouldEscalate) {
-      this.db.createEscalation({
-        work_item_id: workItem.id,
-        goal_id: workItem.goal_id,
-        run_id: result.run.id,
-        escalation_type: 'stuck',
-        severity: 'high',
-        title: `Work item stuck: ${workItem.title}`,
-        description: result.escalationReason || 'Max retries exceeded or repeated errors',
-      });
-      this.db.updateWorkItemStatus(workItem.id, 'blocked');
-    } else {
-      this.db.updateWorkItemStatus(workItem.id, 'ready');
+      case 'replan':
+        this.repository.updateWorkItemStatus(workItem.id, 'blocked');
+        break;
     }
   }
 
   private unblockDependentWorkItems(completedItem: WorkItem): void {
-    const blockedItems = this.db.getBlockedWorkItems(completedItem.id);
-    blockedItems.forEach(item => {
-      this.db.updateWorkItemStatusIfDependenciesMet(item.id);
-    });
+    const blockedItems = this.repository.getBlockedWorkItems(completedItem.id);
+    for (const item of blockedItems) {
+      this.repository.updateWorkItemStatusIfDependenciesMet(item.id);
+    }
   }
 
   private checkGoalCompletion(goal_id: string): void {
-    const goal = this.db.getGoal(goal_id);
+    const goal = this.repository.getGoal(goal_id);
     if (!goal || goal.status !== 'active') return;
 
-    const workItems = this.db.getReadyWorkItems(goal_id);
-    const allCompleted = workItems.every(item => item.status === 'completed');
+    const workItems = this.repository.getReadyWorkItems(goal_id);
+    const allCompleted = workItems.every(item => item.status === 'done');
 
     if (allCompleted) {
-      this.db.updateGoalStatus(goal_id, 'completed');
+      this.repository.updateGoalStatus(goal_id, 'completed');
     }
   }
 

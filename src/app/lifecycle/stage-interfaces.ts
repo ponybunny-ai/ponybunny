@@ -1,0 +1,109 @@
+import type { Goal, WorkItem, Run } from '../../domain/types.js';
+
+export interface IntakeResult {
+  goal: Goal;
+  needsElaboration: boolean;
+}
+
+export interface ElaborationResult {
+  goal: Goal;
+  clarifications: string[];
+  escalations: string[];
+}
+
+export interface PlanningResult {
+  workItems: WorkItem[];
+  dependencies: Map<string, string[]>;
+}
+
+export interface ExecutionResult {
+  run: Run;
+  success: boolean;
+  needsRetry: boolean;
+  errorSignature?: string;
+}
+
+export interface VerificationResult {
+  passed: boolean;
+  gateResults: GateResult[];
+  failureReason?: string;
+}
+
+export interface GateResult {
+  name: string;
+  type: 'deterministic' | 'llm_review';
+  passed: boolean;
+  output?: string;
+  executionTime?: number;
+}
+
+export interface EvaluationResult {
+  decision: 'publish' | 'retry' | 'replan' | 'escalate';
+  reasoning: string;
+  nextActions: string[];
+}
+
+export interface PublishResult {
+  artifacts: string[];
+  summary: string;
+  costSummary: {
+    tokens: number;
+    time_minutes: number;
+    cost_usd: number;
+  };
+}
+
+export interface MonitorResult {
+  metrics: {
+    activeGoals: number;
+    readyWorkItems: number;
+    completionRate: number;
+    budgetUtilization: number;
+  };
+  alerts: string[];
+}
+
+export interface IIntakeService {
+  acceptGoal(request: GoalRequest): Promise<IntakeResult>;
+}
+
+export interface IElaborationService {
+  elaborateGoal(goal: Goal): Promise<ElaborationResult>;
+}
+
+export interface IPlanningService {
+  planWorkItems(goal: Goal): Promise<PlanningResult>;
+}
+
+export interface IExecutionService {
+  executeWorkItem(workItem: WorkItem): Promise<ExecutionResult>;
+}
+
+export interface IVerificationService {
+  verifyWorkItem(workItem: WorkItem, run: Run): Promise<VerificationResult>;
+}
+
+export interface IEvaluationService {
+  evaluateRun(workItem: WorkItem, run: Run, verification: VerificationResult): Promise<EvaluationResult>;
+}
+
+export interface IPublishService {
+  publishWorkItem(workItem: WorkItem, run: Run): Promise<PublishResult>;
+}
+
+export interface IMonitorService {
+  checkHealth(): Promise<MonitorResult>;
+}
+
+export interface GoalRequest {
+  title: string;
+  description: string;
+  success_criteria?: Array<{
+    description: string;
+    type: 'deterministic' | 'heuristic';
+    verification_method: string; required?: boolean;
+  }>;
+  budget_tokens?: number;
+  budget_time_minutes?: number;
+  priority?: number;
+}
