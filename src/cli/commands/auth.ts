@@ -242,38 +242,70 @@ async function whoami(): Promise<void> {
 }
 
 async function listAccounts(): Promise<void> {
-  const accounts = accountManagerV2.listAccounts('codex') as CodexAccount[];
+  const allAccounts = accountManagerV2.listAccounts();
   const config = accountManagerV2.getConfig();
   const strategy = config.strategy;
   
-  if (accounts.length === 0) {
-    console.log(chalk.yellow('\nNo accounts found. Run `pb auth login` to add an account.\n'));
+  if (allAccounts.length === 0) {
+    console.log(chalk.yellow('\nNo accounts found. Run `pb auth login` or `pb auth antigravity login` to add an account.\n'));
     return;
   }
   
-  console.log(chalk.cyan(`\n📋 Accounts (${accounts.length} total) - Strategy: ${chalk.bold(strategy)}\n`));
+  const codexAccounts = allAccounts.filter(a => a.provider === 'codex');
+  const antigravityAccounts = allAccounts.filter(a => a.provider === 'antigravity');
   
-  accounts.forEach((account, index) => {
-    const isCurrent = config.currentAccountId === account.id;
-    const prefix = isCurrent ? chalk.green('➤') : ' ';
-    const label = isCurrent ? chalk.green.bold(account.email || account.userId || 'Unknown') : chalk.white(account.email || account.userId || 'Unknown');
+  console.log(chalk.cyan(`\n📋 Accounts (${allAccounts.length} total) - Strategy: ${chalk.bold(strategy)}\n`));
+  
+  if (codexAccounts.length > 0) {
+    console.log(chalk.blue.bold('OpenAI Codex') + chalk.gray(` (${codexAccounts.length})`));
+    console.log(chalk.gray('─'.repeat(50)));
     
-    console.log(`${prefix} ${index + 1}. ${label}`);
-    console.log(`     ID: ${chalk.gray(account.id)}`);
-    console.log(`     Added: ${chalk.gray(new Date(account.addedAt).toLocaleString())}`);
+    codexAccounts.forEach((account, index) => {
+      const codexAccount = account as CodexAccount;
+      const isCurrent = config.currentAccountId === account.id;
+      const prefix = isCurrent ? chalk.green('➤') : ' ';
+      const label = isCurrent ? chalk.green.bold(account.email || account.userId || 'Unknown') : chalk.white(account.email || account.userId || 'Unknown');
+      
+      console.log(`${prefix} ${index + 1}. ${label}`);
+      console.log(`     ID: ${chalk.gray(account.id)}`);
+      console.log(`     Added: ${chalk.gray(new Date(account.addedAt).toLocaleString())}`);
+      
+      if (codexAccount.expiresAt) {
+        const expired = codexAccount.expiresAt < Date.now();
+        const expireText = expired ? chalk.red('Expired') : chalk.green('Valid');
+        console.log(`     Status: ${expireText} (expires ${new Date(codexAccount.expiresAt).toLocaleString()})`);
+      }
+      console.log();
+    });
+  }
+  
+  if (antigravityAccounts.length > 0) {
+    console.log(chalk.magenta.bold('Google Antigravity') + chalk.gray(` (${antigravityAccounts.length})`));
+    console.log(chalk.gray('─'.repeat(50)));
     
-    if (account.expiresAt) {
-      const expired = account.expiresAt < Date.now();
-      const expireText = expired ? chalk.red('Expired') : chalk.green('Valid');
-      console.log(`     Status: ${expireText} (expires ${new Date(account.expiresAt).toLocaleString()})`);
-    }
-    console.log();
-  });
+    antigravityAccounts.forEach((account, index) => {
+      const antigravityAccount = account as any;
+      const isCurrent = config.currentAccountId === account.id;
+      const prefix = isCurrent ? chalk.green('➤') : ' ';
+      const label = isCurrent ? chalk.green.bold(account.email || 'Unknown') : chalk.white(account.email || 'Unknown');
+      
+      console.log(`${prefix} ${index + 1}. ${label}`);
+      console.log(`     ID: ${chalk.gray(account.id)}`);
+      console.log(`     Added: ${chalk.gray(new Date(account.addedAt).toLocaleString())}`);
+      
+      if (antigravityAccount.projectId) {
+        console.log(`     Project: ${chalk.gray(antigravityAccount.projectId)}`);
+      }
+      console.log();
+    });
+  }
   
   if (strategy === 'stick' && config.currentAccountId) {
     console.log(chalk.gray('Currently using the account marked with ➤'));
   } else if (strategy === 'round-robin') {
-    console.log(chalk.gray('Round-robin mode: requests will rotate through all accounts'));
+    console.log(chalk.gray('Round-robin mode: requests will rotate through accounts within the same provider'));
+  } else if (strategy === 'hybrid') {
+    console.log(chalk.gray('Hybrid mode: intelligent account selection based on health score and token availability'));
   }
   console.log();
 }

@@ -5,6 +5,7 @@ import TextInput from 'ink-text-input';
 import Spinner from 'ink-spinner';
 import SelectInput from 'ink-select-input';
 import { openaiClient } from '../lib/openai-client.js';
+import { antigravityClient } from '../lib/antigravity-client.js';
 import type { ChatMessage } from '../lib/openai-client.js';
 import type { CodexAccount } from '../lib/account-types.js';
 import { accountManager } from '../lib/auth-manager.js';
@@ -209,20 +210,66 @@ Type /help for available commands.`;
 
       let fullResponse = '';
       
-      await openaiClient.streamChatCompletion(
-        { model: currentModel, messages: chatMessages },
-        (chunk: string) => {
-          fullResponse += chunk;
-          setMessages(prev => {
-            const newMessages = [...prev];
-            const lastMsg = newMessages[newMessages.length - 1];
-            if (lastMsg && lastMsg.streaming) {
-              lastMsg.content = fullResponse;
+      const isAntigravityModel = currentModel.startsWith('claude-') || currentModel.startsWith('gemini-');
+      
+      if (isAntigravityModel) {
+        const geminiContents = chatMessages
+          .filter(m => m.role !== 'system')
+          .map(m => ({
+            role: m.role === 'assistant' ? 'model' as const : 'user' as const,
+            parts: [{ text: m.content }],
+          }));
+
+        const systemInstruction = system ? { parts: [{ text: system }] } : undefined;
+
+        const response = await antigravityClient.generateContent({
+          model: currentModel,
+          request: {
+            contents: geminiContents,
+            systemInstruction,
+          },
+        });
+        
+        const textParts: string[] = [];
+        const responseCandidates = (response.response as any)?.candidates;
+        if (Array.isArray(responseCandidates)) {
+          const firstCandidate = responseCandidates[0];
+          const parts = firstCandidate?.content?.parts;
+          if (Array.isArray(parts)) {
+            for (const part of parts) {
+              if (part?.text) {
+                textParts.push(part.text);
+              }
             }
-            return newMessages;
-          });
+          }
         }
-      );
+        
+        fullResponse = textParts.join('') || 'No response from model';
+        
+        setMessages(prev => {
+          const newMessages = [...prev];
+          const lastMsg = newMessages[newMessages.length - 1];
+          if (lastMsg && lastMsg.streaming) {
+            lastMsg.content = fullResponse;
+          }
+          return newMessages;
+        });
+      } else {
+        await openaiClient.streamChatCompletion(
+          { model: currentModel, messages: chatMessages },
+          (chunk: string) => {
+            fullResponse += chunk;
+            setMessages(prev => {
+              const newMessages = [...prev];
+              const lastMsg = newMessages[newMessages.length - 1];
+              if (lastMsg && lastMsg.streaming) {
+                lastMsg.content = fullResponse;
+              }
+              return newMessages;
+            });
+          }
+        );
+      }
 
       setMessages(prev => {
         const newMessages = [...prev];
@@ -250,10 +297,14 @@ Type /help for available commands.`;
   }, [input, sendMessage, exit]);
 
   const availableModels = [
-    { label: 'GPT-5.2 (Latest)', value: 'gpt-5.2' },
-    { label: 'GPT-5.2 Codex (Code optimized)', value: 'gpt-5.2-codex' },
-    { label: 'GPT-4o (Fast)', value: 'gpt-4o' },
-    { label: 'GPT-4 (Stable)', value: 'gpt-4' },
+    { label: 'GPT-5.2 (Latest) - OpenAI Codex', value: 'gpt-5.2' },
+    { label: 'GPT-5.2 Codex (Code optimized) - OpenAI Codex', value: 'gpt-5.2-codex' },
+    { label: 'GPT-4o (Fast) - OpenAI Codex', value: 'gpt-4o' },
+    { label: 'GPT-4 (Stable) - OpenAI Codex', value: 'gpt-4' },
+    { label: 'Claude Sonnet 4.5 - Antigravity', value: 'claude-sonnet-4-5' },
+    { label: 'Claude Opus 4 - Antigravity', value: 'claude-opus-4' },
+    { label: 'Gemini 3 Pro High - Antigravity', value: 'gemini-3-pro-high' },
+    { label: 'Gemini 2.5 Flash - Antigravity', value: 'gemini-2-5-flash' },
   ];
 
   const handleModelSelect = useCallback((item: { label: string; value: string }) => {
