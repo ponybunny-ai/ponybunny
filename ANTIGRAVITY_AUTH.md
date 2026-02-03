@@ -154,6 +154,50 @@ PB_ANTIGRAVITY_ENV=prod pb auth antigravity login
 PB_ANTIGRAVITY_ENDPOINT=https://custom-endpoint.com pb chat
 ```
 
+## Available Models
+
+### Gemini Models
+
+**Available via Antigravity (tested and working):**
+
+- **`gemini-2.5-flash`** ✅ Recommended
+  - Fast, efficient model for most tasks
+  - Lower latency and cost
+  - Best for: Quick queries, simple tasks, high-volume usage
+
+- **`gemini-2.5-pro`** ✅ Tested working  
+  - More capable, higher quality responses
+  - Better for: Complex reasoning, detailed explanations, creative tasks
+
+### Claude Models (Antigravity Quota Pool)
+
+⚠️ **Note:** Claude models may have quota limits. Check your account status if you receive quota errors.
+
+- **`claude-sonnet-4-5`**
+  - Balanced performance and speed
+  - Good for general-purpose tasks
+
+- **`claude-sonnet-4-5-thinking`**
+  - Extended reasoning capabilities
+  - Supports thinking budget variants: `low`, `high`, `max`
+
+- **`claude-opus-4-5-thinking`**
+  - Most capable Claude model
+  - Best for complex problem-solving
+
+**Note:** Model availability and quotas depend on your Google Cloud project configuration.
+
+### Testing Model Availability
+
+```bash
+# Test a specific model via CLI
+pb -m gemini-2.5-flash
+
+# In TUI, press /model to select from available models
+pb
+/model
+```
+
 ## Usage Examples
 
 ### Adding Multiple Accounts
@@ -185,10 +229,24 @@ const account = await accountManagerV2.getCurrentAccount('antigravity');
 import { antigravityClient } from './lib/antigravity-client.js';
 
 const response = await antigravityClient.generateContent({
-  model: 'claude-sonnet-4-5',
-  prompt: 'Explain quantum computing',
-  temperature: 0.7,
+  model: 'gemini-2.5-flash',
+  request: {
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: 'Explain quantum computing' }],
+      },
+    ],
+    systemInstruction: {
+      parts: [{ text: 'You are a helpful physics tutor.' }],
+    },
+  },
 });
+
+// Extract text from response
+const text = response.response?.candidates?.[0]?.content?.parts
+  ?.map(p => p.text)
+  ?.join('');
 
 // Automatic features:
 // - Token refresh if expired

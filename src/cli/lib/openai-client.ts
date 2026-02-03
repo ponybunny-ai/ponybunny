@@ -76,6 +76,16 @@ export class OpenAIClient {
     return response.json() as Promise<T>;
   }
 
+  async listModels(): Promise<string[]> {
+    try {
+      const response = await this.request<{ models: Array<{ id: string }> }>('/models');
+      return response.models?.map(m => m.id) ?? [];
+    } catch (error) {
+      console.warn('Failed to fetch models from OpenAI, using defaults');
+      return ['gpt-5.2', 'gpt-5.2-codex', 'gpt-4o', 'gpt-4'];
+    }
+  }
+
   async chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
     const systemMessage = request.messages.find(m => m.role === 'system');
     const userMessages = request.messages.filter(m => m.role !== 'system');

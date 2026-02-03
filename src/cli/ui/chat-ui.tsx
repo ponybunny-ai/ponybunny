@@ -6,9 +6,21 @@ import Spinner from 'ink-spinner';
 import SelectInput from 'ink-select-input';
 import { openaiClient } from '../lib/openai-client.js';
 import { antigravityClient } from '../lib/antigravity-client.js';
+import { modelsManager } from '../lib/models-manager.js';
 import type { ChatMessage } from '../lib/openai-client.js';
-import type { CodexAccount } from '../lib/account-types.js';
-import { accountManager } from '../lib/auth-manager.js';
+import type { CodexAccount, AccountProvider } from '../lib/account-types.js';
+import { accountManagerV2 } from '../lib/auth-manager-v2.js';
+
+function getModelProvider(modelName: string): AccountProvider {
+  if (
+    modelName.startsWith('claude-') ||
+    modelName.startsWith('gemini-') ||
+    modelName.startsWith('antigravity-')
+  ) {
+    return 'antigravity';
+  }
+  return 'codex';
+}
 
 interface Message {
   role: 'user' | 'assistant' | 'system';
@@ -28,33 +40,73 @@ const ChatUI = ({ model: initialModel = 'gpt-5.2', system }: ChatUIProps) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [accountInfo, setAccountInfo] = useState<string>('');
   const [currentModel, setCurrentModel] = useState(initialModel);
+  const [accountInfo, setAccountInfo] = useState('Not authenticated');
   const [showModelSelector, setShowModelSelector] = useState(false);
+  const [availableModels, setAvailableModels] = useState<Array<{ label: string; value: string }>>([]);
   const { exit } = useApp();
 
   useEffect(() => {
     const loadAccountInfo = async () => {
-      const account = accountManager.getCurrentAccount();
+      const provider = getModelProvider(currentModel);
+      const account = accountManagerV2.getCurrentAccount(provider);
       if (account) {
-        const strategy = accountManager.getStrategy();
-        setAccountInfo(`${account.email || account.userId} [${strategy}]`);
+        const strategy = accountManagerV2.getStrategy();
+        setAccountInfo(`${account.email || account.userId || 'Unknown'} [${strategy}]`);
+      } else {
+        setAccountInfo('No account');
       }
     };
     loadAccountInfo();
 
+    const loadModels = async () => {
+      try {
+        const cache = await modelsManager.getModels();
+        
+        const models = [
+          ...cache.models.codex.map(m => ({
+            label: m.label || `${m.name} - OpenAI Codex`,
+            value: m.name,
+          })),
+          ...cache.models.antigravity.map(m => ({
+            label: m.label || `${m.name} - Antigravity`,
+            value: m.name,
+          })),
+        ];
+
+        setAvailableModels(models);
+      } catch (error) {
+        console.warn('Failed to load models, using defaults');
+        setAvailableModels([
+          { label: 'GPT-5.2 (Latest) - OpenAI Codex', value: 'gpt-5.2' },
+          { label: 'GPT-5.2 Codex (Code optimized) - OpenAI Codex', value: 'gpt-5.2-codex' },
+          { label: 'GPT-4o (Fast) - OpenAI Codex', value: 'gpt-4o' },
+          { label: 'GPT-4 (Stable) - OpenAI Codex', value: 'gpt-4' },
+          { label: 'Claude Sonnet 4.5 - Antigravity', value: 'claude-sonnet-4-5' },
+          { label: 'Claude Sonnet 4.5 Thinking - Antigravity', value: 'claude-sonnet-4-5-thinking' },
+          { label: 'Claude Opus 4.5 Thinking - Antigravity', value: 'claude-opus-4-5-thinking' },
+          { label: 'Gemini 2.5 Flash (Recommended) - Antigravity', value: 'gemini-2.5-flash' },
+          { label: 'Gemini 2.5 Pro - Antigravity', value: 'gemini-2.5-pro' },
+        ]);
+      }
+    };
+    loadModels();
+
     if (system) {
       setMessages([{ role: 'system', content: system }]);
     }
-  }, [system]);
+  }, [system, currentModel]);
 
   const updateAccountInfo = useCallback(async () => {
-    const account = accountManager.getCurrentAccount();
+    const provider = getModelProvider(currentModel);
+    const account = accountManagerV2.getCurrentAccount(provider);
     if (account) {
-      const strategy = accountManager.getStrategy();
-      setAccountInfo(`${account.email || account.userId} [${strategy}]`);
+      const strategy = accountManagerV2.getStrategy();
+      setAccountInfo(`${account.email || account.userId || 'Unknown'} [${strategy}]`);
+    } else {
+      setAccountInfo('No account');
     }
-  }, []);
+  }, [currentModel]);
 
   const handleCommand = useCallback(async (command: string): Promise<boolean> => {
     const parts = command.slice(1).trim().split(/\s+/);
@@ -87,15 +139,16 @@ const ChatUI = ({ model: initialModel = 'gpt-5.2', system }: ChatUIProps) => {
         break;
 
       case 'status':
-        const account = accountManager.getCurrentAccount('codex') as CodexAccount | undefined;
-        const strategy = accountManager.getStrategy();
-        const accounts = accountManager.listAccounts();
+        const provider = getModelProvider(currentModel);
+        const account = accountManagerV2.getCurrentAccount(provider);
+        const strategy = accountManagerV2.getStrategy();
+        const accounts = accountManagerV2.listAccounts();
         response = `Status:
   Model: ${currentModel}
+  Provider: ${provider}
   Account: ${account?.email || account?.userId || 'None'}
   Strategy: ${strategy}
-  Total Accounts: ${accounts.length}
-  Token Expires: ${account?.expiresAt ? new Date(account.expiresAt).toLocaleString() : 'N/A'}`;
+  Total Accounts: ${accounts.length}`;
         break;
 
       case 'model':
@@ -110,16 +163,17 @@ const ChatUI = ({ model: initialModel = 'gpt-5.2', system }: ChatUIProps) => {
         break;
 
       case 'accounts':
-        const allAccounts = accountManager.listAccounts();
-        const config = accountManager.getConfig();
+        const allAccounts = accountManagerV2.listAccounts();
+        const config = accountManagerV2.getConfig();
         if (allAccounts.length === 0) {
           response = 'No accounts found.';
         } else {
           response = `Accounts (${allAccounts.length}):\n` +
             allAccounts.map((acc, idx) => {
-              const isCurrent = config.currentAccountId === acc.id;
-              const marker = isCurrent ? '➤ ' : '  ';
-              return `${marker}${idx + 1}. ${acc.email || acc.userId}`;
+              const isCurrentForProvider = config.currentAccountIdByProvider?.[acc.provider] === acc.id;
+              const marker = isCurrentForProvider ? '➤ ' : '  ';
+              const providerLabel = acc.provider === 'antigravity' ? ' (Antigravity)' : ' (Codex)';
+              return `${marker}${idx + 1}. ${acc.email || acc.userId}${providerLabel}`;
             }).join('\n');
         }
         break;
@@ -129,7 +183,7 @@ const ChatUI = ({ model: initialModel = 'gpt-5.2', system }: ChatUIProps) => {
           response = 'Usage: /switch <email>';
         } else {
           const identifier = args.join(' ');
-          const success = accountManager.setCurrentAccount(identifier);
+          const success = accountManagerV2.setCurrentAccount(identifier);
           if (success) {
             await updateAccountInfo();
             response = `Switched to account: ${identifier}`;
@@ -141,14 +195,14 @@ const ChatUI = ({ model: initialModel = 'gpt-5.2', system }: ChatUIProps) => {
 
       case 'strategy':
         if (args.length === 0) {
-          const currentStrategy = accountManager.getStrategy();
+          const currentStrategy = accountManagerV2.getStrategy();
           response = `Current strategy: ${currentStrategy}
 Available: stick, round-robin
 Usage: /strategy <mode>`;
         } else {
           const newStrategy = args[0].toLowerCase();
           if (newStrategy === 'stick' || newStrategy === 'round-robin') {
-            accountManager.setStrategy(newStrategy as 'stick' | 'round-robin');
+            accountManagerV2.setStrategy(newStrategy as 'stick' | 'round-robin');
             await updateAccountInfo();
             response = `Strategy set to: ${newStrategy}`;
           } else {
@@ -199,21 +253,21 @@ Type /help for available commands.`;
     setMessages(prev => [...prev, assistantMessage]);
 
     try {
-      const chatMessages: ChatMessage[] = messages
+      const unifiedMessages: ChatMessage[] = messages
         .filter(m => !m.isCommand && m.role !== 'system')
         .concat([userMessage])
         .map(m => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content }));
 
       if (system) {
-        chatMessages.unshift({ role: 'system', content: system });
+        unifiedMessages.unshift({ role: 'system', content: system });
       }
 
+      const provider = getModelProvider(currentModel);
+      
       let fullResponse = '';
       
-      const isAntigravityModel = currentModel.startsWith('claude-') || currentModel.startsWith('gemini-');
-      
-      if (isAntigravityModel) {
-        const geminiContents = chatMessages
+      if (provider === 'antigravity') {
+        const geminiContents = unifiedMessages
           .filter(m => m.role !== 'system')
           .map(m => ({
             role: m.role === 'assistant' ? 'model' as const : 'user' as const,
@@ -256,7 +310,7 @@ Type /help for available commands.`;
         });
       } else {
         await openaiClient.streamChatCompletion(
-          { model: currentModel, messages: chatMessages },
+          { model: currentModel, messages: unifiedMessages },
           (chunk: string) => {
             fullResponse += chunk;
             setMessages(prev => {
@@ -296,17 +350,6 @@ Type /help for available commands.`;
     setInput('');
   }, [input, sendMessage, exit]);
 
-  const availableModels = [
-    { label: 'GPT-5.2 (Latest) - OpenAI Codex', value: 'gpt-5.2' },
-    { label: 'GPT-5.2 Codex (Code optimized) - OpenAI Codex', value: 'gpt-5.2-codex' },
-    { label: 'GPT-4o (Fast) - OpenAI Codex', value: 'gpt-4o' },
-    { label: 'GPT-4 (Stable) - OpenAI Codex', value: 'gpt-4' },
-    { label: 'Claude Sonnet 4.5 - Antigravity', value: 'claude-sonnet-4-5' },
-    { label: 'Claude Opus 4 - Antigravity', value: 'claude-opus-4' },
-    { label: 'Gemini 3 Pro High - Antigravity', value: 'gemini-3-pro-high' },
-    { label: 'Gemini 2.5 Flash - Antigravity', value: 'gemini-2-5-flash' },
-  ];
-
   const handleModelSelect = useCallback((item: { label: string; value: string }) => {
     setCurrentModel(item.value);
     setShowModelSelector(false);
@@ -336,6 +379,7 @@ Type /help for available commands.`;
             <SelectInput
               items={availableModels}
               onSelect={handleModelSelect}
+              limit={15}
             />
           </Box>
           

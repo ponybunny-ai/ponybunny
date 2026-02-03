@@ -1,8 +1,8 @@
 import { OpenAIClient } from '../../src/cli/lib/openai-client.js';
-import { accountManager } from '../../src/cli/lib/auth-manager.js';
+import { accountManagerV2 } from '../../src/cli/lib/auth-manager-v2.js';
 
-jest.mock('../../src/cli/lib/auth-manager.js', () => ({
-  accountManager: {
+jest.mock('../../src/cli/lib/auth-manager-v2.js', () => ({
+  accountManagerV2: {
     getAccessToken: jest.fn(),
   },
 }));
@@ -22,7 +22,7 @@ describe('OpenAIClient', () => {
     };
     const mockToken = `header.${Buffer.from(JSON.stringify(mockPayload)).toString('base64')}.signature`;
     
-    (accountManager.getAccessToken as jest.Mock).mockResolvedValue(mockToken);
+    (accountManagerV2.getAccessToken as jest.Mock).mockResolvedValue(mockToken);
     
     client = new OpenAIClient();
   });
@@ -58,7 +58,7 @@ describe('OpenAIClient', () => {
       });
 
       expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('/backend-api/codex/responses'),
+        expect.stringContaining('chatgpt.com/backend-api/codex/responses'),
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
@@ -72,7 +72,7 @@ describe('OpenAIClient', () => {
     });
 
     test('throws error when not authenticated', async () => {
-      (accountManager.getAccessToken as jest.Mock).mockResolvedValue(undefined);
+      (accountManagerV2.getAccessToken as jest.Mock).mockResolvedValue(undefined);
 
       await expect(
         client.chatCompletion({

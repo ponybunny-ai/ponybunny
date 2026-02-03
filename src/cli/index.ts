@@ -4,6 +4,7 @@ import chalk from 'chalk';
 import { authCommand } from './commands/auth.js';
 import { statusCommand } from './commands/status.js';
 import { configCommand } from './commands/config.js';
+import { modelsCommand } from './commands/models.js';
 import { startChatUI } from './ui/chat-ui.js';
 
 const program = new Command();
@@ -19,6 +20,8 @@ program
   });
 
 program.addCommand(authCommand);
+program.addCommand(configCommand);
+program.addCommand(modelsCommand);
 
 program
   .command('chat')
@@ -33,8 +36,6 @@ program
   .command('status')
   .description('Check system and authentication status')
   .action(statusCommand);
-
-program.addCommand(configCommand);
 
 program.on('command:*', () => {
   console.error(chalk.red(`Invalid command: ${program.args.join(' ')}`));
