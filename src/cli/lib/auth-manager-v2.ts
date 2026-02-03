@@ -8,6 +8,7 @@ import type {
   AntigravityAccount,
   CodexAccount,
   LoadBalancingStrategy,
+  OpenAICompatibleAccount,
   RateLimitReason,
 } from './account-types.js';
 import { HealthScoreTracker, TokenBucketTracker, calculateBackoffMs } from './account-trackers.js';
@@ -231,10 +232,19 @@ export class AccountManagerV2 {
       managedProjectId?: string;
       rateLimitResetTimes?: AntigravityAccount['rateLimitResetTimes'];
       fingerprint?: AntigravityAccount['fingerprint'];
+      apiKey?: string;
+      baseURL?: string;
     };
 
     let changed = false;
-    const provider: AccountProvider = raw.provider === 'antigravity' ? 'antigravity' : 'codex';
+    let provider: AccountProvider;
+    if (raw.provider === 'antigravity') {
+      provider = 'antigravity';
+    } else if (raw.provider === 'openai-compatible') {
+      provider = 'openai-compatible';
+    } else {
+      provider = 'codex';
+    }
     if (raw.provider !== provider) changed = true;
 
     const id = asString(raw.id) ?? this.generateAccountId();
@@ -267,6 +277,28 @@ export class AccountManagerV2 {
         managedProjectId: raw.managedProjectId,
         rateLimitResetTimes,
         fingerprint,
+        addedAt,
+        lastUsed,
+        enabled,
+        healthScore,
+      };
+
+      return { account: normalized, changed };
+    }
+
+    if (provider === 'openai-compatible') {
+      const apiKey = asString(raw.apiKey);
+      if (!apiKey) {
+        return null;
+      }
+
+      const normalized: OpenAICompatibleAccount = {
+        id,
+        provider,
+        email: raw.email,
+        userId: raw.userId ?? raw.email,
+        apiKey,
+        baseURL: raw.baseURL,
         addedAt,
         lastUsed,
         enabled,
@@ -411,6 +443,41 @@ export class AccountManagerV2 {
     return newAccount;
   }
 
+  addOpenAICompatibleAccount(account: Omit<OpenAICompatibleAccount, 'id' | 'addedAt' | 'lastUsed' | 'provider' | 'enabled' | 'healthScore'>): OpenAICompatibleAccount {
+    const existing = this.config.accounts.find(
+      (acc) => acc.provider === 'openai-compatible' && acc.email === account.email,
+    ) as OpenAICompatibleAccount | undefined;
+
+    if (existing) {
+      existing.apiKey = account.apiKey;
+      existing.baseURL = account.baseURL;
+      existing.email = account.email;
+      existing.lastUsed = nowMs();
+      this.persist();
+      return existing;
+    }
+
+    const newAccount: OpenAICompatibleAccount = {
+      id: this.generateAccountId(),
+      provider: 'openai-compatible',
+      email: account.email,
+      userId: account.email,
+      apiKey: account.apiKey,
+      baseURL: account.baseURL,
+      addedAt: nowMs(),
+      lastUsed: nowMs(),
+      enabled: true,
+      healthScore: 0,
+    };
+
+    this.config.accounts.push(newAccount);
+    this.setCurrentAccount(newAccount.id);
+    this.healthTracker.initialize(newAccount.id, newAccount.healthScore);
+    this.tokenBucket.initialize(newAccount.id);
+    this.persist();
+    return newAccount;
+  }
+
   removeAccount(identifier: string): boolean {
     const index = this.config.accounts.findIndex(
       (account) => account.id === identifier || account.email === identifier || account.userId === identifier,
@@ -523,8 +590,8 @@ export class AccountManagerV2 {
     provider: AccountProvider,
     options?: { modelFamily?: 'claude' | 'gemini' },
   ): Account {
-    const currentId = this.config.currentAccountIdByProvider?.[provider] ?? this.config.currentAccountId;
-    const current = accounts.find((account) => account.id === currentId);
+    const currentId = this.config.currentAccountIdByProvider?.[provider];
+    const current = currentId ? accounts.find((account) => account.id === currentId) : undefined;
     if (current && !this.isRateLimited(current, options?.modelFamily)) {
       return current;
     }
@@ -542,11 +609,10 @@ export class AccountManagerV2 {
     const list = available.length > 0 ? available : accounts;
 
     const indexByProvider = this.config.roundRobinIndexByProvider ?? {};
-    const currentIndex = indexByProvider[provider] ?? this.config.roundRobinIndex ?? 0;
+    const currentIndex = indexByProvider[provider] ?? 0;
     const account = list[currentIndex % list.length]!;
     indexByProvider[provider] = (currentIndex + 1) % list.length;
     this.config.roundRobinIndexByProvider = indexByProvider;
-    this.config.roundRobinIndex = indexByProvider[provider] ?? this.config.roundRobinIndex;
     this.config.currentAccountIdByProvider = {
       ...(this.config.currentAccountIdByProvider ?? {}),
       [provider]: account.id,

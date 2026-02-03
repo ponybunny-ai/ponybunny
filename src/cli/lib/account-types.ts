@@ -1,4 +1,4 @@
-export type AccountProvider = 'codex' | 'antigravity';
+export type AccountProvider = 'codex' | 'antigravity' | 'openai-compatible';
 
 export interface BaseAccount {
   id: string;
@@ -31,6 +31,12 @@ export interface AntigravityAccount extends BaseAccount {
   fingerprint?: DeviceFingerprint;
 }
 
+export interface OpenAICompatibleAccount extends BaseAccount {
+  provider: 'openai-compatible';
+  apiKey: string;
+  baseURL?: string;
+}
+
 export interface DeviceFingerprint {
   userAgent: string;
   platform: string;
@@ -38,7 +44,7 @@ export interface DeviceFingerprint {
   nodeVersion: string;
 }
 
-export type Account = CodexAccount | AntigravityAccount;
+export type Account = CodexAccount | AntigravityAccount | OpenAICompatibleAccount;
 
 export type LoadBalancingStrategy = 'stick' | 'round-robin' | 'hybrid';
 

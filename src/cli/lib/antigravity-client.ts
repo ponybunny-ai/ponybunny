@@ -77,6 +77,32 @@ function inferModelFamily(model: string): 'claude' | 'gemini' {
   return 'gemini';
 }
 
+function isGemini3Model(model: string): boolean {
+  return model.startsWith('gemini-3-') || model.startsWith('antigravity-gemini-3-');
+}
+
+function enhanceRequestWithThinkingConfig(
+  model: string,
+  request: GeminiRequest,
+): GeminiRequest {
+  if (!isGemini3Model(model)) {
+    return request;
+  }
+
+  const thinkingConfig = {
+    includeThoughts: true,
+    thinkingLevel: 'high',
+  };
+
+  return {
+    ...request,
+    generationConfig: {
+      ...request.generationConfig,
+      thinkingConfig,
+    },
+  };
+}
+
 function resolveEndpoint(headerStyle: HeaderStyle): string {
   const envOverride = process.env.PB_ANTIGRAVITY_ENDPOINT;
   if (envOverride) {
@@ -121,6 +147,47 @@ function extractTextFromResponse(payload: AntigravityResponse | Record<string, u
 }
 
 export class AntigravityClient {
+  async listModels(): Promise<string[]> {
+    try {
+      const session = await accountManagerV2.getAntigravitySession({ modelFamily: 'gemini' });
+      if (!session) {
+        return this.getDefaultModels();
+      }
+
+      const endpoint = resolveEndpoint(session.headerStyle);
+      const response = await fetch(`${endpoint}/v1internal:fetchAvailableModels`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch models: ${response.status}`);
+      }
+
+      const data = await response.json() as { models?: Array<{ name: string }> };
+      return data.models?.map(m => m.name) ?? this.getDefaultModels();
+    } catch (error) {
+      logWarn('Failed to fetch models from Antigravity, using defaults', { error: String(error) });
+      return this.getDefaultModels();
+    }
+  }
+
+  private getDefaultModels(): string[] {
+    return [
+      'gemini-3-pro',
+      'gemini-3-flash',
+      'gemini-2.5-flash',
+      'gemini-2.5-pro',
+      'claude-sonnet-4-5',
+      'claude-sonnet-4-5-thinking',
+      'claude-opus-4-5-thinking',
+    ];
+  }
+
   async generateContent(options: AntigravityRequestOptions): Promise<AntigravityResponse> {
     return this.requestWithRetries({
       ...options,
@@ -171,10 +238,12 @@ export class AntigravityClient {
         headers.Accept = 'text/event-stream';
       }
 
+      const enhancedRequest = enhanceRequestWithThinkingConfig(options.model, options.request);
+
       const body = JSON.stringify({
         project: session.projectId,
         model: options.model,
-        request: options.request,
+        request: enhancedRequest,
         userAgent: 'antigravity',
         requestId: createRequestId(),
       });
@@ -185,6 +254,7 @@ export class AntigravityClient {
         endpoint: context.endpoint,
         headerStyle: context.headerStyle,
         streaming: options.streaming,
+        requestBody: body.substring(0, 500),
       });
 
       let response: Response;

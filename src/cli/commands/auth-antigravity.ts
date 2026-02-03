@@ -3,13 +3,14 @@ import chalk from 'chalk';
 import ora from 'ora';
 import open from 'open';
 import { createServer } from 'http';
+import inquirer from 'inquirer';
 import { accountManagerV2 } from '../lib/auth-manager-v2.js';
 import { authorizeAntigravity, exchangeAntigravityCode } from '../lib/antigravity-oauth.js';
 import { ANTIGRAVITY_REDIRECT_URI } from '../lib/antigravity-constants.js';
 
 const CALLBACK_URL = new URL(ANTIGRAVITY_REDIRECT_URI);
 
-async function loginAntigravity(): Promise<void> {
+export async function loginAntigravity(): Promise<void> {
   const spinner = ora('Initializing Antigravity OAuth login...').start();
   const { url, state } = authorizeAntigravity();
 
@@ -191,7 +192,8 @@ async function loginAntigravity(): Promise<void> {
 
         const accounts = accountManagerV2.listAccounts('antigravity');
         console.log(chalk.green(`\n✓ Logged in as: ${account.email || 'Unknown'}`));
-        console.log(chalk.cyan(`✓ Antigravity account added (${accounts.length} total)`));
+        console.log(chalk.cyan(`✓ Antigravity account added (${accounts.length} total)\n`));
+        
         resolve();
       } catch (err) {
         res.writeHead(500);
@@ -270,7 +272,30 @@ antigravityAuthCommand
   .description('Login with Antigravity (Google) OAuth')
   .action(async () => {
     try {
-      await loginAntigravity();
+      let continueAdding = true;
+      
+      while (continueAdding) {
+        await loginAntigravity();
+        
+        const { action } = await inquirer.prompt([
+          {
+            type: 'select',
+            name: 'action',
+            message: 'What would you like to do next?',
+            choices: [
+              { name: '➕ Add another Antigravity account', value: 'add' },
+              { name: '✓ Done, exit', value: 'exit' },
+            ],
+          },
+        ]);
+        
+        if (action === 'exit') {
+          continueAdding = false;
+          console.log(chalk.green('\n✓ All done! You can now use your Antigravity accounts.\n'));
+        } else {
+          console.log('\n');
+        }
+      }
     } catch (error) {
       console.error(chalk.red(`Login failed: ${(error as Error).message}`));
       process.exit(1);

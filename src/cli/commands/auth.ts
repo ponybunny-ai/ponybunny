@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import open from 'open';
+import inquirer from 'inquirer';
 import { createServer } from 'http';
 import { randomBytes, createHash } from 'crypto';
 import { accountManagerV2 } from '../lib/auth-manager-v2.js';
@@ -152,12 +153,12 @@ async function loginWithOAuth(): Promise<void> {
             );
         email = payload.email;
         userId = payload.sub;
-      } catch (e) {
+      } catch {
         console.log(chalk.yellow('Warning: Could not parse user info from token'));
       }
     }
 
-    const account = accountManagerV2.addCodexAccount({
+    accountManagerV2.addCodexAccount({
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
       expiresAt: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined,
@@ -181,10 +182,10 @@ async function loginWithOAuth(): Promise<void> {
         
         const accounts = accountManagerV2.listAccounts('codex');
         console.log(chalk.green(`\n✓ Logged in as: ${email || userId || 'User'}`));
-        console.log(chalk.cyan(`✓ Account added (${accounts.length} total account${accounts.length > 1 ? 's' : ''})`));
+        console.log(chalk.cyan(`✓ Account added (${accounts.length} total account${accounts.length > 1 ? 's' : ''})\n`));
         
         if (accounts.length === 1) {
-          console.log(chalk.gray('  This is your first account and will be used by default'));
+          console.log(chalk.gray('  This is your first account and will be used by default\n'));
         } else {
           console.log(chalk.gray(`  Use 'pb auth switch ${email}' to make this the active account`));
           console.log(chalk.gray(`  Use 'pb auth list' to see all accounts`));
@@ -220,6 +221,68 @@ async function loginWithOAuth(): Promise<void> {
   });
 }
 
+async function loginWithAPIKey(): Promise<void> {
+  const spinner = ora('Setting up API key authentication...').start();
+  spinner.stop();
+
+  const answers = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'apiKey',
+      message: 'Enter your API key:',
+      validate: (input: string) => {
+        if (!input || input.trim().length === 0) {
+          return 'API key cannot be empty';
+        }
+        if (input.trim().length < 20) {
+          return 'API key seems too short. Please check and try again.';
+        }
+        return true;
+      },
+    },
+    {
+      type: 'input',
+      name: 'baseURL',
+      message: 'Enter base URL (optional, press Enter to skip):',
+      default: '',
+      validate: (input: string) => {
+        if (!input || input.trim().length === 0) {
+          return true;
+        }
+        try {
+          new URL(input);
+          return true;
+        } catch {
+          return 'Please enter a valid URL (e.g., https://api.openai.com/v1)';
+        }
+      },
+    },
+    {
+      type: 'input',
+      name: 'email',
+      message: 'Enter email or identifier (optional):',
+      default: '',
+    },
+  ]);
+
+  accountManagerV2.addOpenAICompatibleAccount({
+    apiKey: answers.apiKey.trim(),
+    baseURL: answers.baseURL.trim() || undefined,
+    email: answers.email.trim() || undefined,
+  });
+
+  const accounts = accountManagerV2.listAccounts('openai-compatible');
+  console.log(chalk.green(`\n✓ API key account added successfully!`));
+  console.log(chalk.cyan(`✓ Total API key accounts: ${accounts.length}\n`));
+  
+  if (answers.baseURL) {
+    console.log(chalk.gray(`  Base URL: ${answers.baseURL}`));
+  } else {
+    console.log(chalk.gray(`  Using default OpenAI base URL`));
+  }
+  console.log();
+}
+
 async function logout(): Promise<void> {
   accountManagerV2.clearAllAccounts();
   console.log(chalk.green('✓ Successfully logged out all accounts'));
@@ -253,6 +316,7 @@ async function listAccounts(): Promise<void> {
   
   const codexAccounts = allAccounts.filter(a => a.provider === 'codex');
   const antigravityAccounts = allAccounts.filter(a => a.provider === 'antigravity');
+  const openaiCompatibleAccounts = allAccounts.filter(a => a.provider === 'openai-compatible');
   
   console.log(chalk.cyan(`\n📋 Accounts (${allAccounts.length} total) - Strategy: ${chalk.bold(strategy)}\n`));
   
@@ -295,6 +359,29 @@ async function listAccounts(): Promise<void> {
       
       if (antigravityAccount.projectId) {
         console.log(`     Project: ${chalk.gray(antigravityAccount.projectId)}`);
+      }
+      console.log();
+    });
+  }
+  
+  if (openaiCompatibleAccounts.length > 0) {
+    console.log(chalk.yellow.bold('OpenAI-Compatible API') + chalk.gray(` (${openaiCompatibleAccounts.length})`));
+    console.log(chalk.gray('─'.repeat(50)));
+    
+    openaiCompatibleAccounts.forEach((account, index) => {
+      const compatAccount = account as any;
+      const isCurrent = config.currentAccountId === account.id;
+      const prefix = isCurrent ? chalk.green('➤') : ' ';
+      const label = isCurrent ? chalk.green.bold(account.email || account.userId || 'API Key Account') : chalk.white(account.email || account.userId || 'API Key Account');
+      
+      console.log(`${prefix} ${index + 1}. ${label}`);
+      console.log(`     ID: ${chalk.gray(account.id)}`);
+      console.log(`     Added: ${chalk.gray(new Date(account.addedAt).toLocaleString())}`);
+      
+      if (compatAccount.baseURL) {
+        console.log(`     Base URL: ${chalk.gray(compatAccount.baseURL)}`);
+      } else {
+        console.log(`     Base URL: ${chalk.gray('https://api.openai.com/v1 (default)')}`);
       }
       console.log();
     });
@@ -376,10 +463,76 @@ export const authCommand = new Command('auth')
 
 authCommand
   .command('login')
-  .description('Login with OpenAI Codex OAuth')
+  .description('Login to an AI provider')
   .action(async () => {
     try {
-      await loginWithOAuth();
+      const { provider } = await inquirer.prompt([
+        {
+          type: 'select',
+          name: 'provider',
+          message: 'Select a provider to authenticate with:',
+          choices: [
+            { name: '🤖 OpenAI Codex (OAuth)', value: 'codex' },
+            { name: '🔮 Google Antigravity (OAuth)', value: 'antigravity' },
+            { name: '🔑 OpenAI-Compatible API (API Key)', value: 'openai-compatible' },
+          ],
+        },
+      ]);
+
+      if (provider === 'codex') {
+        let continueAdding = true;
+        
+        while (continueAdding) {
+          await loginWithOAuth();
+          
+          const { action } = await inquirer.prompt([
+            {
+              type: 'select',
+              name: 'action',
+              message: 'What would you like to do next?',
+              choices: [
+                { name: '➕ Add another OpenAI Codex account', value: 'add' },
+                { name: '✓ Done, exit', value: 'exit' },
+              ],
+            },
+          ]);
+          
+          if (action === 'exit') {
+            continueAdding = false;
+            console.log(chalk.green('\n✓ All done! You can now use your Codex accounts.\n'));
+          } else {
+            console.log('\n');
+          }
+        }
+      } else if (provider === 'antigravity') {
+        const { loginAntigravity } = await import('./auth-antigravity.js');
+        let continueAdding = true;
+        
+        while (continueAdding) {
+          await loginAntigravity();
+          
+          const { action } = await inquirer.prompt([
+            {
+              type: 'select',
+              name: 'action',
+              message: 'What would you like to do next?',
+              choices: [
+                { name: '➕ Add another Antigravity account', value: 'add' },
+                { name: '✓ Done, exit', value: 'exit' },
+              ],
+            },
+          ]);
+          
+          if (action === 'exit') {
+            continueAdding = false;
+            console.log(chalk.green('\n✓ All done! You can now use your Antigravity accounts.\n'));
+          } else {
+            console.log('\n');
+          }
+        }
+      } else if (provider === 'openai-compatible') {
+        await loginWithAPIKey();
+      }
     } catch (error) {
       console.error(chalk.red(`Login failed: ${(error as Error).message}`));
       process.exit(1);
