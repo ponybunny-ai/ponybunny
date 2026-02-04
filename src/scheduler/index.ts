@@ -114,3 +114,19 @@ export type {
 } from './escalation-handler/index.js';
 
 export { EscalationHandler } from './escalation-handler/index.js';
+
+// Quality Gate Runner
+export type {
+  IQualityGateRunner as IQualityGateRunnerImpl,
+  ICommandExecutor,
+  ILLMReviewer,
+  QualityGateResult as QualityGateResultImpl,
+  VerificationResult as VerificationResultImpl,
+  QualityGateRunnerConfig,
+} from './quality-gate-runner/index.js';
+
+export {
+  QualityGateRunner,
+  DefaultCommandExecutor,
+  MockLLMReviewer,
+} from './quality-gate-runner/index.js';
