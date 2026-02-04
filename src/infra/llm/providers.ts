@@ -198,6 +198,8 @@ export class AnthropicProvider implements ILLMProvider {
 
   private getCostPer1kTokens(model: string): number {
     const costs: Record<string, number> = {
+      'claude-opus-4-5-20251101': 0.015,
+      'claude-sonnet-4-20250514': 0.003,
       'claude-3-5-sonnet-20241022': 0.003,
       'claude-3-opus-20240229': 0.015,
       'claude-3-sonnet-20240229': 0.003,
