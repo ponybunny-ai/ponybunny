@@ -5,6 +5,7 @@ import { authCommand } from './commands/auth.js';
 import { statusCommand } from './commands/status.js';
 import { configCommand } from './commands/config.js';
 import { modelsCommand } from './commands/models.js';
+import { gatewayCommand } from './commands/gateway.js';
 import { registerWorkCommand } from './commands/work.js';
 import { startChatUI } from './ui/chat-ui.js';
 
@@ -23,6 +24,7 @@ program
 program.addCommand(authCommand);
 program.addCommand(configCommand);
 program.addCommand(modelsCommand);
+program.addCommand(gatewayCommand);
 registerWorkCommand(program);
 
 program

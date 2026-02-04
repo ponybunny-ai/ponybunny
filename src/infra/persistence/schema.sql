@@ -280,9 +280,26 @@ CREATE TABLE IF NOT EXISTS meta (
     updated_at INTEGER NOT NULL
 );
 
+-- ============================================================================
+-- 9. PAIRING_TOKENS Table
+-- ============================================================================
+-- Gateway authentication tokens for client pairing
+CREATE TABLE IF NOT EXISTS pairing_tokens (
+    id TEXT PRIMARY KEY,
+    token_hash TEXT NOT NULL UNIQUE,
+    public_key TEXT,                        -- Bound after successful pairing
+    permissions TEXT NOT NULL,              -- JSON array of permissions
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER,                     -- NULL = never expires
+    revoked_at INTEGER                      -- NULL = not revoked
+);
+
+CREATE INDEX IF NOT EXISTS idx_pairing_tokens_hash ON pairing_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_pairing_tokens_public_key ON pairing_tokens(public_key);
+
 -- Initialize schema version
-INSERT OR IGNORE INTO meta (key, value, updated_at) 
-VALUES ('schema_version', '1.0.0', strftime('%s', 'now') * 1000);
+INSERT OR IGNORE INTO meta (key, value, updated_at)
+VALUES ('schema_version', '1.1.0', strftime('%s', 'now') * 1000);
 
 INSERT OR IGNORE INTO meta (key, value, updated_at)
 VALUES ('initialized_at', strftime('%s', 'now') * 1000, strftime('%s', 'now') * 1000);
