@@ -130,3 +130,24 @@ export {
   DefaultCommandExecutor,
   MockLLMReviewer,
 } from './quality-gate-runner/index.js';
+
+// Scheduler Core
+export type {
+  ISchedulerCore,
+  SchedulerConfig,
+  SchedulerDependencies,
+  GoalExecutionState,
+  WorkItemExecutionContext,
+  SchedulerMetrics,
+  ISchedulerRepository,
+  IModelSelectorAdapter,
+  ILaneSelectorAdapter,
+  IBudgetTrackerAdapter,
+  IRetryHandlerAdapter,
+  IEscalationHandlerAdapter,
+  IQualityGateRunnerAdapter,
+  IWorkItemManagerAdapter,
+  IExecutionEngineAdapter,
+} from './core/index.js';
+
+export { SchedulerCore } from './core/index.js';
