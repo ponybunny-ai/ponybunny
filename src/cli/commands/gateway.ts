@@ -376,9 +376,12 @@ gatewayCommand
     await new Promise(() => {});
   });
 
-async function runGateway(host: string, port: number, dbPath: string, mode: 'foreground' | 'background' | 'daemon'): Promise<void> {
+async function runGateway(host: string, port: number, dbPath: string, _mode: 'foreground' | 'background' | 'daemon'): Promise<void> {
   const isBackground = process.env.PONY_GATEWAY_BACKGROUND === '1';
   const isDaemonChild = process.env.PONY_GATEWAY_DAEMON_CHILD === '1';
+
+  // Determine actual mode based on environment
+  const actualMode: 'foreground' | 'background' | 'daemon' = isDaemonChild ? 'daemon' : isBackground ? 'background' : 'foreground';
 
   if (!isBackground && !isDaemonChild) {
     console.log(chalk.blue('Starting PonyBunny Gateway Server...'));
@@ -422,7 +425,7 @@ async function runGateway(host: string, port: number, dbPath: string, mode: 'for
       port,
       startedAt: Date.now(),
       dbPath,
-      mode,
+      mode: actualMode,
     });
 
     log(`Gateway started successfully (PID: ${process.pid})`);
