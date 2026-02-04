@@ -47,6 +47,8 @@ export interface ResolvedEndpointCredentials {
   region?: string;
   projectId?: string;
   endpoint?: string;
+  /** Override base URL from credentials file */
+  baseUrl?: string;
 }
 
 /**
@@ -75,6 +77,7 @@ const CREDENTIAL_FILE_MAPPING: Record<string, keyof ResolvedEndpointCredentials>
   'region': 'region',
   'endpoint': 'endpoint',
   'projectId': 'projectId',
+  'baseUrl': 'baseUrl',
 };
 
 /**
@@ -157,6 +160,11 @@ export function resolveCredentials(config: EndpointConfig): ResolvedEndpointCred
         credentials[field] = value;
       }
     }
+  }
+
+  // Check for baseUrl override in credentials file
+  if (fileCredential?.baseUrl) {
+    credentials.baseUrl = fileCredential.baseUrl;
   }
 
   return credentials;

@@ -12,6 +12,8 @@ export interface EndpointCredential {
   region?: string;
   endpoint?: string;
   projectId?: string;
+  /** Override the default base URL for this endpoint */
+  baseUrl?: string;
 }
 
 /**
