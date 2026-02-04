@@ -2,7 +2,9 @@ import type { Goal, WorkItem, WorkItemType, EffortEstimate, VerificationPlan } f
 import type { IWorkOrderRepository } from '../../../infra/persistence/repository-interface.js';
 import type { IPlanningService, PlanningResult } from '../stage-interfaces.js';
 import type { ILLMProvider } from '../../../infra/llm/llm-provider.js';
+import type { IModelSelector } from '../../../scheduler/model-selector/types.js';
 import { validateWorkItemInvariants } from '../../../domain/work-order/invariants.js';
+import { ModelSelector } from '../../../scheduler/model-selector/model-selector.js';
 
 interface PlannedItem {
   id: string;
@@ -16,10 +18,15 @@ interface PlannedItem {
 }
 
 export class PlanningService implements IPlanningService {
+  private modelSelector: IModelSelector;
+
   constructor(
     private repository: IWorkOrderRepository,
-    private llmProvider: ILLMProvider
-  ) {}
+    private llmProvider: ILLMProvider,
+    modelSelector?: IModelSelector
+  ) {
+    this.modelSelector = modelSelector ?? new ModelSelector();
+  }
 
   async planWorkItems(goal: Goal): Promise<PlanningResult> {
     const workItems: WorkItem[] = [];
@@ -108,12 +115,15 @@ Budget Tokens: ${goal.budget_tokens || 'N/A'}
 Break this down into execution steps.`;
 
     try {
+      const selection = this.modelSelector.selectModelForPlanning(goal);
+      console.log(`[PlanningService] ${selection.reasoning}`);
+
       const response = await this.llmProvider.complete([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
       ], {
         temperature: 0.2,
-        model: 'gpt-4o',
+        model: selection.model,
       });
 
       const content = response.content.replace(/```json/g, '').replace(/```/g, '').trim();
