@@ -33,7 +33,10 @@ export class RpcHandler {
       throw GatewayError.methodNotFound(method);
     }
 
-    return this.registry.execute(method, params, session);
+    // Ensure params is at least an empty object
+    const safeParams = params ?? {};
+
+    return this.registry.execute(method, safeParams, session);
   }
 
   /**
