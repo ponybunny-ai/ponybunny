@@ -12,9 +12,13 @@ import type { AccountProvider } from '../lib/account-types.js';
 import { accountManagerV2 } from '../lib/auth-manager-v2.js';
 import { WorkOrderDatabase } from '../../work-order/database/manager.js';
 import { ExecutionService } from '../../app/lifecycle/execution/execution-service.js';
-import { LLMRouter, MockLLMProvider } from '../../infra/llm/llm-provider.js';
-import { OpenAIProvider, AnthropicProvider } from '../../infra/llm/providers.js';
-import { CodexAccountProvider, AntigravityAccountProvider } from '../../infra/llm/account-providers.js';
+import {
+  getLLMService,
+  LLMRouter,
+  MockLLMProvider,
+  CodexAccountProvider,
+  AntigravityAccountProvider,
+} from '../../infra/llm/index.js';
 import type { ReActCycleParams } from '../../autonomy/react-integration.js';
 
 // Initialize core services lazily
@@ -25,44 +29,45 @@ async function initServices() {
   if (executionService) return;
 
   console.log('[ChatUI] Initializing services...');
-  
+
   const dbPath = process.env.PONY_DB_PATH || './pony-work-orders.db';
   repository = new WorkOrderDatabase(dbPath);
   await repository.initialize();
 
   const providers = [];
-  
+
+  // OAuth-based providers (account-based)
   const codexAccount = accountManagerV2.getCurrentAccount('codex');
   console.log('[ChatUI] Codex account:', codexAccount?.email || 'none');
   if (codexAccount) {
     console.log('[ChatUI] Adding CodexAccountProvider');
     providers.push(new CodexAccountProvider(accountManagerV2, { model: 'gpt-5.2-codex', maxTokens: 4000 }));
   }
-  
+
   const antigravityAccount = accountManagerV2.getCurrentAccount('antigravity');
   console.log('[ChatUI] Antigravity account:', antigravityAccount?.email || 'none');
   if (antigravityAccount) {
     console.log('[ChatUI] Adding AntigravityAccountProvider');
     providers.push(new AntigravityAccountProvider(accountManagerV2, { model: 'gemini-2.5-flash', maxTokens: 4000 }));
   }
-  
-  if (process.env.OPENAI_API_KEY) {
-    console.log('[ChatUI] Adding OpenAIProvider from env');
-    providers.push(new OpenAIProvider({
-      apiKey: process.env.OPENAI_API_KEY,
-      model: 'gpt-4o-mini',
-      maxTokens: 4000,
-    }));
+
+  // API key-based providers via LLMService
+  const llmService = getLLMService();
+  const availableProviders = llmService.getAvailableProviders();
+  console.log('[ChatUI] Available API key providers:', availableProviders.join(', ') || 'none');
+
+  if (availableProviders.length > 0) {
+    // Add providers from the registry
+    for (const providerId of availableProviders) {
+      const { getProviderRegistry } = await import('../../infra/llm/index.js');
+      const registry = getProviderRegistry();
+      const provider = registry.getProvider(providerId);
+      if (provider) {
+        providers.push(provider);
+      }
+    }
   }
-  if (process.env.ANTHROPIC_API_KEY) {
-    console.log('[ChatUI] Adding AnthropicProvider from env');
-    providers.push(new AnthropicProvider({
-      apiKey: process.env.ANTHROPIC_API_KEY,
-      model: 'claude-3-5-sonnet-20241022',
-      maxTokens: 4000,
-    }));
-  }
-  
+
   if (providers.length === 0) {
     console.log('[ChatUI] No providers available, using MockLLMProvider');
     providers.push(new MockLLMProvider('chat-mock'));
@@ -76,7 +81,7 @@ async function initServices() {
     { maxConsecutiveErrors: 3 },
     llmRouter
   );
-  
+
   console.log('[ChatUI] Services initialized');
 }
 

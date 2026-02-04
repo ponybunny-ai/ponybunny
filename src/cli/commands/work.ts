@@ -3,9 +3,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { WorkOrderDatabase } from '../../work-order/database/manager.js';
 import { ExecutionService } from '../../app/lifecycle/execution/execution-service.js';
-import { LLMRouter, MockLLMProvider } from '../../infra/llm/llm-provider.js';
-import { OpenAIProvider, AnthropicProvider } from '../../infra/llm/providers.js';
-import { join } from 'path';
+import { getLLMService, LLMRouter, MockLLMProvider } from '../../infra/llm/index.js';
 
 export function registerWorkCommand(program: Command) {
   program
@@ -21,7 +19,7 @@ export function registerWorkCommand(program: Command) {
       // 1. Initialize Database
       const dbPath = process.env.PONY_DB_PATH || options.db;
       const repository = new WorkOrderDatabase(dbPath);
-      
+
       try {
         await repository.initialize();
       } catch (error) {
@@ -29,29 +27,19 @@ export function registerWorkCommand(program: Command) {
         process.exit(1);
       }
 
-      // 2. Initialize LLM Providers
-      const providers = [];
-      if (process.env.OPENAI_API_KEY) {
-        providers.push(new OpenAIProvider({
-          apiKey: process.env.OPENAI_API_KEY,
-          model: 'gpt-4o-mini',
-          maxTokens: 4000,
-        }));
-      }
-      if (process.env.ANTHROPIC_API_KEY) {
-        providers.push(new AnthropicProvider({
-          apiKey: process.env.ANTHROPIC_API_KEY,
-          model: 'claude-3-haiku-20240307',
-          maxTokens: 4000,
-        }));
-      }
-      
-      if (providers.length === 0) {
-        spinner.warn(chalk.yellow('No API keys found. Using Mock Provider (results will be simulated).'));
-        providers.push(new MockLLMProvider('cli-mock'));
-      }
+      // 2. Initialize LLM Service
+      const llmService = getLLMService();
+      const availableProviders = llmService.getAvailableProviders();
 
-      const llmRouter = new LLMRouter(providers);
+      let llmRouter: LLMRouter;
+
+      if (availableProviders.length === 0) {
+        spinner.warn(chalk.yellow('No API keys found. Using Mock Provider (results will be simulated).'));
+        llmRouter = new LLMRouter([new MockLLMProvider('cli-mock')]);
+      } else {
+        llmRouter = llmService.createRouter();
+        spinner.info(chalk.dim(`Using providers: ${availableProviders.join(', ')}`));
+      }
 
       // 3. Initialize Services
       const executionService = new ExecutionService(
@@ -64,7 +52,7 @@ export function registerWorkCommand(program: Command) {
 
       // 4. Create Goal & Work Item
       console.log(chalk.blue(`\n📝 Task: ${task}`));
-      
+
       const goal = repository.createGoal({
         title: 'CLI Task',
         description: task,
