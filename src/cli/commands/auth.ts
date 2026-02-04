@@ -83,16 +83,56 @@ async function loginWithOAuth(): Promise<void> {
       const error = callbackUrl.searchParams.get('error');
 
       if (error) {
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end(`
-          <html>
-            <body>
-              <h1>Authentication Failed</h1>
-              <p>Error: ${error}</p>
-              <p>You can close this window.</p>
-            </body>
-          </html>
-        `);
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Authentication Failed - PonyBunny</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #fff;
+    }
+    .container {
+      text-align: center;
+      padding: 3rem;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      max-width: 400px;
+    }
+    .icon { font-size: 4rem; margin-bottom: 1.5rem; }
+    h1 { font-size: 1.5rem; margin-bottom: 1rem; color: #ff6b6b; }
+    p { color: #a0a0a0; margin-bottom: 0.5rem; }
+    .error-code {
+      background: rgba(255, 107, 107, 0.1);
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      font-family: monospace;
+      color: #ff6b6b;
+      margin: 1rem 0;
+    }
+    .hint { font-size: 0.875rem; color: #666; margin-top: 1.5rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">❌</div>
+    <h1>Authentication Failed</h1>
+    <div class="error-code">${error}</div>
+    <p class="hint">You can close this window and try again.</p>
+  </div>
+</body>
+</html>`);
         server.close();
         spinner.fail('Authentication failed');
         reject(new Error(error));
@@ -100,8 +140,48 @@ async function loginWithOAuth(): Promise<void> {
       }
 
       if (returnedState !== state) {
-        res.writeHead(400);
-        res.end('State mismatch - possible CSRF attack');
+        res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Security Error - PonyBunny</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #fff;
+    }
+    .container {
+      text-align: center;
+      padding: 3rem;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      max-width: 400px;
+    }
+    .icon { font-size: 4rem; margin-bottom: 1.5rem; }
+    h1 { font-size: 1.5rem; margin-bottom: 1rem; color: #f59e0b; }
+    p { color: #a0a0a0; line-height: 1.6; }
+    .hint { font-size: 0.875rem; color: #666; margin-top: 1.5rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">⚠️</div>
+    <h1>Security Validation Failed</h1>
+    <p>State mismatch detected. This could indicate a CSRF attack or an expired authentication session.</p>
+    <p class="hint">Please close this window and try again.</p>
+  </div>
+</body>
+</html>`);
         server.close();
         spinner.fail('State validation failed');
         reject(new Error('State mismatch'));
@@ -109,8 +189,48 @@ async function loginWithOAuth(): Promise<void> {
       }
 
       if (!code) {
-        res.writeHead(400);
-        res.end('Missing authorization code');
+        res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Missing Code - PonyBunny</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #fff;
+    }
+    .container {
+      text-align: center;
+      padding: 3rem;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      max-width: 400px;
+    }
+    .icon { font-size: 4rem; margin-bottom: 1.5rem; }
+    h1 { font-size: 1.5rem; margin-bottom: 1rem; color: #ff6b6b; }
+    p { color: #a0a0a0; line-height: 1.6; }
+    .hint { font-size: 0.875rem; color: #666; margin-top: 1.5rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">❌</div>
+    <h1>Missing Authorization Code</h1>
+    <p>The authorization code was not received from the authentication server.</p>
+    <p class="hint">Please close this window and try again.</p>
+  </div>
+</body>
+</html>`);
         server.close();
         spinner.fail('Missing authorization code');
         reject(new Error('Missing code'));
@@ -166,16 +286,71 @@ async function loginWithOAuth(): Promise<void> {
       email,
     });
 
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end(`
-          <html>
-            <body>
-              <h1>✓ Authentication Successful!</h1>
-              <p>You can now close this window and return to the terminal.</p>
-              <script>setTimeout(() => window.close(), 2000);</script>
-            </body>
-          </html>
-        `);
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Authentication Successful - PonyBunny</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #fff;
+    }
+    .container {
+      text-align: center;
+      padding: 3rem;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      max-width: 400px;
+    }
+    .icon { font-size: 4rem; margin-bottom: 1.5rem; }
+    h1 { font-size: 1.5rem; margin-bottom: 1rem; color: #4ade80; }
+    p { color: #a0a0a0; line-height: 1.6; }
+    .countdown {
+      margin-top: 1.5rem;
+      font-size: 0.875rem;
+      color: #666;
+    }
+    .progress-bar {
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      margin-top: 1rem;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #4ade80, #22c55e);
+      animation: shrink 3s linear forwards;
+    }
+    @keyframes shrink {
+      from { width: 100%; }
+      to { width: 0%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">✓</div>
+    <h1>Authentication Successful</h1>
+    <p>You have been logged in successfully.<br>You can now close this window and return to the terminal.</p>
+    <div class="progress-bar"><div class="progress-fill"></div></div>
+    <p class="countdown">This window will close automatically...</p>
+  </div>
+  <script>setTimeout(() => window.close(), 3000);</script>
+</body>
+</html>`);
 
         server.close();
         spinner.succeed('Successfully authenticated!');
@@ -193,8 +368,48 @@ async function loginWithOAuth(): Promise<void> {
         
         resolve();
       } catch (error) {
-        res.writeHead(500);
-        res.end('Internal server error');
+        res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Server Error - PonyBunny</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #fff;
+    }
+    .container {
+      text-align: center;
+      padding: 3rem;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      max-width: 400px;
+    }
+    .icon { font-size: 4rem; margin-bottom: 1.5rem; }
+    h1 { font-size: 1.5rem; margin-bottom: 1rem; color: #ff6b6b; }
+    p { color: #a0a0a0; line-height: 1.6; }
+    .hint { font-size: 0.875rem; color: #666; margin-top: 1.5rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">⚙️</div>
+    <h1>Internal Server Error</h1>
+    <p>An error occurred while exchanging the authorization code for tokens.</p>
+    <p class="hint">Please close this window and try again.</p>
+  </div>
+</body>
+</html>`);
         server.close();
         spinner.fail('Token exchange failed');
         reject(error);
