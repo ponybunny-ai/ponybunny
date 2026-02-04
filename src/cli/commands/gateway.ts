@@ -30,7 +30,7 @@ const DEFAULT_HOST = process.env.PONY_GATEWAY_HOST || '127.0.0.1';
 const DEFAULT_PORT = parseInt(process.env.PONY_GATEWAY_PORT || '18789', 10);
 
 // PID and log file locations
-const PONY_DIR = join(homedir(), '.pony');
+const PONY_DIR = join(homedir(), '.ponybunny');
 const PID_FILE = join(PONY_DIR, 'gateway.pid');
 const LOG_FILE = join(PONY_DIR, 'gateway.log');
 const DAEMON_PID_FILE = join(PONY_DIR, 'gateway-daemon.pid');
