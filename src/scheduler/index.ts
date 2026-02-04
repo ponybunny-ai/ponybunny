@@ -91,3 +91,26 @@ export type {
 } from './retry-handler/index.js';
 
 export { RetryHandler } from './retry-handler/index.js';
+
+// Work Item Manager
+export type {
+  IWorkItemManager as IWorkItemManagerImpl,
+  IWorkItemRepository,
+  DAGValidationResult,
+  DependencyStatus,
+  WorkItemTransition,
+} from './work-item-manager/index.js';
+
+export { WorkItemManager } from './work-item-manager/index.js';
+
+// Escalation Handler
+export type {
+  IEscalationHandler as IEscalationHandlerImpl,
+  IEscalationRepository,
+  EscalationCreateParams,
+  EscalationResolveParams,
+  EscalationFilter,
+  EscalationStats,
+} from './escalation-handler/index.js';
+
+export { EscalationHandler } from './escalation-handler/index.js';
