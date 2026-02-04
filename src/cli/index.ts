@@ -5,6 +5,7 @@ import { authCommand } from './commands/auth.js';
 import { statusCommand } from './commands/status.js';
 import { configCommand } from './commands/config.js';
 import { modelsCommand } from './commands/models.js';
+import { registerWorkCommand } from './commands/work.js';
 import { startChatUI } from './ui/chat-ui.js';
 
 const program = new Command();
@@ -22,6 +23,7 @@ program
 program.addCommand(authCommand);
 program.addCommand(configCommand);
 program.addCommand(modelsCommand);
+registerWorkCommand(program);
 
 program
   .command('chat')

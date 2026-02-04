@@ -1,67 +1,23 @@
+export interface ToolContext {
+  cwd: string;
+  allowlist: ToolAllowlist;
+  enforcer: ToolEnforcer;
+  workspaceRoot?: string;
+}
+
 export interface ToolDefinition {
   name: string;
-  category: 'filesystem' | 'shell' | 'network' | 'database' | 'git';
+  category: 'filesystem' | 'shell' | 'network' | 'database' | 'git' | 'code';
   riskLevel: 'safe' | 'moderate' | 'dangerous';
   requiresApproval: boolean;
   description: string;
+  execute(args: Record<string, any>, context: ToolContext): Promise<string>;
 }
 
 export class ToolRegistry {
   private tools = new Map<string, ToolDefinition>();
   
-  constructor() {
-    this.registerDefaultTools();
-  }
-
-  private registerDefaultTools(): void {
-    this.register({
-      name: 'read_file',
-      category: 'filesystem',
-      riskLevel: 'safe',
-      requiresApproval: false,
-      description: 'Read file contents',
-    });
-
-    this.register({
-      name: 'write_file',
-      category: 'filesystem',
-      riskLevel: 'moderate',
-      requiresApproval: false,
-      description: 'Write or modify file contents',
-    });
-
-    this.register({
-      name: 'execute_shell',
-      category: 'shell',
-      riskLevel: 'dangerous',
-      requiresApproval: true,
-      description: 'Execute shell command',
-    });
-
-    this.register({
-      name: 'git_commit',
-      category: 'git',
-      riskLevel: 'moderate',
-      requiresApproval: false,
-      description: 'Create git commit',
-    });
-
-    this.register({
-      name: 'git_push',
-      category: 'git',
-      riskLevel: 'dangerous',
-      requiresApproval: true,
-      description: 'Push commits to remote',
-    });
-
-    this.register({
-      name: 'http_request',
-      category: 'network',
-      riskLevel: 'dangerous',
-      requiresApproval: true,
-      description: 'Make HTTP request to external service',
-    });
-  }
+  constructor() {}
 
   register(tool: ToolDefinition): void {
     this.tools.set(tool.name, tool);
@@ -69,6 +25,10 @@ export class ToolRegistry {
 
   getTool(name: string): ToolDefinition | undefined {
     return this.tools.get(name);
+  }
+
+  hasTool(name: string): boolean {
+    return this.tools.has(name);
   }
 
   getAllTools(): ToolDefinition[] {
@@ -89,18 +49,6 @@ export class ToolAllowlist {
 
   constructor(allowedTools: string[] = []) {
     this.allowedTools = new Set(allowedTools);
-    
-    if (this.allowedTools.size === 0) {
-      this.setDefaultAllowlist();
-    }
-  }
-
-  private setDefaultAllowlist(): void {
-    this.allowedTools = new Set([
-      'read_file',
-      'write_file',
-      'git_commit',
-    ]);
   }
 
   isAllowed(toolName: string): boolean {
@@ -108,6 +56,7 @@ export class ToolAllowlist {
   }
 
   addTool(toolName: string): void {
+
     this.allowedTools.add(toolName);
   }
 

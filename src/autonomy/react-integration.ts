@@ -1,16 +1,12 @@
 import type { WorkItem, Run } from '../work-order/types/index.js';
 import type { ILLMProvider, LLMMessage } from '../infra/llm/llm-provider.js';
-import type { ToolEnforcer } from '../infra/tools/tool-registry.js';
-import { readFileSync, writeFileSync } from 'fs';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
+import type { ToolEnforcer, ToolContext } from '../infra/tools/tool-registry.js';
 
 export interface ReActCycleParams {
   workItem: WorkItem;
   run: Run;
   signal: AbortSignal;
+  model?: string;
 }
 
 export interface ReActCycleResult {
@@ -34,6 +30,7 @@ export interface ReActContext {
   conversationHistory: ReActStep[];
   totalTokens: number;
   totalCost: number;
+  model?: string;
 }
 
 export class ReActIntegration {
@@ -41,6 +38,96 @@ export class ReActIntegration {
     private llmProvider?: ILLMProvider,
     private toolEnforcer?: ToolEnforcer
   ) {}
+
+  private availableSkills: any[] = [];
+
+  setAvailableSkills(skills: any[]): void {
+    this.availableSkills = skills;
+  }
+
+  async chatStep(params: ReActCycleParams, userInput: string): Promise<ReActCycleResult & { reply: string }> {
+    console.log('[ReAct] chatStep called with input:', userInput);
+    console.log('[ReAct] Using model:', params.model || 'default');
+    
+    const context: ReActContext = {
+      workItem: params.workItem,
+      run: params.run,
+      conversationHistory: params.run.context?.history || [],
+      totalTokens: 0,
+      totalCost: 0,
+      model: params.model,
+    };
+
+    if (context.conversationHistory.length === 0) {
+      console.log('[ReAct] First message, adding initial observation with tools');
+      await this.observation(context, this.buildInitialObservation(params.workItem));
+    }
+    
+    await this.observation(context, `User: ${userInput}`);
+
+    let maxIterations = 5;
+    let reply = '';
+
+    while (maxIterations > 0) {
+        if (params.signal.aborted) throw new Error('Aborted');
+
+        console.log('[ReAct] Iteration', 5 - maxIterations + 1, '- calling think()');
+        const thought = await this.think(context);
+        console.log('[ReAct] Thought:', thought);
+        await this.thought(context, thought);
+
+        if (this.isQuestionForUser(thought)) {
+            console.log('[ReAct] Detected question for user, breaking loop');
+            reply = thought;
+            break;
+        }
+        
+        if (this.isTaskComplete(thought)) {
+            console.log('[ReAct] Task complete detected');
+            reply = "Task completed.";
+            break;
+        }
+
+        console.log('[ReAct] Selecting action...');
+        const action = await this.selectAction(context, thought);
+        console.log('[ReAct] Action:', action);
+        
+        const actionResult = await this.executeAction(context, action);
+        console.log('[ReAct] Action result:', actionResult);
+        
+        await this.observation(context, actionResult);
+        maxIterations--;
+    }
+
+    if (params.run.context) {
+        params.run.context.history = context.conversationHistory;
+    } else {
+        params.run.context = { history: context.conversationHistory };
+    }
+
+    console.log('[ReAct] Returning reply:', reply || "I have completed the step.");
+    
+    return {
+        success: true,
+        tokensUsed: context.totalTokens,
+        costUsd: context.totalCost,
+        log: this.buildExecutionLog(context),
+        reply: reply || "I have completed the step."
+    };
+  }
+
+  private isQuestionForUser(thought: string): boolean {
+      const lowerThought = thought.toLowerCase();
+      return lowerThought.includes('ask the user') || 
+             lowerThought.includes('need user input') ||
+             lowerThought.includes('user should') ||
+             (lowerThought.includes('?') && (
+               lowerThought.includes('user') || 
+               lowerThought.includes('you want') ||
+               lowerThought.includes('would you') ||
+               lowerThought.includes('should i')
+             ));
+  }
 
   async executeWorkCycle(params: ReActCycleParams): Promise<ReActCycleResult> {
     const context: ReActContext = {
@@ -68,6 +155,15 @@ export class ReActIntegration {
         if (this.isTaskComplete(thought)) {
           completed = true;
           break;
+        }
+
+        // Check if the thought implies a question for the user
+        if (this.isQuestionForUser(thought)) {
+            // For now, we treat this as a "soft completion" or pause.
+            // In a real interactive mode, we would yield here.
+            // But executeWorkCycle is designed to be blocking.
+            // We will need a new method `chatStep` for interactivity.
+            break; 
         }
 
         const action = await this.selectAction(context, thought);
@@ -107,6 +203,28 @@ export class ReActIntegration {
   }
 
   private buildInitialObservation(workItem: WorkItem): string {
+    let toolsList = '';
+
+    if (this.toolEnforcer) {
+      const registry = (this.toolEnforcer as any).registry;
+      const allowlist = (this.toolEnforcer as any).allowlist;
+      
+      if (registry && allowlist) {
+        const allTools = registry.getAllTools();
+        const allowedTools = allTools.filter((t: any) => allowlist.isAllowed(t.name));
+        
+        toolsList = allowedTools.map((t: any) => `- ${t.name}: ${t.description}`).join('\n');
+      }
+    }
+
+    if (!toolsList) {
+      toolsList = `- read_file(path): Read file contents
+- write_file(path, content): Write file
+- execute_command(command): Run shell command
+- search_code(pattern): Search codebase
+- analyze_dependencies(work_item_id): Check dependency outputs`;
+    }
+
     return `Task: ${workItem.title}
 
 Description: ${workItem.description}
@@ -123,11 +241,10 @@ ${JSON.stringify(workItem.context, null, 2)}
 ` : ''}
 
 Available Tools:
-- read_file(path): Read file contents
-- write_file(path, content): Write file
-- execute_command(command): Run shell command
-- search_code(pattern): Search codebase
-- analyze_dependencies(work_item_id): Check dependency outputs
+${toolsList}
+
+${this.availableSkills.length > 0 ? `Available Skills (use 'read_file' to load SKILL.md for instructions):
+${this.availableSkills.map(s => `- ${s.name}: ${s.description} (Path: ${s.path})`).join('\n')}` : ''}
 
 Begin by analyzing the task and forming a plan.`;
   }
@@ -139,6 +256,7 @@ Begin by analyzing the task and forming a plan.`;
       system: this.getSystemPrompt(),
       messages: this.buildMessageHistory(context),
       prompt,
+      model: context.model,
     });
 
     context.totalTokens += response.tokensUsed;
@@ -160,6 +278,7 @@ What action should be taken next? Respond with a JSON object:
     const response = await this.callLLM({
       system: this.getSystemPrompt(),
       messages: [...this.buildMessageHistory(context), { role: 'user', content: actionPrompt }],
+      model: context.model,
     });
 
     context.totalTokens += response.tokensUsed;
@@ -169,32 +288,47 @@ What action should be taken next? Respond with a JSON object:
   }
 
   private async executeAction(context: ReActContext, action: any): Promise<string> {
+    if (action.tool === 'complete_task') {
+      return 'Task marked as complete.';
+    }
+
+    if (!this.toolEnforcer) {
+      return 'Error: No tool enforcer configured. Cannot execute tools.';
+    }
+
+    const check = this.toolEnforcer.checkToolInvocation(action.tool, action.parameters || {});
+    
+    if (!check.allowed) {
+      return `Action denied: ${check.reason}`;
+    }
+
+    if (check.requiresApproval) {
+      
+    }
+
+    const tool = (this.toolEnforcer as any).registry.getTool(action.tool);
+    if (!tool) {
+      return `Error: Tool '${action.tool}' found in enforcer but missing from registry (inconsistent state)`;
+    }
+
     try {
-      switch (action.tool) {
-        case 'read_file':
-          return await this.readFile(action.parameters.path);
-        
-        case 'write_file':
-          return await this.writeFile(action.parameters.path, action.parameters.content);
-        
-        case 'execute_command':
-          return await this.executeCommand(action.parameters.command);
-        
-        case 'search_code':
-          return await this.searchCode(action.parameters.pattern);
-        
-        case 'complete_task':
-          return 'Task marked as complete.';
-        
-        default:
-          return `Unknown tool: ${action.tool}`;
+      if (typeof tool.execute !== 'function') {
+        return `Error: Tool '${action.tool}' does not have an execute method`;
       }
+
+      const result = await tool.execute(action.parameters || {}, {
+        cwd: process.cwd(),
+        allowlist: (this.toolEnforcer as any).allowlist,
+        enforcer: this.toolEnforcer,
+      });
+      return result;
     } catch (error) {
       return `Action failed: ${error}`;
     }
   }
 
   private async observation(context: ReActContext, content: string): Promise<void> {
+
     context.conversationHistory.push({
       type: 'observation',
       content,
@@ -263,6 +397,7 @@ Be methodical, verify your work, and handle errors gracefully.`;
     system: string;
     messages: Array<{ role: string; content: string }>;
     prompt?: string;
+    model?: string;
   }): Promise<{ text: string; tokensUsed: number; cost: number }> {
     if (!this.llmProvider) {
       return {
@@ -285,7 +420,8 @@ Be methodical, verify your work, and handle errors gracefully.`;
     }
 
     try {
-      const response = await this.llmProvider.complete(messages);
+      const options = params.model ? { model: params.model } : undefined;
+      const response = await this.llmProvider.complete(messages, options);
       const cost = this.llmProvider.estimateCost(response.tokensUsed);
 
       return {
@@ -298,38 +434,7 @@ Be methodical, verify your work, and handle errors gracefully.`;
     }
   }
 
-  private async readFile(path: string): Promise<string> {
-    try {
-      return readFileSync(path, 'utf-8');
-    } catch (error) {
-      return `Error reading file: ${(error as Error).message}`;
-    }
-  }
 
-  private async writeFile(path: string, content: string): Promise<string> {
-    try {
-      writeFileSync(path, content, 'utf-8');
-      return `Successfully wrote ${content.length} bytes to ${path}`;
-    } catch (error) {
-      return `Error writing file: ${(error as Error).message}`;
-    }
-  }
-
-  private async executeCommand(command: string): Promise<string> {
-    try {
-      const { stdout, stderr } = await execAsync(command, {
-        timeout: 30000,
-        maxBuffer: 1024 * 1024,
-      });
-      return stdout || stderr || 'Command executed successfully (no output)';
-    } catch (error: any) {
-      return `Command failed (exit code ${error.code || 'unknown'}): ${error.stderr || error.message}`;
-    }
-  }
-
-  private async searchCode(pattern: string): Promise<string> {
-    return `Search results for: ${pattern}`;
-  }
 
   private async collectArtifacts(context: ReActContext): Promise<string[]> {
     return [];

@@ -3,9 +3,20 @@ import type { IWorkOrderRepository } from '../../../infra/persistence/repository
 import type { IExecutionService, ExecutionResult } from '../stage-interfaces.js';
 import type { ILLMProvider } from '../../../infra/llm/llm-provider.js';
 import { ReActIntegration } from '../../../autonomy/react-integration.js';
+import { ToolRegistry, ToolAllowlist, ToolEnforcer } from '../../../infra/tools/tool-registry.js';
+import { ReadFileTool } from '../../../infra/tools/implementations/read-file-tool.js';
+import { WriteFileTool } from '../../../infra/tools/implementations/write-file-tool.js';
+import { ExecuteCommandTool } from '../../../infra/tools/implementations/execute-command-tool.js';
+import { SearchCodeTool } from '../../../infra/tools/implementations/search-code-tool.js';
+import { WebSearchTool } from '../../../infra/tools/implementations/web-search-tool.js';
+import { SkillLoader } from '../../../infra/skills/skill-loader.js';
 
 export class ExecutionService implements IExecutionService {
   private reactIntegration: ReActIntegration;
+  private toolRegistry: ToolRegistry;
+  private toolAllowlist: ToolAllowlist;
+  private toolEnforcer: ToolEnforcer;
+  private skillLoader: SkillLoader;
 
   constructor(
     private repository: IWorkOrderRepository,
@@ -14,7 +25,41 @@ export class ExecutionService implements IExecutionService {
     },
     llmProvider?: ILLMProvider
   ) {
-    this.reactIntegration = new ReActIntegration(llmProvider);
+    this.toolRegistry = new ToolRegistry();
+    this.toolAllowlist = new ToolAllowlist();
+    this.skillLoader = new SkillLoader(['./skills']); // Default skills directory
+    
+    this.registerTools();
+    this.registerSkills();
+    
+    this.toolEnforcer = new ToolEnforcer(this.toolRegistry, this.toolAllowlist);
+    
+    this.reactIntegration = new ReActIntegration(llmProvider, this.toolEnforcer);
+  }
+
+  private registerTools(): void {
+    this.toolRegistry.register(new ReadFileTool());
+    this.toolRegistry.register(new WriteFileTool());
+    this.toolRegistry.register(new ExecuteCommandTool());
+    this.toolRegistry.register(new SearchCodeTool());
+    this.toolRegistry.register(new WebSearchTool());
+    
+    // Allow search_code by default (it's safe)
+    this.toolAllowlist.addTool('search_code');
+    // Allow execute_command (it's powerful, but needed for 'build' and 'test')
+    this.toolAllowlist.addTool('execute_command');
+    
+    this.toolAllowlist.addTool('read_file');
+    this.toolAllowlist.addTool('write_file');
+    this.toolAllowlist.addTool('web_search');
+  }
+
+  private registerSkills(): void {
+    const skills = this.skillLoader.loadSkills();
+    
+    if (this.reactIntegration) {
+        this.reactIntegration.setAvailableSkills(skills);
+    }
   }
 
   async executeWorkItem(workItem: WorkItem): Promise<ExecutionResult> {

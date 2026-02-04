@@ -8,8 +8,77 @@ import { openaiClient } from '../lib/openai-client.js';
 import { antigravityClient } from '../lib/antigravity-client.js';
 import { modelsManager } from '../lib/models-manager.js';
 import type { ChatMessage } from '../lib/openai-client.js';
-import type { CodexAccount, AccountProvider } from '../lib/account-types.js';
+import type { AccountProvider } from '../lib/account-types.js';
 import { accountManagerV2 } from '../lib/auth-manager-v2.js';
+import { WorkOrderDatabase } from '../../work-order/database/manager.js';
+import { ExecutionService } from '../../app/lifecycle/execution/execution-service.js';
+import { LLMRouter, MockLLMProvider } from '../../infra/llm/llm-provider.js';
+import { OpenAIProvider, AnthropicProvider } from '../../infra/llm/providers.js';
+import { CodexAccountProvider, AntigravityAccountProvider } from '../../infra/llm/account-providers.js';
+import type { ReActCycleParams } from '../../autonomy/react-integration.js';
+
+// Initialize core services lazily
+let executionService: ExecutionService | null = null;
+let repository: WorkOrderDatabase | null = null;
+
+async function initServices() {
+  if (executionService) return;
+
+  console.log('[ChatUI] Initializing services...');
+  
+  const dbPath = process.env.PONY_DB_PATH || './pony-work-orders.db';
+  repository = new WorkOrderDatabase(dbPath);
+  await repository.initialize();
+
+  const providers = [];
+  
+  const codexAccount = accountManagerV2.getCurrentAccount('codex');
+  console.log('[ChatUI] Codex account:', codexAccount?.email || 'none');
+  if (codexAccount) {
+    console.log('[ChatUI] Adding CodexAccountProvider');
+    providers.push(new CodexAccountProvider(accountManagerV2, { model: 'gpt-5.2-codex', maxTokens: 4000 }));
+  }
+  
+  const antigravityAccount = accountManagerV2.getCurrentAccount('antigravity');
+  console.log('[ChatUI] Antigravity account:', antigravityAccount?.email || 'none');
+  if (antigravityAccount) {
+    console.log('[ChatUI] Adding AntigravityAccountProvider');
+    providers.push(new AntigravityAccountProvider(accountManagerV2, { model: 'gemini-2.5-flash', maxTokens: 4000 }));
+  }
+  
+  if (process.env.OPENAI_API_KEY) {
+    console.log('[ChatUI] Adding OpenAIProvider from env');
+    providers.push(new OpenAIProvider({
+      apiKey: process.env.OPENAI_API_KEY,
+      model: 'gpt-4o-mini',
+      maxTokens: 4000,
+    }));
+  }
+  if (process.env.ANTHROPIC_API_KEY) {
+    console.log('[ChatUI] Adding AnthropicProvider from env');
+    providers.push(new AnthropicProvider({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      model: 'claude-3-5-sonnet-20241022',
+      maxTokens: 4000,
+    }));
+  }
+  
+  if (providers.length === 0) {
+    console.log('[ChatUI] No providers available, using MockLLMProvider');
+    providers.push(new MockLLMProvider('chat-mock'));
+  }
+
+  console.log('[ChatUI] Total providers:', providers.length);
+  const llmRouter = new LLMRouter(providers);
+
+  executionService = new ExecutionService(
+    repository,
+    { maxConsecutiveErrors: 3 },
+    llmRouter
+  );
+  
+  console.log('[ChatUI] Services initialized');
+}
 
 function getModelProvider(modelName: string): AccountProvider {
   if (
@@ -27,6 +96,7 @@ interface Message {
   content: string;
   streaming?: boolean;
   isCommand?: boolean;
+  agentType?: 'thought' | 'action' | 'observation';
 }
 
 interface ChatUIProps {
@@ -96,6 +166,52 @@ const ChatUI = ({ model: initialModel = 'gpt-5.2', system }: ChatUIProps) => {
       setMessages([{ role: 'system', content: system }]);
     }
   }, [system, currentModel]);
+
+  const [sessionParams, setSessionParams] = useState<ReActCycleParams | null>(null);
+
+  useEffect(() => {
+    initServices().then(() => {
+        if (!repository) {
+          console.error('[ChatUI] Repository not initialized');
+          return;
+        }
+        
+        console.log('[ChatUI] Creating session params...');
+        
+        const goal = repository.createGoal({
+            title: 'Interactive Chat Session',
+            description: 'User initiated chat session',
+            priority: 50,
+            success_criteria: [],
+        });
+        
+        const workItem = repository.createWorkItem({
+            goal_id: goal.id,
+            title: 'Chat Interaction',
+            description: 'Interactive chat',
+            item_type: 'analysis',
+            priority: 50,
+        });
+        
+        const run = repository.createRun({
+            work_item_id: workItem.id,
+            goal_id: goal.id,
+            agent_type: 'chat-agent',
+            run_sequence: 1,
+        });
+
+        console.log('[ChatUI] Session params created:', { goalId: goal.id, workItemId: workItem.id, runId: run.id });
+        
+        setSessionParams({
+            workItem,
+            run,
+            signal: new AbortController().signal,
+            model: currentModel,
+        });
+    }).catch(err => {
+        console.error('[ChatUI] Failed to initialize services:', err);
+    });
+  }, []);
 
   const updateAccountInfo = useCallback(async () => {
     const provider = getModelProvider(currentModel);
@@ -253,93 +369,151 @@ Type /help for available commands.`;
     setMessages(prev => [...prev, assistantMessage]);
 
     try {
-      const unifiedMessages: ChatMessage[] = messages
-        .filter(m => !m.isCommand && m.role !== 'system')
-        .concat([userMessage])
-        .map(m => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content }));
-
-      if (system) {
-        unifiedMessages.unshift({ role: 'system', content: system });
-      }
-
-      const provider = getModelProvider(currentModel);
+      console.log('[ChatUI] sendMessage called');
+      console.log('[ChatUI] executionService:', !!executionService);
+      console.log('[ChatUI] sessionParams:', !!sessionParams);
       
-      let fullResponse = '';
-      
-      if (provider === 'antigravity') {
-        const geminiContents = unifiedMessages
-          .filter(m => m.role !== 'system')
-          .map(m => ({
-            role: m.role === 'assistant' ? 'model' as const : 'user' as const,
-            parts: [{ text: m.content }],
-          }));
-
-        const systemInstruction = system ? { parts: [{ text: system }] } : undefined;
-
-        const response = await antigravityClient.generateContent({
-          model: currentModel,
-          request: {
-            contents: geminiContents,
-            systemInstruction,
-          },
-        });
+      if (executionService && sessionParams) {
+        console.log('[ChatUI] Using ReActIntegration path');
+        const reactIntegration = (executionService as any).reactIntegration;
         
-        const textParts: string[] = [];
-        const responseCandidates = (response.response as any)?.candidates;
-        if (Array.isArray(responseCandidates)) {
-          const firstCandidate = responseCandidates[0];
-          const parts = firstCandidate?.content?.parts;
-          if (Array.isArray(parts)) {
-            for (const part of parts) {
-              if (part?.text) {
-                textParts.push(part.text);
+        if (!reactIntegration) {
+          console.error('[ChatUI] No reactIntegration found on executionService!');
+          throw new Error('ReActIntegration not available');
+        }
+        
+        const updatedSessionParams = {
+          ...sessionParams,
+          model: currentModel,
+        };
+        
+        console.log('[ChatUI] Calling chatStep with model:', currentModel);
+        const result = await reactIntegration.chatStep(updatedSessionParams, text);
+        console.log('[ChatUI] chatStep result:', result);
+        
+        // Display agent's thoughts and actions
+        if (result.log) {
+             const thoughts = result.log
+                .split('\n\n')
+                .filter((step: string) => step.includes('THOUGHT') || step.includes('ACTION') || step.includes('OBSERVATION'))
+                .map((step: string) => {
+                    const isThought = step.includes('THOUGHT');
+                    const isAction = step.includes('ACTION');
+                    const isObservation = step.includes('OBSERVATION');
+                    const content = step.replace(/\[.*?\] (THOUGHT|ACTION|OBSERVATION): /, '');
+                    
+                    return {
+                        role: 'system' as const,
+                        content,
+                        isCommand: true,
+                        agentType: isThought ? 'thought' as const : isAction ? 'action' as const : 'observation' as const
+                    };
+                });
+             setMessages(prev => [...prev, ...thoughts]);
+        }
+
+        const reply = result.reply;
+        
+        setMessages(prev => {
+            const newMessages = [...prev];
+            const lastMsg = newMessages[newMessages.length - 1];
+            if (lastMsg && lastMsg.streaming) {
+                lastMsg.content = reply;
+                delete lastMsg.streaming;
+            }
+            return newMessages;
+        });
+
+      } else {
+        console.log('[ChatUI] Falling back to direct LLM - executionService:', !!executionService, 'sessionParams:', !!sessionParams);
+        const unifiedMessages: ChatMessage[] = messages
+          .filter(m => !m.isCommand && m.role !== 'system')
+          .concat([userMessage])
+          .map(m => ({ role: m.role as 'system' | 'user' | 'assistant', content: m.content }));
+
+        if (system) {
+          unifiedMessages.unshift({ role: 'system', content: system });
+        }
+
+        const provider = getModelProvider(currentModel);
+        
+        let fullResponse = '';
+        
+        if (provider === 'antigravity') {
+          const geminiContents = unifiedMessages
+            .filter(m => m.role !== 'system')
+            .map(m => ({
+              role: m.role === 'assistant' ? 'model' as const : 'user' as const,
+              parts: [{ text: m.content }],
+            }));
+
+          const systemInstruction = system ? { parts: [{ text: system }] } : undefined;
+
+          const response = await antigravityClient.generateContent({
+            model: currentModel,
+            request: {
+              contents: geminiContents,
+              systemInstruction,
+            },
+          });
+          
+          const textParts: string[] = [];
+          const responseCandidates = (response.response as any)?.candidates;
+          if (Array.isArray(responseCandidates)) {
+            const firstCandidate = responseCandidates[0];
+            const parts = firstCandidate?.content?.parts;
+            if (Array.isArray(parts)) {
+              for (const part of parts) {
+                if (part?.text) {
+                  textParts.push(part.text);
+                }
               }
             }
           }
+          
+          fullResponse = textParts.join('') || 'No response from model';
+          
+          setMessages(prev => {
+            const newMessages = [...prev];
+            const lastMsg = newMessages[newMessages.length - 1];
+            if (lastMsg && lastMsg.streaming) {
+              lastMsg.content = fullResponse;
+            }
+            return newMessages;
+          });
+        } else {
+          await openaiClient.streamChatCompletion(
+            { model: currentModel, messages: unifiedMessages },
+            (chunk: string) => {
+              fullResponse += chunk;
+              setMessages(prev => {
+                const newMessages = [...prev];
+                const lastMsg = newMessages[newMessages.length - 1];
+                if (lastMsg && lastMsg.streaming) {
+                  lastMsg.content = fullResponse;
+                }
+                return newMessages;
+              });
+            }
+          );
         }
-        
-        fullResponse = textParts.join('') || 'No response from model';
-        
+
         setMessages(prev => {
           const newMessages = [...prev];
           const lastMsg = newMessages[newMessages.length - 1];
           if (lastMsg && lastMsg.streaming) {
-            lastMsg.content = fullResponse;
+            delete lastMsg.streaming;
           }
           return newMessages;
         });
-      } else {
-        await openaiClient.streamChatCompletion(
-          { model: currentModel, messages: unifiedMessages },
-          (chunk: string) => {
-            fullResponse += chunk;
-            setMessages(prev => {
-              const newMessages = [...prev];
-              const lastMsg = newMessages[newMessages.length - 1];
-              if (lastMsg && lastMsg.streaming) {
-                lastMsg.content = fullResponse;
-              }
-              return newMessages;
-            });
-          }
-        );
       }
-
-      setMessages(prev => {
-        const newMessages = [...prev];
-        const lastMsg = newMessages[newMessages.length - 1];
-        if (lastMsg && lastMsg.streaming) {
-          delete lastMsg.streaming;
-        }
-        return newMessages;
-      });
     } catch (err) {
       setError((err as Error).message);
       setMessages(prev => prev.slice(0, -1));
     } finally {
       setIsLoading(false);
     }
-  }, [messages, isLoading, currentModel, handleCommand, system]);
+  }, [messages, isLoading, currentModel, handleCommand, system, sessionParams, executionService]);
 
   const handleSubmit = useCallback(() => {
     if (input.toLowerCase() === 'exit' || input.toLowerCase() === 'quit') {
@@ -408,8 +582,27 @@ Type /help for available commands.`;
               <Box key={idx} flexDirection="column" marginBottom={1} paddingX={2}>
                 {msg.isCommand ? (
                   <>
-                    <Text bold color="cyan">ℹ System</Text>
-                    <Text color="gray">{msg.content}</Text>
+                    {msg.agentType === 'thought' ? (
+                      <>
+                        <Text bold color="magenta">💭 Agent Thought</Text>
+                        <Text color="magenta" dimColor>{msg.content}</Text>
+                      </>
+                    ) : msg.agentType === 'action' ? (
+                      <>
+                        <Text bold color="yellow">⚡ Agent Action</Text>
+                        <Text color="yellow">{msg.content}</Text>
+                      </>
+                    ) : msg.agentType === 'observation' ? (
+                      <>
+                        <Text bold color="cyan">👁  Agent Observation</Text>
+                        <Text color="cyan" dimColor>{msg.content}</Text>
+                      </>
+                    ) : (
+                      <>
+                        <Text bold color="cyan">ℹ System</Text>
+                        <Text color="gray">{msg.content}</Text>
+                      </>
+                    )}
                   </>
                 ) : (
                   <>

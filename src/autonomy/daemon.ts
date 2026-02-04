@@ -1,6 +1,6 @@
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
-import type { IExecutionService, IVerificationService, IEvaluationService } from '../app/lifecycle/stage-interfaces.js';
-import type { WorkItem } from '../work-order/types/index.js';
+import type { IExecutionService, IVerificationService, IEvaluationService, IPlanningService } from '../app/lifecycle/stage-interfaces.js';
+import type { WorkItem, Goal } from '../work-order/types/index.js';
 
 export interface AutonomyDaemonConfig {
   maxConcurrentRuns: number;
@@ -14,6 +14,7 @@ export class AutonomyDaemon {
 
   constructor(
     private repository: IWorkOrderRepository,
+    private planningService: IPlanningService,
     private executionService: IExecutionService,
     private verificationService: IVerificationService,
     private evaluationService: IEvaluationService,
@@ -51,6 +52,8 @@ export class AutonomyDaemon {
   }
 
   private async cycle(): Promise<void> {
+    await this.processQueuedGoals();
+    
     if (this.activeRuns.size >= this.config.maxConcurrentRuns) {
       return;
     }
@@ -64,6 +67,26 @@ export class AutonomyDaemon {
     }
 
     await Promise.all(readyWorkItems.map(workItem => this.executeWorkItem(workItem)));
+  }
+
+  private async processQueuedGoals(): Promise<void> {
+    const queuedGoals = this.repository.listGoals({ status: 'queued' });
+    
+    for (const goal of queuedGoals) {
+      try {
+        console.log(`[AutonomyDaemon] Planning goal: ${goal.title} (${goal.id})`);
+        const plan = await this.planningService.planWorkItems(goal);
+        
+        if (plan.workItems.length > 0) {
+          console.log(`[AutonomyDaemon] Plan created with ${plan.workItems.length} work items`);
+          this.repository.updateGoalStatus(goal.id, 'active');
+        } else {
+          console.warn(`[AutonomyDaemon] Planning returned 0 items for goal ${goal.id}`);
+        }
+      } catch (error) {
+        console.error(`[AutonomyDaemon] Failed to plan goal ${goal.id}:`, error);
+      }
+    }
   }
 
   private updatePendingWorkItemStatuses(): void {

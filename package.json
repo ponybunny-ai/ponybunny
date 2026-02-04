@@ -7,8 +7,8 @@
     "doc": "docs"
   },
   "scripts": {
-    "build": "tsc",
-    "build:cli": "tsc -p tsconfig.cli.json && chmod +x dist/cli/index.js",
+    "build": "tsc && cp src/infra/persistence/schema.sql dist/infra/persistence/",
+    "build:cli": "tsc -p tsconfig.cli.json && cp src/infra/persistence/schema.sql dist/infra/persistence/ && chmod +x dist/cli/index.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"

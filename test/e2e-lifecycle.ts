@@ -7,6 +7,7 @@ import { VerificationService } from '../src/app/lifecycle/verification/verificat
 import { EvaluationService } from '../src/app/lifecycle/evaluation/evaluation-service.js';
 import { PublishService } from '../src/app/lifecycle/publish/publish-service.js';
 import { MonitorService } from '../src/app/lifecycle/monitor/monitor-service.js';
+import { MockLLMProvider } from '../src/infra/llm/llm-provider.js';
 import { unlinkSync } from 'fs';
 import { join } from 'path';
 
@@ -27,10 +28,12 @@ async function main() {
   const repository = new WorkOrderDatabase(TEST_DB_PATH);
   await repository.initialize();
 
+  const mockLLM = new MockLLMProvider('test-mock');
+
   const intakeService = new IntakeService(repository);
   const elaborationService = new ElaborationService(repository);
-  const planningService = new PlanningService(repository);
-  const executionService = new ExecutionService(repository, { maxConsecutiveErrors: 3 });
+  const planningService = new PlanningService(repository, mockLLM);
+  const executionService = new ExecutionService(repository, { maxConsecutiveErrors: 3 }, mockLLM);
   const verificationService = new VerificationService();
   const evaluationService = new EvaluationService(repository);
   const publishService = new PublishService(repository);

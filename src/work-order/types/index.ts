@@ -188,7 +188,9 @@ export interface Run {
   execution_log?: string;
   
   // Context
-  context?: Record<string, any>;
+  context?: Record<string, any> & {
+    history?: any[];
+  };
 }
 
 /**

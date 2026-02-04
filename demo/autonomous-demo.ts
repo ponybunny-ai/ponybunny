@@ -5,6 +5,7 @@ import { VerificationService } from '../src/app/lifecycle/verification/verificat
 import { EvaluationService } from '../src/app/lifecycle/evaluation/evaluation-service.js';
 import { OpenAIProvider, AnthropicProvider } from '../src/infra/llm/providers.js';
 import { LLMRouter, MockLLMProvider } from '../src/infra/llm/llm-provider.js';
+import type { ILLMProvider } from '../src/infra/llm/llm-provider.js';
 import { unlinkSync } from 'fs';
 import { join } from 'path';
 
@@ -24,7 +25,7 @@ async function main() {
   const repository = new WorkOrderDatabase(TEST_DB_PATH);
   await repository.initialize();
 
-  const providers = [];
+  const providers: ILLMProvider[] = [];
   
   if (process.env.OPENAI_API_KEY) {
     console.log('✓ OpenAI provider configured');
