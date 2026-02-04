@@ -164,11 +164,74 @@ ws.send(JSON.stringify({
 
 ## 快速测试
 
+### 使用测试脚本（推荐）
+
 ```bash
-# 使用 wscat 测试
+# 运行完整 API 测试（默认端口 18789）
+node scripts/test-gateway.mjs
+
+# 指定端口
+node scripts/test-gateway.mjs 8080
+
+# 指定端口和数据库路径
+node scripts/test-gateway.mjs 8080 ./custom.db
+```
+
+测试脚本会自动：
+1. 检查 Gateway 连接
+2. 测试公开方法（`system.ping`, `system.info`）
+3. 验证认证保护（未认证请求应返回 -32001 错误）
+4. 执行完整认证流程（生成令牌 → `auth.pair` → Ed25519 签名 → `auth.verify`）
+5. 测试所有认证后的 RPC 方法
+
+示例输出：
+```
+========================================
+   PonyBunny Gateway API 测试
+========================================
+
+目标: ws://127.0.0.1:18789
+
+[0/4] 检查 Gateway 连接
+  ✓ WebSocket 连接
+
+[1/4] 测试公开方法（无需认证）
+  ✓ system.ping
+  ✓ system.info
+
+[2/4] 测试认证保护（应返回 -32001 错误）
+  ✓ goal.submit (无认证)
+  ✓ goal.list (无认证)
+  ...
+
+[3/4] 测试认证流程
+  ✓ 生成配对令牌
+  ✓ auth.pair
+  ✓ auth.verify
+
+[4/4] 测试认证后的 RPC 方法
+  ✓ goal.submit
+  ✓ goal.list
+  ✓ goal.status
+  ...
+
+========================================
+   测试完成
+========================================
+
+  通过: 18
+  失败: 0
+```
+
+### 使用 wscat 手动测试
+
+```bash
+# 安装 wscat
 npm install -g wscat
+
+# 连接到 Gateway
 wscat -c ws://localhost:18789
 
-# 发送 ping
+# 发送 ping（无需认证）
 {"type":"req","id":"1","method":"system.ping"}
 ```
