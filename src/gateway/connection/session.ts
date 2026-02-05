@@ -13,6 +13,7 @@ export class Session implements SessionData {
   metadata?: Record<string, unknown>;
 
   private subscribedGoals = new Set<string>();
+  private subscribedToDebugEvents = false;
 
   constructor(data: SessionData) {
     this.id = data.id;
@@ -53,6 +54,18 @@ export class Session implements SessionData {
 
   getSubscribedGoals(): string[] {
     return Array.from(this.subscribedGoals);
+  }
+
+  subscribeToDebugEvents(): void {
+    this.subscribedToDebugEvents = true;
+  }
+
+  unsubscribeFromDebugEvents(): void {
+    this.subscribedToDebugEvents = false;
+  }
+
+  isSubscribedToDebugEvents(): boolean {
+    return this.subscribedToDebugEvents;
   }
 
   toJSON(): SessionData {

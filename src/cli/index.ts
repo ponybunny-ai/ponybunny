@@ -6,8 +6,9 @@ import { statusCommand } from './commands/status.js';
 import { configCommand } from './commands/config.js';
 import { modelsCommand } from './commands/models.js';
 import { gatewayCommand } from './commands/gateway.js';
+import { debugCommand } from './commands/debug.js';
 import { registerWorkCommand } from './commands/work.js';
-import { startChatUI } from './ui/chat-ui.js';
+import { startTui } from './tui/start.js';
 
 const program = new Command();
 
@@ -15,26 +16,18 @@ program
   .name('pb')
   .description('PonyBunny - Autonomous AI Employee CLI')
   .version('1.0.0')
-  .option('-m, --model <model>', 'Model to use (default: gpt-5.2)', 'gpt-5.2')
-  .option('-s, --system <message>', 'System message')
+  .option('-u, --url <url>', 'Gateway URL', 'ws://127.0.0.1:18789')
+  .option('-t, --token <token>', 'Authentication token')
   .action(async (options) => {
-    await startChatUI(options);
+    await startTui({ url: options.url, token: options.token });
   });
 
 program.addCommand(authCommand);
 program.addCommand(configCommand);
 program.addCommand(modelsCommand);
 program.addCommand(gatewayCommand);
+program.addCommand(debugCommand);
 registerWorkCommand(program);
-
-program
-  .command('chat')
-  .description('Interactive chat with AI assistant (same as running pb without command)')
-  .option('-m, --model <model>', 'Model to use (default: gpt-5.2)', 'gpt-5.2')
-  .option('-s, --system <message>', 'System message')
-  .action(async (options) => {
-    await startChatUI(options);
-  });
 
 program
   .command('status')

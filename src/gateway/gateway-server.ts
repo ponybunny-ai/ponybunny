@@ -23,6 +23,7 @@ import { registerGoalHandlers } from './rpc/handlers/goal-handlers.js';
 import { registerWorkItemHandlers } from './rpc/handlers/workitem-handlers.js';
 import { registerEscalationHandlers } from './rpc/handlers/escalation-handlers.js';
 import { registerApprovalHandlers } from './rpc/handlers/approval-handlers.js';
+import { registerDebugHandlers } from './rpc/handlers/debug-handlers.js';
 
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
 
@@ -98,6 +99,13 @@ export class GatewayServer {
     registerWorkItemHandlers(this.rpcHandler, this.repository);
     registerEscalationHandlers(this.rpcHandler, this.repository as any, this.eventBus);
     registerApprovalHandlers(this.rpcHandler, this.eventBus);
+    registerDebugHandlers(
+      this.rpcHandler,
+      this.repository,
+      this.eventBus,
+      () => this.scheduler,
+      () => this.connectionManager
+    );
 
     // System methods
     this.rpcHandler.register('system.ping', [], async () => ({ pong: Date.now() }));

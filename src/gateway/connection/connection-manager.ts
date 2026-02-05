@@ -251,4 +251,30 @@ export class ConnectionManager {
       uniqueIps: this.ipConnectionCounts.size,
     };
   }
+
+  /**
+   * Get all active sessions with their details for debug purposes
+   */
+  getActiveSessions(): Array<{
+    id: string;
+    publicKey: string;
+    permissions: string[];
+    subscribedGoals: string[];
+    connectedAt: number;
+  }> {
+    return Array.from(this.sessions.values()).map(session => ({
+      id: session.id,
+      publicKey: session.publicKey,
+      permissions: session.permissions,
+      subscribedGoals: session.getSubscribedGoals(),
+      connectedAt: session.connectedAt,
+    }));
+  }
+
+  /**
+   * Get sessions subscribed to debug events
+   */
+  getDebugSubscribers(): Session[] {
+    return this.getAllSessions().filter(s => s.isSubscribedToDebugEvents());
+  }
 }

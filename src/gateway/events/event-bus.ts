@@ -12,9 +12,12 @@ export interface IEventBus {
   removeAllListeners(event?: string): void;
 }
 
+export type AnyEventHandler = (event: string, data: unknown) => void;
+
 export class EventBus implements IEventBus {
   private handlers = new Map<string, Set<EventHandler>>();
   private onceHandlers = new Map<string, Set<EventHandler>>();
+  private anyHandlers = new Set<AnyEventHandler>();
 
   on<T>(event: string, handler: EventHandler<T>): () => void {
     if (!this.handlers.has(event)) {
@@ -73,6 +76,30 @@ export class EventBus implements IEventBus {
       }
       this.onceHandlers.delete(event);
     }
+
+    // Notify any handlers
+    for (const handler of this.anyHandlers) {
+      try {
+        handler(event, data);
+      } catch (error) {
+        console.error(`[EventBus] Error in any handler for '${event}':`, error);
+      }
+    }
+  }
+
+  /**
+   * Subscribe to all events
+   */
+  onAny(handler: AnyEventHandler): () => void {
+    this.anyHandlers.add(handler);
+    return () => this.offAny(handler);
+  }
+
+  /**
+   * Unsubscribe from all events
+   */
+  offAny(handler: AnyEventHandler): void {
+    this.anyHandlers.delete(handler);
   }
 
   removeAllListeners(event?: string): void {
@@ -82,6 +109,7 @@ export class EventBus implements IEventBus {
     } else {
       this.handlers.clear();
       this.onceHandlers.clear();
+      this.anyHandlers.clear();
     }
   }
 

@@ -22,6 +22,7 @@ import { spawn, execSync } from 'child_process';
 
 import { GatewayServer, type Permission } from '../../gateway/index.js';
 import { WorkOrderDatabase } from '../../work-order/database/manager.js';
+import { startGatewayTui } from '../ui/gateway-tui.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -294,7 +295,6 @@ gatewayCommand
   .option('-d, --db <path>', 'Database path', DEFAULT_DB_PATH)
   .action(async (options) => {
     const { host, port, db: dbPath } = options;
-    const portNum = parseInt(port, 10);
 
     log(`Daemon supervisor starting for ws://${host}:${port}`);
     writeDaemonPidFile(process.pid);
@@ -894,6 +894,26 @@ gatewayCommand
       db.close();
     } catch (error) {
       console.error(chalk.red('Failed to revoke token:'), error);
+      process.exit(1);
+    }
+  });
+
+gatewayCommand
+  .command('tui')
+  .description('Start the Gateway TUI (Terminal User Interface)')
+  .option('-h, --host <host>', 'Gateway host', DEFAULT_HOST)
+  .option('-p, --port <port>', 'Gateway port', String(DEFAULT_PORT))
+  .option('-t, --token <token>', 'Authentication token')
+  .action(async (options) => {
+    const { host, port, token } = options;
+    const url = `ws://${host}:${port}`;
+
+    console.log(chalk.blue(`Connecting to Gateway at ${url}...`));
+
+    try {
+      await startGatewayTui({ url, token });
+    } catch (error) {
+      console.error(chalk.red('TUI error:'), error);
       process.exit(1);
     }
   });
