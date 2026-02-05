@@ -16,7 +16,7 @@ OpenClaw 是一个模块化的 AI Gateway，连接消息平台（Channels）与 
 - **模型切换延迟**: \<500ms (Auth Profile Rotation)
 - **工具调用延迟**: \<200ms (本地) / 1-2s (跨设备 RPC)
 
-**版本**: 基于 OpenClaw commit `75093ebe1` (2026-01-30)
+**版本**: 基于 OpenClaw commit `392bbddf2` (2025-02-05)
 
 ---
 
@@ -560,6 +560,100 @@ Every tool invocation undergoes three-layer validation:
   - **iOS**: `canvas.*`, `camera.*`, `screen.record`, `location.get`
   - **Android**: iOS capabilities + `sms.send`
 - **Double-check**: Command must be in platform allowlist AND declared by node in handshake
+
+### Tool Policy Pipeline
+
+OpenClaw 使用多层 Tool Policy 管道来控制 Agent 可用的工具集。
+
+**实现**: `src/agents/tool-policy.ts`
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Tool Policy Pipeline                     │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  1. Base Profile (tools.profile)                            │
+│     minimal | coding | messaging | full                      │
+│     ↓                                                        │
+│  2. Provider Override (tools.byProvider)                    │
+│     Per-provider/model restrictions                          │
+│     ↓                                                        │
+│  3. Allow List (tools.allow)                                │
+│     Explicit tool/group additions                            │
+│     ↓                                                        │
+│  4. Deny List (tools.deny)                                  │
+│     Explicit tool/group removals (wins over allow)           │
+│     ↓                                                        │
+│  5. Owner-Only Filter (applyOwnerOnlyToolPolicy)            │
+│     Sensitive tools restricted to owner senders              │
+│     ↓                                                        │
+│  Final Tool Set → Agent                                      │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Tool Profiles**:
+
+| Profile | 允许的工具 |
+|:--------|:----------|
+| `minimal` | `session_status` only |
+| `coding` | `group:fs`, `group:runtime`, `group:sessions`, `group:memory`, `image` |
+| `messaging` | `group:messaging`, `sessions_list`, `sessions_history`, `sessions_send`, `session_status` |
+| `full` | 无限制 (默认) |
+
+**Tool Groups**:
+
+| Group | 包含的工具 |
+|:------|:----------|
+| `group:fs` | `read`, `write`, `edit`, `apply_patch` |
+| `group:runtime` | `exec`, `process` |
+| `group:sessions` | `sessions_list`, `sessions_history`, `sessions_send`, `sessions_spawn`, `session_status` |
+| `group:memory` | `memory_search`, `memory_get` |
+| `group:web` | `web_search`, `web_fetch` |
+| `group:ui` | `browser`, `canvas` |
+| `group:automation` | `cron`, `gateway` |
+| `group:messaging` | `message` |
+| `group:nodes` | `nodes` |
+
+**Owner-Only Tools**:
+
+敏感工具仅限 owner 用户调用，非 owner 用户的工具列表中不会包含这些工具：
+
+```typescript
+const OWNER_ONLY_TOOL_NAMES = new Set<string>(["whatsapp_login"]);
+
+export function applyOwnerOnlyToolPolicy(tools: AnyAgentTool[], senderIsOwner: boolean) {
+  if (senderIsOwner) return tools;
+  return tools.filter((tool) => !isOwnerOnlyToolName(tool.name));
+}
+```
+
+**配置示例**:
+
+```json5
+{
+  tools: {
+    profile: "coding",
+    deny: ["group:runtime"],  // 全局禁用 exec/process
+    byProvider: {
+      "google-antigravity": { profile: "minimal" },  // 特定 provider 限制
+    },
+  },
+  agents: {
+    list: [
+      {
+        id: "support",
+        tools: { profile: "messaging", allow: ["slack"] },  // Agent 级别覆盖
+      },
+    ],
+  },
+}
+```
+
+**PonyBunny 参考价值**:
+- **Skill 权限分级**: 可参考 Tool Profile 设计不同 Skill 的工具访问权限
+- **Work Item 工具限制**: 不同类型/优先级的 Work Item 可配置不同的 Tool Profile
+- **Escalation 触发**: Owner-Only 模式可用于实现需要人工审批的敏感操作
 
 ### Idempotency Protection
 
@@ -1112,6 +1206,6 @@ const systemPrompt = basePrompt + '\n\n' + skillContent;
 
 ---
 
-**版本**: 基于 OpenClaw commit `75093ebe1` (2026-01-30)  
+**版本**: 基于 OpenClaw commit `392bbddf2` (2025-02-05)  
 **文档更新**: 2026-01-31  
 **总行数**: ~830 lines (comprehensive technical reference)
