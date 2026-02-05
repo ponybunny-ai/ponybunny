@@ -20,9 +20,12 @@ import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import { spawn, execSync } from 'child_process';
 
-import { GatewayServer, type Permission } from '../../gateway/index.js';
+import { GatewayServer, type Permission, createScheduler } from '../../gateway/index.js';
 import { WorkOrderDatabase } from '../../work-order/database/manager.js';
 import { startGatewayTui } from '../ui/gateway-tui.js';
+import { ExecutionService } from '../../app/lifecycle/execution/execution-service.js';
+import { getLLMService } from '../../infra/llm/index.js';
+import { MockLLMProvider, LLMRouter } from '../../infra/llm/llm-provider.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -410,6 +413,35 @@ async function runGateway(host: string, port: number, dbPath: string, _mode: 'fo
     const repository = new WorkOrderDatabase(dbPath);
     await repository.initialize();
 
+    // Initialize LLM provider
+    const llmService = getLLMService();
+    const availableProviders = llmService.getAvailableProviders();
+    let llmRouter: LLMRouter;
+
+    if (availableProviders.length === 0) {
+      log('No API keys found. Using Mock LLM Provider.');
+      if (!isBackground && !isDaemonChild) {
+        console.log(chalk.yellow('⚠ No API keys found. Using Mock LLM Provider.'));
+      }
+      llmRouter = new LLMRouter([new MockLLMProvider('mock-provider')]);
+    } else {
+      llmRouter = llmService.createRouter();
+      if (!isBackground && !isDaemonChild) {
+        console.log(chalk.gray(`  LLM Providers: ${availableProviders.join(', ')}`));
+      }
+    }
+
+    // Create execution service
+    const executionService = new ExecutionService(repository, {
+      maxConsecutiveErrors: 3,
+    }, llmRouter);
+
+    // Create scheduler
+    const scheduler = createScheduler(
+      { repository, executionService, llmProvider: llmRouter },
+      { autoStart: true, debug: !isBackground && !isDaemonChild }
+    );
+
     // Create and start gateway
     const gateway = new GatewayServer(
       { db, repository },
@@ -417,6 +449,13 @@ async function runGateway(host: string, port: number, dbPath: string, _mode: 'fo
     );
 
     await gateway.start();
+
+    // Connect scheduler to gateway
+    gateway.connectScheduler(scheduler);
+
+    // Start the scheduler
+    await scheduler.start();
+    log('Scheduler started');
 
     // Write PID file
     writePidFile({
@@ -443,6 +482,7 @@ async function runGateway(host: string, port: number, dbPath: string, _mode: 'fo
         console.log(chalk.yellow('\nShutting down...'));
       }
       removePidFile();
+      await scheduler.stop();
       await gateway.stop();
       db.close();
       log('Gateway stopped');
