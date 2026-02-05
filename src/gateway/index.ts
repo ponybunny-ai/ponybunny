@@ -65,3 +65,12 @@ export {
   DaemonEventEmitterMixin,
   type IDaemonEventEmitter,
 } from './integration/daemon-bridge.js';
+
+export { SchedulerBridge } from './integration/scheduler-bridge.js';
+export { SchedulerRepositoryAdapter } from './integration/scheduler-repository-adapter.js';
+export { ExecutionEngineAdapter } from './integration/execution-engine-adapter.js';
+export {
+  createScheduler,
+  type SchedulerFactoryConfig,
+  type SchedulerFactoryDependencies,
+} from './integration/scheduler-factory.js';

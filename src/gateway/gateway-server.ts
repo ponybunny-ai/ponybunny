@@ -16,6 +16,8 @@ import { AuthManager } from './auth/auth-manager.js';
 import { MessageRouter } from './protocol/message-router.js';
 import { RpcHandler } from './rpc/rpc-handler.js';
 import { DaemonBridge, type IDaemonEventEmitter } from './integration/daemon-bridge.js';
+import { SchedulerBridge } from './integration/scheduler-bridge.js';
+import type { ISchedulerCore } from '../scheduler/core/index.js';
 
 import { registerGoalHandlers } from './rpc/handlers/goal-handlers.js';
 import { registerWorkItemHandlers } from './rpc/handlers/workitem-handlers.js';
@@ -44,6 +46,8 @@ export class GatewayServer {
   private eventEmitter: EventEmitter;
   private broadcastManager: BroadcastManager;
   private daemonBridge: DaemonBridge;
+  private schedulerBridge: SchedulerBridge;
+  private scheduler: ISchedulerCore | null = null;
 
   private isRunning = false;
 
@@ -83,13 +87,14 @@ export class GatewayServer {
     this.eventEmitter = new EventEmitter(this.connectionManager);
     this.broadcastManager = new BroadcastManager(this.eventBus, this.eventEmitter);
     this.daemonBridge = new DaemonBridge(this.eventBus);
+    this.schedulerBridge = new SchedulerBridge(this.eventBus);
 
     // Register RPC handlers
     this.registerHandlers();
   }
 
   private registerHandlers(): void {
-    registerGoalHandlers(this.rpcHandler, this.repository, this.eventBus);
+    registerGoalHandlers(this.rpcHandler, this.repository, this.eventBus, () => this.scheduler);
     registerWorkItemHandlers(this.rpcHandler, this.repository);
     registerEscalationHandlers(this.rpcHandler, this.repository as any, this.eventBus);
     registerApprovalHandlers(this.rpcHandler, this.eventBus);
@@ -174,6 +179,31 @@ export class GatewayServer {
   }
 
   /**
+   * Connect to a SchedulerCore for goal execution
+   */
+  connectScheduler(scheduler: ISchedulerCore): void {
+    this.scheduler = scheduler;
+    this.schedulerBridge.connect(scheduler);
+    console.log('[GatewayServer] Scheduler connected');
+  }
+
+  /**
+   * Disconnect from the scheduler
+   */
+  disconnectScheduler(): void {
+    this.schedulerBridge.disconnect();
+    this.scheduler = null;
+    console.log('[GatewayServer] Scheduler disconnected');
+  }
+
+  /**
+   * Get the connected scheduler (if any)
+   */
+  getScheduler(): ISchedulerCore | null {
+    return this.scheduler;
+  }
+
+  /**
    * Create a pairing token for client authentication
    */
   createPairingToken(permissions: Permission[], expiresInMs?: number): { token: string; id: string } {
@@ -203,6 +233,7 @@ export class GatewayServer {
       address: this.isRunning ? `ws://${this.config.host}:${this.config.port}` : null,
       connections: this.connectionManager.getStats(),
       daemonConnected: this.daemonBridge.isConnected(),
+      schedulerConnected: this.schedulerBridge.isConnected(),
     };
   }
 

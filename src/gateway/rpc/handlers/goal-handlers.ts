@@ -7,6 +7,7 @@ import type { Goal, GoalStatus } from '../../../work-order/types/index.js';
 import type { RpcHandler } from '../rpc-handler.js';
 import { GatewayError, ErrorCodes } from '../../errors.js';
 import type { EventBus } from '../../events/event-bus.js';
+import type { ISchedulerCore } from '../../../scheduler/core/index.js';
 
 export interface GoalSubmitParams {
   title: string;
@@ -40,7 +41,8 @@ export interface GoalSubscribeParams {
 export function registerGoalHandlers(
   rpcHandler: RpcHandler,
   repository: IWorkOrderRepository,
-  eventBus: EventBus
+  eventBus: EventBus,
+  getScheduler?: () => ISchedulerCore | null
 ): void {
   // goal.submit - Create a new goal
   rpcHandler.register<GoalSubmitParams, Goal>(
@@ -71,6 +73,12 @@ export function registerGoalHandlers(
         title: goal.title,
         createdBy: session.publicKey,
       });
+
+      // Submit to scheduler if connected
+      const scheduler = getScheduler?.();
+      if (scheduler) {
+        await scheduler.submitGoal(goal);
+      }
 
       return goal;
     }
@@ -120,6 +128,12 @@ export function registerGoalHandlers(
       }
 
       repository.updateGoalStatus(params.goalId, 'cancelled');
+
+      // Cancel in scheduler if connected
+      const scheduler = getScheduler?.();
+      if (scheduler) {
+        await scheduler.cancelGoal(params.goalId);
+      }
 
       eventBus.emit('goal.cancelled', {
         goalId: params.goalId,
