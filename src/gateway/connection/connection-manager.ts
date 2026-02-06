@@ -25,6 +25,7 @@ export class ConnectionManager {
   private websockets = new Map<string, WebSocket>();
   private ipConnectionCounts = new Map<string, number>();
   private pendingConnections = new Map<WebSocket, PendingConnection>();
+  private sessionRemoteAddresses = new Map<string, string>(); // Track IP for authenticated sessions
   private heartbeat: HeartbeatHandler;
   private eventBus: EventBus;
   private config: ConnectionManagerConfig;
@@ -63,6 +64,7 @@ export class ConnectionManager {
     }
     this.websockets.clear();
     this.ipConnectionCounts.clear();
+    this.sessionRemoteAddresses.clear();
   }
 
   canAcceptConnection(remoteAddress: string): boolean {
@@ -111,8 +113,10 @@ export class ConnectionManager {
 
   promoteConnection(ws: WebSocket, sessionData: SessionData): Session {
     const pending = this.pendingConnections.get(ws);
+    let remoteAddress: string | undefined;
     if (pending) {
       clearTimeout(pending.authTimeoutTimer);
+      remoteAddress = pending.remoteAddress;
       this.pendingConnections.delete(ws);
     }
 
@@ -120,6 +124,11 @@ export class ConnectionManager {
     this.sessions.set(session.id, session);
     this.websockets.set(session.id, ws);
     this.heartbeat.addConnection(session.id, ws);
+
+    // Track remote address for IP count management
+    if (remoteAddress) {
+      this.sessionRemoteAddresses.set(session.id, remoteAddress);
+    }
 
     this.eventBus.emit('connection.authenticated', {
       sessionId: session.id,
@@ -140,6 +149,18 @@ export class ConnectionManager {
         publicKey: session.publicKey,
         reason,
       });
+    }
+
+    // Decrement IP connection count
+    const remoteAddress = this.sessionRemoteAddresses.get(sessionId);
+    if (remoteAddress) {
+      const count = this.ipConnectionCounts.get(remoteAddress) || 1;
+      if (count <= 1) {
+        this.ipConnectionCounts.delete(remoteAddress);
+      } else {
+        this.ipConnectionCounts.set(remoteAddress, count - 1);
+      }
+      this.sessionRemoteAddresses.delete(sessionId);
     }
 
     this.sessions.delete(sessionId);

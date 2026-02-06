@@ -6,3 +6,4 @@ dist/
 .env
 .vscode/
 .idea/
+debug-server/server/*.db*

@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PonyBunny Debug Server</title>
+  <style>
+    :root {
+      --bg-primary: #1a1a2e;
+      --bg-secondary: #16213e;
+      --bg-tertiary: #0f3460;
+      --text-primary: #eaeaea;
+      --text-secondary: #a0a0a0;
+      --accent: #e94560;
+      --success: #4ecca3;
+      --warning: #ffc107;
+      --error: #ff6b6b;
+      --info: #4dabf7;
+      --border: #2a2a4a;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+    }
+
+    /* Header */
+    header {
+      background: var(--bg-secondary);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+    }
+
+    header h1 {
+      font-size: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    header h1 span {
+      color: var(--accent);
+    }
+
+    .connection-status {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--error);
+    }
+
+    .status-dot.connected {
+      background: var(--success);
+    }
+
+    /* Main Layout */
+    .container {
+      display: grid;
+      grid-template-columns: 280px 1fr 320px;
+      height: calc(100vh - 60px);
+    }
+
+    /* Sidebar */
+    .sidebar {
+      background: var(--bg-secondary);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 1rem;
+    }
+
+    .sidebar h2 {
+      font-size: 0.875rem;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .entity-list {
+      list-style: none;
+    }
+
+    .entity-item {
+      padding: 0.75rem;
+      margin-bottom: 0.5rem;
+      background: var(--bg-tertiary);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .entity-item:hover {
+      background: var(--border);
+    }
+
+    .entity-item.selected {
+      border-left: 3px solid var(--accent);
+    }
+
+    .entity-title {
+      font-size: 0.875rem;
+      font-weight: 500;
+      margin-bottom: 0.25rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .entity-meta {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    .entity-status {
+      display: inline-block;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.625rem;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .entity-status.pending { background: var(--warning); color: #000; }
+    .entity-status.active, .entity-status.in_progress { background: var(--info); }
+    .entity-status.completed { background: var(--success); color: #000; }
+    .entity-status.failed { background: var(--error); }
+
+    /* Main Content */
+    .main-content {
+      overflow-y: auto;
+      padding: 1rem;
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.5rem;
+    }
+
+    .tab {
+      padding: 0.5rem 1rem;
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 0.875rem;
+      border-radius: 4px;
+      transition: all 0.2s;
+    }
+
+    .tab:hover {
+      color: var(--text-primary);
+      background: var(--bg-tertiary);
+    }
+
+    .tab.active {
+      color: var(--text-primary);
+      background: var(--bg-tertiary);
+      border-bottom: 2px solid var(--accent);
+    }
+
+    /* Event Stream */
+    .event-stream {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .event-item {
+      padding: 0.75rem;
+      background: var(--bg-secondary);
+      border-radius: 6px;
+      border-left: 3px solid var(--info);
+      font-size: 0.875rem;
+    }
+
+    .event-item.goal { border-left-color: var(--accent); }
+    .event-item.workitem { border-left-color: var(--success); }
+    .event-item.run { border-left-color: var(--warning); }
+    .event-item.llm { border-left-color: var(--info); }
+    .event-item.tool { border-left-color: #9775fa; }
+
+    .event-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 0.5rem;
+    }
+
+    .event-type {
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 0.75rem;
+    }
+
+    .event-time {
+      color: var(--text-secondary);
+      font-size: 0.75rem;
+    }
+
+    .event-data {
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      background: var(--bg-primary);
+      padding: 0.5rem;
+      border-radius: 4px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* Metrics Panel */
+    .metrics-panel {
+      background: var(--bg-secondary);
+      border-left: 1px solid var(--border);
+      padding: 1rem;
+      overflow-y: auto;
+    }
+
+    .metrics-panel h2 {
+      font-size: 0.875rem;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      margin-bottom: 1rem;
+    }
+
+    .metric-card {
+      background: var(--bg-tertiary);
+      padding: 1rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+    }
+
+    .metric-label {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      margin-bottom: 0.25rem;
+    }
+
+    .metric-value {
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+
+    .metric-value.success { color: var(--success); }
+    .metric-value.warning { color: var(--warning); }
+    .metric-value.error { color: var(--error); }
+
+    /* Detail View */
+    .detail-view {
+      background: var(--bg-secondary);
+      padding: 1rem;
+      border-radius: 6px;
+    }
+
+    .detail-view h3 {
+      font-size: 1rem;
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .detail-row {
+      display: flex;
+      margin-bottom: 0.5rem;
+      font-size: 0.875rem;
+    }
+
+    .detail-label {
+      width: 120px;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+    }
+
+    .detail-value {
+      flex: 1;
+      word-break: break-all;
+    }
+
+    /* Filters */
+    .filters {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .filter-btn {
+      padding: 0.375rem 0.75rem;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 0.75rem;
+      transition: all 0.2s;
+    }
+
+    .filter-btn:hover, .filter-btn.active {
+      background: var(--accent);
+      color: var(--text-primary);
+      border-color: var(--accent);
+    }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 3rem;
+      color: var(--text-secondary);
+    }
+
+    .empty-state p {
+      margin-top: 1rem;
+    }
+
+    /* Loading */
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    .spinner {
+      width: 24px;
+      height: 24px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: var(--bg-primary);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--text-secondary);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🐴 <span>PonyBunny</span> Debug Server</h1>
+    <div class="connection-status">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">Disconnected</span>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- Sidebar: Entity List -->
+    <aside class="sidebar">
+      <h2>Goals</h2>
+      <ul class="entity-list" id="goalList">
+        <li class="empty-state">No goals yet</li>
+      </ul>
+
+      <h2 style="margin-top: 1.5rem;">Work Items</h2>
+      <ul class="entity-list" id="workItemList">
+        <li class="empty-state">No work items yet</li>
+      </ul>
+    </aside>
+
+    <!-- Main Content: Event Stream -->
+    <main class="main-content">
+      <div class="tabs">
+        <button class="tab active" data-tab="events">Event Stream</button>
+        <button class="tab" data-tab="details">Details</button>
+      </div>
+
+      <div id="eventsTab">
+        <div class="filters">
+          <button class="filter-btn active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="goal">Goals</button>
+          <button class="filter-btn" data-filter="workitem">Work Items</button>
+          <button class="filter-btn" data-filter="run">Runs</button>
+          <button class="filter-btn" data-filter="llm">LLM</button>
+          <button class="filter-btn" data-filter="tool">Tools</button>
+        </div>
+
+        <div class="event-stream" id="eventStream">
+          <div class="empty-state">
+            <p>Waiting for events...</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="detailsTab" style="display: none;">
+        <div class="detail-view" id="detailView">
+          <div class="empty-state">
+            <p>Select an entity from the sidebar to view details</p>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Metrics Panel -->
+    <aside class="metrics-panel">
+      <h2>Metrics</h2>
+
+      <div class="metric-card">
+        <div class="metric-label">Total Events</div>
+        <div class="metric-value" id="metricEvents">0</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-label">Active Goals</div>
+        <div class="metric-value" id="metricGoals">0</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-label">Active Work Items</div>
+        <div class="metric-value" id="metricWorkItems">0</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-label">LLM Requests</div>
+        <div class="metric-value" id="metricLlmRequests">0</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-label">Tokens Used</div>
+        <div class="metric-value" id="metricTokens">0</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-label">Tool Invocations</div>
+        <div class="metric-value" id="metricTools">0</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-label">Avg LLM Latency</div>
+        <div class="metric-value" id="metricLatency">-</div>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    // State
+    const state = {
+      connected: false,
+      events: [],
+      goals: new Map(),
+      workItems: new Map(),
+      runs: new Map(),
+      selectedEntity: null,
+      currentFilter: 'all',
+      currentTab: 'events',
+      metrics: {
+        totalEvents: 0,
+        activeGoals: 0,
+        activeWorkItems: 0,
+        llmRequests: 0,
+        tokensUsed: 0,
+        toolInvocations: 0,
+        avgLatency: 0,
+      },
+    };
+
+    // WebSocket connection
+    let ws = null;
+    let reconnectTimer = null;
+
+    function connect() {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${location.host}/ws`;
+
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        state.connected = true;
+        updateConnectionStatus();
+        console.log('Connected to Debug Server');
+
+        // Request initial data
+        fetchInitialData();
+      };
+
+      ws.onclose = () => {
+        state.connected = false;
+        updateConnectionStatus();
+        console.log('Disconnected from Debug Server');
+
+        // Reconnect after 3 seconds
+        reconnectTimer = setTimeout(connect, 3000);
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          handleMessage(message);
+        } catch (e) {
+          console.error('Failed to parse message:', e);
+        }
+      };
+    }
+
+    function handleMessage(message) {
+      if (message.type === 'event') {
+        handleEvent(message.data);
+      } else if (message.type === 'snapshot') {
+        handleSnapshot(message.data);
+      }
+    }
+
+    function handleEvent(event) {
+      // Add to events list
+      state.events.unshift(event);
+      if (state.events.length > 500) {
+        state.events.pop();
+      }
+
+      // Update metrics
+      state.metrics.totalEvents++;
+      updateEventMetrics(event);
+
+      // Update entity caches
+      updateEntityCache(event);
+
+      // Re-render
+      renderEvents();
+      renderEntities();
+      renderMetrics();
+    }
+
+    function handleSnapshot(data) {
+      if (data.goals) {
+        data.goals.forEach(g => state.goals.set(g.id, g));
+      }
+      if (data.workItems) {
+        data.workItems.forEach(w => state.workItems.set(w.id, w));
+      }
+      if (data.runs) {
+        data.runs.forEach(r => state.runs.set(r.id, r));
+      }
+      if (data.metrics) {
+        Object.assign(state.metrics, data.metrics);
+      }
+
+      renderEntities();
+      renderMetrics();
+    }
+
+    function updateEventMetrics(event) {
+      const type = event.type || '';
+
+      if (type.startsWith('llm.')) {
+        if (type === 'llm.response') {
+          state.metrics.llmRequests++;
+          const tokens = (event.data?.usage?.inputTokens || 0) + (event.data?.usage?.outputTokens || 0);
+          state.metrics.tokensUsed += tokens;
+
+          if (event.data?.latencyMs) {
+            const currentTotal = state.metrics.avgLatency * (state.metrics.llmRequests - 1);
+            state.metrics.avgLatency = (currentTotal + event.data.latencyMs) / state.metrics.llmRequests;
+          }
+        }
+      } else if (type.startsWith('tool.')) {
+        if (type === 'tool.invoke') {
+          state.metrics.toolInvocations++;
+        }
+      }
+    }
+
+    function updateEntityCache(event) {
+      const type = event.type || '';
+      const data = event.data || {};
+
+      if (type === 'goal.created' && data.goal) {
+        state.goals.set(data.goal.id, data.goal);
+        state.metrics.activeGoals = countActive(state.goals);
+      } else if (type === 'goal.updated' && data.goal) {
+        state.goals.set(data.goal.id, data.goal);
+        state.metrics.activeGoals = countActive(state.goals);
+      } else if (type === 'workitem.created' && data.workItem) {
+        state.workItems.set(data.workItem.id, data.workItem);
+        state.metrics.activeWorkItems = countActiveWorkItems(state.workItems);
+      } else if (type === 'workitem.updated' && data.workItem) {
+        state.workItems.set(data.workItem.id, data.workItem);
+        state.metrics.activeWorkItems = countActiveWorkItems(state.workItems);
+      } else if (type === 'run.started' && data.run) {
+        state.runs.set(data.run.id, data.run);
+      } else if (type === 'run.completed' && data.run) {
+        state.runs.set(data.run.id, data.run);
+      }
+    }
+
+    function countActive(map) {
+      let count = 0;
+      map.forEach(item => {
+        if (item.status === 'active' || item.status === 'pending') count++;
+      });
+      return count;
+    }
+
+    function countActiveWorkItems(map) {
+      let count = 0;
+      map.forEach(item => {
+        if (item.status === 'in_progress' || item.status === 'pending') count++;
+      });
+      return count;
+    }
+
+    async function fetchInitialData() {
+      try {
+        const [goalsRes, workItemsRes, eventsRes, metricsRes] = await Promise.all([
+          fetch('/api/goals'),
+          fetch('/api/workitems'),
+          fetch('/api/events?limit=100'),
+          fetch('/api/metrics'),
+        ]);
+
+        const goals = await goalsRes.json();
+        const workItems = await workItemsRes.json();
+        const events = await eventsRes.json();
+        const metrics = await metricsRes.json();
+
+        goals.forEach(g => state.goals.set(g.id, g));
+        workItems.forEach(w => state.workItems.set(w.id, w));
+        state.events = events.reverse();
+
+        state.metrics.activeGoals = countActive(state.goals);
+        state.metrics.activeWorkItems = countActiveWorkItems(state.workItems);
+
+        if (metrics.llm) {
+          state.metrics.llmRequests = metrics.llm.totalRequests || 0;
+          state.metrics.tokensUsed = metrics.llm.totalTokens || 0;
+          state.metrics.avgLatency = metrics.llm.avgLatency || 0;
+        }
+        if (metrics.tools) {
+          state.metrics.toolInvocations = metrics.tools.totalInvocations || 0;
+        }
+
+        renderAll();
+      } catch (e) {
+        console.error('Failed to fetch initial data:', e);
+      }
+    }
+
+    // Rendering functions
+    function updateConnectionStatus() {
+      const dot = document.getElementById('statusDot');
+      const text = document.getElementById('statusText');
+
+      if (state.connected) {
+        dot.classList.add('connected');
+        text.textContent = 'Connected';
+      } else {
+        dot.classList.remove('connected');
+        text.textContent = 'Disconnected';
+      }
+    }
+
+    function renderEvents() {
+      const container = document.getElementById('eventStream');
+      const filteredEvents = state.currentFilter === 'all'
+        ? state.events
+        : state.events.filter(e => getEventCategory(e.type) === state.currentFilter);
+
+      if (filteredEvents.length === 0) {
+        container.innerHTML = '<div class="empty-state"><p>No events match the current filter</p></div>';
+        return;
+      }
+
+      container.innerHTML = filteredEvents.slice(0, 100).map(event => {
+        const category = getEventCategory(event.type);
+        const time = new Date(event.timestamp).toLocaleTimeString();
+        const dataStr = JSON.stringify(event.data, null, 2);
+
+        return `
+          <div class="event-item ${category}">
+            <div class="event-header">
+              <span class="event-type">${event.type}</span>
+              <span class="event-time">${time}</span>
+            </div>
+            <div class="event-data">${escapeHtml(dataStr)}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function getEventCategory(type) {
+      if (!type) return 'other';
+      if (type.startsWith('goal.')) return 'goal';
+      if (type.startsWith('workitem.')) return 'workitem';
+      if (type.startsWith('run.')) return 'run';
+      if (type.startsWith('llm.')) return 'llm';
+      if (type.startsWith('tool.')) return 'tool';
+      return 'other';
+    }
+
+    function renderEntities() {
+      renderGoalList();
+      renderWorkItemList();
+    }
+
+    function renderGoalList() {
+      const container = document.getElementById('goalList');
+      const goals = Array.from(state.goals.values()).sort((a, b) =>
+        new Date(b.createdAt || 0) - new Date(a.createdAt || 0)
+      );
+
+      if (goals.length === 0) {
+        container.innerHTML = '<li class="empty-state">No goals yet</li>';
+        return;
+      }
+
+      container.innerHTML = goals.map(goal => `
+        <li class="entity-item ${state.selectedEntity?.id === goal.id ? 'selected' : ''}"
+            data-type="goal" data-id="${goal.id}">
+          <div class="entity-title">${escapeHtml(goal.title || goal.id)}</div>
+          <div class="entity-meta">
+            <span class="entity-status ${goal.status || ''}">${goal.status || 'unknown'}</span>
+          </div>
+        </li>
+      `).join('');
+    }
+
+    function renderWorkItemList() {
+      const container = document.getElementById('workItemList');
+      const workItems = Array.from(state.workItems.values()).sort((a, b) =>
+        new Date(b.createdAt || 0) - new Date(a.createdAt || 0)
+      );
+
+      if (workItems.length === 0) {
+        container.innerHTML = '<li class="empty-state">No work items yet</li>';
+        return;
+      }
+
+      container.innerHTML = workItems.map(item => `
+        <li class="entity-item ${state.selectedEntity?.id === item.id ? 'selected' : ''}"
+            data-type="workitem" data-id="${item.id}">
+          <div class="entity-title">${escapeHtml(item.title || item.id)}</div>
+          <div class="entity-meta">
+            <span class="entity-status ${item.status || ''}">${item.status || 'unknown'}</span>
+          </div>
+        </li>
+      `).join('');
+    }
+
+    function renderMetrics() {
+      document.getElementById('metricEvents').textContent = state.metrics.totalEvents.toLocaleString();
+      document.getElementById('metricGoals').textContent = state.metrics.activeGoals;
+      document.getElementById('metricWorkItems').textContent = state.metrics.activeWorkItems;
+      document.getElementById('metricLlmRequests').textContent = state.metrics.llmRequests.toLocaleString();
+      document.getElementById('metricTokens').textContent = state.metrics.tokensUsed.toLocaleString();
+      document.getElementById('metricTools').textContent = state.metrics.toolInvocations.toLocaleString();
+      document.getElementById('metricLatency').textContent = state.metrics.avgLatency > 0
+        ? `${Math.round(state.metrics.avgLatency)}ms`
+        : '-';
+    }
+
+    function renderDetails() {
+      const container = document.getElementById('detailView');
+
+      if (!state.selectedEntity) {
+        container.innerHTML = '<div class="empty-state"><p>Select an entity from the sidebar to view details</p></div>';
+        return;
+      }
+
+      const entity = state.selectedEntity;
+      const rows = Object.entries(entity).map(([key, value]) => {
+        const displayValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
+        return `
+          <div class="detail-row">
+            <span class="detail-label">${key}</span>
+            <span class="detail-value">${escapeHtml(displayValue)}</span>
+          </div>
+        `;
+      }).join('');
+
+      container.innerHTML = `
+        <h3>${entity.type || 'Entity'}: ${entity.title || entity.id}</h3>
+        ${rows}
+      `;
+    }
+
+    function renderAll() {
+      renderEvents();
+      renderEntities();
+      renderMetrics();
+      renderDetails();
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    // Event handlers
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+
+        state.currentTab = tab.dataset.tab;
+
+        document.getElementById('eventsTab').style.display = state.currentTab === 'events' ? 'block' : 'none';
+        document.getElementById('detailsTab').style.display = state.currentTab === 'details' ? 'block' : 'none';
+      });
+    });
+
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        state.currentFilter = btn.dataset.filter;
+        renderEvents();
+      });
+    });
+
+    document.addEventListener('click', (e) => {
+      const entityItem = e.target.closest('.entity-item');
+      if (entityItem) {
+        const type = entityItem.dataset.type;
+        const id = entityItem.dataset.id;
+
+        if (type === 'goal') {
+          state.selectedEntity = { type: 'goal', ...state.goals.get(id) };
+        } else if (type === 'workitem') {
+          state.selectedEntity = { type: 'workitem', ...state.workItems.get(id) };
+        }
+
+        renderEntities();
+        renderDetails();
+
+        // Switch to details tab
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelector('[data-tab="details"]').classList.add('active');
+        state.currentTab = 'details';
+        document.getElementById('eventsTab').style.display = 'none';
+        document.getElementById('detailsTab').style.display = 'block';
+      }
+    });
+
+    // Initialize
+    connect();
+  </script>
+</body>
+</html>

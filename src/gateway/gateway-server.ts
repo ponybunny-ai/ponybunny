@@ -24,12 +24,14 @@ import { registerWorkItemHandlers } from './rpc/handlers/workitem-handlers.js';
 import { registerEscalationHandlers } from './rpc/handlers/escalation-handlers.js';
 import { registerApprovalHandlers } from './rpc/handlers/approval-handlers.js';
 import { registerDebugHandlers } from './rpc/handlers/debug-handlers.js';
+import { setupDebugBroadcaster } from './debug-broadcaster.js';
 
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
 
 export interface GatewayServerDependencies {
   db: Database.Database;
   repository: IWorkOrderRepository;
+  debugMode?: boolean;
 }
 
 export class GatewayServer {
@@ -37,6 +39,7 @@ export class GatewayServer {
   private config: GatewayConfig;
   private db: Database.Database;
   private repository: IWorkOrderRepository;
+  private debugMode: boolean;
 
   // Internal components
   private eventBus: EventBus;
@@ -49,6 +52,7 @@ export class GatewayServer {
   private daemonBridge: DaemonBridge;
   private schedulerBridge: SchedulerBridge;
   private scheduler: ISchedulerCore | null = null;
+  private debugBroadcasterCleanup: (() => void) | null = null;
 
   private isRunning = false;
 
@@ -59,6 +63,7 @@ export class GatewayServer {
     this.config = { ...DEFAULT_GATEWAY_CONFIG, ...config };
     this.db = dependencies.db;
     this.repository = dependencies.repository;
+    this.debugMode = dependencies.debugMode ?? false;
 
     // Initialize components
     this.eventBus = new EventBus();
@@ -146,6 +151,14 @@ export class GatewayServer {
           this.connectionManager.start();
           this.broadcastManager.start();
 
+          // Start debug broadcaster if debug mode is enabled
+          if (this.debugMode) {
+            this.debugBroadcasterCleanup = setupDebugBroadcaster(
+              this.connectionManager,
+              this.debugMode
+            );
+          }
+
           console.log(`[GatewayServer] Listening on ws://${this.config.host}:${this.config.port}`);
           resolve();
         });
@@ -164,6 +177,13 @@ export class GatewayServer {
     }
 
     this.isRunning = false;
+
+    // Stop debug broadcaster
+    if (this.debugBroadcasterCleanup) {
+      this.debugBroadcasterCleanup();
+      this.debugBroadcasterCleanup = null;
+    }
+
     this.broadcastManager.stop();
     this.connectionManager.stop();
 
@@ -242,7 +262,15 @@ export class GatewayServer {
       connections: this.connectionManager.getStats(),
       daemonConnected: this.daemonBridge.isConnected(),
       schedulerConnected: this.schedulerBridge.isConnected(),
+      debugMode: this.debugMode,
     };
+  }
+
+  /**
+   * Check if debug mode is enabled
+   */
+  isDebugMode(): boolean {
+    return this.debugMode;
   }
 
   /**

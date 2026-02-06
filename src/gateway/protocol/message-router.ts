@@ -3,6 +3,7 @@
  */
 
 import type { WebSocket } from 'ws';
+import { randomBytes } from 'crypto';
 import type { RequestFrame, ResponseFrame } from '../types.js';
 import { MessageParser } from './message-parser.js';
 import { GatewayError } from '../errors.js';
@@ -131,6 +132,43 @@ export class MessageRouter {
           throw GatewayError.invalidParams('token required');
         }
         return this.authManager.handlePair(connectionId, token);
+      }
+
+      case 'auth.token': {
+        // Direct token authentication for admin/debug tools (no challenge-response)
+        const { token } = params as { token: string };
+        if (!token) {
+          throw GatewayError.invalidParams('token required');
+        }
+
+        // Validate token directly
+        const tokenStore = (this.authManager as any).tokenStore;
+        const tokenData = tokenStore.validateToken(token);
+        if (!tokenData) {
+          throw GatewayError.authFailed('Invalid or expired token');
+        }
+
+        // Check for admin permission
+        if (!tokenData.permissions.includes('admin')) {
+          throw GatewayError.authFailed('Token requires admin permission for direct auth');
+        }
+
+        // Create session directly without challenge-response
+        const session = {
+          id: randomBytes(16).toString('hex'),
+          publicKey: `token:${tokenData.id}`,
+          permissions: tokenData.permissions,
+          connectedAt: Date.now(),
+          lastActivityAt: Date.now(),
+        };
+
+        this.connectionManager.promoteConnection(ws, session);
+
+        return {
+          success: true,
+          sessionId: session.id,
+          permissions: session.permissions,
+        };
       }
 
       case 'auth.verify': {
