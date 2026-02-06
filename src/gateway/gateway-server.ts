@@ -295,8 +295,25 @@ export class GatewayServer {
       return;
     }
 
-    // Add as pending connection (requires authentication)
-    this.connectionManager.addPendingConnection(ws, remoteAddress, this.config.authTimeoutMs);
+    // Check if this is a local connection (auto-authenticate)
+    const isLocalConnection = this.isLocalAddress(remoteAddress);
+
+    if (isLocalConnection) {
+      // Auto-authenticate local connections with full permissions
+      console.log(`[GatewayServer] Auto-authenticating local connection from ${remoteAddress}`);
+      const sessionData = {
+        id: `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        publicKey: `local:${remoteAddress}`,
+        permissions: ['read', 'write', 'admin'] as Permission[],
+        connectedAt: Date.now(),
+        lastActivityAt: Date.now(),
+      };
+      this.connectionManager.addPendingConnection(ws, remoteAddress, this.config.authTimeoutMs);
+      this.connectionManager.promoteConnection(ws, sessionData);
+    } else {
+      // Add as pending connection (requires authentication)
+      this.connectionManager.addPendingConnection(ws, remoteAddress, this.config.authTimeoutMs);
+    }
 
     // Set up message handler
     ws.on('message', async (data) => {
@@ -318,5 +335,20 @@ export class GatewayServer {
     ws.on('error', (error) => {
       console.error('[GatewayServer] WebSocket error:', error);
     });
+  }
+
+  /**
+   * Check if an address is a local/loopback address
+   */
+  private isLocalAddress(address: string): boolean {
+    const isLocal = (
+      address === '127.0.0.1' ||
+      address === '::1' ||
+      address === '::ffff:127.0.0.1' ||
+      address === 'localhost' ||
+      address.startsWith('::ffff:127.')
+    );
+    console.log(`[GatewayServer] isLocalAddress check: "${address}" => ${isLocal}`);
+    return isLocal;
   }
 }
