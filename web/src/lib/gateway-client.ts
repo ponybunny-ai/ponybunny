@@ -9,6 +9,11 @@ import type {
   WorkItem,
   Escalation,
   GoalSubmitParams,
+  ConversationMessageParams,
+  ConversationMessageResult,
+  ConversationTurn,
+  PersonaSummary,
+  Persona,
 } from './types';
 
 interface PendingRequest {
@@ -291,6 +296,38 @@ export class WebGatewayClient {
 
   async ping(): Promise<{ pong: boolean }> {
     return this.request<{ pong: boolean }>('ping');
+  }
+
+  // ============================================================================
+  // Conversation Methods
+  // ============================================================================
+
+  async sendMessage(params: ConversationMessageParams): Promise<ConversationMessageResult> {
+    return this.request<ConversationMessageResult>('conversation.message', params);
+  }
+
+  async getConversationHistory(sessionId: string, limit?: number): Promise<{ turns: ConversationTurn[] }> {
+    return this.request<{ turns: ConversationTurn[] }>('conversation.history', { sessionId, limit });
+  }
+
+  async endConversation(sessionId: string): Promise<{ success: boolean }> {
+    return this.request<{ success: boolean }>('conversation.end', { sessionId });
+  }
+
+  async getConversationStatus(sessionId: string): Promise<{ exists: boolean; state?: string; turnCount?: number }> {
+    return this.request<{ exists: boolean; state?: string; turnCount?: number }>('conversation.status', { sessionId });
+  }
+
+  async listPersonas(): Promise<{ personas: PersonaSummary[] }> {
+    return this.request<{ personas: PersonaSummary[] }>('persona.list');
+  }
+
+  async getPersona(id: string): Promise<Persona> {
+    return this.request<Persona>('persona.get', { id });
+  }
+
+  async getDefaultPersona(): Promise<{ personaId: string }> {
+    return this.request<{ personaId: string }>('persona.default');
   }
 }
 

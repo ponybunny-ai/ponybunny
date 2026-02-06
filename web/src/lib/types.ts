@@ -270,7 +270,13 @@ export type GatewayEventType =
   | 'escalation.created'
   | 'escalation.resolved'
   | 'connection.authenticated'
-  | 'connection.disconnected';
+  | 'connection.disconnected'
+  // Conversation events
+  | 'conversation.response'
+  | 'conversation.typing'
+  | 'conversation.ended'
+  | 'task.narration'
+  | 'task.result';
 
 export interface GatewayEvent<T = unknown> {
   type: GatewayEventType;
@@ -304,4 +310,97 @@ export interface GoalSubmitParams {
   budget_cost_usd?: number;
   tags?: string[];
   context?: Record<string, unknown>;
+}
+
+// ============================================================================
+// Conversation Types
+// ============================================================================
+
+export type ConversationState =
+  | 'idle'
+  | 'chatting'
+  | 'clarifying'
+  | 'executing'
+  | 'monitoring'
+  | 'reporting'
+  | 'retrying';
+
+export interface PersonalityTraits {
+  warmth: number;
+  formality: number;
+  humor: number;
+  empathy: number;
+}
+
+export interface CommunicationStyle {
+  verbosity: 'concise' | 'balanced' | 'detailed';
+  technicalDepth: 'simplified' | 'adaptive' | 'expert';
+  expressiveness: 'minimal' | 'moderate' | 'expressive';
+}
+
+export interface Persona {
+  id: string;
+  name: string;
+  nickname?: string;
+  personality: PersonalityTraits;
+  communicationStyle: CommunicationStyle;
+  expertise: {
+    primaryDomains: string[];
+    skillConfidence: Record<string, number>;
+  };
+  backstory?: string;
+  locale: string;
+}
+
+export interface PersonaSummary {
+  id: string;
+  name: string;
+  nickname?: string;
+  locale: string;
+}
+
+export interface ConversationTurn {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+  attachments?: Array<{
+    type: 'image' | 'file' | 'audio';
+    url?: string;
+    mimeType: string;
+    filename?: string;
+  }>;
+}
+
+export interface ConversationSession {
+  id: string;
+  personaId: string;
+  state: ConversationState;
+  turns: ConversationTurn[];
+  activeGoalId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ConversationMessageParams {
+  sessionId?: string;
+  personaId?: string;
+  message: string;
+  attachments?: Array<{
+    type: 'image' | 'file' | 'audio';
+    base64?: string;
+    mimeType: string;
+    filename?: string;
+  }>;
+}
+
+export interface ConversationMessageResult {
+  sessionId: string;
+  response: string;
+  state: ConversationState;
+  taskInfo?: {
+    goalId: string;
+    status: string;
+    progress?: number;
+  };
 }

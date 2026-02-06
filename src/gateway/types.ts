@@ -141,7 +141,13 @@ export type GatewayEventType =
   | 'escalation.created'
   | 'escalation.resolved'
   | 'connection.authenticated'
-  | 'connection.disconnected';
+  | 'connection.disconnected'
+  // Conversation events
+  | 'conversation.response'
+  | 'conversation.typing'
+  | 'conversation.ended'
+  | 'task.narration'
+  | 'task.result';
 
 export interface GatewayEvent<T = unknown> {
   type: GatewayEventType;

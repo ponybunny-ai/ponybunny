@@ -24,14 +24,30 @@ import { registerWorkItemHandlers } from './rpc/handlers/workitem-handlers.js';
 import { registerEscalationHandlers } from './rpc/handlers/escalation-handlers.js';
 import { registerApprovalHandlers } from './rpc/handlers/approval-handlers.js';
 import { registerDebugHandlers } from './rpc/handlers/debug-handlers.js';
+import { registerConversationHandlers } from './rpc/handlers/conversation-handlers.js';
+import { registerPersonaHandlers } from './rpc/handlers/persona-handlers.js';
 import { setupDebugBroadcaster } from './debug-broadcaster.js';
 
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
+
+// Conversation imports
+import { SessionManager, type ISessionManager } from '../app/conversation/session-manager.js';
+import { PersonaEngine, type IPersonaEngine } from '../app/conversation/persona-engine.js';
+import { InputAnalysisService } from '../app/conversation/input-analysis-service.js';
+import { ResponseGenerator } from '../app/conversation/response-generator.js';
+import { TaskBridge } from '../app/conversation/task-bridge.js';
+import { RetryHandler } from '../app/conversation/retry-handler.js';
+import { FilePersonaRepository, InMemoryPersonaRepository } from '../infra/conversation/persona-repository.js';
+import { InMemorySessionRepository } from '../infra/conversation/session-repository.js';
+import { getLLMService } from '../infra/llm/llm-service.js';
+import * as path from 'path';
+import * as fs from 'fs';
 
 export interface GatewayServerDependencies {
   db: Database.Database;
   repository: IWorkOrderRepository;
   debugMode?: boolean;
+  personasDir?: string;  // Optional custom personas directory
 }
 
 export class GatewayServer {
@@ -53,6 +69,10 @@ export class GatewayServer {
   private schedulerBridge: SchedulerBridge;
   private scheduler: ISchedulerCore | null = null;
   private debugBroadcasterCleanup: (() => void) | null = null;
+
+  // Conversation components
+  private sessionManager: ISessionManager;
+  private personaEngine: IPersonaEngine;
 
   private isRunning = false;
 
@@ -95,8 +115,68 @@ export class GatewayServer {
     this.daemonBridge = new DaemonBridge(this.eventBus);
     this.schedulerBridge = new SchedulerBridge(this.eventBus);
 
+    // Initialize conversation components
+    const { personaEngine, sessionManager } = this.initializeConversation(dependencies.personasDir);
+    this.personaEngine = personaEngine;
+    this.sessionManager = sessionManager;
+
     // Register RPC handlers
     this.registerHandlers();
+  }
+
+  /**
+   * Initialize conversation components with dependency injection
+   */
+  private initializeConversation(personasDir?: string): {
+    personaEngine: IPersonaEngine;
+    sessionManager: ISessionManager;
+  } {
+    // Determine personas directory
+    const defaultPersonasDir = path.join(process.cwd(), 'config', 'personas');
+    const resolvedPersonasDir = personasDir || defaultPersonasDir;
+
+    // Create persona repository (file-based if directory exists, otherwise in-memory)
+    let personaRepository;
+    if (fs.existsSync(resolvedPersonasDir)) {
+      personaRepository = new FilePersonaRepository(resolvedPersonasDir);
+    } else {
+      console.log('[GatewayServer] Personas directory not found, using in-memory repository');
+      personaRepository = new InMemoryPersonaRepository();
+      // Add default persona to in-memory repository
+      personaRepository.addPersona({
+        id: 'pony-default',
+        name: 'Pony',
+        nickname: '小马',
+        personality: { warmth: 0.8, formality: 0.4, humor: 0.5, empathy: 0.7 },
+        communicationStyle: { verbosity: 'balanced', technicalDepth: 'adaptive', expressiveness: 'moderate' },
+        expertise: {
+          primaryDomains: ['software-engineering', 'devops', 'automation'],
+          skillConfidence: { coding: 0.95, debugging: 0.9, architecture: 0.85 },
+        },
+        backstory: '我是 Pony，你的自主 AI 助手。',
+        locale: 'zh-CN',
+      });
+    }
+
+    const personaEngine = new PersonaEngine(personaRepository);
+    const sessionRepository = new InMemorySessionRepository();
+    const llmService = getLLMService();
+
+    const inputAnalyzer = new InputAnalysisService(llmService);
+    const responseGenerator = new ResponseGenerator(llmService, personaEngine);
+    const taskBridge = new TaskBridge(this.repository as any, () => this.scheduler);
+    const retryHandler = new RetryHandler(llmService);
+
+    const sessionManager = new SessionManager(
+      sessionRepository,
+      personaEngine,
+      inputAnalyzer,
+      responseGenerator,
+      taskBridge,
+      retryHandler
+    );
+
+    return { personaEngine, sessionManager };
   }
 
   private registerHandlers(): void {
@@ -111,6 +191,10 @@ export class GatewayServer {
       () => this.scheduler,
       () => this.connectionManager
     );
+
+    // Conversation handlers
+    registerConversationHandlers(this.rpcHandler, this.sessionManager, this.eventBus);
+    registerPersonaHandlers(this.rpcHandler, this.personaEngine);
 
     // System methods
     this.rpcHandler.register('system.ping', [], async () => ({ pong: Date.now() }));

@@ -18,22 +18,39 @@ PonyBunny is an **Autonomous AI Employee System** built on a **Gateway + Schedul
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         External World                               │
-│  CLI Client  │  TUI Client  │  Web Client  │  Other Agents          │
+│  Web UI  │  Mobile App  │  Voice Assistant  │  CLI  │  Other Agents │
 └─────────────────────────────────────────────────────────────────────┘
+                              │
+                              │ 对人类: conversation.message (文字/语音/图片)
+                              │ 对其他系统: goal.*, workitem.*, etc.
                               │
                               │ WS / WSS (长连接)
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                          Gateway                                     │
+│                          Gateway (统一调度层)                        │
 │  - WS/WSS connection management (heartbeat, reconnect)              │
-│  - Inbound: Goals, approvals, info supplements, cancellations       │
-│  - Outbound: Status updates, escalations, results, live logs        │
 │  - Authentication & authorization                                    │
-│  - Message routing to Scheduler                                      │
-└─────────────────────────────────────────────────────────────────────┘
-                              │
-                              │ Internal events/commands
-                              ▼
+│  - Message routing to appropriate Agent                              │
+│                                                                      │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │                     Agent Layer                                 │ │
+│  │                                                                 │ │
+│  │  ┌─────────────────────┐      ┌─────────────────────┐         │ │
+│  │  │ Conversation Agent  │      │     Scheduler       │         │ │
+│  │  │                     │      │                     │         │ │
+│  │  │ - 理解人类自然语言  │─────▶│ - 8-Phase Lifecycle │         │ │
+│  │  │ - 人格化回复        │      │ - Task Decomposition│         │ │
+│  │  │ - 对话状态管理      │◀─────│ - Model Selection   │         │ │
+│  │  │ - 进度叙述          │      │ - Execution Monitor │         │ │
+│  │  └─────────────────────┘      └──────────┬──────────┘         │ │
+│  │                                          │                     │ │
+│  └──────────────────────────────────────────┼─────────────────────┘ │
+│                                             │                       │
+│  Internal Methods (Agents 之间调用):        │                       │
+│  goal.*, workitem.*, escalation.*, etc.     │                       │
+└─────────────────────────────────────────────┼───────────────────────┘
+                                              │
+                                              ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    Scheduler (Core Brain)                            │
 │  Acts as the Agent, responsible for:                                │
@@ -89,13 +106,23 @@ src/
 │   └── agent/        # Agent logic for the 8-phase lifecycle
 ├── domain/           # Pure business logic, NO external dependencies
 │   ├── work-order/   # Goal, WorkItem, Run, Artifact types
+│   ├── conversation/ # Persona, Session, Analysis types
 │   ├── skill/        # Skill definitions and registry
 │   └── state-machine # Status transition rules
+├── app/              # Application services
+│   └── conversation/ # Conversation Agent services
+│       ├── persona-engine.ts
+│       ├── input-analysis-service.ts
+│       ├── conversation-state-machine.ts
+│       ├── response-generator.ts
+│       ├── task-bridge.ts
+│       └── session-manager.ts
 ├── infra/            # Infrastructure adapters
 │   ├── persistence/  # SQLite repository
 │   ├── llm/          # LLM providers with router failover
 │   ├── tools/        # Tool registry & allowlist
-│   └── skills/       # Skill implementations
+│   ├── skills/       # Skill implementations
+│   └── conversation/ # Conversation repositories & prompts
 ├── autonomy/         # ReAct integration & daemon
 └── cli/              # Commander.js CLI with Ink terminal UI
 ```
