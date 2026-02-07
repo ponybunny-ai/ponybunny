@@ -119,7 +119,7 @@ export function registerClarifyHandlers(
       // Access internal method through the service
       const service = clarifyService as any;
       if (!service.initializeState) {
-        throw GatewayError.internal('ClarifyService does not support initializeState');
+        throw GatewayError.internalError('ClarifyService does not support initializeState');
       }
 
       const state = await service.initializeState(params.goalId, params.questions || []);
@@ -142,7 +142,7 @@ export function registerClarifyHandlers(
       // Access internal method through the service
       const service = clarifyService as any;
       if (!service.addResponses) {
-        throw GatewayError.internal('ClarifyService does not support addResponses');
+        throw GatewayError.internalError('ClarifyService does not support addResponses');
       }
 
       const state = await service.addResponses(params.goalId, params.responses);

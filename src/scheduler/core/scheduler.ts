@@ -21,6 +21,7 @@ import type {
   SchedulerMetrics,
   WorkItemExecutionContext,
 } from './types.js';
+import { debug } from '../../debug/index.js';
 
 const DEFAULT_CONFIG: SchedulerConfig = {
   tickIntervalMs: 1000,
@@ -163,6 +164,14 @@ export class SchedulerCore implements ISchedulerCore {
   async submitGoal(goal: Goal): Promise<void> {
     this.debug('Submitting goal:', goal.id);
 
+    // Set debug context
+    debug.setContext({ goalId: goal.id });
+    debug.custom('scheduler.goal.submitted', 'scheduler', {
+      goalId: goal.id,
+      title: goal.title,
+      priority: goal.priority,
+    });
+
     // Initialize goal execution state
     const goalState: GoalExecutionState = {
       goalId: goal.id,
@@ -185,6 +194,8 @@ export class SchedulerCore implements ISchedulerCore {
       timestamp: Date.now(),
       goalId: goal.id,
     });
+
+    debug.clearContext();
   }
 
   async cancelGoal(goalId: string): Promise<void> {
@@ -332,6 +343,14 @@ export class SchedulerCore implements ISchedulerCore {
     goal: Goal,
     goalState: GoalExecutionState
   ): Promise<void> {
+    // Set debug context
+    debug.setContext({ goalId: goal.id, workItemId: workItem.id });
+    debug.custom('scheduler.workitem.starting', 'scheduler', {
+      workItemId: workItem.id,
+      goalId: goal.id,
+      title: workItem.title,
+    });
+
     // Select model
     const modelResult = this.deps.modelSelector.selectModel(workItem, goal);
     const model = modelResult.model;
@@ -340,9 +359,16 @@ export class SchedulerCore implements ISchedulerCore {
     const laneResult = this.deps.laneSelector.selectLane(workItem, goal);
     const laneId = laneResult.laneId;
 
+    debug.custom('scheduler.workitem.assigned', 'scheduler', {
+      workItemId: workItem.id,
+      model,
+      laneId,
+    });
+
     // Check lane capacity
     if (!this.deps.laneSelector.hasCapacity(laneId)) {
       this.debug('Lane at capacity:', laneId);
+      debug.clearContext();
       return;
     }
 
@@ -353,6 +379,13 @@ export class SchedulerCore implements ISchedulerCore {
       goal_id: goal.id,
       agent_type: workItem.item_type,
       run_sequence: existingRuns.length + 1,
+    });
+
+    debug.setContext({ runId: run.id });
+    debug.custom('scheduler.run.started', 'scheduler', {
+      runId: run.id,
+      workItemId: workItem.id,
+      goalId: goal.id,
     });
 
     // Update states
@@ -476,6 +509,12 @@ export class SchedulerCore implements ISchedulerCore {
   private async handleExecutionSuccess(context: WorkItemExecutionContext): Promise<void> {
     const { workItem, goal, run } = context;
 
+    debug.setContext({ goalId: goal.id, workItemId: workItem.id, runId: run.id });
+    debug.custom('scheduler.workitem.success', 'scheduler', {
+      workItemId: workItem.id,
+      runId: run.id,
+    });
+
     // Update work item to verify status
     await this.deps.workItemManager.updateStatus(workItem.id, 'verify');
 
@@ -488,7 +527,18 @@ export class SchedulerCore implements ISchedulerCore {
       runId: run.id,
     });
 
+    debug.custom('scheduler.verification.started', 'scheduler', {
+      workItemId: workItem.id,
+      runId: run.id,
+    });
+
     const verificationResult = await this.deps.qualityGateRunner.runVerification(workItem, run);
+
+    debug.custom('scheduler.verification.completed', 'scheduler', {
+      workItemId: workItem.id,
+      runId: run.id,
+      passed: verificationResult.requiredPassed,
+    });
 
     this.emitEvent({
       type: 'verification_completed',

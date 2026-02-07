@@ -17,7 +17,11 @@ import { MessageRouter } from './protocol/message-router.js';
 import { RpcHandler } from './rpc/rpc-handler.js';
 import { DaemonBridge, type IDaemonEventEmitter } from './integration/daemon-bridge.js';
 import { SchedulerBridge } from './integration/scheduler-bridge.js';
+import { IPCBridge } from './integration/ipc-bridge.js';
 import type { ISchedulerCore } from '../scheduler/core/index.js';
+import { IPCServer } from '../ipc/ipc-server.js';
+import { homedir } from 'os';
+import { join } from 'path';
 
 import { registerGoalHandlers } from './rpc/handlers/goal-handlers.js';
 import { registerWorkItemHandlers } from './rpc/handlers/workitem-handlers.js';
@@ -70,6 +74,8 @@ export class GatewayServer {
   private broadcastManager: BroadcastManager;
   private daemonBridge: DaemonBridge;
   private schedulerBridge: SchedulerBridge;
+  private ipcServer: IPCServer;
+  private ipcBridge: IPCBridge;
   private scheduler: ISchedulerCore | null = null;
   private debugBroadcasterCleanup: (() => void) | null = null;
 
@@ -121,6 +127,11 @@ export class GatewayServer {
     this.broadcastManager = new BroadcastManager(this.eventBus, this.eventEmitter);
     this.daemonBridge = new DaemonBridge(this.eventBus);
     this.schedulerBridge = new SchedulerBridge(this.eventBus);
+
+    // Initialize IPC server and bridge
+    const ipcSocketPath = join(homedir(), '.ponybunny', 'gateway.sock');
+    this.ipcServer = new IPCServer({ socketPath: ipcSocketPath });
+    this.ipcBridge = new IPCBridge(this.eventBus);
 
     // Initialize audit components
     this.auditRepository = new AuditLogRepository(this.db);
@@ -250,6 +261,17 @@ export class GatewayServer {
           this.connectionManager.start();
           this.broadcastManager.start();
 
+          // Start IPC server
+          this.ipcServer.start()
+            .then(() => {
+              console.log('[GatewayServer] IPC server started');
+              // Connect IPC bridge to route messages
+              this.ipcBridge.connect(this.ipcServer);
+            })
+            .catch((error) => {
+              console.error('[GatewayServer] Failed to start IPC server:', error);
+            });
+
           // Start debug broadcaster if debug mode is enabled
           if (this.debugMode) {
             this.debugBroadcasterCleanup = setupDebugBroadcaster(
@@ -282,6 +304,10 @@ export class GatewayServer {
       this.debugBroadcasterCleanup();
       this.debugBroadcasterCleanup = null;
     }
+
+    // Stop IPC bridge and server
+    this.ipcBridge.disconnect();
+    await this.ipcServer.stop();
 
     // Shutdown audit service (flush pending logs)
     await this.auditService.shutdown();

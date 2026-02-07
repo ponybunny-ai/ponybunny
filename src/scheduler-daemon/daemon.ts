@@ -1,0 +1,199 @@
+/**
+ * Scheduler Daemon - Autonomous execution engine
+ *
+ * Runs as a separate process from Gateway, executing goals through the 8-phase lifecycle.
+ * Sends scheduler and debug events to Gateway via IPC for real-time monitoring.
+ */
+
+import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
+import type { IExecutionService } from '../app/lifecycle/stage-interfaces.js';
+import type { ILLMProvider } from '../infra/llm/llm-provider.js';
+import type { SchedulerEvent } from '../scheduler/types.js';
+import type { DebugEvent } from '../debug/types.js';
+import { SchedulerCore } from '../scheduler/core/index.js';
+import { createScheduler } from '../gateway/integration/scheduler-factory.js';
+import { IPCClient } from '../ipc/ipc-client.js';
+import { debugEmitter } from '../debug/emitter.js';
+import type { AnyIPCMessage } from '../ipc/types.js';
+
+export interface SchedulerDaemonConfig {
+  /** Path to Gateway IPC socket */
+  ipcSocketPath: string;
+  /** Database path */
+  dbPath: string;
+  /** Enable debug mode */
+  debug?: boolean;
+  /** Scheduler tick interval in milliseconds */
+  tickIntervalMs?: number;
+  /** Maximum concurrent goals */
+  maxConcurrentGoals?: number;
+}
+
+export class SchedulerDaemon {
+  private scheduler: SchedulerCore | null = null;
+  private ipcClient: IPCClient;
+  private repository: IWorkOrderRepository;
+  private executionService: IExecutionService;
+  private llmProvider: ILLMProvider;
+  private config: SchedulerDaemonConfig;
+  private isRunning = false;
+
+  constructor(
+    repository: IWorkOrderRepository,
+    executionService: IExecutionService,
+    llmProvider: ILLMProvider,
+    config: SchedulerDaemonConfig
+  ) {
+    this.repository = repository;
+    this.executionService = executionService;
+    this.llmProvider = llmProvider;
+    this.config = config;
+
+    // Initialize IPC client
+    this.ipcClient = new IPCClient({
+      socketPath: config.ipcSocketPath,
+      autoReconnect: true,
+      clientInfo: {
+        clientType: 'scheduler-daemon',
+        version: '1.0.0',
+        pid: process.pid,
+      },
+    });
+  }
+
+  /**
+   * Start the scheduler daemon.
+   */
+  async start(): Promise<void> {
+    if (this.isRunning) {
+      throw new Error('Scheduler Daemon is already running');
+    }
+
+    console.log('[SchedulerDaemon] Starting...');
+
+    // Initialize database
+    await this.repository.initialize();
+
+    // Connect to Gateway IPC
+    await this.ipcClient.connect();
+    console.log('[SchedulerDaemon] Connected to Gateway IPC');
+
+    // Create scheduler with all dependencies
+    this.scheduler = createScheduler(
+      {
+        repository: this.repository,
+        executionService: this.executionService,
+        llmProvider: this.llmProvider,
+      },
+      {
+        tickIntervalMs: this.config.tickIntervalMs ?? 1000,
+        maxConcurrentGoals: this.config.maxConcurrentGoals ?? 5,
+        autoStart: false,
+        debug: this.config.debug ?? false,
+      }
+    );
+
+    // Subscribe to scheduler events and forward to Gateway
+    this.scheduler.on((event: SchedulerEvent) => {
+      this.handleSchedulerEvent(event);
+    });
+
+    // Enable debug mode and forward debug events to Gateway
+    if (this.config.debug) {
+      debugEmitter.enable();
+      debugEmitter.onDebug((event: DebugEvent) => {
+        this.handleDebugEvent(event);
+      });
+      console.log('[SchedulerDaemon] Debug mode enabled');
+    }
+
+    // Start scheduler
+    await this.scheduler.start();
+    this.isRunning = true;
+
+    console.log('[SchedulerDaemon] Started successfully');
+  }
+
+  /**
+   * Stop the scheduler daemon.
+   */
+  async stop(): Promise<void> {
+    if (!this.isRunning) {
+      return;
+    }
+
+    console.log('[SchedulerDaemon] Stopping...');
+
+    this.isRunning = false;
+
+    // Stop scheduler
+    if (this.scheduler) {
+      await this.scheduler.stop();
+      this.scheduler = null;
+    }
+
+    // Disable debug mode
+    if (this.config.debug) {
+      debugEmitter.disable();
+    }
+
+    // Disconnect from Gateway IPC
+    await this.ipcClient.disconnect();
+
+    // Close database
+    this.repository.close();
+
+    console.log('[SchedulerDaemon] Stopped');
+  }
+
+  /**
+   * Get scheduler instance (for testing/inspection).
+   */
+  getScheduler(): SchedulerCore | null {
+    return this.scheduler;
+  }
+
+  /**
+   * Get IPC client (for testing/inspection).
+   */
+  getIPCClient(): IPCClient {
+    return this.ipcClient;
+  }
+
+  /**
+   * Check if daemon is running.
+   */
+  isActive(): boolean {
+    return this.isRunning;
+  }
+
+  /**
+   * Handle scheduler event and send to Gateway via IPC.
+   */
+  private handleSchedulerEvent(event: SchedulerEvent): void {
+    const message: AnyIPCMessage = {
+      type: 'scheduler_event',
+      timestamp: Date.now(),
+      data: event,
+    };
+
+    this.ipcClient.send(message).catch((error) => {
+      console.error('[SchedulerDaemon] Failed to send scheduler event:', error);
+    });
+  }
+
+  /**
+   * Handle debug event and send to Gateway via IPC.
+   */
+  private handleDebugEvent(event: DebugEvent): void {
+    const message: AnyIPCMessage = {
+      type: 'debug_event',
+      timestamp: Date.now(),
+      data: event,
+    };
+
+    this.ipcClient.send(message).catch((error) => {
+      console.error('[SchedulerDaemon] Failed to send debug event:', error);
+    });
+  }
+}
