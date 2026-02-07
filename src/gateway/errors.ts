@@ -40,6 +40,7 @@ export const ErrorCodes = {
   WORKITEM_NOT_FOUND: -32011,
   ESCALATION_NOT_FOUND: -32012,
   RUN_NOT_FOUND: -32013,
+  PERMISSION_REQUEST_NOT_FOUND: -32014,
 
   // Operation errors
   GOAL_ALREADY_CANCELLED: -32020,
@@ -74,6 +75,7 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   [ErrorCodes.WORKITEM_NOT_FOUND]: 'Work item not found',
   [ErrorCodes.ESCALATION_NOT_FOUND]: 'Escalation not found',
   [ErrorCodes.RUN_NOT_FOUND]: 'Run not found',
+  [ErrorCodes.PERMISSION_REQUEST_NOT_FOUND]: 'Permission request not found',
 
   [ErrorCodes.GOAL_ALREADY_CANCELLED]: 'Goal already cancelled',
   [ErrorCodes.ESCALATION_ALREADY_RESOLVED]: 'Escalation already resolved',
@@ -160,12 +162,13 @@ export class GatewayError extends Error {
     );
   }
 
-  static notFound(resource: 'goal' | 'workitem' | 'escalation' | 'run', id: string): GatewayError {
+  static notFound(resource: 'goal' | 'workitem' | 'escalation' | 'run' | 'permission_request', id: string): GatewayError {
     const codeMap = {
       goal: ErrorCodes.GOAL_NOT_FOUND,
       workitem: ErrorCodes.WORKITEM_NOT_FOUND,
       escalation: ErrorCodes.ESCALATION_NOT_FOUND,
       run: ErrorCodes.RUN_NOT_FOUND,
+      permission_request: ErrorCodes.PERMISSION_REQUEST_NOT_FOUND,
     };
     return new GatewayError(codeMap[resource], `${resource} not found: ${id}`);
   }

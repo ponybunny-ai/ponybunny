@@ -8,6 +8,7 @@ import type { RpcHandler } from '../rpc-handler.js';
 import { GatewayError, ErrorCodes } from '../../errors.js';
 import type { EventBus } from '../../events/event-bus.js';
 import type { ISchedulerCore } from '../../../scheduler/core/index.js';
+import type { AuditService } from '../../../infra/audit/audit-service.js';
 
 export interface GoalSubmitParams {
   title: string;
@@ -42,7 +43,8 @@ export function registerGoalHandlers(
   rpcHandler: RpcHandler,
   repository: IWorkOrderRepository,
   eventBus: EventBus,
-  getScheduler?: () => ISchedulerCore | null
+  getScheduler?: () => ISchedulerCore | null,
+  auditService?: AuditService
 ): void {
   // goal.submit - Create a new goal
   rpcHandler.register<GoalSubmitParams, Goal>(
@@ -64,6 +66,16 @@ export function registerGoalHandlers(
       };
 
       const goal = repository.createGoal(createParams);
+
+      // Audit log: goal created
+      auditService?.logGoalCreated(goal.id, session.publicKey, 'user', {
+        title: goal.title,
+        description: goal.description,
+        priority: goal.priority,
+        budget_tokens: goal.budget_tokens,
+        budget_time_minutes: goal.budget_time_minutes,
+        budget_cost_usd: goal.budget_cost_usd,
+      });
 
       // Auto-subscribe creator to goal events
       session.subscribeToGoal(goal.id);
@@ -127,7 +139,17 @@ export function registerGoalHandlers(
         );
       }
 
+      const oldStatus = goal.status;
       repository.updateGoalStatus(params.goalId, 'cancelled');
+
+      // Audit log: goal cancelled
+      auditService?.logGoalStatusChanged(
+        params.goalId,
+        session.publicKey,
+        'user',
+        oldStatus,
+        'cancelled'
+      );
 
       // Cancel in scheduler if connected
       const scheduler = getScheduler?.();

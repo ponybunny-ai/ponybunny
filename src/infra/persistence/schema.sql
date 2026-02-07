@@ -297,9 +297,146 @@ CREATE TABLE IF NOT EXISTS pairing_tokens (
 CREATE INDEX IF NOT EXISTS idx_pairing_tokens_hash ON pairing_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_pairing_tokens_public_key ON pairing_tokens(public_key);
 
+-- ============================================================================
+-- 10. AUDIT_LOGS Table
+-- ============================================================================
+-- Comprehensive audit trail for all system operations
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id TEXT PRIMARY KEY,                    -- UUID v4
+    timestamp INTEGER NOT NULL,             -- Unix timestamp (ms)
+
+    -- Actor information
+    actor TEXT NOT NULL,                    -- publicKey, 'system', 'daemon', or agent identifier
+    actor_type TEXT NOT NULL,               -- user | system | daemon | agent | scheduler | gateway
+
+    -- Action details
+    action TEXT NOT NULL,                   -- e.g., 'goal.created', 'tool.invoked'
+    entity_type TEXT NOT NULL,              -- goal | work_item | run | artifact | escalation | session | tool | auth | permission
+    entity_id TEXT NOT NULL,                -- ID of the affected entity
+
+    -- Related entities for easier querying
+    goal_id TEXT,
+    work_item_id TEXT,
+    run_id TEXT,
+    session_id TEXT,
+
+    -- Change tracking
+    old_value TEXT,                         -- JSON: previous value
+    new_value TEXT,                         -- JSON: new value
+
+    -- Additional context
+    metadata TEXT,                          -- JSON: extra context
+
+    -- Request context
+    ip_address TEXT,
+    user_agent TEXT
+);
+
+-- Indexes for common query patterns
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_goal ON audit_logs(goal_id);
+CREATE INDEX IF NOT EXISTS idx_audit_work_item ON audit_logs(work_item_id);
+CREATE INDEX IF NOT EXISTS idx_audit_run ON audit_logs(run_id);
+CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action);
+CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_logs(session_id);
+
+-- ============================================================================
+-- 11. PERMISSION_REQUESTS Table
+-- ============================================================================
+-- Permission requests for Layer 2 (approval_required) operations
+CREATE TABLE IF NOT EXISTS permission_requests (
+    id TEXT PRIMARY KEY,                    -- UUID v4
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+
+    -- Tool information
+    tool_name TEXT NOT NULL,
+    layer TEXT NOT NULL,                    -- 'approval_required'
+
+    -- Context
+    goal_id TEXT NOT NULL,
+    work_item_id TEXT,
+    run_id TEXT,
+
+    -- Request details
+    reason TEXT NOT NULL,
+    args_summary TEXT NOT NULL,             -- Sanitized summary of arguments
+
+    -- Status
+    status TEXT NOT NULL DEFAULT 'pending', -- pending | approved | denied | expired
+
+    -- Resolution
+    resolved_at INTEGER,
+    resolved_by TEXT,
+    resolution_note TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_perm_req_goal ON permission_requests(goal_id);
+CREATE INDEX IF NOT EXISTS idx_perm_req_status ON permission_requests(status);
+CREATE INDEX IF NOT EXISTS idx_perm_req_expires ON permission_requests(expires_at);
+
+-- ============================================================================
+-- 12. PERMISSION_GRANTS Table
+-- ============================================================================
+-- Cached permission grants for approved operations
+CREATE TABLE IF NOT EXISTS permission_grants (
+    tool_name TEXT NOT NULL,
+    goal_id TEXT NOT NULL,
+    granted_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    granted_by TEXT NOT NULL,
+    scope TEXT,                             -- Optional scope limitation
+    PRIMARY KEY (tool_name, goal_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_perm_grant_expires ON permission_grants(expires_at);
+
+-- ============================================================================
+-- 13. SESSIONS Table
+-- ============================================================================
+-- Conversation sessions for persistent chat state
+CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,                    -- UUID v4
+    persona_id TEXT NOT NULL,
+    state TEXT NOT NULL,                    -- idle | clarifying | executing | monitoring | retrying
+    active_goal_id TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    expires_at INTEGER,
+    metadata TEXT                           -- JSON
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_persona ON sessions(persona_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_goal ON sessions(active_goal_id);
+
+-- ============================================================================
+-- 14. SESSION_TURNS Table
+-- ============================================================================
+-- Individual conversation turns within sessions
+CREATE TABLE IF NOT EXISTS session_turns (
+    id TEXT PRIMARY KEY,                    -- UUID v4
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL,                     -- 'user' | 'assistant'
+    content TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    attachments TEXT,                       -- JSON array
+    metadata TEXT,                          -- JSON
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_turns_session ON session_turns(session_id, timestamp);
+
+-- Update schema version
+INSERT OR REPLACE INTO meta (key, value, updated_at)
+VALUES ('schema_version', '1.3.0', strftime('%s', 'now') * 1000);
+
 -- Initialize schema version
 INSERT OR IGNORE INTO meta (key, value, updated_at)
-VALUES ('schema_version', '1.1.0', strftime('%s', 'now') * 1000);
+VALUES ('schema_version', '1.2.0', strftime('%s', 'now') * 1000);
 
 INSERT OR IGNORE INTO meta (key, value, updated_at)
 VALUES ('initialized_at', strftime('%s', 'now') * 1000, strftime('%s', 'now') * 1000);

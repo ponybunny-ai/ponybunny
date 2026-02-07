@@ -26,9 +26,12 @@ import { registerApprovalHandlers } from './rpc/handlers/approval-handlers.js';
 import { registerDebugHandlers } from './rpc/handlers/debug-handlers.js';
 import { registerConversationHandlers } from './rpc/handlers/conversation-handlers.js';
 import { registerPersonaHandlers } from './rpc/handlers/persona-handlers.js';
+import { registerAuditHandlers } from './rpc/handlers/audit-handlers.js';
 import { setupDebugBroadcaster } from './debug-broadcaster.js';
 
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
+import { AuditLogRepository } from '../infra/persistence/audit-repository.js';
+import { AuditService } from '../infra/audit/audit-service.js';
 
 // Conversation imports
 import { SessionManager, type ISessionManager } from '../app/conversation/session-manager.js';
@@ -69,6 +72,10 @@ export class GatewayServer {
   private schedulerBridge: SchedulerBridge;
   private scheduler: ISchedulerCore | null = null;
   private debugBroadcasterCleanup: (() => void) | null = null;
+
+  // Audit components
+  private auditRepository: AuditLogRepository;
+  private auditService: AuditService;
 
   // Conversation components
   private sessionManager: ISessionManager;
@@ -114,6 +121,11 @@ export class GatewayServer {
     this.broadcastManager = new BroadcastManager(this.eventBus, this.eventEmitter);
     this.daemonBridge = new DaemonBridge(this.eventBus);
     this.schedulerBridge = new SchedulerBridge(this.eventBus);
+
+    // Initialize audit components
+    this.auditRepository = new AuditLogRepository(this.db);
+    this.auditRepository.initialize();
+    this.auditService = new AuditService(this.auditRepository, { asyncMode: true });
 
     // Initialize conversation components
     const { personaEngine, sessionManager } = this.initializeConversation(dependencies.personasDir);
@@ -180,7 +192,7 @@ export class GatewayServer {
   }
 
   private registerHandlers(): void {
-    registerGoalHandlers(this.rpcHandler, this.repository, this.eventBus, () => this.scheduler);
+    registerGoalHandlers(this.rpcHandler, this.repository, this.eventBus, () => this.scheduler, this.auditService);
     registerWorkItemHandlers(this.rpcHandler, this.repository);
     registerEscalationHandlers(this.rpcHandler, this.repository as any, this.eventBus);
     registerApprovalHandlers(this.rpcHandler, this.eventBus);
@@ -195,6 +207,9 @@ export class GatewayServer {
     // Conversation handlers
     registerConversationHandlers(this.rpcHandler, this.sessionManager, this.eventBus);
     registerPersonaHandlers(this.rpcHandler, this.personaEngine);
+
+    // Audit handlers
+    registerAuditHandlers(this.rpcHandler, this.auditService, this.auditRepository);
 
     // System methods
     this.rpcHandler.register('system.ping', [], async () => ({ pong: Date.now() }));
@@ -267,6 +282,9 @@ export class GatewayServer {
       this.debugBroadcasterCleanup();
       this.debugBroadcasterCleanup = null;
     }
+
+    // Shutdown audit service (flush pending logs)
+    await this.auditService.shutdown();
 
     this.broadcastManager.stop();
     this.connectionManager.stop();
@@ -362,6 +380,13 @@ export class GatewayServer {
    */
   getEventBus(): EventBus {
     return this.eventBus;
+  }
+
+  /**
+   * Get the audit service for external audit logging
+   */
+  getAuditService(): AuditService {
+    return this.auditService;
   }
 
   private handleConnection(ws: WebSocket, req: IncomingMessage): void {
