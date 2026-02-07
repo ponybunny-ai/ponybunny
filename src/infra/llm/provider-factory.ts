@@ -12,6 +12,9 @@ export const PROVIDER_METADATA: Record<string, LLMProviderMetadata> = {
     name: 'Anthropic Claude',
     authType: 'api-key',
     supportedModels: [
+      'claude-opus-4-5',
+      'claude-sonnet-4-5',
+      'claude-haiku-4-5',
       'claude-opus-4-5-20251101',
       'claude-sonnet-4-5-20250929',
       'claude-haiku-4-5-20251001',
@@ -23,6 +26,9 @@ export const PROVIDER_METADATA: Record<string, LLMProviderMetadata> = {
     ],
     modelPrefixes: ['claude-'],
     costPer1kTokens: {
+      'claude-opus-4-5': { input: 0.015, output: 0.075 },
+      'claude-sonnet-4-5': { input: 0.003, output: 0.015 },
+      'claude-haiku-4-5': { input: 0.001, output: 0.005 },
       'claude-opus-4-5-20251101': { input: 0.015, output: 0.075 },
       'claude-sonnet-4-5-20250929': { input: 0.003, output: 0.015 },
       'claude-haiku-4-5-20250514': { input: 0.0008, output: 0.004 },
@@ -32,7 +38,7 @@ export const PROVIDER_METADATA: Record<string, LLMProviderMetadata> = {
       'claude-3-sonnet-20240229': { input: 0.003, output: 0.015 },
       'claude-3-haiku-20240307': { input: 0.00025, output: 0.00125 },
     },
-    defaultModel: 'claude-opus-4-5-20251101',
+    defaultModel: 'claude-opus-4-5',
     envVarKey: 'ANTHROPIC_API_KEY',
   },
 
