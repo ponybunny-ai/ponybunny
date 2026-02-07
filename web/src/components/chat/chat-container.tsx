@@ -6,31 +6,24 @@ import { type Message } from '@/components/ui/chat-message';
 import { useGateway } from '@/components/providers/gateway-provider';
 
 const SUGGESTIONS = [
-  'Analyze the codebase architecture',
-  'Help me fix a bug in my code',
-  'Write unit tests for a function',
-  'Refactor this code for better readability',
+  '帮我分析一下这个代码库的架构',
+  '帮我修复代码中的一个 bug',
+  '帮我写一个函数的单元测试',
+  '帮我重构这段代码，提高可读性',
 ];
 
 export function ChatContainer() {
-  const { state, submitGoal } = useGateway();
+  const { state, sendMessage } = useGateway();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-
-  // Build goals map for quick lookup
-  const goalsMap = useMemo(() => {
-    const map = new Map<string, { id: string; status: string; description: string }>();
-    state.goals.forEach((g) => map.set(g.id, g));
-    return map;
-  }, [state.goals]);
 
   // Handle input change
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
   }, []);
 
-  // Handle message submission
+  // Handle message submission using conversation API
   const handleSubmit = useCallback(async (event?: { preventDefault?: () => void }) => {
     event?.preventDefault?.();
 
@@ -53,24 +46,33 @@ export function ChatContainer() {
     const assistantMessage: Message = {
       id: assistantMessageId,
       role: 'assistant',
-      content: 'Processing your request...',
+      content: '',
       createdAt: new Date(),
     };
     setMessages((prev) => [...prev, assistantMessage]);
     setIsGenerating(true);
 
     try {
-      // Submit goal to gateway
-      const goal = await submitGoal(userContent);
+      // Send message via Conversation Agent
+      const result = await sendMessage(userContent);
 
-      // Update assistant message with goal reference
+      // Update assistant message with response
+      let responseContent = result.response;
+
+      // Add task info if a goal was created
+      if (result.taskInfo) {
+        const statusEmoji = result.taskInfo.status === 'completed' ? '✅' :
+                           result.taskInfo.status === 'failed' ? '❌' : '🔄';
+        const progress = result.taskInfo.progress !== undefined
+          ? ` (${Math.round(result.taskInfo.progress * 100)}%)`
+          : '';
+        responseContent += `\n\n${statusEmoji} 任务状态: ${result.taskInfo.status}${progress}`;
+      }
+
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantMessageId
-            ? {
-                ...m,
-                content: `Working on: ${goal.description}\n\nGoal ID: \`${goal.id}\``,
-              }
+            ? { ...m, content: responseContent }
             : m
         )
       );
@@ -81,7 +83,7 @@ export function ChatContainer() {
           m.id === assistantMessageId
             ? {
                 ...m,
-                content: `Failed to submit goal: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                content: `抱歉，处理消息时出错了: ${error instanceof Error ? error.message : '未知错误'}`,
               }
             : m
         )
@@ -89,44 +91,34 @@ export function ChatContainer() {
     } finally {
       setIsGenerating(false);
     }
-  }, [input, state.connected, submitGoal]);
+  }, [input, state.connected, sendMessage]);
 
   // Handle suggestion click
   const handleAppend = useCallback((message: { role: 'user'; content: string }) => {
     setInput(message.content);
   }, []);
 
-  // Update messages when goal status changes
-  useEffect(() => {
-    setMessages((prev) =>
-      prev.map((m) => {
-        // Find goal ID in message content
-        const goalIdMatch = m.content.match(/Goal ID: `([^`]+)`/);
-        if (!goalIdMatch) return m;
-
-        const goalId = goalIdMatch[1];
-        const goal = goalsMap.get(goalId);
-        if (!goal) return m;
-
-        if (goal.status === 'completed') {
-          return {
-            ...m,
-            content: `✅ Completed: ${goal.description}\n\nGoal ID: \`${goal.id}\``
-          };
-        }
-        if (goal.status === 'cancelled') {
-          return {
-            ...m,
-            content: `❌ Cancelled: ${goal.description}\n\nGoal ID: \`${goal.id}\``
-          };
-        }
-        return m;
-      })
-    );
-  }, [goalsMap]);
+  // Show conversation state indicator
+  const conversationStateLabel = useMemo(() => {
+    switch (state.conversation.state) {
+      case 'chatting': return '对话中';
+      case 'clarifying': return '确认需求中...';
+      case 'executing': return '执行任务中...';
+      case 'monitoring': return '监控进度中...';
+      case 'reporting': return '生成报告中...';
+      case 'retrying': return '重试中...';
+      default: return null;
+    }
+  }, [state.conversation.state]);
 
   return (
     <div className="flex flex-col h-full p-4">
+      {conversationStateLabel && state.conversation.state !== 'idle' && (
+        <div className="mb-2 text-sm text-muted-foreground flex items-center gap-2">
+          <span className="animate-pulse">●</span>
+          {conversationStateLabel}
+        </div>
+      )}
       <Chat
         messages={messages}
         input={input}

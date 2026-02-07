@@ -8,6 +8,8 @@ import type {
   Escalation,
   Permission,
   GatewayEventType,
+  ConversationState,
+  ConversationMessageResult,
 } from '@/lib/types';
 
 // ============================================================================
@@ -21,6 +23,13 @@ export interface GatewayEvent {
   data: unknown;
 }
 
+interface ConversationInfo {
+  sessionId: string | null;
+  personaId: string | null;
+  state: ConversationState;
+  activeGoalId: string | null;
+}
+
 interface GatewayState {
   connected: boolean;
   connecting: boolean;
@@ -31,6 +40,7 @@ interface GatewayState {
   events: GatewayEvent[];
   escalations: Escalation[];
   error: string | null;
+  conversation: ConversationInfo;
 }
 
 type GatewayAction =
@@ -47,7 +57,9 @@ type GatewayAction =
   | { type: 'ESCALATION_CREATED'; escalation: Escalation }
   | { type: 'ESCALATION_UPDATED'; escalation: Escalation }
   | { type: 'ESCALATIONS_LOADED'; escalations: Escalation[] }
-  | { type: 'CLEAR_ERROR' };
+  | { type: 'CLEAR_ERROR' }
+  | { type: 'CONVERSATION_UPDATED'; sessionId: string; state: ConversationState; goalId?: string }
+  | { type: 'CONVERSATION_ENDED' };
 
 const MAX_EVENTS = 100;
 
@@ -124,6 +136,28 @@ function gatewayReducer(state: GatewayState, action: GatewayAction): GatewayStat
     case 'CLEAR_ERROR':
       return { ...state, error: null };
 
+    case 'CONVERSATION_UPDATED':
+      return {
+        ...state,
+        conversation: {
+          ...state.conversation,
+          sessionId: action.sessionId,
+          state: action.state,
+          activeGoalId: action.goalId || state.conversation.activeGoalId,
+        },
+      };
+
+    case 'CONVERSATION_ENDED':
+      return {
+        ...state,
+        conversation: {
+          sessionId: null,
+          personaId: null,
+          state: 'idle',
+          activeGoalId: null,
+        },
+      };
+
     default:
       return state;
   }
@@ -139,6 +173,12 @@ const initialState: GatewayState = {
   events: [],
   escalations: [],
   error: null,
+  conversation: {
+    sessionId: null,
+    personaId: null,
+    state: 'idle',
+    activeGoalId: null,
+  },
 };
 
 // ============================================================================
@@ -152,6 +192,8 @@ interface GatewayContextValue {
   refreshGoals: () => Promise<void>;
   refreshWorkItems: (goalId: string) => Promise<void>;
   respondToEscalation: (escalationId: string, action: string, data?: Record<string, unknown>) => Promise<void>;
+  sendMessage: (message: string, personaId?: string) => Promise<ConversationMessageResult>;
+  endConversation: () => Promise<void>;
 }
 
 const GatewayContext = createContext<GatewayContextValue | null>(null);
@@ -264,6 +306,35 @@ export function GatewayProvider({ children }: GatewayProviderProps) {
     await apiClient.respondToEscalation(escalationId, action, data);
   }, []);
 
+  const sendMessage = useCallback(async (message: string, personaId?: string): Promise<ConversationMessageResult> => {
+    const result = await apiClient.sendMessage({
+      sessionId: state.conversation.sessionId || undefined,
+      personaId: personaId || state.conversation.personaId || undefined,
+      message,
+    });
+
+    dispatch({
+      type: 'CONVERSATION_UPDATED',
+      sessionId: result.sessionId,
+      state: result.state,
+      goalId: result.taskInfo?.goalId,
+    });
+
+    // If a goal was created, add it to goals list
+    if (result.taskInfo?.goalId) {
+      dispatch({ type: 'SET_ACTIVE_GOAL', goalId: result.taskInfo.goalId });
+    }
+
+    return result;
+  }, [state.conversation.sessionId, state.conversation.personaId]);
+
+  const endConversation = useCallback(async () => {
+    if (state.conversation.sessionId) {
+      await apiClient.endConversation(state.conversation.sessionId);
+    }
+    dispatch({ type: 'CONVERSATION_ENDED' });
+  }, [state.conversation.sessionId]);
+
   const value: GatewayContextValue = useMemo(() => ({
     state,
     submitGoal,
@@ -271,7 +342,9 @@ export function GatewayProvider({ children }: GatewayProviderProps) {
     refreshGoals,
     refreshWorkItems,
     respondToEscalation,
-  }), [state, submitGoal, setActiveGoal, refreshGoals, refreshWorkItems, respondToEscalation]);
+    sendMessage,
+    endConversation,
+  }), [state, submitGoal, setActiveGoal, refreshGoals, refreshWorkItems, respondToEscalation, sendMessage, endConversation]);
 
   return (
     <GatewayContext.Provider value={value}>

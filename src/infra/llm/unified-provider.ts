@@ -124,8 +124,8 @@ export class UnifiedLLMProvider implements ILLMProvider {
       temperature: options?.temperature ?? 0.7,
     });
 
-    // Build URL and headers
-    const baseUrl = credentials.endpoint || endpoint.baseUrl;
+    // Build URL and headers (prefer credentials file baseUrl override)
+    const baseUrl = credentials.baseUrl || credentials.endpoint || endpoint.baseUrl;
     const url = adapter.buildUrl(baseUrl, model, endpointCreds);
     const headers = this.buildHeaders(adapter, endpoint, endpointCreds);
 
@@ -141,6 +141,9 @@ export class UnifiedLLMProvider implements ILLMProvider {
       });
 
       const data = await response.json().catch(() => ({ error: { message: response.statusText } }));
+
+      // Debug log the raw response
+      console.log(`[UnifiedProvider] Raw response from ${endpoint.id}:`, JSON.stringify(data, null, 2));
 
       if (!response.ok) {
         const errorMessage = adapter.extractErrorMessage(data);

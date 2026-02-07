@@ -106,3 +106,66 @@ export {
   getUnifiedProvider,
   resetUnifiedProvider,
 } from './unified-provider.js';
+
+// ============================================
+// New Provider Manager Architecture
+// ============================================
+
+// Provider Manager types
+export type {
+  ModelTier as ProviderModelTier,
+  AgentId,
+  LLMEndpointConfig as ProviderEndpointConfig,
+  ModelCapability,
+  LLMModelConfig as ProviderModelConfig,
+  LLMTierConfig as ProviderTierConfig,
+  LLMAgentConfig,
+  LLMDefaultsConfig,
+  LLMConfig,
+  LLMCompletionOptions,
+  ILLMProviderManager,
+  EndpointHealth,
+} from './provider-manager/index.js';
+
+export { ConfigValidationError, ConfigNotFoundError } from './provider-manager/index.js';
+
+// Config Loader
+export {
+  getConfigDir as getProviderConfigDir,
+  getLLMConfigPath,
+  getSchemaPath,
+  DEFAULT_LLM_CONFIG,
+  validateConfig,
+  loadLLMConfig,
+  saveLLMConfig,
+  configFileExists,
+  getCachedConfig,
+  clearConfigCache,
+  reloadConfig as reloadLLMConfig,
+  getEndpointConfig as getProviderEndpointConfig,
+  getModelConfig as getProviderModelConfig,
+  getTierConfig as getProviderTierConfig,
+  getAgentConfig as getProviderAgentConfig,
+  getDefaultsConfig,
+} from './provider-manager/index.js';
+
+// Endpoint Manager
+export {
+  EndpointManager,
+  getEndpointManager,
+  resetEndpointManager,
+} from './provider-manager/index.js';
+
+// Agent Model Resolver
+export {
+  AgentModelResolver,
+  getAgentModelResolver,
+  resetAgentModelResolver,
+} from './provider-manager/index.js';
+
+// Provider Manager
+export {
+  LLMProviderManager,
+  getLLMProviderManager,
+  resetLLMProviderManager,
+} from './provider-manager/index.js';

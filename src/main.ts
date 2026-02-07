@@ -5,6 +5,7 @@ import { VerificationService } from './app/lifecycle/verification/verification-s
 import { EvaluationService } from './app/lifecycle/evaluation/evaluation-service.js';
 import { PlanningService } from './app/lifecycle/planning/planning-service.js';
 import { getLLMService } from './infra/llm/index.js';
+import type { ILLMProvider } from './infra/llm/llm-provider.js';
 import { MockLLMProvider, LLMRouter } from './infra/llm/llm-provider.js';
 
 const DB_PATH = process.env.PONY_DB_PATH || './pony-work-orders.db';
@@ -13,24 +14,27 @@ async function main() {
   const repository = new WorkOrderDatabase(DB_PATH);
   await repository.initialize();
 
-  // Use the unified LLM service
+  // Use the unified LLM service (supports credentials.json with baseUrl override)
   const llmService = getLLMService();
   const availableProviders = llmService.getAvailableProviders();
 
-  let llmRouter: LLMRouter;
+  // Use LLMService directly as ILLMProvider - it uses UnifiedLLMProvider internally
+  // which supports credentials.json configuration including custom baseUrl
+  let llmProvider: ILLMProvider;
 
   if (availableProviders.length === 0) {
     console.warn('[PonyBunny] No API keys found. Using Mock LLM Provider.');
-    llmRouter = new LLMRouter([new MockLLMProvider('mock-provider')]);
+    llmProvider = new LLMRouter([new MockLLMProvider('mock-provider')]);
   } else {
-    llmRouter = llmService.createRouter();
+    // Use llmService directly - it implements ILLMProvider and handles routing internally
+    llmProvider = llmService;
   }
 
-  const planningService = new PlanningService(repository, llmRouter);
+  const planningService = new PlanningService(repository, llmProvider);
 
   const executionService = new ExecutionService(repository, {
     maxConsecutiveErrors: 3,
-  }, llmRouter);
+  }, llmProvider);
 
   const verificationService = new VerificationService();
 

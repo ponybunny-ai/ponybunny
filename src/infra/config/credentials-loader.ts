@@ -6,6 +6,8 @@ import * as os from 'os';
  * Credentials for a specific endpoint
  */
 export interface EndpointCredential {
+  /** Whether this endpoint is enabled (default: true if credentials are present) */
+  enabled?: boolean;
   apiKey?: string;
   accessKeyId?: string;
   secretAccessKey?: string;

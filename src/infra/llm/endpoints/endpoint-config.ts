@@ -115,6 +115,11 @@ function getCredentialValue(
 export function hasRequiredCredentials(config: EndpointConfig): boolean {
   const fileCredential = getCachedEndpointCredential(config.id);
 
+  // Check if explicitly disabled in credentials file
+  if (fileCredential?.enabled === false) {
+    return false;
+  }
+
   return config.requiredEnvVars.every(envVar => {
     // Check env var first
     if (process.env[envVar]) {

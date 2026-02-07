@@ -3,7 +3,17 @@
  * Communicates with Next.js API routes instead of directly with Gateway
  */
 
-import type { Goal, WorkItem, Escalation } from './types';
+import type {
+  Goal,
+  WorkItem,
+  Escalation,
+  ConversationMessageParams,
+  ConversationMessageResult,
+  ConversationTurn,
+  PersonaSummary,
+  Persona,
+  ConversationState,
+} from './types';
 
 class ApiClient {
   private baseUrl: string;
@@ -41,6 +51,39 @@ class ApiClient {
 
   async getStatus(): Promise<{ connected: boolean; error?: string }> {
     return this.fetch('/api/gateway/status');
+  }
+
+  // ============================================================================
+  // Conversation (Primary API for UI)
+  // ============================================================================
+
+  async sendMessage(params: ConversationMessageParams): Promise<ConversationMessageResult> {
+    return this.fetch('/api/conversation', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  }
+
+  async getConversationHistory(sessionId: string, limit?: number): Promise<{ turns: ConversationTurn[] }> {
+    const searchParams = new URLSearchParams();
+    searchParams.set('sessionId', sessionId);
+    if (limit) searchParams.set('limit', limit.toString());
+    return this.fetch(`/api/conversation?${searchParams.toString()}`);
+  }
+
+  async endConversation(sessionId: string): Promise<{ success: boolean }> {
+    return this.fetch('/api/conversation', {
+      method: 'DELETE',
+      body: JSON.stringify({ sessionId }),
+    });
+  }
+
+  async listPersonas(): Promise<{ personas: PersonaSummary[] }> {
+    return this.fetch('/api/personas');
+  }
+
+  async getPersona(id: string): Promise<Persona> {
+    return this.fetch(`/api/personas/${id}`);
   }
 
   // ============================================================================

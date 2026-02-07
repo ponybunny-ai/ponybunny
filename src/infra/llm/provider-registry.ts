@@ -1,4 +1,14 @@
 import type { ILLMProvider, LLMProviderConfig } from './llm-provider.js';
+import { getCachedEndpointCredential } from '../config/credentials-loader.js';
+
+/**
+ * Map provider IDs to endpoint IDs for credentials lookup
+ */
+const PROVIDER_TO_ENDPOINT: Record<string, string> = {
+  'anthropic': 'anthropic-direct',
+  'openai': 'openai-direct',
+  'gemini': 'google-ai-studio',
+};
 
 /**
  * Metadata describing an LLM provider's capabilities and configuration
@@ -148,12 +158,27 @@ export class LLMProviderRegistry implements ILLMProviderRegistry {
 
   /**
    * Check if a provider has a valid API key configured
+   * Checks both environment variables and credentials.json
    */
   hasApiKey(providerId: string): boolean {
     const entry = this.providers.get(providerId);
     if (!entry) return false;
-    if (!entry.metadata.envVarKey) return false;
-    return !!process.env[entry.metadata.envVarKey];
+
+    // Check environment variable first
+    if (entry.metadata.envVarKey && process.env[entry.metadata.envVarKey]) {
+      return true;
+    }
+
+    // Check credentials.json
+    const endpointId = PROVIDER_TO_ENDPOINT[providerId];
+    if (endpointId) {
+      const credential = getCachedEndpointCredential(endpointId);
+      if (credential && credential.enabled !== false && credential.apiKey) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**
