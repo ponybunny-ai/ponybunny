@@ -155,7 +155,6 @@ const ChatUI = ({ model: initialModel = 'gpt-5.2', system }: ChatUIProps) => {
         setAvailableModels([
           { label: 'GPT-5.2 (Latest) - OpenAI Codex', value: 'gpt-5.2' },
           { label: 'GPT-5.2 Codex (Code optimized) - OpenAI Codex', value: 'gpt-5.2-codex' },
-          { label: 'GPT-4o (Fast) - OpenAI Codex', value: 'gpt-4o' },
           { label: 'GPT-4 (Stable) - OpenAI Codex', value: 'gpt-4' },
           { label: 'Claude Sonnet 4.5 - Antigravity', value: 'claude-sonnet-4-5' },
           { label: 'Claude Sonnet 4.5 Thinking - Antigravity', value: 'claude-sonnet-4-5-thinking' },

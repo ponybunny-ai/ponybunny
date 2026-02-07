@@ -139,7 +139,7 @@ Did this execution satisfy the requirement: "${gate.name}"?`;
         { role: 'user', content: userPrompt }
       ], {
         temperature: 0.0,
-        model: 'gpt-4o',
+        model: 'gpt-5.2',
       });
 
       const content = response.content.replace(/```json/g, '').replace(/```/g, '').trim();

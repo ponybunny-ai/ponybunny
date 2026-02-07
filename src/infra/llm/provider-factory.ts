@@ -49,8 +49,6 @@ export const PROVIDER_METADATA: Record<string, LLMProviderMetadata> = {
     supportedModels: [
       'gpt-5.2',
       'gpt-5.2-codex',
-      'gpt-4o',
-      'gpt-4o-mini',
       'gpt-4-turbo',
       'gpt-4',
       'gpt-3.5-turbo',
@@ -62,8 +60,6 @@ export const PROVIDER_METADATA: Record<string, LLMProviderMetadata> = {
     costPer1kTokens: {
       'gpt-5.2': { input: 0.01, output: 0.03 },
       'gpt-5.2-codex': { input: 0.01, output: 0.03 },
-      'gpt-4o': { input: 0.005, output: 0.015 },
-      'gpt-4o-mini': { input: 0.00015, output: 0.0006 },
       'gpt-4-turbo': { input: 0.01, output: 0.03 },
       'gpt-4': { input: 0.03, output: 0.06 },
       'gpt-3.5-turbo': { input: 0.0005, output: 0.0015 },

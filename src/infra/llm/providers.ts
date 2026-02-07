@@ -91,8 +91,7 @@ export class OpenAIProvider implements ILLMProvider {
       'gpt-4': 0.03,
       'gpt-4-turbo': 0.01,
       'gpt-3.5-turbo': 0.0015,
-      'gpt-4o': 0.005,
-      'gpt-4o-mini': 0.00015,
+      'gpt-5.2': 0.01,
     };
     return costs[model] || 0.01;
   }

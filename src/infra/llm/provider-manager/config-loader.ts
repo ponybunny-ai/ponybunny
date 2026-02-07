@@ -92,20 +92,6 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
       maxContextTokens: 200000,
       capabilities: ['text', 'vision', 'function-calling'],
     },
-    'gpt-4o': {
-      displayName: 'GPT-4o',
-      endpoints: ['openai-direct', 'azure-openai'],
-      costPer1kTokens: { input: 0.005, output: 0.015 },
-      maxContextTokens: 128000,
-      capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
-    },
-    'gpt-4o-mini': {
-      displayName: 'GPT-4o Mini',
-      endpoints: ['openai-direct', 'azure-openai'],
-      costPer1kTokens: { input: 0.00015, output: 0.0006 },
-      maxContextTokens: 128000,
-      capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
-    },
     'gpt-5.2': {
       displayName: 'GPT-5.2',
       endpoints: ['openai-direct'],
@@ -131,15 +117,15 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
   tiers: {
     simple: {
       primary: 'claude-haiku-4-5-20251001',
-      fallback: ['gpt-4o-mini', 'gemini-2.0-flash'],
+      fallback: ['gpt-5.2', 'gemini-2.0-flash'],
     },
     medium: {
       primary: 'claude-sonnet-4-5-20250929',
-      fallback: ['gpt-4o', 'gemini-2.0-pro', 'claude-haiku-4-5-20251001'],
+      fallback: ['gpt-5.2', 'gemini-2.0-pro', 'claude-haiku-4-5-20251001'],
     },
     complex: {
       primary: 'claude-opus-4-5-20251101',
-      fallback: ['gpt-5.2', 'claude-sonnet-4-5-20250929', 'gpt-4o'],
+      fallback: ['gpt-5.2', 'claude-sonnet-4-5-20250929'],
     },
   },
   agents: {

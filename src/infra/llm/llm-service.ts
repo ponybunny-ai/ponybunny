@@ -23,15 +23,15 @@ export interface TierModelConfig {
 export const DEFAULT_TIER_MODELS: Record<ModelTier, TierModelConfig> = {
   simple: {
     primary: 'claude-haiku-4-5',
-    fallback: 'gpt-4o-mini',
+    fallback: 'gpt-5.2',
   },
   medium: {
     primary: 'claude-sonnet-4-5',
-    fallback: 'gpt-4o',
+    fallback: 'gpt-5.2',
   },
   complex: {
     primary: 'claude-opus-4-5',
-    fallback: 'gpt-4o',
+    fallback: 'gpt-5.2',
   },
 };
 

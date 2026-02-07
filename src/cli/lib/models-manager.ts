@@ -58,7 +58,6 @@ export class ModelsManager {
         codex: [
           { name: 'gpt-5.2', label: 'GPT-5.2 (Latest)', provider: 'codex' },
           { name: 'gpt-5.2-codex', label: 'GPT-5.2 Codex (Code optimized)', provider: 'codex' },
-          { name: 'gpt-4o', label: 'GPT-4o (Fast)', provider: 'codex' },
           { name: 'gpt-4', label: 'GPT-4 (Stable)', provider: 'codex' },
         ],
         antigravity: [

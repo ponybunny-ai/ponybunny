@@ -82,7 +82,7 @@ export class OpenAIClient {
       return response.models?.map(m => m.id) ?? [];
     } catch (error) {
       console.warn('Failed to fetch models from OpenAI, using defaults');
-      return ['gpt-5.2', 'gpt-5.2-codex', 'gpt-4o', 'gpt-4'];
+      return ['gpt-5.2', 'gpt-5.2-codex', 'gpt-4'];
     }
   }
 
