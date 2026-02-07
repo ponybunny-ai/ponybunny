@@ -75,7 +75,7 @@ export class LLMProviderRegistry implements ILLMProviderRegistry {
 
   /**
    * Get a provider instance by provider ID
-   * Creates instance lazily using environment variables
+   * Creates instance lazily using environment variables or credentials.json
    */
   getProvider(providerId: string): ILLMProvider | undefined {
     const entry = this.providers.get(providerId);
@@ -83,9 +83,21 @@ export class LLMProviderRegistry implements ILLMProviderRegistry {
 
     // Lazy instantiation
     if (!entry.instance) {
-      const apiKey = entry.metadata.envVarKey
+      // Try environment variable first
+      let apiKey = entry.metadata.envVarKey
         ? process.env[entry.metadata.envVarKey]
         : undefined;
+
+      // Fall back to credentials.json
+      if (!apiKey) {
+        const endpointId = PROVIDER_TO_ENDPOINT[providerId];
+        if (endpointId) {
+          const credential = getCachedEndpointCredential(endpointId);
+          if (credential && credential.enabled !== false && credential.apiKey) {
+            apiKey = credential.apiKey;
+          }
+        }
+      }
 
       if (!apiKey && entry.metadata.authType === 'api-key') {
         return undefined; // No API key available
