@@ -7,6 +7,7 @@ import { configCommand } from './commands/config.js';
 import { modelsCommand } from './commands/models.js';
 import { gatewayCommand } from './commands/gateway.js';
 import { debugCommand } from './commands/debug.js';
+import { initCommand } from './commands/init.js';
 import { registerWorkCommand } from './commands/work.js';
 import { startTui } from './tui/start.js';
 
@@ -27,6 +28,7 @@ program.addCommand(configCommand);
 program.addCommand(modelsCommand);
 program.addCommand(gatewayCommand);
 program.addCommand(debugCommand);
+program.addCommand(initCommand);
 registerWorkCommand(program);
 
 program
