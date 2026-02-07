@@ -5,6 +5,12 @@ import {
 } from '../../../../src/infra/llm/routing/model-router.js';
 import type { ModelRoutingConfig } from '../../../../src/infra/llm/routing/routing-config.js';
 
+// Mock the credentials loader to prevent loading from ~/.ponybunny/credentials.json
+jest.mock('../../../../src/infra/config/credentials-loader.js', () => ({
+  getCachedEndpointCredential: jest.fn(() => null),
+  clearCredentialsCache: jest.fn(),
+}));
+
 describe('ModelRouter', () => {
   const originalEnv = process.env;
 

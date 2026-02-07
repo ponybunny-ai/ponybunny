@@ -2,6 +2,12 @@ import { LLMProviderRegistry } from '../../../src/infra/llm/provider-registry.js
 import type { LLMProviderMetadata, LLMProviderFactory } from '../../../src/infra/llm/provider-registry.js';
 import type { ILLMProvider, LLMMessage, LLMResponse } from '../../../src/infra/llm/llm-provider.js';
 
+// Mock the credentials loader to prevent loading from ~/.ponybunny/credentials.json
+jest.mock('../../../src/infra/config/credentials-loader.js', () => ({
+  getCachedEndpointCredential: jest.fn(() => null),
+  clearCredentialsCache: jest.fn(),
+}));
+
 // Mock provider for testing
 class MockTestProvider implements ILLMProvider {
   constructor(private name: string) {}

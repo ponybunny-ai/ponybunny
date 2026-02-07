@@ -26,11 +26,13 @@ npx tsx test/e2e-lifecycle.ts
 npx tsx demo/autonomous-demo.ts
 
 # Run daemon
-PONY_DB_PATH=./pony.db OPENAI_API_KEY=sk-... node dist/main.js
+PONY_DB_PATH=./pony.db node dist/main.js
 
 # CLI (after build:cli)
-pb auth login
-pb auth antigravity login
+pb init                    # Initialize config files
+pb status                  # Check system status
+pb auth login              # Login to OpenAI Codex
+pb auth antigravity login  # Login to Antigravity (Google)
 ```
 
 ## Critical Code Conventions
@@ -68,12 +70,18 @@ src/
 │   ├── skill/        # Skill definitions and registry
 │   └── state-machine # Status transition rules
 ├── infra/            # Infrastructure adapters
+│   ├── config/       # Configuration & onboarding (credentials, llm-config)
 │   ├── persistence/  # SQLite repository
 │   ├── llm/          # LLM providers with router failover
+│   │   ├── provider-manager/  # JSON config-driven provider management
+│   │   ├── protocols/         # Anthropic, OpenAI, Gemini adapters
+│   │   └── routing/           # Model routing & fallback
 │   ├── tools/        # Tool registry & allowlist
 │   └── skills/       # Skill implementations
 ├── autonomy/         # ReAct integration & daemon
-└── cli/              # Commander.js CLI with Ink terminal UI
+├── cli/              # Commander.js CLI with Ink terminal UI
+└── app/              # Application services
+    └── conversation/ # Conversation agent
 ```
 
 ## Key Files
@@ -83,7 +91,9 @@ src/
 | `src/domain/work-order/types.ts` | Core types: Goal, WorkItem, Run, Artifact |
 | `src/domain/work-order/state-machine.ts` | Status transition rules |
 | `src/infra/persistence/work-order-repository.ts` | SQLite implementation |
-| `src/infra/llm/llm-provider.ts` | LLM abstraction and router |
+| `src/infra/llm/provider-manager/index.ts` | LLM provider manager with agent-based selection |
+| `src/infra/llm/llm-service.ts` | LLM service with tier-based routing |
+| `src/infra/config/credentials-loader.ts` | Credentials management (~/.ponybunny/credentials.json) |
 | `src/infra/tools/tool-registry.ts` | Tool registration and allowlist |
 | `src/autonomy/react-integration.ts` | ReAct autonomous execution loop |
 | `src/autonomy/daemon.ts` | Continuous operation engine |
@@ -96,6 +106,48 @@ src/
 - **Infra** implements interfaces, handles external I/O
 - Use `import type` for type-only imports
 - Use named exports (avoid `export default`)
+
+## Configuration System
+
+PonyBunny uses two JSON config files in `~/.ponybunny/`:
+
+### 1. `credentials.json` - API Keys (Sensitive)
+```json
+{
+  "$schema": "./credentials.schema.json",
+  "endpoints": {
+    "anthropic-direct": {
+      "enabled": true,
+      "apiKey": "sk-ant-xxx"
+    },
+    "openai-direct": {
+      "enabled": true,
+      "apiKey": "sk-xxx"
+    }
+  }
+}
+```
+
+### 2. `llm-config.json` - LLM Configuration
+Defines endpoints, models, tiers, and agent-to-model mappings. See README.md for full schema.
+
+**Key concepts:**
+- **Endpoints**: Protocol + baseUrl + priority
+- **Models**: Cost, capabilities, available endpoints
+- **Tiers**: simple/medium/complex with primary + fallback chains
+- **Agents**: Maps lifecycle phases to tiers or specific models
+
+## Testing Conventions
+
+**Mock credentials in tests** to prevent loading from `~/.ponybunny/credentials.json`:
+```typescript
+jest.mock('../../../src/infra/config/credentials-loader.js', () => ({
+  getCachedEndpointCredential: jest.fn(() => null),
+  clearCredentialsCache: jest.fn(),
+}));
+```
+
+This prevents tests from using actual user credentials and ensures test isolation.
 
 ## Development Guidelines
 
@@ -114,6 +166,24 @@ src/
 3. **Handle failures** - Retry logic, fallback strategies
 4. **Document permissions** - What OS services/permissions required?
 
+### When Working with LLM Providers
+
+**Use Provider Manager for agent-based selection:**
+```typescript
+import { getLLMProviderManager } from './src/infra/llm/provider-manager/index.js';
+
+const manager = getLLMProviderManager();
+const response = await manager.complete('execution', messages);
+```
+
+**Use LLMService for tier-based selection:**
+```typescript
+import { LLMService } from './src/infra/llm/llm-service.js';
+
+const service = new LLMService();
+const model = service.getModelForTier('complex'); // Returns primary or fallback
+```
+
 ### Key Invariants
 
 - Work Items form a DAG (no cycles)
@@ -121,6 +191,17 @@ src/
 - Budget cannot be exceeded without escalation
 - Escalation Packets must be complete (context + attempts + analysis + options)
 - Permission requests must have retry mechanism
+
+## 8-Phase Autonomous Lifecycle
+
+1. **Intake** - Validate goal requirements and constraints
+2. **Elaboration** - Detect ambiguities, request clarification if needed
+3. **Planning** - Decompose into work items (DAG structure)
+4. **Execution** - Autonomous ReAct cycle with LLM
+5. **Verification** - Run quality gates (tests, lint, build)
+6. **Evaluation** - Decide: publish, retry, or escalate
+7. **Publish** - Package artifacts and generate summary
+8. **Monitor** - Track metrics and budget utilization
 
 ## Documentation
 

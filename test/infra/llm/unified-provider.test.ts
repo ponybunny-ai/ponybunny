@@ -7,6 +7,12 @@ import { resetModelRouter } from '../../../src/infra/llm/routing/model-router.js
 import { LLMProviderError } from '../../../src/infra/llm/llm-provider.js';
 import type { LLMMessage } from '../../../src/infra/llm/llm-provider.js';
 
+// Mock the credentials loader to prevent loading from ~/.ponybunny/credentials.json
+jest.mock('../../../src/infra/config/credentials-loader.js', () => ({
+  getCachedEndpointCredential: jest.fn(() => null),
+  clearCredentialsCache: jest.fn(),
+}));
+
 // Mock fetch globally
 const mockFetch = jest.fn();
 global.fetch = mockFetch;

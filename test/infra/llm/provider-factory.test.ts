@@ -11,7 +11,7 @@ describe('Provider Factory', () => {
     it('should have anthropic provider metadata', () => {
       expect(PROVIDER_METADATA.anthropic).toBeDefined();
       expect(PROVIDER_METADATA.anthropic.id).toBe('anthropic');
-      expect(PROVIDER_METADATA.anthropic.defaultModel).toBe('claude-opus-4-5-20251101');
+      expect(PROVIDER_METADATA.anthropic.defaultModel).toBe('claude-opus-4-5');
       expect(PROVIDER_METADATA.anthropic.modelPrefixes).toContain('claude-');
     });
 
@@ -61,8 +61,8 @@ describe('Provider Factory', () => {
     it('should return correct provider ID for OpenAI models', () => {
       const registry = createProviderRegistry();
 
-      expect(registry.getProviderIdForModel('gpt-4o')).toBe('openai');
-      expect(registry.getProviderIdForModel('gpt-4o-mini')).toBe('openai');
+      expect(registry.getProviderIdForModel('gpt-5.2')).toBe('openai');
+      expect(registry.getProviderIdForModel('gpt-4-turbo')).toBe('openai');
       expect(registry.getProviderIdForModel('o1')).toBe('openai');
     });
 
@@ -81,10 +81,10 @@ describe('Provider Factory', () => {
       expect(cost).toBeCloseTo(0.09, 4);
     });
 
-    it('should calculate cost for GPT-4o', () => {
-      const cost = estimateModelCost('gpt-4o', 1000, 1000);
-      // $0.005/1k input + $0.015/1k output = $0.02
-      expect(cost).toBeCloseTo(0.02, 4);
+    it('should calculate cost for GPT-5.2', () => {
+      const cost = estimateModelCost('gpt-5.2', 1000, 1000);
+      // $0.01/1k input + $0.03/1k output = $0.04
+      expect(cost).toBeCloseTo(0.04, 4);
     });
 
     it('should calculate cost for Gemini 2.0 Flash', () => {
@@ -103,7 +103,7 @@ describe('Provider Factory', () => {
   describe('isModelSupported', () => {
     it('should return true for supported models', () => {
       expect(isModelSupported('claude-opus-4-5-20251101')).toBe(true);
-      expect(isModelSupported('gpt-4o')).toBe(true);
+      expect(isModelSupported('gpt-5.2')).toBe(true);
       expect(isModelSupported('gemini-2.0-flash')).toBe(true);
     });
 
@@ -124,7 +124,7 @@ describe('Provider Factory', () => {
       const models = getAllSupportedModels();
 
       expect(models).toContain('claude-opus-4-5-20251101');
-      expect(models).toContain('gpt-4o');
+      expect(models).toContain('gpt-5.2');
       expect(models).toContain('gemini-2.0-flash');
     });
 
@@ -136,7 +136,7 @@ describe('Provider Factory', () => {
       expect(models).toContain('claude-3-haiku-20240307');
 
       // OpenAI models
-      expect(models).toContain('gpt-4o-mini');
+      expect(models).toContain('o1-mini');
       expect(models).toContain('o1');
 
       // Gemini models

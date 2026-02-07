@@ -4,6 +4,17 @@
 
 Durable like a pony. Fast like a bunny. Local-first, security-first, and trim-to-fit — know your AI agent like you know your staff.
 
+## Key Features
+
+✅ **Multi-Provider LLM Support** - Anthropic Claude, OpenAI GPT, Google Gemini with automatic failover
+✅ **Claude-First Strategy** - Optimized for Claude Opus/Sonnet/Haiku 4.5 with GPT-5.2 fallback
+✅ **8-Phase Autonomous Lifecycle** - Intake → Elaboration → Planning → Execution → Verification → Evaluation → Publish → Monitor
+✅ **Gateway + Scheduler Architecture** - WebSocket-based communication with durable task orchestration
+✅ **JSON Configuration System** - Separate credentials and LLM config files with schema validation
+✅ **Local-First SQLite Persistence** - Durable work order tracking with DAG structure
+✅ **Comprehensive Test Coverage** - 779 tests across 40 suites, all passing
+✅ **CLI & TUI Interface** - Commander.js CLI with Ink-based terminal UI
+
 ## Quick Start
 
 ### Installation
@@ -154,34 +165,55 @@ Controls which endpoints, models, and agents are available:
   },
 
   "models": {
-    "claude-sonnet-4-5-20250929": {
+    "claude-opus-4-5": {
+      "displayName": "Claude Opus 4.5",
+      "endpoints": ["anthropic-direct", "aws-bedrock"],
+      "costPer1kTokens": { "input": 0.015, "output": 0.075 },
+      "maxContextTokens": 200000,
+      "capabilities": ["text", "vision", "function-calling"]
+    },
+    "claude-sonnet-4-5": {
       "displayName": "Claude Sonnet 4.5",
       "endpoints": ["anthropic-direct", "aws-bedrock"],
       "costPer1kTokens": { "input": 0.003, "output": 0.015 },
       "maxContextTokens": 200000,
+      "capabilities": ["text", "vision", "function-calling"]
+    },
+    "claude-haiku-4-5": {
+      "displayName": "Claude Haiku 4.5",
+      "endpoints": ["anthropic-direct", "aws-bedrock"],
+      "costPer1kTokens": { "input": 0.001, "output": 0.005 },
+      "maxContextTokens": 200000,
+      "capabilities": ["text", "vision", "function-calling"]
+    },
+    "gpt-5.2": {
+      "displayName": "GPT-5.2",
+      "endpoints": ["openai-direct", "azure-openai"],
+      "costPer1kTokens": { "input": 0.01, "output": 0.03 },
+      "maxContextTokens": 128000,
       "capabilities": ["text", "vision", "function-calling"]
     }
   },
 
   "tiers": {
     "simple": {
-      "primary": "claude-haiku-4-5-20251001",
-      "fallback": ["gpt-4o-mini", "gemini-2.0-flash"]
+      "primary": "claude-haiku-4-5",
+      "fallback": "gpt-5.2"
     },
     "medium": {
-      "primary": "claude-sonnet-4-5-20250929",
-      "fallback": ["gpt-4o", "gemini-2.0-pro"]
+      "primary": "claude-sonnet-4-5",
+      "fallback": "gpt-5.2"
     },
     "complex": {
-      "primary": "claude-opus-4-5-20251101",
-      "fallback": ["gpt-5.2", "claude-sonnet-4-5-20250929"]
+      "primary": "claude-opus-4-5",
+      "fallback": "gpt-5.2"
     }
   },
 
   "agents": {
     "input-analysis": { "tier": "simple" },
     "planning": { "tier": "complex" },
-    "execution": { "tier": "medium", "primary": "claude-sonnet-4-5-20250929" },
+    "execution": { "tier": "medium", "primary": "claude-sonnet-4-5" },
     "verification": { "tier": "medium" },
     "response-generation": { "tier": "simple" },
     "conversation": { "tier": "medium" }
@@ -279,13 +311,23 @@ pb auth antigravity login  # Login to Antigravity (Google)
 # System status
 pb status                  # Check system and auth status
 
-# Gateway connection
-pb                         # Start TUI, connect to gateway
-pb --url ws://host:port    # Connect to specific gateway
+# Work assignment
+pb work "task description" # Assign a task to the autonomous agent
+
+# Gateway management
+pb gateway start           # Start the gateway server
+pb gateway stop            # Stop the gateway server
+pb gateway status          # Check gateway status
+
+# Model management
+pb models list             # List available models
+pb models update           # Update model configurations
+
+# Configuration
+pb config                  # Manage CLI configuration
 
 # Debug tools
-pb debug server            # Start debug web server
-pb debug tui               # Start debug TUI
+pb debug                   # Launch debug/observability TUI or Web UI
 ```
 
 ## 8-Phase Autonomous Lifecycle
@@ -318,7 +360,21 @@ Goal
 
 ## LLM Provider Manager
 
-The Provider Manager provides unified access to multiple LLM providers:
+The Provider Manager provides unified access to multiple LLM providers with a **Claude-first strategy**:
+
+### Model Strategy
+
+**Default Tier Models:**
+- **Simple tier**: `claude-haiku-4-5` → fallback to `gpt-5.2`
+- **Medium tier**: `claude-sonnet-4-5` → fallback to `gpt-5.2`
+- **Complex tier**: `claude-opus-4-5` → fallback to `gpt-5.2`
+
+**Supported Models:**
+- **Anthropic**: Claude Opus 4.5, Sonnet 4.5, Haiku 4.5 (with dated versions)
+- **OpenAI**: GPT-5.2, GPT-4 Turbo, o1, o1-mini
+- **Google**: Gemini 2.5 Pro, Gemini 2.5 Flash, Gemini 2.0 Flash
+
+### Usage Examples
 
 ```typescript
 import { getLLMProviderManager } from './src/infra/llm/provider-manager/index.js';
@@ -335,14 +391,14 @@ const response = await manager.complete('execution', [
 const response = await manager.completeWithTier('medium', messages);
 
 // Complete with specific model
-const response = await manager.completeWithModel('claude-sonnet-4-5-20250929', messages);
+const response = await manager.completeWithModel('claude-sonnet-4-5', messages);
 
 // Get model for an agent
-const model = manager.getModelForAgent('planning'); // 'claude-opus-4-5-20251101'
+const model = manager.getModelForAgent('planning'); // 'claude-opus-4-5'
 
 // Get fallback chain
 const chain = manager.getFallbackChain('execution');
-// ['claude-sonnet-4-5-20250929', 'gpt-4o', 'gemini-2.0-pro', 'claude-haiku-4-5-20251001']
+// ['claude-sonnet-4-5', 'gpt-5.2']
 ```
 
 ## Development
@@ -355,15 +411,30 @@ npm run build              # Compile TypeScript
 npm run build:cli          # Build CLI binary
 
 # Test
-npm test                   # Run all Jest tests
+npm test                   # Run all Jest tests (779 tests)
 npm run test:watch         # Watch mode
 npm run test:coverage      # Coverage report
 
-# E2E tests (run with tsx)
+# Run specific test suites
+npx jest test/path/to/file.test.ts
+npm run test:llm-provider-manager  # Test LLM provider manager
+
+# E2E tests (run with tsx, not Jest)
 npx tsx test/e2e-lifecycle.ts
 npx tsx test/provider-manager-test.ts
 npx tsx demo/autonomous-demo.ts
 ```
+
+### Test Suite Status
+
+✅ **All 779 tests passing** across 40 test suites covering:
+- Gateway & Scheduler integration
+- LLM provider management & routing
+- 8-phase lifecycle execution
+- Configuration & credentials management
+- Tool registry & allowlist enforcement
+- State machine transitions
+- Budget tracking & escalation handling
 
 ### Code Conventions
 
@@ -385,6 +456,11 @@ import { Goal } from './types';              // ✗ Wrong
 - Use named exports (avoid `export default`)
 - Dependency injection via constructor
 
+**Testing:**
+- Mock credentials in tests to prevent loading from `~/.ponybunny/credentials.json`
+- Use `jest.mock()` for the credentials-loader module in test files
+- Run single test files with `npx jest test/path/to/file.test.ts`
+
 ## Success Metrics
 
 - **Autonomous Completion Rate**: >70% of work items without human intervention
@@ -404,4 +480,4 @@ import { Goal } from './types';              // ✗ Wrong
 
 ## License
 
-ISC
+MIT

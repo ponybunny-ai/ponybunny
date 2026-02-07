@@ -170,7 +170,10 @@ describe('CredentialsLoader', () => {
 
       const content = fs.readFileSync(credentialsPath, 'utf-8');
       const parsed = JSON.parse(content);
-      expect(parsed).toEqual(testCreds);
+      expect(parsed).toEqual({
+        $schema: './credentials.schema.json',
+        ...testCreds,
+      });
     });
 
     it('should set restrictive file permissions', () => {

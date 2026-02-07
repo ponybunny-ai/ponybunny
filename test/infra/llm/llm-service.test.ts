@@ -6,6 +6,12 @@ import {
 import { resetProviderRegistry } from '../../../src/infra/llm/provider-factory.js';
 import { resetModelRouter } from '../../../src/infra/llm/routing/model-router.js';
 
+// Mock the credentials loader to prevent loading from ~/.ponybunny/credentials.json
+jest.mock('../../../src/infra/config/credentials-loader.js', () => ({
+  getCachedEndpointCredential: jest.fn(() => null),
+  clearCredentialsCache: jest.fn(),
+}));
+
 describe('LLMService', () => {
   beforeEach(() => {
     // Reset singletons before each test
@@ -51,17 +57,17 @@ describe('LLMService', () => {
 
   describe('DEFAULT_TIER_MODELS', () => {
     it('should have Claude-first strategy for simple tier', () => {
-      expect(DEFAULT_TIER_MODELS.simple.primary).toBe('claude-haiku-4-5-20251001');
+      expect(DEFAULT_TIER_MODELS.simple.primary).toBe('claude-haiku-4-5');
       expect(DEFAULT_TIER_MODELS.simple.fallback).toBe('gpt-5.2');
     });
 
     it('should have Claude-first strategy for medium tier', () => {
-      expect(DEFAULT_TIER_MODELS.medium.primary).toBe('claude-sonnet-4-5-20250929');
+      expect(DEFAULT_TIER_MODELS.medium.primary).toBe('claude-sonnet-4-5');
       expect(DEFAULT_TIER_MODELS.medium.fallback).toBe('gpt-5.2');
     });
 
     it('should have Claude Opus 4.5 as primary for complex tier', () => {
-      expect(DEFAULT_TIER_MODELS.complex.primary).toBe('claude-opus-4-5-20251101');
+      expect(DEFAULT_TIER_MODELS.complex.primary).toBe('claude-opus-4-5');
       expect(DEFAULT_TIER_MODELS.complex.fallback).toBe('gpt-5.2');
     });
   });
@@ -71,9 +77,9 @@ describe('LLMService', () => {
       const service = new LLMService();
       const tierModels = service.getTierModels();
 
-      expect(tierModels.simple.primary).toBe('claude-haiku-4-5-20251001');
-      expect(tierModels.medium.primary).toBe('claude-sonnet-4-5-20250929');
-      expect(tierModels.complex.primary).toBe('claude-opus-4-5-20251101');
+      expect(tierModels.simple.primary).toBe('claude-haiku-4-5');
+      expect(tierModels.medium.primary).toBe('claude-sonnet-4-5');
+      expect(tierModels.complex.primary).toBe('claude-opus-4-5');
     });
 
     it('should allow custom tier model configuration', () => {
@@ -172,9 +178,9 @@ describe('LLMService', () => {
       process.env.ANTHROPIC_API_KEY = 'test-key';
       const service = new LLMService();
 
-      expect(service.getModelForTier('simple')).toBe('claude-haiku-4-5-20251001');
-      expect(service.getModelForTier('medium')).toBe('claude-sonnet-4-5-20250929');
-      expect(service.getModelForTier('complex')).toBe('claude-opus-4-5-20251101');
+      expect(service.getModelForTier('simple')).toBe('claude-haiku-4-5');
+      expect(service.getModelForTier('medium')).toBe('claude-sonnet-4-5');
+      expect(service.getModelForTier('complex')).toBe('claude-opus-4-5');
     });
 
     it('should return fallback model when primary provider is not available', () => {
