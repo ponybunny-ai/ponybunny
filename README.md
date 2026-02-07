@@ -1,271 +1,389 @@
 # PonyBunny - Autonomous AI Employee System
 
-**Production-ready hexagonal architecture for autonomous AI agents.**
+**Production-ready autonomous AI agent framework with Gateway + Scheduler architecture.**
 
 Durable like a pony. Fast like a bunny. Local-first, security-first, and trim-to-fit — know your AI agent like you know your staff.
-
-## Architecture
-
-PonyBunny follows **hexagonal architecture** (ports & adapters) with three distinct layers:
-
-```
-src/
-├── domain/           # Business logic & rules
-│   └── work-order/
-│       ├── types.ts          # Core type definitions
-│       ├── state-machine.ts  # Status transition rules
-│       └── invariants.ts     # DAG validation, budget conservation
-│
-├── app/              # Application services
-│   └── lifecycle/
-│       ├── intake/           # Stage 1: Goal validation
-│       ├── elaboration/      # Stage 2: Clarification & escalation
-│       ├── planning/         # Stage 3: Work item DAG creation
-│       ├── execution/        # Stage 4: ReAct cycle
-│       ├── verification/     # Stage 5: Quality gates
-│       ├── evaluation/       # Stage 6: Publish/retry/escalate
-│       ├── publish/          # Stage 7: Artifact packaging
-│       └── monitor/          # Stage 8: Health metrics
-│
-└── infra/            # Infrastructure
-    ├── persistence/          # SQLite repository
-    ├── llm/                  # LLM provider abstraction
-    │   ├── llm-provider.ts  # Interface + Router
-    │   └── providers.ts     # OpenAI, Anthropic
-    └── tools/                # Tool registry + allowlist
-```
-
-## Core Concepts
-
-### Work Order System
-
-PonyBunny implements an **8-phase autonomous execution lifecycle**:
-
-1. **Intake** - Validate goal requirements
-2. **Elaboration** - Detect ambiguities, escalate if needed
-3. **Planning** - Break down into work items (DAG)
-4. **Execution** - Autonomous ReAct cycle with LLM
-5. **Verification** - Run quality gates (tests, lint, build)
-6. **Evaluation** - Decide: publish, retry, or escalate
-7. **Publish** - Package artifacts & generate summary
-8. **Monitor** - Track metrics & budget utilization
-
-### Entity Model
-
-```typescript
-Goal
-├── success_criteria[]      // Deterministic + heuristic
-├── budget_tokens/time/cost // Resource limits
-└── WorkItem[]
-    ├── verification_plan   // Quality gates
-    ├── dependencies[]      // DAG structure
-    └── Run[]
-        ├── artifacts[]     // Generated outputs
-        ├── decisions[]     // Agent reasoning
-        └── escalations[]   // Human intervention requests
-```
 
 ## Quick Start
 
 ### Installation
 
 ```bash
+git clone https://github.com/ponybunny-ai/ponybunny.git
+cd ponybunny
 npm install
 npm run build
+npm run build:cli
 ```
 
-### Run Demo
+### Initialize Configuration
 
 ```bash
-# Without LLM (mock mode)
-npx tsx demo/autonomous-demo.ts
+# Create config files in ~/.ponybunny/
+pb init
 
-# With real LLM
-OPENAI_API_KEY=sk-... npx tsx demo/autonomous-demo.ts
-# or
-ANTHROPIC_API_KEY=sk-... npx tsx demo/autonomous-demo.ts
+# List config file status
+pb init --list
 ```
 
-### Start Autonomous Daemon
+This creates:
+- `~/.ponybunny/credentials.json` - API keys (edit this to add your keys)
+- `~/.ponybunny/credentials.schema.json` - JSON Schema for validation
+- `~/.ponybunny/llm-config.json` - LLM endpoints, models, tiers, agents
+- `~/.ponybunny/llm-config.schema.json` - JSON Schema for validation
 
-```bash
-PONY_DB_PATH=./pony.db \
-OPENAI_API_KEY=sk-... \
-node dist/main.js
-```
+### Configure API Keys
 
-### CLI Authentication
+Edit `~/.ponybunny/credentials.json`:
 
-OpenAI Codex:
-
-```bash
-pb auth login
-pb auth list
-```
-
-Antigravity (Google):
-
-```bash
-pb auth antigravity login
-pb auth antigravity list
-pb auth antigravity remove <email>
-```
-
-Antigravity environment overrides:
-
-```bash
-PB_ANTIGRAVITY_ENV=prod pb auth antigravity login
-PB_ANTIGRAVITY_ENDPOINT=https://cloudcode-pa.googleapis.com pb auth antigravity login
-```
-
-## Usage Example
-
-```typescript
-import { WorkOrderDatabase } from 'pony';
-import { IntakeService } from 'pony/app/lifecycle/intake';
-import { OpenAIProvider } from 'pony/infra/llm/providers';
-
-const db = new WorkOrderDatabase('./pony.db');
-await db.initialize();
-
-const llm = new OpenAIProvider({
-  apiKey: process.env.OPENAI_API_KEY,
-  model: 'gpt-4o-mini',
-});
-
-const intake = new IntakeService(db);
-
-const result = await intake.acceptGoal({
-  title: 'Implement user authentication',
-  description: 'Add JWT-based auth with login/logout',
-  success_criteria: [
-    {
-      description: 'Tests pass',
-      type: 'deterministic',
-      verification_method: 'npm test',
-      required: true,
+```json
+{
+  "$schema": "./credentials.schema.json",
+  "endpoints": {
+    "anthropic-direct": {
+      "enabled": true,
+      "apiKey": "sk-ant-xxx",
+      "baseUrl": ""
     },
-  ],
-  budget_tokens: 100000,
-  priority: 80,
-});
-
-console.log(`Goal created: ${result.goal.id}`);
-```
-
-## LLM Provider Configuration
-
-PonyBunny supports multiple LLM providers with automatic failover:
-
-```typescript
-import { LLMRouter } from 'pony/infra/llm/llm-provider';
-import { OpenAIProvider, AnthropicProvider } from 'pony/infra/llm/providers';
-
-const router = new LLMRouter([
-  new OpenAIProvider({
-    apiKey: process.env.OPENAI_API_KEY,
-    model: 'gpt-4o',
-    maxTokens: 4000,
-  }),
-  new AnthropicProvider({
-    apiKey: process.env.ANTHROPIC_API_KEY,
-    model: 'claude-3-5-sonnet-20241022',
-    maxTokens: 4000,
-  }),
-]);
-
-// Router automatically fails over if primary provider is down
-const response = await router.complete([
-  { role: 'system', content: 'You are a helpful assistant' },
-  { role: 'user', content: 'Hello!' },
-]);
-```
-
-## Tool Registry & Security
-
-Control what actions the AI can perform:
-
-```typescript
-import { ToolRegistry, ToolAllowlist, ToolEnforcer } from 'pony/infra/tools/tool-registry';
-
-const registry = new ToolRegistry();
-const allowlist = new ToolAllowlist([
-  'read_file',
-  'write_file',
-  'git_commit',
-]);
-
-const enforcer = new ToolEnforcer(registry, allowlist);
-
-const check = enforcer.canExecute('git_push');
-if (!check.allowed) {
-  console.log(`Blocked: ${check.reason}`);
+    "openai-direct": {
+      "enabled": true,
+      "apiKey": "sk-xxx",
+      "baseUrl": ""
+    },
+    "google-ai-studio": {
+      "enabled": true,
+      "apiKey": "xxx",
+      "baseUrl": ""
+    }
+  }
 }
 ```
 
-## Quality Gates
+### Verify Configuration
 
-Define verification requirements for work items:
+```bash
+pb status
+```
+
+### Start the System
+
+```bash
+# Start Gateway + Scheduler daemon
+PONY_DB_PATH=./pony.db node dist/main.js
+
+# Or use CLI to connect
+pb --url ws://127.0.0.1:18789
+```
+
+## Architecture
+
+PonyBunny uses a **Gateway + Scheduler** architecture:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                           Gateway                                    │
+│  WebSocket server handling connections, auth, message routing        │
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                          Scheduler                                   │
+│  Task orchestration, model selection, 8-phase lifecycle execution    │
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                      LLM Provider Manager                            │
+│  Multi-provider routing, fallback chains, agent-based model selection│
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+                ┌───────────────┼───────────────┐
+                ▼               ▼               ▼
+           Anthropic        OpenAI          Google
+           (Claude)         (GPT)          (Gemini)
+```
+
+### Project Structure
+
+```
+src/
+├── gateway/              # WebSocket server, connection management
+├── scheduler/            # Task orchestration, model selection
+│   └── agent/            # 8-phase lifecycle agents
+├── domain/               # Pure business logic
+│   ├── work-order/       # Goal, WorkItem, Run, Artifact types
+│   ├── skill/            # Skill definitions
+│   └── state-machine/    # Status transition rules
+├── infra/                # Infrastructure adapters
+│   ├── config/           # Configuration & onboarding
+│   ├── persistence/      # SQLite repository
+│   ├── llm/              # LLM providers & routing
+│   │   ├── provider-manager/  # JSON config-driven provider management
+│   │   ├── protocols/         # Anthropic, OpenAI, Gemini adapters
+│   │   └── routing/           # Model routing & fallback
+│   └── tools/            # Tool registry & allowlist
+├── autonomy/             # ReAct integration & daemon
+├── cli/                  # Commander.js CLI with Ink TUI
+└── app/                  # Application services
+    └── conversation/     # Conversation agent
+```
+
+## Configuration
+
+### LLM Configuration (`~/.ponybunny/llm-config.json`)
+
+Controls which endpoints, models, and agents are available:
+
+```json
+{
+  "$schema": "./llm-config.schema.json",
+
+  "endpoints": {
+    "anthropic-direct": {
+      "enabled": true,
+      "protocol": "anthropic",
+      "baseUrl": "https://api.anthropic.com/v1/messages",
+      "priority": 1
+    },
+    "openai-direct": {
+      "enabled": true,
+      "protocol": "openai",
+      "baseUrl": "https://api.openai.com/v1",
+      "priority": 1
+    }
+  },
+
+  "models": {
+    "claude-sonnet-4-5-20250929": {
+      "displayName": "Claude Sonnet 4.5",
+      "endpoints": ["anthropic-direct", "aws-bedrock"],
+      "costPer1kTokens": { "input": 0.003, "output": 0.015 },
+      "maxContextTokens": 200000,
+      "capabilities": ["text", "vision", "function-calling"]
+    }
+  },
+
+  "tiers": {
+    "simple": {
+      "primary": "claude-haiku-4-5-20251001",
+      "fallback": ["gpt-4o-mini", "gemini-2.0-flash"]
+    },
+    "medium": {
+      "primary": "claude-sonnet-4-5-20250929",
+      "fallback": ["gpt-4o", "gemini-2.0-pro"]
+    },
+    "complex": {
+      "primary": "claude-opus-4-5-20251101",
+      "fallback": ["gpt-5.2", "claude-sonnet-4-5-20250929"]
+    }
+  },
+
+  "agents": {
+    "input-analysis": { "tier": "simple" },
+    "planning": { "tier": "complex" },
+    "execution": { "tier": "medium", "primary": "claude-sonnet-4-5-20250929" },
+    "verification": { "tier": "medium" },
+    "response-generation": { "tier": "simple" },
+    "conversation": { "tier": "medium" }
+  },
+
+  "defaults": {
+    "timeout": 120000,
+    "maxTokens": 4096,
+    "temperature": 0.7
+  }
+}
+```
+
+### Credentials (`~/.ponybunny/credentials.json`)
+
+Stores API keys separately from configuration:
+
+```json
+{
+  "$schema": "./credentials.schema.json",
+  "endpoints": {
+    "anthropic-direct": {
+      "enabled": true,
+      "apiKey": "sk-ant-xxx"
+    },
+    "aws-bedrock": {
+      "enabled": false,
+      "accessKeyId": "",
+      "secretAccessKey": "",
+      "region": "us-east-1"
+    },
+    "openai-direct": {
+      "enabled": true,
+      "apiKey": "sk-xxx"
+    },
+    "azure-openai": {
+      "enabled": false,
+      "apiKey": "",
+      "endpoint": ""
+    },
+    "google-ai-studio": {
+      "enabled": true,
+      "apiKey": "xxx"
+    },
+    "google-vertex-ai": {
+      "enabled": false,
+      "projectId": "",
+      "region": ""
+    }
+  }
+}
+```
+
+### Environment Variables
+
+Environment variables override config file settings:
+
+```bash
+# Direct API keys (override credentials.json)
+ANTHROPIC_API_KEY=sk-ant-xxx
+OPENAI_API_KEY=sk-xxx
+GOOGLE_API_KEY=xxx
+
+# AWS Bedrock
+AWS_ACCESS_KEY_ID=xxx
+AWS_SECRET_ACCESS_KEY=xxx
+AWS_REGION=us-east-1
+
+# Azure OpenAI
+AZURE_OPENAI_API_KEY=xxx
+AZURE_OPENAI_ENDPOINT=https://xxx.openai.azure.com
+
+# Google Vertex AI
+GOOGLE_PROJECT_ID=xxx
+GOOGLE_LOCATION=us-central1
+
+# Database
+PONY_DB_PATH=./pony.db
+```
+
+## CLI Commands
+
+```bash
+# Initialize configuration
+pb init                    # Create config files
+pb init --list             # Show config file status
+pb init --force            # Overwrite existing files
+pb init --dry-run          # Preview without creating
+
+# Authentication
+pb auth login              # Login to OpenAI Codex
+pb auth list               # List authenticated accounts
+pb auth antigravity login  # Login to Antigravity (Google)
+
+# System status
+pb status                  # Check system and auth status
+
+# Gateway connection
+pb                         # Start TUI, connect to gateway
+pb --url ws://host:port    # Connect to specific gateway
+
+# Debug tools
+pb debug server            # Start debug web server
+pb debug tui               # Start debug TUI
+```
+
+## 8-Phase Autonomous Lifecycle
+
+PonyBunny executes work through an 8-phase lifecycle:
+
+1. **Intake** - Validate goal requirements and constraints
+2. **Elaboration** - Detect ambiguities, request clarification if needed
+3. **Planning** - Decompose into work items (DAG structure)
+4. **Execution** - Autonomous ReAct cycle with LLM
+5. **Verification** - Run quality gates (tests, lint, build)
+6. **Evaluation** - Decide: publish, retry, or escalate
+7. **Publish** - Package artifacts and generate summary
+8. **Monitor** - Track metrics and budget utilization
+
+### Entity Model
+
+```
+Goal
+├── success_criteria[]      # Deterministic + heuristic
+├── budget_tokens/time/cost # Resource limits
+└── WorkItem[]
+    ├── verification_plan   # Quality gates
+    ├── dependencies[]      # DAG structure
+    └── Run[]
+        ├── artifacts[]     # Generated outputs
+        ├── decisions[]     # Agent reasoning
+        └── escalations[]   # Human intervention requests
+```
+
+## LLM Provider Manager
+
+The Provider Manager provides unified access to multiple LLM providers:
 
 ```typescript
-const workItem = db.createWorkItem({
-  goal_id: goal.id,
-  title: 'Add login endpoint',
-  verification_plan: {
-    quality_gates: [
-      {
-        name: 'Unit Tests',
-        type: 'deterministic',
-        command: 'npm test',
-        expected_exit_code: 0,
-        required: true,
-      },
-      {
-        name: 'Type Check',
-        type: 'deterministic',
-        command: 'tsc --noEmit',
-        expected_exit_code: 0,
-        required: true,
-      },
-      {
-        name: 'Code Review',
-        type: 'llm_review',
-        review_prompt: 'Check for security vulnerabilities',
-        required: false,
-      },
-    ],
-    acceptance_criteria: [
-      'Handles invalid credentials',
-      'Returns JWT token on success',
-    ],
-  },
-});
+import { getLLMProviderManager } from './src/infra/llm/provider-manager/index.js';
+
+const manager = getLLMProviderManager();
+
+// Complete using agent-based model selection
+const response = await manager.complete('execution', [
+  { role: 'system', content: 'You are a coding assistant' },
+  { role: 'user', content: 'Write a function to sort an array' },
+]);
+
+// Complete using tier-based selection
+const response = await manager.completeWithTier('medium', messages);
+
+// Complete with specific model
+const response = await manager.completeWithModel('claude-sonnet-4-5-20250929', messages);
+
+// Get model for an agent
+const model = manager.getModelForAgent('planning'); // 'claude-opus-4-5-20251101'
+
+// Get fallback chain
+const chain = manager.getFallbackChain('execution');
+// ['claude-sonnet-4-5-20250929', 'gpt-4o', 'gemini-2.0-pro', 'claude-haiku-4-5-20251001']
 ```
 
 ## Development
 
-### Project Structure
-
-- **`src/domain/`** - Pure business logic, no dependencies
-- **`src/app/`** - Application services orchestrating domain + infra
-- **`src/infra/`** - External concerns (DB, LLM, tools)
-- **`src/autonomy/`** - ReAct integration & daemon
-
-### Running Tests
+### Build & Test
 
 ```bash
-npm test                    # All tests
-npx tsx test/e2e-lifecycle.ts   # E2E lifecycle test
-npx tsx demo/autonomous-demo.ts # Full autonomous demo
+# Build
+npm run build              # Compile TypeScript
+npm run build:cli          # Build CLI binary
+
+# Test
+npm test                   # Run all Jest tests
+npm run test:watch         # Watch mode
+npm run test:coverage      # Coverage report
+
+# E2E tests (run with tsx)
+npx tsx test/e2e-lifecycle.ts
+npx tsx test/provider-manager-test.ts
+npx tsx demo/autonomous-demo.ts
 ```
 
-### Key Design Decisions
+### Code Conventions
 
-1. **Dependency Injection** - All services accept dependencies via constructor
-2. **Interface Segregation** - Each lifecycle stage has its own service interface
-3. **Repository Pattern** - Database abstraction via `IWorkOrderRepository`
-4. **Strategy Pattern** - LLM providers implement `ILLMProvider`
-5. **State Machine** - Explicit transition rules enforced at domain layer
+**ESM imports require `.js` extension:**
+```typescript
+import { Goal } from './types.js';           // ✓ Correct
+import { Goal } from './types';              // ✗ Wrong
+```
+
+**Naming:**
+- Classes: `PascalCase` (e.g., `IntakeService`)
+- Interfaces: `I`-prefix (e.g., `IWorkOrderRepository`)
+- Files: `kebab-case` (e.g., `state-machine.ts`)
+- Database fields: `snake_case` (e.g., `goal_id`)
+
+**Layer Rules:**
+- `domain/` never imports from `app/`, `infra/`, or `gateway/`
+- Use `import type` for type-only imports
+- Use named exports (avoid `export default`)
+- Dependency injection via constructor
 
 ## Success Metrics
 
@@ -274,24 +392,16 @@ npx tsx demo/autonomous-demo.ts # Full autonomous demo
 - **Quality**: >80% first-time Quality Gate pass rate
 - **Multi-day Success**: >60% of multi-day projects completed autonomously
 
-## Roadmap
+## Documentation
 
-- [x] Hexagonal architecture foundation
-- [x] 8-phase lifecycle services
-- [x] LLM provider abstraction (OpenAI, Anthropic)
-- [x] Tool registry + allowlist enforcement
-- [x] ReAct integration
-- [x] Quality gate execution
-- [ ] Context pack generation (multi-day persistence)
-- [ ] Sandbox executor (Docker isolation)
-- [ ] Idempotency store for tool invocations
-- [ ] Web UI for escalation management
-- [ ] Metrics dashboard
+- `CLAUDE.md` - AI assistant instructions
+- `AGENTS.md` - Development patterns and testing guidelines
+- `docs/techspec/` - Technical specifications
+  - `architecture-overview.md` - System architecture
+  - `gateway-design.md` - WebSocket protocol, authentication
+  - `scheduler-design.md` - Task orchestration, model selection
+  - `ai-employee-paradigm.md` - Responsibility layers, escalation
 
 ## License
 
 ISC
-
----
-
-**Status**: Production-ready architecture. ReAct cycle functional with real LLMs. Ready for autonomous operation.
