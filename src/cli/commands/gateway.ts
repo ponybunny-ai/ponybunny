@@ -175,8 +175,9 @@ gatewayCommand
   .option('-f, --force', 'Force start even if another instance is running')
   .option('--foreground', 'Run in foreground (default is background)')
   .option('--daemon', 'Run with daemon supervisor (auto-restart on crash)')
+  .option('--debug', 'Enable debug mode for event tracing')
   .action(async (options) => {
-    const { host, port, db: dbPath, force, foreground, daemon } = options;
+    const { host, port, db: dbPath, force, foreground, daemon, debug } = options;
 
     // Check if gateway is already running
     const existingPid = readPidFile();
@@ -206,19 +207,22 @@ gatewayCommand
     // Resolve absolute path for database
     const absoluteDbPath = resolve(dbPath);
 
+    // Check for debug mode from environment or CLI option
+    const debugEnabled = process.env.DEBUG_MODE === 'true' || debug;
+
     if (daemon) {
       // Start daemon supervisor
-      startDaemon(host, port, absoluteDbPath);
+      startDaemon(host, port, absoluteDbPath, debugEnabled);
     } else if (foreground) {
       // Run in foreground
-      await runGateway(host, parseInt(port, 10), absoluteDbPath, 'foreground');
+      await runGateway(host, parseInt(port, 10), absoluteDbPath, 'foreground', debugEnabled);
     } else {
       // Run in background (default)
-      startBackground(host, port, absoluteDbPath);
+      startBackground(host, port, absoluteDbPath, debugEnabled);
     }
   });
 
-function startBackground(host: string, port: string, dbPath: string): void {
+function startBackground(host: string, port: string, dbPath: string, debugEnabled: boolean): void {
   console.log(chalk.blue('Starting PonyBunny Gateway in background...'));
 
   const cliPath = join(__dirname, '../index.js');
@@ -227,7 +231,12 @@ function startBackground(host: string, port: string, dbPath: string): void {
   ensurePonyDir();
   const logFd = openSync(LOG_FILE, 'a');
 
-  const child = spawn(process.execPath, [cliPath, 'gateway', 'start', '--foreground', '-h', host, '-p', port, '-d', dbPath], {
+  const args = [cliPath, 'gateway', 'start', '--foreground', '-h', host, '-p', port, '-d', dbPath];
+  if (debugEnabled) {
+    args.push('--debug');
+  }
+
+  const child = spawn(process.execPath, args, {
     detached: true,
     stdio: ['ignore', logFd, logFd],
     env: { ...process.env, PONY_GATEWAY_BACKGROUND: '1' },
@@ -253,7 +262,7 @@ function startBackground(host: string, port: string, dbPath: string): void {
   }, 1500);
 }
 
-function startDaemon(host: string, port: string, dbPath: string): void {
+function startDaemon(host: string, port: string, dbPath: string, debugEnabled: boolean): void {
   console.log(chalk.blue('Starting PonyBunny Gateway with daemon supervisor...'));
 
   const cliPath = join(__dirname, '../index.js');
@@ -261,7 +270,12 @@ function startDaemon(host: string, port: string, dbPath: string): void {
   ensurePonyDir();
   const logFd = openSync(LOG_FILE, 'a');
 
-  const child = spawn(process.execPath, [cliPath, 'gateway', 'daemon-run', '-h', host, '-p', port, '-d', dbPath], {
+  const args = [cliPath, 'gateway', 'daemon-run', '-h', host, '-p', port, '-d', dbPath];
+  if (debugEnabled) {
+    args.push('--debug');
+  }
+
+  const child = spawn(process.execPath, args, {
     detached: true,
     stdio: ['ignore', logFd, logFd],
     env: { ...process.env, PONY_GATEWAY_DAEMON: '1' },
@@ -296,8 +310,9 @@ gatewayCommand
   .option('-h, --host <host>', 'Host to bind to', DEFAULT_HOST)
   .option('-p, --port <port>', 'Port to listen on', String(DEFAULT_PORT))
   .option('-d, --db <path>', 'Database path', DEFAULT_DB_PATH)
+  .option('--debug', 'Enable debug mode for event tracing')
   .action(async (options) => {
-    const { host, port, db: dbPath } = options;
+    const { host, port, db: dbPath, debug: debugEnabled } = options;
 
     log(`Daemon supervisor starting for ws://${host}:${port}`);
     writeDaemonPidFile(process.pid);
@@ -312,7 +327,12 @@ gatewayCommand
 
       log(`Starting gateway process (restart #${restartCount})`);
 
-      gatewayProcess = spawn(process.execPath, [cliPath, 'gateway', 'start', '--foreground', '-h', host, '-p', port, '-d', dbPath], {
+      const args = [cliPath, 'gateway', 'start', '--foreground', '-h', host, '-p', port, '-d', dbPath];
+      if (debugEnabled) {
+        args.push('--debug');
+      }
+
+      gatewayProcess = spawn(process.execPath, args, {
         stdio: ['ignore', 'inherit', 'inherit'],
         env: { ...process.env, PONY_GATEWAY_DAEMON_CHILD: '1' },
       });
@@ -379,7 +399,7 @@ gatewayCommand
     await new Promise(() => {});
   });
 
-async function runGateway(host: string, port: number, dbPath: string, _mode: 'foreground' | 'background' | 'daemon'): Promise<void> {
+async function runGateway(host: string, port: number, dbPath: string, _mode: 'foreground' | 'background' | 'daemon', debugEnabled: boolean = false): Promise<void> {
   const isBackground = process.env.PONY_GATEWAY_BACKGROUND === '1';
   const isDaemonChild = process.env.PONY_GATEWAY_DAEMON_CHILD === '1';
 
@@ -444,7 +464,7 @@ async function runGateway(host: string, port: number, dbPath: string, _mode: 'fo
 
     // Create and start gateway
     const gateway = new GatewayServer(
-      { db, repository },
+      { db, repository, debugMode: debugEnabled },
       { host, port }
     );
 

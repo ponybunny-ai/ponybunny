@@ -9,6 +9,7 @@ import type { IInputAnalysis } from '../../domain/conversation/analysis.js';
 import type { IConversationTurn, IConversationContext } from '../../domain/conversation/session.js';
 import type { ConversationState } from '../../domain/conversation/state-machine-rules.js';
 import type { IPersonaEngine } from './persona-engine.js';
+import { debug } from '../../debug/index.js';
 
 export interface IResponseGenerator {
   generate(
@@ -61,6 +62,12 @@ export class ResponseGenerator implements IResponseGenerator {
   ) {}
 
   async generate(context: IResponseContext): Promise<string> {
+    debug.custom('response.generate.start', 'response-generator', {
+      state: context.conversationState,
+      personaId: context.persona.id,
+      hasTaskInfo: !!context.taskInfo,
+    });
+
     const systemPrompt = this.personaEngine.generateSystemPrompt(context.persona);
     const responsePrompt = this.buildResponsePrompt(context);
 
@@ -82,11 +89,20 @@ export class ResponseGenerator implements IResponseGenerator {
       content: responsePrompt,
     });
 
+    debug.custom('response.llm.request', 'response-generator', {
+      tier: 'simple',
+      messageCount: messages.length,
+    });
+
     const response = await this.llmService.completeWithTier(
       messages,
       'simple',
       { maxTokens: 1000 }
     );
+
+    debug.custom('response.llm.response', 'response-generator', {
+      responseLength: response.content.length,
+    });
 
     return response.content;
   }

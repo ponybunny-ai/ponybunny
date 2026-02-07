@@ -8,6 +8,7 @@ import type { EventBus } from '../../events/event-bus.js';
 import type { ISessionManager, IConversationResponse } from '../../../app/conversation/session-manager.js';
 import type { IConversationTurn, IAttachment } from '../../../domain/conversation/session.js';
 import type { ConversationState } from '../../../domain/conversation/state-machine-rules.js';
+import { debug } from '../../../debug/index.js';
 
 export interface ConversationMessageParams {
   sessionId?: string;
@@ -54,6 +55,12 @@ export function registerConversationHandlers(
         throw GatewayError.invalidParams('message is required');
       }
 
+      debug.custom('conversation.message.received', 'gateway', {
+        sessionId: params.sessionId,
+        messageLength: params.message.length,
+        hasAttachments: !!(params.attachments && params.attachments.length > 0),
+      });
+
       try {
         const result = await sessionManager.processMessage(
           params.message,
@@ -69,8 +76,19 @@ export function registerConversationHandlers(
           hasTask: !!result.taskInfo,
         });
 
+        debug.custom('conversation.message.completed', 'gateway', {
+          sessionId: result.sessionId,
+          responseLength: result.response.length,
+          state: result.state,
+          hasTask: !!result.taskInfo,
+        });
+
         return result;
       } catch (error) {
+        debug.custom('conversation.message.error', 'gateway', {
+          sessionId: params.sessionId,
+          error: (error as Error).message,
+        });
         throw GatewayError.internalError(`Failed to process message: ${(error as Error).message}`);
       }
     }

@@ -7,6 +7,7 @@ import { getModelRouter } from './routing/index.js';
 import type { ModelTier } from '../../scheduler/model-selector/types.js';
 import { getLLMProviderManager } from './provider-manager/index.js';
 import type { AgentId, LLMCompletionOptions } from './provider-manager/index.js';
+import { debug } from '../../debug/index.js';
 
 /**
  * Model tier configuration with primary and fallback models
@@ -155,18 +156,39 @@ export class LLMService implements ILLMProvider {
     const tierConfig = this.tierModels[tier];
     const models = [tierConfig.primary, tierConfig.fallback];
 
+    debug.custom('llm.tier.request', 'llm-service', {
+      tier,
+      primaryModel: tierConfig.primary,
+      fallbackModel: tierConfig.fallback,
+      messageCount: messages.length,
+    });
+
     let lastError: Error | null = null;
 
     for (const model of models) {
       try {
+        debug.custom('llm.model.attempt', 'llm-service', {
+          tier,
+          model,
+        });
+
         // Use unified provider if available - it handles endpoint fallback internally
         if (this.unifiedProvider) {
-          return await this.unifiedProvider.complete(messages, {
+          const response = await this.unifiedProvider.complete(messages, {
             ...options,
             model,
             timeout: options?.timeout || this.config.defaultTimeout,
             maxTokens: options?.maxTokens || this.config.defaultMaxTokens,
           });
+
+          debug.custom('llm.model.success', 'llm-service', {
+            tier,
+            model,
+            responseLength: response.content.length,
+            tokensUsed: response.tokensUsed,
+          });
+
+          return response;
         }
 
         // Legacy path
@@ -181,15 +203,31 @@ export class LLMService implements ILLMProvider {
           continue;
         }
 
-        return await provider.complete(messages, {
+        const response = await provider.complete(messages, {
           ...options,
           model,
           timeout: options?.timeout || this.config.defaultTimeout,
           maxTokens: options?.maxTokens || this.config.defaultMaxTokens,
         });
+
+        debug.custom('llm.model.success', 'llm-service', {
+          tier,
+          model,
+          responseLength: response.content.length,
+          tokensUsed: response.tokensUsed,
+        });
+
+        return response;
       } catch (error) {
         lastError = error as Error;
         console.warn(`[LLMService] Model ${model} failed: ${(error as Error).message}`);
+
+        debug.custom('llm.model.failed', 'llm-service', {
+          tier,
+          model,
+          error: (error as Error).message,
+          recoverable: error instanceof LLMProviderError ? error.recoverable : true,
+        });
 
         if (error instanceof LLMProviderError && !error.recoverable) {
           throw error;

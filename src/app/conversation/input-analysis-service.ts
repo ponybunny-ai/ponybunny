@@ -15,6 +15,7 @@ import type {
   IExtractedEntity,
 } from '../../domain/conversation/analysis.js';
 import type { IConversationTurn } from '../../domain/conversation/session.js';
+import { debug } from '../../debug/index.js';
 
 export interface IInputAnalysisService {
   analyze(
@@ -78,9 +79,19 @@ export class InputAnalysisService implements IInputAnalysisService {
     input: string,
     recentTurns: IConversationTurn[] = []
   ): Promise<IInputAnalysis> {
+    debug.custom('analysis.start', 'input-analysis', {
+      inputLength: input.length,
+      contextTurns: recentTurns.length,
+    });
+
     const contextMessages = this.buildContextMessages(input, recentTurns);
 
     try {
+      debug.custom('analysis.llm.request', 'input-analysis', {
+        tier: 'simple',
+        messageCount: contextMessages.length,
+      });
+
       const response = await this.llmService.completeWithTier(
         contextMessages,
         'simple',
@@ -88,6 +99,13 @@ export class InputAnalysisService implements IInputAnalysisService {
       );
 
       const analysisResult = this.parseAnalysisResponse(response.content);
+
+      debug.custom('analysis.llm.response', 'input-analysis', {
+        intent: analysisResult.intent?.primary,
+        emotion: analysisResult.emotion?.primary,
+        isActionable: analysisResult.purpose?.isActionable,
+        success: true,
+      });
 
       return {
         intent: this.normalizeIntent(analysisResult.intent),
@@ -97,6 +115,10 @@ export class InputAnalysisService implements IInputAnalysisService {
         analyzedAt: Date.now(),
       };
     } catch (error) {
+      debug.custom('analysis.llm.error', 'input-analysis', {
+        error: (error as Error).message,
+        fallback: true,
+      });
       // Fallback to basic analysis on LLM failure
       return this.fallbackAnalysis(input);
     }

@@ -14,6 +14,7 @@ import type { IResponseGenerator, ITaskProgress, ITaskResult } from './response-
 import type { IPersonaEngine } from './persona-engine.js';
 import type { ITaskBridge } from './task-bridge.js';
 import type { IRetryHandler } from './retry-handler.js';
+import { debug } from '../../debug/index.js';
 
 export interface ISessionRepository {
   createSession(personaId: string): IConversationSession;
@@ -67,6 +68,12 @@ export class SessionManager implements ISessionManager {
     personaId?: string,
     attachments?: IAttachment[]
   ): Promise<IConversationResponse> {
+    debug.custom('session.process.start', 'session-manager', {
+      sessionId,
+      messagePreview: message.slice(0, 100),
+      hasAttachments: !!(attachments && attachments.length > 0),
+    });
+
     // Get or create session
     let session: IConversationSession;
     if (sessionId) {
@@ -111,6 +118,15 @@ export class SessionManager implements ISessionManager {
     const recentTurns = this.getHistory(session.id, 10);
     const analysis = await this.inputAnalyzer.analyze(message, recentTurns);
 
+    debug.custom('session.analysis.complete', 'session-manager', {
+      sessionId: session.id,
+      intent: analysis.intent.primary,
+      intentConfidence: analysis.intent.confidence,
+      emotion: analysis.emotion.primary,
+      urgency: analysis.emotion.urgency,
+      isActionable: analysis.purpose.isActionable,
+    });
+
     // Determine and transition to next state
     const hasActiveTask = !!session.activeGoalId;
     const nextState = stateMachine.determineNextState(analysis, hasActiveTask);
@@ -122,6 +138,11 @@ export class SessionManager implements ISessionManager {
     // Handle based on state
     let response: string;
     let taskInfo: IConversationResponse['taskInfo'] | undefined;
+
+    debug.custom('session.state.handling', 'session-manager', {
+      sessionId: session.id,
+      currentState: stateMachine.getCurrentState(),
+    });
 
     switch (stateMachine.getCurrentState()) {
       case 'executing':
@@ -166,6 +187,13 @@ export class SessionManager implements ISessionManager {
     session.state = stateMachine.getCurrentState();
     session.updatedAt = Date.now();
     this.sessionRepository.updateSession(session);
+
+    debug.custom('session.process.complete', 'session-manager', {
+      sessionId: session.id,
+      responseLength: response.length,
+      finalState: stateMachine.getCurrentState(),
+      hasTask: !!taskInfo,
+    });
 
     return {
       sessionId: session.id,
