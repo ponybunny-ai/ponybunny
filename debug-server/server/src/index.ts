@@ -6,12 +6,12 @@
  */
 
 import { DebugServer } from './debug-server.js';
-import type { DebugServerConfig } from './types.js';
+import type { DebugServerOptions } from './debug-server.js';
 
 // Parse command line arguments
-function parseArgs(): Partial<DebugServerConfig> {
+function parseArgs(): Partial<DebugServerOptions> {
   const args = process.argv.slice(2);
-  const config: Partial<DebugServerConfig> = {};
+  const config: Partial<DebugServerOptions> = {};
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -60,9 +60,9 @@ Debug Server - Real-time debugging interface for PonyBunny
 Usage: npx tsx src/index.ts [options]
 
 Options:
-  -g, --gateway-url <url>   Gateway WebSocket URL (default: ws://localhost:8765)
-  -p, --port <port>         HTTP/WebSocket port (default: 3001)
-  -d, --db-path <path>      SQLite database path (default: ./debug.db)
+  -g, --gateway-url <url>   Gateway WebSocket URL (default: ws://localhost:18789)
+  -p, --port <port>         HTTP/WebSocket port (default: 18790)
+  -d, --db-path <path>      SQLite database path (default: ~/.ponybunny/debug.db)
   -s, --static-dir <path>   Static files directory (default: ./src/static)
   -t, --admin-token <token> Admin token for Gateway authentication
   -h, --help                Show this help message
@@ -75,20 +75,20 @@ Environment Variables:
 
 Examples:
   npx tsx src/index.ts
-  npx tsx src/index.ts --port 3002 --gateway-url ws://localhost:8765
+  npx tsx src/index.ts --port 18790 --gateway-url ws://localhost:18789
   ADMIN_TOKEN=xxx npx tsx src/index.ts
 `);
 }
 
 // Build configuration from environment and args
-function buildConfig(): DebugServerConfig {
+function buildConfig(): DebugServerOptions {
   const args = parseArgs();
 
   return {
-    gatewayUrl: args.gatewayUrl || process.env.GATEWAY_URL || 'ws://localhost:8765',
-    port: args.port || parseInt(process.env.DEBUG_SERVER_PORT || '3001', 10),
-    dbPath: args.dbPath || process.env.DEBUG_DB_PATH || './debug.db',
-    staticDir: args.staticDir || './src/static',
+    gatewayUrl: args.gatewayUrl || process.env.GATEWAY_URL || 'ws://localhost:18789',
+    port: args.port || parseInt(process.env.DEBUG_SERVER_PORT || '18790', 10),
+    dbPath: args.dbPath || process.env.DEBUG_DB_PATH,
+    staticDir: args.staticDir || process.env.STATIC_DIR || './src/static',
     adminToken: args.adminToken || process.env.ADMIN_TOKEN,
   };
 }
@@ -100,7 +100,7 @@ async function main(): Promise<void> {
   console.log('Starting Debug Server...');
   console.log(`  Gateway URL: ${config.gatewayUrl}`);
   console.log(`  HTTP Port: ${config.port}`);
-  console.log(`  Database: ${config.dbPath}`);
+  console.log(`  Database: ${config.dbPath || '~/.ponybunny/debug.db'}`);
   console.log(`  Static Dir: ${config.staticDir}`);
 
   const server = new DebugServer(config);
@@ -132,4 +132,4 @@ main().catch((error) => {
 
 // Export for programmatic use
 export { DebugServer } from './debug-server.js';
-export type { DebugServerConfig } from './types.js';
+export type { DebugServerOptions } from './debug-server.js';

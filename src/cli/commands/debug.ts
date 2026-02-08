@@ -186,15 +186,43 @@ async function runWeb(options: {
       process.exit(1);
     }
 
+    // Check for Next.js WebUI build
+    const webuiPath = join(serverPath, '../webui/.next');
+    const webuiServerPath = join(serverPath, '../webui/.next/server');
+    const staticHtmlPath = join(serverPath, 'src/static/index.html');
+    let staticDir: string | undefined;
+
+    if (existsSync(webuiServerPath)) {
+      // Use Next.js server output directory
+      staticDir = webuiServerPath;
+      console.log(chalk.green('✓ Using Next.js WebUI'));
+    } else if (existsSync(webuiPath)) {
+      // Fallback to .next directory
+      staticDir = webuiPath;
+      console.log(chalk.yellow('⚠ Using Next.js build output (not optimized)'));
+    } else if (existsSync(staticHtmlPath)) {
+      staticDir = join(serverPath, 'src/static');
+      console.log(chalk.yellow('⚠ Next.js WebUI not built, using basic HTML interface'));
+      console.log(chalk.gray('  Run: cd debug-server/webui && npm install && npm run build'));
+    } else {
+      console.log(chalk.yellow('⚠ No WebUI found, API-only mode'));
+    }
+
     // Launch debug server as child process
-    const child = spawn('npx', [
+    const args = [
       'tsx',
       entryPoint,
       '--gateway-url', gatewayUrl,
       '--port', String(webPort),
       '--db-path', debugDb,
       '--admin-token', token,
-    ], {
+    ];
+
+    if (staticDir) {
+      args.push('--static-dir', staticDir);
+    }
+
+    const child = spawn('npx', args, {
       stdio: 'inherit',
       cwd: serverPath,
       env: {

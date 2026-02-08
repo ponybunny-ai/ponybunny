@@ -9,6 +9,7 @@ import { gatewayCommand } from './commands/gateway.js';
 import { schedulerCommand } from './commands/scheduler-daemon.js';
 import { debugCommand } from './commands/debug.js';
 import { initCommand } from './commands/init.js';
+import { serviceCommand } from './commands/service.js';
 import { registerWorkCommand } from './commands/work.js';
 import { startTui } from './tui/start.js';
 
@@ -31,6 +32,7 @@ program.addCommand(gatewayCommand);
 program.addCommand(schedulerCommand);
 program.addCommand(debugCommand);
 program.addCommand(initCommand);
+program.addCommand(serviceCommand);
 registerWorkCommand(program);
 
 program

@@ -301,12 +301,20 @@ export class APIServer {
 
     if (!existsSync(filePath)) {
       // For SPA, serve index.html for non-API routes
-      const indexPath = resolve(staticDir, 'index.html');
-      if (existsSync(indexPath)) {
-        const content = readFileSync(indexPath);
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end(content);
-        return;
+      // Try multiple locations for index.html (Next.js puts it in app/ subdirectory)
+      const indexPaths = [
+        resolve(staticDir, 'index.html'),
+        resolve(staticDir, 'app/index.html'),
+        resolve(staticDir, '../static/index.html'),
+      ];
+
+      for (const indexPath of indexPaths) {
+        if (existsSync(indexPath)) {
+          const content = readFileSync(indexPath);
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.end(content);
+          return;
+        }
       }
 
       res.writeHead(404);
