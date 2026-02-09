@@ -14,6 +14,10 @@ import type {
   WorkItemsResponse,
   RunsResponse,
   MetricsResponse,
+  TimelineMetadata,
+  ReplayState,
+  StateDiff,
+  ReplayEventData,
 } from './types.js';
 
 type EventHandler = (data: unknown) => void;
@@ -190,6 +194,79 @@ class DebugApiClient {
   unsubscribe(): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type: 'unsubscribe' }));
+    }
+  }
+
+  // Replay API Methods
+  async getTimeline(goalId: string): Promise<TimelineMetadata> {
+    const response = await fetch(`${this.baseUrl}/api/replay/${goalId}/timeline`);
+    if (!response.ok) throw new Error('Failed to fetch timeline');
+    return response.json();
+  }
+
+  async getReplayEvents(goalId: string, from?: number, to?: number, limit = 100): Promise<EventsResponse> {
+    const params = new URLSearchParams();
+    if (from) params.append('from', from.toString());
+    if (to) params.append('to', to.toString());
+    params.append('limit', limit.toString());
+
+    const response = await fetch(`${this.baseUrl}/api/replay/${goalId}/events?${params}`);
+    if (!response.ok) throw new Error('Failed to fetch replay events');
+    return response.json();
+  }
+
+  async getStateAtTimestamp(goalId: string, timestamp: number): Promise<ReplayState> {
+    const response = await fetch(`${this.baseUrl}/api/replay/${goalId}/state/${timestamp}`);
+    if (!response.ok) throw new Error('Failed to fetch state');
+    return response.json();
+  }
+
+  async getEventDiff(goalId: string, eventId: string): Promise<StateDiff> {
+    const response = await fetch(`${this.baseUrl}/api/replay/${goalId}/diff/${eventId}`);
+    if (!response.ok) throw new Error('Failed to fetch diff');
+    return response.json();
+  }
+
+  // Replay Control via WebSocket
+  startReplay(goalId: string, speed = 1): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'replay.start', goalId, speed }));
+    }
+  }
+
+  pauseReplay(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'replay.pause' }));
+    }
+  }
+
+  resumeReplay(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'replay.resume' }));
+    }
+  }
+
+  seekReplay(timestamp: number): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'replay.seek', timestamp }));
+    }
+  }
+
+  stepReplay(direction: 'forward' | 'backward'): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'replay.step', direction }));
+    }
+  }
+
+  setReplaySpeed(speed: number): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'replay.speed', speed }));
+    }
+  }
+
+  stopReplay(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'replay.stop' }));
     }
   }
 }

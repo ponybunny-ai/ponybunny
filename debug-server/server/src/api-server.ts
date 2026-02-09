@@ -10,7 +10,11 @@ import { fileURLToPath } from 'url';
 
 import type { IDebugDataStore } from './store/types.js';
 import type { EventCollector } from './event-collector.js';
-import type { EnrichedEvent, EventFilter, GoalFilter, TimeRange } from './types.js';
+import type { EnrichedEvent, EventFilter, GoalFilter, TimeRange, ReplayControlMessage } from './types.js';
+import { SnapshotManager } from './replay/snapshot-manager.js';
+import { ReplayEngine } from './replay/replay-engine.js';
+import { TimelineService } from './replay/timeline-service.js';
+import { ReplaySession } from './replay/replay-session.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -36,6 +40,7 @@ interface WebSocketClient extends WebSocket {
     goalId?: string;
     types?: string[];
   };
+  replaySession?: ReplaySession;
 }
 
 export class APIServer {
@@ -48,6 +53,11 @@ export class APIServer {
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private gatewayConnected = false;
 
+  // Replay components
+  private snapshotManager: SnapshotManager;
+  private replayEngine: ReplayEngine;
+  private timelineService: TimelineService;
+
   constructor(
     store: IDebugDataStore,
     collector: EventCollector,
@@ -57,10 +67,46 @@ export class APIServer {
     this.collector = collector;
     this.options = options;
 
+    // Initialize replay components
+    this.snapshotManager = new SnapshotManager(store);
+    this.replayEngine = new ReplayEngine(store, this.snapshotManager);
+    this.timelineService = new TimelineService(store);
+
     // Subscribe to events for real-time streaming
     this.collector.on('event', (event: EnrichedEvent) => {
       this.broadcastEvent(event);
+
+      // Create snapshots for replay
+      if (event.goalId && this.snapshotManager.shouldCreateSnapshot(event, event.goalId)) {
+        this.createSnapshot(event.goalId, event).catch(console.error);
+      }
     });
+  }
+
+  private async createSnapshot(goalId: string, triggerEvent: EnrichedEvent): Promise<void> {
+    try {
+      // Reconstruct current state
+      const result = await this.replayEngine.reconstructState(goalId, Date.now());
+
+      // Determine trigger type
+      let triggerType: 'goal_start' | 'phase_transition' | 'error' | 'time_based' = 'time_based';
+      if (triggerEvent.type === 'goal.created') {
+        triggerType = 'goal_start';
+      } else if (triggerEvent.type.includes('phase')) {
+        triggerType = 'phase_transition';
+      } else if (triggerEvent.type.includes('.error') || triggerEvent.type.includes('.failed')) {
+        triggerType = 'error';
+      }
+
+      await this.snapshotManager.createSnapshot(
+        goalId,
+        result.state,
+        triggerType,
+        triggerEvent.id
+      );
+    } catch (error) {
+      console.error('[APIServer] Failed to create snapshot:', error);
+    }
   }
 
   /**
@@ -150,12 +196,12 @@ export class APIServer {
     this.handleStaticRequest(path, res);
   }
 
-  private handleAPIRequest(
+  private async handleAPIRequest(
     path: string,
     url: URL,
     req: IncomingMessage,
     res: ServerResponse
-  ): void {
+  ): Promise<void> {
     try {
       let data: unknown;
 
@@ -194,6 +240,10 @@ export class APIServer {
           if (path.startsWith('/api/goals/')) {
             const goalId = path.slice('/api/goals/'.length);
             data = this.handleGoalDetail(goalId);
+          }
+          // Check for replay API patterns
+          else if (path.startsWith('/api/replay/')) {
+            data = await this.handleReplayAPI(path, url);
           } else {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Not found' }));
@@ -283,6 +333,53 @@ export class APIServer {
     return { metrics, current };
   }
 
+  private async handleReplayAPI(path: string, url: URL): Promise<unknown> {
+    // Parse path: /api/replay/:goalId/timeline or /api/replay/:goalId/state/:timestamp etc.
+    const parts = path.split('/').filter(Boolean);
+
+    if (parts.length < 3) {
+      return { error: 'Invalid replay API path' };
+    }
+
+    const goalId = parts[2]; // parts = ['api', 'replay', goalId, ...]
+
+    // /api/replay/:goalId/timeline
+    if (parts[3] === 'timeline') {
+      return await this.timelineService.getTimeline(goalId);
+    }
+
+    // /api/replay/:goalId/events
+    if (parts[3] === 'events') {
+      const from = url.searchParams.get('from');
+      const to = url.searchParams.get('to');
+      const limit = parseInt(url.searchParams.get('limit') || '100', 10);
+
+      const filter: EventFilter = {
+        goalId,
+        limit,
+        startTime: from ? parseInt(from, 10) : undefined,
+        endTime: to ? parseInt(to, 10) : undefined,
+      };
+
+      const events = this.store.queryEvents(filter);
+      return { events, total: events.length };
+    }
+
+    // /api/replay/:goalId/state/:timestamp
+    if (parts[3] === 'state' && parts[4]) {
+      const timestamp = parseInt(parts[4], 10);
+      return await this.replayEngine.reconstructState(goalId, timestamp);
+    }
+
+    // /api/replay/:goalId/diff/:eventId
+    if (parts[3] === 'diff' && parts[4]) {
+      const eventId = parts[4];
+      return await this.replayEngine.computeEventDiff(eventId);
+    }
+
+    return { error: 'Unknown replay API endpoint' };
+  }
+
   private handleStaticRequest(path: string, res: ServerResponse): void {
     // Default to index.html
     if (path === '/') {
@@ -365,6 +462,12 @@ export class APIServer {
     });
 
     ws.on('close', () => {
+      // Clean up replay session
+      if (ws.replaySession) {
+        ws.replaySession.stop();
+        ws.replaySession = undefined;
+      }
+
       this.clients.delete(ws);
       console.log(`[APIServer] WebSocket client disconnected (total: ${this.clients.size})`);
     });
@@ -383,6 +486,67 @@ export class APIServer {
         goalId: msg.goalId as string | undefined,
         types: msg.types as string[] | undefined,
       };
+      return;
+    }
+
+    // Handle replay control messages
+    if (msg.type && (msg.type as string).startsWith('replay.')) {
+      this.handleReplayControl(ws, msg as ReplayControlMessage);
+    }
+  }
+
+  private async handleReplayControl(ws: WebSocketClient, msg: ReplayControlMessage): Promise<void> {
+    try {
+      switch (msg.type) {
+        case 'replay.start': {
+          // Stop existing session if any
+          if (ws.replaySession) {
+            ws.replaySession.stop();
+          }
+
+          // Create new replay session
+          ws.replaySession = new ReplaySession(
+            msg.goalId,
+            this.replayEngine,
+            this.store,
+            ws,
+            { speed: msg.speed }
+          );
+
+          await ws.replaySession.start();
+          break;
+        }
+
+        case 'replay.pause':
+          ws.replaySession?.pause();
+          break;
+
+        case 'replay.resume':
+          ws.replaySession?.resume();
+          break;
+
+        case 'replay.seek':
+          await ws.replaySession?.seek(msg.timestamp);
+          break;
+
+        case 'replay.step':
+          await ws.replaySession?.step(msg.direction);
+          break;
+
+        case 'replay.speed':
+          ws.replaySession?.setSpeed(msg.speed);
+          break;
+
+        case 'replay.stop':
+          ws.replaySession?.stop();
+          ws.replaySession = undefined;
+          break;
+      }
+    } catch (error) {
+      ws.send(JSON.stringify({
+        type: 'replay.error',
+        error: (error as Error).message,
+      }));
     }
   }
 

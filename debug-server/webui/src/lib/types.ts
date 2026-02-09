@@ -118,3 +118,50 @@ export function categorizeEvent(type: string): EventCategory {
   if (type.includes('system') || type.includes('gateway')) return 'system';
   return 'other';
 }
+
+// Replay Types
+export interface TimelineMetadata {
+  goalId: string;
+  totalEvents: number;
+  startTime: number;
+  endTime: number;
+  durationMs: number;
+  phaseBoundaries: Array<{ phase: string; startTime: number; endTime: number }>;
+  errorMarkers: Array<{ eventId: string; timestamp: number }>;
+  llmCallSpans: Array<{ id: string; startTime: number; endTime: number; model: string; tokens: number }>;
+  lastUpdated: number;
+}
+
+export interface SnapshotState {
+  goal: CachedGoal;
+  workItems: CachedWorkItem[];
+  runs: CachedRun[];
+  metrics: AggregatedMetrics;
+  llmContext: {
+    activeRequests: Array<{ id: string; model: string; startTime: number }>;
+    totalTokens: { input: number; output: number };
+  };
+}
+
+export interface StateChange {
+  path: string;
+  oldValue: unknown;
+  newValue: unknown;
+}
+
+export interface StateDiff {
+  changes: StateChange[];
+}
+
+export interface ReplayState {
+  timestamp: number;
+  state: SnapshotState;
+  snapshotUsed?: number;
+  eventsReplayed: number;
+}
+
+export interface ReplayEventData {
+  event: DebugEvent;
+  state: SnapshotState;
+  diff: StateDiff;
+}

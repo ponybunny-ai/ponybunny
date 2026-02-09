@@ -135,6 +135,96 @@ export interface DebugServerConfig {
 }
 
 /**
+ * Snapshot state structure.
+ */
+export interface SnapshotState {
+  goal: CachedGoal;
+  workItems: CachedWorkItem[];
+  runs: CachedRun[];
+  metrics: AggregatedMetrics;
+  llmContext: {
+    activeRequests: Array<{id: string; model: string; startTime: number}>;
+    totalTokens: {input: number; output: number};
+  };
+}
+
+/**
+ * Snapshot metadata.
+ */
+export interface Snapshot {
+  id: string;
+  goalId: string;
+  timestamp: number;
+  triggerType: 'goal_start' | 'phase_transition' | 'error' | 'manual' | 'time_based';
+  triggerEventId?: string;
+  stateData: Buffer;
+  sizeBytes: number;
+  createdAt: number;
+}
+
+/**
+ * Timeline metadata for a goal.
+ */
+export interface TimelineMetadata {
+  goalId: string;
+  totalEvents: number;
+  startTime: number;
+  endTime: number;
+  durationMs: number;
+  phaseBoundaries: Array<{phase: string; startTime: number; endTime: number}>;
+  errorMarkers: Array<{eventId: string; timestamp: number}>;
+  llmCallSpans: Array<{id: string; startTime: number; endTime: number; model: string; tokens: number}>;
+  lastUpdated: number;
+}
+
+/**
+ * State change description.
+ */
+export interface StateChange {
+  path: string;
+  oldValue: unknown;
+  newValue: unknown;
+}
+
+/**
+ * State diff between two snapshots.
+ */
+export interface StateDiff {
+  changes: StateChange[];
+}
+
+/**
+ * Replay state result.
+ */
+export interface ReplayState {
+  timestamp: number;
+  state: SnapshotState;
+  snapshotUsed?: number;
+  eventsReplayed: number;
+}
+
+/**
+ * Replay session control messages.
+ */
+export type ReplayControlMessage =
+  | { type: 'replay.start'; goalId: string; speed: number }
+  | { type: 'replay.pause' }
+  | { type: 'replay.resume' }
+  | { type: 'replay.seek'; timestamp: number }
+  | { type: 'replay.step'; direction: 'forward' | 'backward' }
+  | { type: 'replay.speed'; speed: number }
+  | { type: 'replay.stop' };
+
+/**
+ * Replay event messages sent to clients.
+ */
+export type ReplayEventMessage =
+  | { type: 'replay.event'; event: EnrichedEvent; state: SnapshotState; diff: StateDiff }
+  | { type: 'replay.batch'; events: Array<{event: EnrichedEvent; state: SnapshotState; diff: StateDiff}> }
+  | { type: 'replay.complete' }
+  | { type: 'replay.error'; error: string };
+
+/**
  * Default configuration values.
  */
 export const DEFAULT_CONFIG: DebugServerConfig = {

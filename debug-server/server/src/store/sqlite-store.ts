@@ -17,6 +17,8 @@ import type {
   AggregatedMetrics,
   GoalFilter,
   TimeRange,
+  Snapshot,
+  TimelineMetadata,
 } from '../types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -63,6 +65,29 @@ interface MetricsRow {
   window_start: number;
   window_end: number;
   data: string;
+}
+
+interface SnapshotRow {
+  id: string;
+  goal_id: string;
+  timestamp: number;
+  trigger_type: string;
+  trigger_event_id: string | null;
+  state_data: Buffer;
+  size_bytes: number;
+  created_at: number;
+}
+
+interface TimelineMetadataRow {
+  goal_id: string;
+  total_events: number;
+  start_time: number;
+  end_time: number;
+  duration_ms: number;
+  phase_boundaries: string;
+  error_markers: string;
+  llm_call_spans: string;
+  last_updated: number;
 }
 
 export class SQLiteDebugStore implements IDebugDataStore {
@@ -166,6 +191,26 @@ export class SQLiteDebugStore implements IDebugDataStore {
   getEventCount(): number {
     const stmt = this.db.prepare('SELECT COUNT(*) as count FROM events');
     const result = stmt.get() as { count: number };
+    return result.count;
+  }
+
+  getEvent(eventId: string): EnrichedEvent | null {
+    const stmt = this.db.prepare('SELECT * FROM events WHERE id = ?');
+    const row = stmt.get(eventId) as EventRow | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    return this.parseEventRow(row);
+  }
+
+  countEvents(goalId: string, startTime: number, endTime: number): number {
+    const stmt = this.db.prepare(`
+      SELECT COUNT(*) as count FROM events
+      WHERE goal_id = ? AND timestamp >= ? AND timestamp <= ?
+    `);
+    const result = stmt.get(goalId, startTime, endTime) as { count: number };
     return result.count;
   }
 
@@ -362,6 +407,142 @@ export class SQLiteDebugStore implements IDebugDataStore {
       windowEnd: row.window_end,
       data: JSON.parse(row.data),
     }));
+  }
+
+  // ========== Replay - Snapshots ==========
+
+  saveSnapshot(snapshot: Snapshot): void {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO snapshots (id, goal_id, timestamp, trigger_type, trigger_event_id, state_data, size_bytes, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      snapshot.id,
+      snapshot.goalId,
+      snapshot.timestamp,
+      snapshot.triggerType,
+      snapshot.triggerEventId ?? null,
+      snapshot.stateData,
+      snapshot.sizeBytes,
+      snapshot.createdAt
+    );
+  }
+
+  getSnapshot(id: string): Snapshot | null {
+    const stmt = this.db.prepare('SELECT * FROM snapshots WHERE id = ?');
+    const row = stmt.get(id) as SnapshotRow | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    return this.parseSnapshotRow(row);
+  }
+
+  getNearestSnapshot(goalId: string, beforeTimestamp: number): Snapshot | null {
+    const stmt = this.db.prepare(`
+      SELECT * FROM snapshots
+      WHERE goal_id = ? AND timestamp <= ?
+      ORDER BY timestamp DESC
+      LIMIT 1
+    `);
+    const row = stmt.get(goalId, beforeTimestamp) as SnapshotRow | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    return this.parseSnapshotRow(row);
+  }
+
+  listSnapshots(goalId: string): Snapshot[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM snapshots
+      WHERE goal_id = ?
+      ORDER BY timestamp ASC
+    `);
+    const rows = stmt.all(goalId) as SnapshotRow[];
+
+    return rows.map((row) => this.parseSnapshotRow(row));
+  }
+
+  deleteOldSnapshots(goalId: string, keepCount: number): number {
+    // Keep only the most recent N snapshots for a goal
+    const stmt = this.db.prepare(`
+      DELETE FROM snapshots
+      WHERE goal_id = ? AND id NOT IN (
+        SELECT id FROM snapshots
+        WHERE goal_id = ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+      )
+    `);
+    const result = stmt.run(goalId, goalId, keepCount);
+
+    return result.changes;
+  }
+
+  private parseSnapshotRow(row: SnapshotRow): Snapshot {
+    return {
+      id: row.id,
+      goalId: row.goal_id,
+      timestamp: row.timestamp,
+      triggerType: row.trigger_type as Snapshot['triggerType'],
+      triggerEventId: row.trigger_event_id ?? undefined,
+      stateData: row.state_data,
+      sizeBytes: row.size_bytes,
+      createdAt: row.created_at,
+    };
+  }
+
+  // ========== Replay - Timeline Metadata ==========
+
+  saveTimelineMetadata(metadata: TimelineMetadata): void {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO timeline_metadata (
+        goal_id, total_events, start_time, end_time, duration_ms,
+        phase_boundaries, error_markers, llm_call_spans, last_updated
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      metadata.goalId,
+      metadata.totalEvents,
+      metadata.startTime,
+      metadata.endTime,
+      metadata.durationMs,
+      JSON.stringify(metadata.phaseBoundaries),
+      JSON.stringify(metadata.errorMarkers),
+      JSON.stringify(metadata.llmCallSpans),
+      metadata.lastUpdated
+    );
+  }
+
+  getTimelineMetadata(goalId: string): TimelineMetadata | null {
+    const stmt = this.db.prepare('SELECT * FROM timeline_metadata WHERE goal_id = ?');
+    const row = stmt.get(goalId) as TimelineMetadataRow | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    return this.parseTimelineMetadataRow(row);
+  }
+
+  private parseTimelineMetadataRow(row: TimelineMetadataRow): TimelineMetadata {
+    return {
+      goalId: row.goal_id,
+      totalEvents: row.total_events,
+      startTime: row.start_time,
+      endTime: row.end_time,
+      durationMs: row.duration_ms,
+      phaseBoundaries: JSON.parse(row.phase_boundaries),
+      errorMarkers: JSON.parse(row.error_markers),
+      llmCallSpans: JSON.parse(row.llm_call_spans),
+      lastUpdated: row.last_updated,
+    };
   }
 
   // ========== Maintenance ==========

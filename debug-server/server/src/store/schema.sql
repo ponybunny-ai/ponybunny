@@ -64,3 +64,31 @@ CREATE TABLE IF NOT EXISTS metrics (
 );
 
 CREATE INDEX IF NOT EXISTS idx_metrics_window ON metrics(window_start, window_end);
+
+-- Snapshots table (for replay)
+CREATE TABLE IF NOT EXISTS snapshots (
+  id TEXT PRIMARY KEY,
+  goal_id TEXT NOT NULL,
+  timestamp INTEGER NOT NULL,
+  trigger_type TEXT NOT NULL,
+  trigger_event_id TEXT,
+  state_data BLOB NOT NULL,
+  size_bytes INTEGER,
+  created_at INTEGER DEFAULT (unixepoch() * 1000)
+);
+
+CREATE INDEX IF NOT EXISTS idx_snapshots_goal_timestamp ON snapshots(goal_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_snapshots_trigger_type ON snapshots(trigger_type);
+
+-- Timeline metadata (precomputed for fast replay UI)
+CREATE TABLE IF NOT EXISTS timeline_metadata (
+  goal_id TEXT PRIMARY KEY,
+  total_events INTEGER NOT NULL,
+  start_time INTEGER NOT NULL,
+  end_time INTEGER NOT NULL,
+  duration_ms INTEGER NOT NULL,
+  phase_boundaries TEXT,
+  error_markers TEXT,
+  llm_call_spans TEXT,
+  last_updated INTEGER NOT NULL
+);
