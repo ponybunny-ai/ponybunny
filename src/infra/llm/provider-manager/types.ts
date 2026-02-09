@@ -137,6 +137,12 @@ export interface LLMCompletionOptions {
   timeout?: number;
   /** Enable streaming mode */
   stream?: boolean;
+  /** Tool definitions for function calling */
+  tools?: import('../llm-provider.js').ToolDefinition[];
+  /** Tool choice strategy */
+  tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } };
+  /** Enable extended thinking mode */
+  thinking?: boolean;
   /** Callback for streaming chunks */
   onChunk?: (chunk: string, index: number) => void;
   /** Callback for streaming completion */

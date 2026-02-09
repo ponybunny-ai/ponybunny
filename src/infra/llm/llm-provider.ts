@@ -1,13 +1,26 @@
+export interface ToolCall {
+  id: string;              // Unique ID for the tool call
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;     // JSON string
+  };
+}
+
 export interface LLMMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string | null;  // null when tool_calls present
+  tool_calls?: ToolCall[];  // Assistant's tool calls
+  tool_call_id?: string;    // For tool result messages
 }
 
 export interface LLMResponse {
-  content: string;
+  content: string | null;
   tokensUsed: number;
   model: string;
-  finishReason: 'stop' | 'length' | 'error';
+  finishReason: 'stop' | 'length' | 'tool_calls' | 'error';
+  toolCalls?: ToolCall[];  // LLM's requested tool calls
+  thinking?: string;       // Reasoning process (if model supports)
 }
 
 export interface LLMUsage {
@@ -17,12 +30,44 @@ export interface LLMUsage {
   costUsd: number;
 }
 
+export interface ParameterSchema {
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  description?: string;
+  enum?: any[];
+  items?: ParameterSchema;
+  properties?: Record<string, ParameterSchema>;
+  required?: string[];
+}
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  parameters: {
+    type: 'object';
+    properties: Record<string, ParameterSchema>;
+    required?: string[];
+  };
+}
+
+export interface StreamChunk {
+  content?: string;              // Text content
+  thinking?: string;             // Reasoning content
+  toolCalls?: ToolCall[];        // Tool calls
+  done: boolean;                 // Whether streaming is complete
+  finishReason?: 'stop' | 'length' | 'tool_calls' | 'error';
+}
+
 export interface LLMProviderConfig {
   apiKey: string;
   model: string;
   maxTokens?: number;
   temperature?: number;
   timeout?: number;
+  tools?: ToolDefinition[];      // Available tools
+  tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } };
+  thinking?: boolean;            // Enable thinking mode (default based on model config)
+  stream?: boolean;              // Enable streaming (default based on model config)
+  onChunk?: (chunk: StreamChunk) => void;  // Streaming callback
 }
 
 export interface ILLMProvider {

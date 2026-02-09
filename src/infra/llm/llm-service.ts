@@ -184,7 +184,7 @@ export class LLMService implements ILLMProvider {
           debug.custom('llm.model.success', 'llm-service', {
             tier,
             model,
-            responseLength: response.content.length,
+            responseLength: response.content?.length || 0,
             tokensUsed: response.tokensUsed,
           });
 
@@ -213,7 +213,7 @@ export class LLMService implements ILLMProvider {
         debug.custom('llm.model.success', 'llm-service', {
           tier,
           model,
-          responseLength: response.content.length,
+          responseLength: response.content?.length || 0,
           tokensUsed: response.tokensUsed,
         });
 

@@ -98,7 +98,7 @@ export class InputAnalysisService implements IInputAnalysisService {
         { maxTokens: 1000 }
       );
 
-      const analysisResult = this.parseAnalysisResponse(response.content);
+      const analysisResult = this.parseAnalysisResponse(response.content || '');
 
       debug.custom('analysis.llm.response', 'input-analysis', {
         intent: analysisResult.intent?.primary,

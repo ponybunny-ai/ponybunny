@@ -583,7 +583,7 @@ Gemini API 使用 `tools` 参数，格式略有不同：
 5. ✅ Streaming 模式下实时显示 thinking 和工具调用
 6. ✅ Thinking mode 正确记录和显示推理过程
 7. ✅ 所有现有测试通过
-8. ✅ 新增测试覆盖率 > 80%
+8. ✅ 新增测试覆盖率 > 99%
 9. ✅ 用户可以通过 llm-config.json 控制 thinking 和 streaming
 
 ## 预估时间

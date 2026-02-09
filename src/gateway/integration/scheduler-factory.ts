@@ -189,7 +189,7 @@ Respond with JSON: { "passed": boolean, "reasoning": "string" }`,
       ]);
 
       try {
-        const result = JSON.parse(response.content);
+        const result = JSON.parse(response.content || '{}');
         return {
           passed: Boolean(result.passed),
           reasoning: String(result.reasoning || result.feedback || ''),

@@ -122,6 +122,10 @@ export class UnifiedLLMProvider implements ILLMProvider {
       model,
       maxTokens: options?.maxTokens || this.config.defaultMaxTokens || 4000,
       temperature: options?.temperature ?? 0.7,
+      tools: options?.tools,
+      tool_choice: options?.tool_choice,
+      thinking: options?.thinking,
+      stream: options?.stream,
     });
 
     // Build URL and headers (prefer credentials file baseUrl override)
@@ -131,6 +135,19 @@ export class UnifiedLLMProvider implements ILLMProvider {
 
     // Make request
     const timeout = options?.timeout || this.config.defaultTimeout || 60000;
+
+    // Handle streaming
+    if (options?.stream && adapter.supportsStreaming()) {
+      return await this.handleStreamingRequest(
+        url,
+        headers,
+        requestBody,
+        timeout,
+        adapter,
+        model,
+        options.onChunk
+      );
+    }
 
     try {
       const response = await fetch(url, {
@@ -171,6 +188,108 @@ export class UnifiedLLMProvider implements ILLMProvider {
         true
       );
     }
+  }
+
+  /**
+   * Handle streaming request
+   */
+  private async handleStreamingRequest(
+    url: string,
+    headers: Record<string, string>,
+    requestBody: unknown,
+    timeout: number,
+    adapter: IProtocolAdapter,
+    model: string,
+    onChunk?: (chunk: import('./llm-provider.js').StreamChunk) => void
+  ): Promise<LLMResponse> {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(requestBody),
+      signal: AbortSignal.timeout(timeout),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({ error: { message: response.statusText } }));
+      const errorMessage = adapter.extractErrorMessage(data);
+      const recoverable = adapter.isRecoverableError(response.status, data);
+
+      throw new LLMProviderError(
+        `Streaming API error: ${errorMessage}`,
+        'unified-provider',
+        recoverable
+      );
+    }
+
+    if (!response.body) {
+      throw new LLMProviderError(
+        'No response body for streaming',
+        'unified-provider',
+        false
+      );
+    }
+
+    // Accumulate response
+    let fullContent = '';
+    let fullThinking = '';
+    const toolCalls: import('./llm-provider.js').ToolCall[] = [];
+    let finishReason: 'stop' | 'length' | 'tool_calls' | 'error' = 'stop';
+    let chunkIndex = 0;
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          const parsedChunk = adapter.parseStreamChunk(line, chunkIndex++);
+          if (!parsedChunk) continue;
+
+          // Accumulate content
+          if (parsedChunk.content) {
+            fullContent += parsedChunk.content;
+          }
+
+          // Accumulate thinking
+          if (parsedChunk.thinking) {
+            fullThinking += parsedChunk.thinking;
+          }
+
+          // Accumulate tool calls
+          if (parsedChunk.toolCalls) {
+            toolCalls.push(...parsedChunk.toolCalls);
+          }
+
+          // Call user callback
+          if (onChunk) {
+            onChunk(parsedChunk);
+          }
+
+          // Check if done
+          if (parsedChunk.done) {
+            finishReason = parsedChunk.finishReason || 'stop';
+            break;
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    return {
+      content: fullContent || null,
+      tokensUsed: 0, // Token count not available in streaming
+      model,
+      finishReason,
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+      thinking: fullThinking || undefined,
+    };
   }
 
   /**

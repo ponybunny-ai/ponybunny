@@ -15,7 +15,10 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:llm-provider-manager": "jest test/infra/llm/provider-manager/provider-manager.test.ts --verbose",
-    "test:enhanced": "npm run build && npx tsx test/test-enhanced-system.ts"
+    "test:enhanced": "npm run build && npx tsx test/test-enhanced-system.ts",
+    "test:tool-calling": "npm run build && npx tsx test/quick-tool-calling-test.ts",
+    "test:tool-calling-demo": "npm run build && npx tsx test/e2e/tool-calling-demo.ts",
+    "test:tool-calling-unit": "jest test/infra/llm/protocols/tool-calling.test.ts --verbose"
   },
   "bin": {
     "pb": "./dist/cli/index.js"

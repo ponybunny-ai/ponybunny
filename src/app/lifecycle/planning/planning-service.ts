@@ -125,7 +125,7 @@ Each object must have:
         model: selection.model,
       });
 
-      const content = response.content.replace(/```json/g, '').replace(/```/g, '').trim();
+      const content = (response.content || '').replace(/```json/g, '').replace(/```/g, '').trim();
       const plans = JSON.parse(content) as PlannedItem[];
 
       return plans;

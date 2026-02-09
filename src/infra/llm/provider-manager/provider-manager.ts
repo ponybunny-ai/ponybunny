@@ -7,7 +7,7 @@ import type {
   ModelTier,
   LLMCompletionOptions,
 } from './types.js';
-import type { LLMMessage, LLMResponse } from '../llm-provider.js';
+import type { LLMMessage, LLMResponse, StreamChunk } from '../llm-provider.js';
 import { LLMProviderError } from '../llm-provider.js';
 import { getCachedConfig, reloadConfig, clearConfigCache } from './config-loader.js';
 import { EndpointManager, getEndpointManager } from './endpoint-manager.js';
@@ -224,7 +224,13 @@ export class LLMProviderManager implements ILLMProviderManager {
       model: modelId,
       maxTokens: options?.maxTokens || this.defaultMaxTokens,
       temperature: options?.temperature ?? this.defaultTemperature,
+      tools: options?.tools,
+      tool_choice: options?.tool_choice,
+      thinking: options?.thinking,
     });
+
+    // Debug log the request body
+    console.log(`[ProviderManager] Request to ${endpointId}:`, JSON.stringify(requestBody, null, 2));
 
     // Add streaming to request body if enabled
     if (options?.stream && adapter.supportsStreaming()) {
@@ -235,6 +241,10 @@ export class LLMProviderManager implements ILLMProviderManager {
     const baseUrl = credentials.baseUrl || endpointConfig.baseUrl || '';
     const url = adapter.buildUrl(baseUrl, modelId, endpointCreds);
     const headers = this.buildHeaders(adapter, endpointId, endpointCreds);
+
+    // Debug log URL and headers
+    console.log(`[ProviderManager] URL: ${url}`);
+    console.log(`[ProviderManager] Headers:`, JSON.stringify(headers, null, 2));
 
     // Make request
     const timeout = options?.timeout || this.defaultTimeout;
@@ -359,7 +369,7 @@ export class LLMProviderManager implements ILLMProviderManager {
       let chunkIndex = 0;
       let fullContent = '';
       let tokensUsed = 0;
-      let finishReason: 'stop' | 'length' | 'error' = 'stop';
+      let finishReason: 'stop' | 'length' | 'tool_calls' | 'error' = 'stop';
 
       while (true) {
         const { done, value } = await reader.read();
@@ -401,7 +411,7 @@ export class LLMProviderManager implements ILLMProviderManager {
 
             if (chunk.done) {
               finishReason = chunk.finishReason || 'stop';
-              tokensUsed = chunk.tokensUsed || 0;
+              // Note: tokensUsed not available in streaming mode
             }
           }
         }

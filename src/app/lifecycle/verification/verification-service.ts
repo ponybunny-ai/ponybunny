@@ -142,7 +142,7 @@ Did this execution satisfy the requirement: "${gate.name}"?`;
         model: 'gpt-5.2',
       });
 
-      const content = response.content.replace(/```json/g, '').replace(/```/g, '').trim();
+      const content = (response.content || '').replace(/```json/g, '').replace(/```/g, '').trim();
       const result = JSON.parse(content);
 
       return {

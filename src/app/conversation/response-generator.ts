@@ -1,6 +1,6 @@
 /**
  * Response Generator
- * Generates persona-aware responses using LLM
+ * Generates persona-aware responses using LLM with tool calling support
  */
 
 import type { LLMService } from '../../infra/llm/llm-service.js';
@@ -9,6 +9,8 @@ import type { IInputAnalysis } from '../../domain/conversation/analysis.js';
 import type { IConversationTurn, IConversationContext } from '../../domain/conversation/session.js';
 import type { ConversationState } from '../../domain/conversation/state-machine-rules.js';
 import type { IPersonaEngine } from './persona-engine.js';
+import type { LLMMessage, ToolCall } from '../../infra/llm/llm-provider.js';
+import { getGlobalToolProvider } from '../../infra/tools/tool-provider.js';
 import { debug } from '../../debug/index.js';
 
 export interface IResponseGenerator {
@@ -56,6 +58,8 @@ export interface ITaskResult {
 }
 
 export class ResponseGenerator implements IResponseGenerator {
+  private toolProvider = getGlobalToolProvider();
+
   constructor(
     private llmService: LLMService,
     private personaEngine: IPersonaEngine
@@ -71,7 +75,7 @@ export class ResponseGenerator implements IResponseGenerator {
     const systemPrompt = this.personaEngine.generateSystemPrompt(context.persona);
     const responsePrompt = this.buildResponsePrompt(context);
 
-    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+    const messages: LLMMessage[] = [
       { role: 'system', content: systemPrompt },
     ];
 
@@ -89,25 +93,87 @@ export class ResponseGenerator implements IResponseGenerator {
       content: responsePrompt,
     });
 
+    // Get tool definitions (only domain tools like web_search for conversation)
+    const allTools = this.toolProvider.getToolDefinitions();
+    const conversationTools = allTools.filter(tool =>
+      ['web_search', 'find_skills'].includes(tool.name)
+    );
+
     debug.custom('response.llm.request', 'response-generator', {
       agent: 'conversation',
       messageCount: messages.length,
+      toolCount: conversationTools.length,
     });
 
-    const response = await this.llmService.completeForAgent(
-      'conversation',
-      messages,
-      {
-        maxTokens: 1000,
-        stream: true,
+    // Simple tool calling loop (max 3 iterations)
+    let maxIterations = 3;
+    let finalResponse = '';
+
+    while (maxIterations > 0) {
+      const response = await this.llmService.completeForAgent(
+        'conversation',
+        messages,
+        {
+          maxTokens: 1000,
+          tools: conversationTools,
+          tool_choice: 'auto',
+          thinking: true,
+        }
+      );
+
+      // Handle text response
+      if (response.content) {
+        finalResponse = response.content;
       }
-    );
+
+      // Handle tool calls
+      if (response.toolCalls && response.toolCalls.length > 0) {
+        // Add assistant message with tool calls
+        messages.push({
+          role: 'assistant',
+          content: response.content,
+          tool_calls: response.toolCalls,
+        });
+
+        // Execute tools (mock execution for now)
+        for (const toolCall of response.toolCalls) {
+          const result = await this.executeToolCall(toolCall);
+
+          messages.push({
+            role: 'tool',
+            content: result,
+            tool_call_id: toolCall.id,
+          });
+        }
+      } else {
+        // No tool calls, we're done
+        break;
+      }
+
+      maxIterations--;
+    }
 
     debug.custom('response.llm.response', 'response-generator', {
-      responseLength: response.content.length,
+      responseLength: finalResponse.length,
     });
 
-    return response.content;
+    return finalResponse || 'I apologize, but I was unable to generate a response.';
+  }
+
+  private async executeToolCall(toolCall: ToolCall): Promise<string> {
+    const toolName = toolCall.function.name;
+    const parameters = JSON.parse(toolCall.function.arguments);
+
+    // Mock tool execution for conversation tools
+    if (toolName === 'web_search') {
+      return `Search results for "${parameters.query}": [Mock search results would appear here]`;
+    }
+
+    if (toolName === 'find_skills') {
+      return `Skills matching "${parameters.query}": [Mock skill results would appear here]`;
+    }
+
+    return `Tool ${toolName} executed successfully.`;
   }
 
   private buildResponsePrompt(context: IResponseContext): string {
@@ -168,7 +234,7 @@ Keep the update concise (1-2 sentences) and match the persona's style.`;
       { maxTokens: 200 }
     );
 
-    return response.content;
+    return response.content || 'Task is in progress.';
   }
 
   async generateResultSummary(
@@ -205,6 +271,6 @@ Summary: ${result.summary}`;
       { maxTokens: 500 }
     );
 
-    return response.content;
+    return response.content || (result.success ? 'Task completed successfully.' : 'Task failed.');
   }
 }

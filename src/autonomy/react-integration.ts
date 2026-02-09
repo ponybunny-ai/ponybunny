@@ -1,13 +1,14 @@
 /**
  * Enhanced ReAct Integration
- * Integrates with new System Prompt Builder
+ * Integrates with new System Prompt Builder and native tool calling
  */
 
 import type { WorkItem, Run, Goal } from '../work-order/types/index.js';
-import type { ILLMProvider, LLMMessage } from '../infra/llm/llm-provider.js';
+import type { ILLMProvider, LLMMessage, LLMResponse, ToolCall } from '../infra/llm/llm-provider.js';
 import type { ToolEnforcer } from '../infra/tools/tool-registry.js';
 import { getGlobalPromptProvider } from '../infra/prompts/prompt-provider.js';
 import { getGlobalSkillRegistry } from '../infra/skills/skill-registry.js';
+import { getGlobalToolProvider } from '../infra/tools/tool-provider.js';
 
 export interface ReActCycleParams {
   workItem: WorkItem;
@@ -46,6 +47,7 @@ export interface ReActContext {
 export class ReActIntegration {
   private promptProvider = getGlobalPromptProvider();
   private skillRegistry = getGlobalSkillRegistry();
+  private toolProvider = getGlobalToolProvider();
 
   constructor(
     private llmProvider?: ILLMProvider,
@@ -75,7 +77,11 @@ export class ReActIntegration {
     };
 
     try {
-      await this.observation(context, this.buildInitialObservation(params.workItem));
+      // Build conversation with native tool calling
+      const messages: LLMMessage[] = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: this.buildInitialObservation(params.workItem) },
+      ];
 
       let maxIterations = 20;
       let completed = false;
@@ -85,22 +91,69 @@ export class ReActIntegration {
           throw new Error('ReAct cycle aborted');
         }
 
-        const thought = await this.think(context);
-        await this.thought(context, thought);
+        // Get tool definitions for this phase
+        const tools = this.toolProvider.getToolDefinitions('execution');
 
-        if (this.isTaskComplete(thought)) {
-          completed = true;
-          break;
+        // Call LLM with tools
+        const response = await this.callLLMWithTools(messages, tools, params.model);
+
+        context.totalTokens += response.tokensUsed;
+        context.totalCost += this.llmProvider?.estimateCost(response.tokensUsed) || 0;
+
+        // Record thinking if present
+        if (response.thinking) {
+          await this.thought(context, response.thinking);
         }
 
-        if (this.isQuestionForUser(thought)) {
-          break;
+        // Handle text response
+        if (response.content) {
+          await this.thought(context, response.content);
+
+          if (this.isTaskComplete(response.content)) {
+            completed = true;
+            break;
+          }
+
+          if (this.isQuestionForUser(response.content)) {
+            break;
+          }
         }
 
-        const action = await this.selectAction(context, thought);
-        const actionResult = await this.executeAction(context, action);
-        
-        await this.observation(context, actionResult);
+        // Handle tool calls
+        if (response.toolCalls && response.toolCalls.length > 0) {
+          // Add assistant message with tool calls
+          messages.push({
+            role: 'assistant',
+            content: response.content,
+            tool_calls: response.toolCalls,
+          });
+
+          // Execute each tool call
+          for (const toolCall of response.toolCalls) {
+            const result = await this.executeToolCall(context, toolCall);
+
+            // Add tool result to messages
+            messages.push({
+              role: 'tool',
+              content: result,
+              tool_call_id: toolCall.id,
+            });
+
+            await this.observation(context, `Tool ${toolCall.function.name}: ${result}`);
+          }
+        } else {
+          // No tool calls, add assistant message
+          messages.push({
+            role: 'assistant',
+            content: response.content,
+          });
+
+          // If no tool calls and not complete, we're done
+          if (!completed) {
+            break;
+          }
+        }
+
         maxIterations--;
       }
 
@@ -153,35 +206,84 @@ export class ReActIntegration {
       systemPrompt,
     };
 
+    // Build messages from history
+    const messages: LLMMessage[] = [
+      { role: 'system', content: systemPrompt },
+    ];
+
     if (context.conversationHistory.length === 0) {
-      await this.observation(context, this.buildInitialObservation(params.workItem));
+      messages.push({ role: 'user', content: this.buildInitialObservation(params.workItem) });
     }
-    
+
+    // Add user input
+    messages.push({ role: 'user', content: userInput });
     await this.observation(context, `User: ${userInput}`);
 
     let maxIterations = 5;
     let reply = '';
 
+    // Get tool definitions
+    const tools = this.toolProvider.getToolDefinitions('execution');
+
     while (maxIterations > 0) {
       if (params.signal.aborted) throw new Error('Aborted');
 
-      const thought = await this.think(context);
-      await this.thought(context, thought);
+      // Call LLM with tools
+      const response = await this.callLLMWithTools(messages, tools, params.model);
 
-      if (this.isQuestionForUser(thought)) {
-        reply = thought;
-        break;
-      }
-      
-      if (this.isTaskComplete(thought)) {
-        reply = "Task completed.";
-        break;
+      context.totalTokens += response.tokensUsed;
+      context.totalCost += this.llmProvider?.estimateCost(response.tokensUsed) || 0;
+
+      // Record thinking
+      if (response.thinking) {
+        await this.thought(context, response.thinking);
       }
 
-      const action = await this.selectAction(context, thought);
-      const actionResult = await this.executeAction(context, action);
-      
-      await this.observation(context, actionResult);
+      // Handle text response
+      if (response.content) {
+        await this.thought(context, response.content);
+        reply = response.content;
+
+        if (this.isTaskComplete(response.content)) {
+          break;
+        }
+
+        if (this.isQuestionForUser(response.content)) {
+          break;
+        }
+      }
+
+      // Handle tool calls
+      if (response.toolCalls && response.toolCalls.length > 0) {
+        // Add assistant message with tool calls
+        messages.push({
+          role: 'assistant',
+          content: response.content,
+          tool_calls: response.toolCalls,
+        });
+
+        // Execute each tool call
+        for (const toolCall of response.toolCalls) {
+          const result = await this.executeToolCall(context, toolCall);
+
+          // Add tool result to messages
+          messages.push({
+            role: 'tool',
+            content: result,
+            tool_call_id: toolCall.id,
+          });
+
+          await this.observation(context, `Tool ${toolCall.function.name}: ${result}`);
+        }
+      } else {
+        // No tool calls, add assistant message and break
+        messages.push({
+          role: 'assistant',
+          content: response.content,
+        });
+        break;
+      }
+
       maxIterations--;
     }
 
@@ -190,7 +292,7 @@ export class ReActIntegration {
     } else {
       params.run.context = { history: context.conversationHistory };
     }
-    
+
     return {
       success: true,
       tokensUsed: context.totalTokens,
@@ -219,85 +321,6 @@ ${JSON.stringify(workItem.context, null, 2)}
 Begin by analyzing the task and forming a plan.`;
   }
 
-  private async think(context: ReActContext): Promise<string> {
-    const prompt = this.buildThoughtPrompt(context);
-
-    const response = await this.callLLM({
-      system: context.systemPrompt,
-      messages: this.buildMessageHistory(context),
-      prompt,
-      model: context.model,
-      goalId: context.goal?.id,
-      workItemId: context.workItem.id,
-      runId: context.run.id,
-    });
-
-    context.totalTokens += response.tokensUsed;
-    context.totalCost += response.cost;
-
-    return response.text;
-  }
-
-  private async selectAction(context: ReActContext, thought: string): Promise<any> {
-    const actionPrompt = `Based on your thought: "${thought}"
-
-What action should be taken next? Respond with a JSON object:
-{
-  "tool": "tool_name",
-  "parameters": { ... },
-  "reasoning": "why this action"
-}`;
-
-    const response = await this.callLLM({
-      system: context.systemPrompt,
-      messages: [...this.buildMessageHistory(context), { role: 'user', content: actionPrompt }],
-      model: context.model,
-      goalId: context.goal?.id,
-      workItemId: context.workItem.id,
-      runId: context.run.id,
-    });
-
-    context.totalTokens += response.tokensUsed;
-    context.totalCost += response.cost;
-
-    try {
-      return JSON.parse(response.text);
-    } catch {
-      return { tool: 'complete_task', parameters: {}, reasoning: 'Parse error' };
-    }
-  }
-
-  private async executeAction(context: ReActContext, action: any): Promise<string> {
-    if (action.tool === 'complete_task') {
-      return 'Task marked as complete.';
-    }
-
-    if (!this.toolEnforcer) {
-      return 'Error: No tool enforcer configured. Cannot execute tools.';
-    }
-
-    const check = this.toolEnforcer.checkToolInvocation(action.tool, action.parameters || {});
-    
-    if (!check.allowed) {
-      return `Action denied: ${check.reason}`;
-    }
-
-    const tool = (this.toolEnforcer as any).registry.getTool(action.tool);
-    if (!tool) {
-      return `Error: Tool '${action.tool}' not found`;
-    }
-
-    try {
-      const result = await tool.execute(action.parameters || {}, {
-        cwd: process.cwd(),
-        allowlist: (this.toolEnforcer as any).allowlist,
-        enforcer: this.toolEnforcer,
-      });
-      return result;
-    } catch (error) {
-      return `Action failed: ${error}`;
-    }
-  }
 
   private async observation(context: ReActContext, content: string): Promise<void> {
     context.conversationHistory.push({
@@ -341,70 +364,61 @@ What action should be taken next? Respond with a JSON object:
            ));
   }
 
-  private buildThoughtPrompt(context: ReActContext): string {
-    const lastObservation = context.conversationHistory
-      .filter(s => s.type === 'observation')
-      .pop();
-
-    return `Observation: ${lastObservation?.content || 'No observation yet'}
-
-What should you do next to complete this task? Think step by step.`;
-  }
-
-  private buildMessageHistory(context: ReActContext): Array<{ role: string; content: string }> {
-    return context.conversationHistory.map(step => ({
-      role: step.type === 'observation' ? 'system' : 'assistant',
-      content: `[${step.type.toUpperCase()}] ${step.content}`,
-    }));
-  }
-
-  private async callLLM(params: {
-    system: string;
-    messages: Array<{ role: string; content: string }>;
-    prompt?: string;
-    model?: string;
-    goalId?: string;
-    workItemId?: string;
-    runId?: string;
-  }): Promise<{ text: string; tokensUsed: number; cost: number }> {
+  private async callLLMWithTools(
+    messages: LLMMessage[],
+    tools: import('../infra/llm/llm-provider.js').ToolDefinition[],
+    model?: string
+  ): Promise<LLMResponse> {
     if (!this.llmProvider) {
-      return {
-        text: 'Mock LLM response - no provider configured',
-        tokensUsed: 500,
-        cost: 0.005,
-      };
+      throw new Error('No LLM provider configured');
     }
 
-    const messages: LLMMessage[] = [
-      { role: 'system', content: params.system },
-      ...params.messages.map(m => ({
-        role: m.role as 'system' | 'user' | 'assistant',
-        content: m.content,
-      })),
-    ];
+    const options: any = {
+      tools,
+      tool_choice: 'auto',
+      thinking: true, // Enable thinking mode if supported
+    };
 
-    if (params.prompt) {
-      messages.push({ role: 'user', content: params.prompt });
+    if (model) {
+      options.model = model;
+    }
+
+    return await this.llmProvider.complete(messages, options);
+  }
+
+  private async executeToolCall(context: ReActContext, toolCall: ToolCall): Promise<string> {
+    const toolName = toolCall.function.name;
+    const parameters = JSON.parse(toolCall.function.arguments);
+
+    // Special handling for complete_task
+    if (toolName === 'complete_task') {
+      return 'Task marked as complete.';
+    }
+
+    if (!this.toolEnforcer) {
+      return 'Error: No tool enforcer configured. Cannot execute tools.';
+    }
+
+    const check = this.toolEnforcer.checkToolInvocation(toolName, parameters);
+
+    if (!check.allowed) {
+      return `Action denied: ${check.reason}`;
+    }
+
+    const tool = (this.toolEnforcer as any).registry.getTool(toolName);
+    if (!tool) {
+      return `Error: Tool '${toolName}' not found`;
     }
 
     try {
-      const options = {
-        ...(params.model ? { model: params.model } : {}),
-        stream: true, // Enable streaming
-        goalId: params.goalId,
-        workItemId: params.workItemId,
-        runId: params.runId,
-      };
-      const response = await this.llmProvider.complete(messages, options);
-      const cost = this.llmProvider.estimateCost(response.tokensUsed);
-
-      return {
-        text: response.content,
-        tokensUsed: response.tokensUsed,
-        cost,
-      };
+      const result = await tool.execute(parameters, {
+        cwd: process.cwd(),
+        allowlist: (this.toolEnforcer as any).allowlist,
+        enforcer: this.toolEnforcer,
+      });
+      return result;
     } catch (error) {
-      throw new Error(`LLM call failed: ${(error as Error).message}`);
+      return `Tool execution failed: ${error}`;
     }
   }
 

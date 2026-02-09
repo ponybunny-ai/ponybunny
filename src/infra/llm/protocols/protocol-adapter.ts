@@ -1,4 +1,4 @@
-import type { LLMMessage, LLMResponse } from '../llm-provider.js';
+import type { LLMMessage, LLMResponse, ToolDefinition, StreamChunk } from '../llm-provider.js';
 
 /**
  * Supported protocol identifiers
@@ -24,6 +24,10 @@ export interface ProtocolRequestConfig {
   maxTokens?: number;
   temperature?: number;
   timeout?: number;
+  tools?: ToolDefinition[];
+  tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } };
+  thinking?: boolean;
+  stream?: boolean;
 }
 
 /**
@@ -34,17 +38,6 @@ export interface RawApiResponse {
   statusText: string;
   data: unknown;
   headers?: Record<string, string>;
-}
-
-/**
- * Streaming chunk from SSE response
- */
-export interface StreamChunk {
-  content: string;
-  index: number;
-  done: boolean;
-  finishReason?: 'stop' | 'length' | 'error';
-  tokensUsed?: number;
 }
 
 /**
@@ -152,11 +145,12 @@ export abstract class BaseProtocolAdapter implements IProtocolAdapter {
   /**
    * Map finish reason to standard format
    */
-  protected mapFinishReason(reason: string | undefined): 'stop' | 'length' | 'error' {
+  protected mapFinishReason(reason: string | undefined): 'stop' | 'length' | 'tool_calls' | 'error' {
     if (!reason) return 'stop';
     const normalized = reason.toLowerCase();
     if (normalized === 'stop' || normalized === 'end_turn') return 'stop';
     if (normalized === 'length' || normalized === 'max_tokens') return 'length';
+    if (normalized === 'tool_calls' || normalized === 'tool_use') return 'tool_calls';
     return 'error';
   }
 }

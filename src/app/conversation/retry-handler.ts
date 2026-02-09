@@ -71,7 +71,7 @@ export class RetryHandler implements IRetryHandler {
         { maxTokens: 500 }
       );
 
-      const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+      const jsonMatch = (response.content || '').match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         return this.fallbackAnalysis(errorMessage);
       }
