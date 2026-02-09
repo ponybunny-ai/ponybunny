@@ -10,6 +10,7 @@ import { EventBus } from '../events/event-bus.js';
 
 export interface ConnectionManagerConfig {
   maxConnectionsPerIp: number;
+  maxLocalConnections?: number; // Separate limit for local connections
   heartbeat: HeartbeatConfig;
 }
 
@@ -69,7 +70,23 @@ export class ConnectionManager {
 
   canAcceptConnection(remoteAddress: string): boolean {
     const count = this.ipConnectionCounts.get(remoteAddress) || 0;
+
+    // Use higher limit for local connections
+    if (this.isLocalAddress(remoteAddress)) {
+      const maxLocal = this.config.maxLocalConnections ?? 512;
+      return count < maxLocal;
+    }
+
     return count < this.config.maxConnectionsPerIp;
+  }
+
+  private isLocalAddress(address: string): boolean {
+    return (
+      address === '127.0.0.1' ||
+      address === 'localhost' ||
+      address === '::1' ||
+      address === '::ffff:127.0.0.1'
+    );
   }
 
   addPendingConnection(ws: WebSocket, remoteAddress: string, authTimeoutMs: number): void {
@@ -271,6 +288,16 @@ export class ConnectionManager {
       pendingConnections: this.pendingConnections.size,
       uniqueIps: this.ipConnectionCounts.size,
     };
+  }
+
+  /**
+   * Get connection count for a specific IP address
+   */
+  getConnectionCount(remoteAddress: string): { current: number; max: number } {
+    const current = this.ipConnectionCounts.get(remoteAddress) || 0;
+    const isLocal = this.isLocalAddress(remoteAddress);
+    const max = isLocal ? (this.config.maxLocalConnections ?? 512) : this.config.maxConnectionsPerIp;
+    return { current, max };
   }
 
   /**

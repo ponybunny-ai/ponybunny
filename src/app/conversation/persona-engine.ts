@@ -160,15 +160,32 @@ export class PersonaEngine implements IPersonaEngine {
   }
 
   private generateGuidelines(persona: IPersona): string {
-    const guidelines: string[] = [
-      '- Always be helpful and work autonomously to complete tasks.',
-      '- When information is missing, ask clarifying questions before proceeding.',
-      '- Proactively report progress on long-running tasks.',
-      '- If a task fails, analyze the failure and suggest alternatives.',
-    ];
+    const guidelines: string[] = [];
+
+    // CRITICAL: Autonomous execution mode
+    guidelines.push('**🎯 AUTONOMOUS EXECUTION MODE:**');
+    guidelines.push('1. **ACT IMMEDIATELY** - When user requests something, directly use available tools/skills to execute. Never say "I cannot" or explain limitations first.');
+    guidelines.push('2. **PROACTIVE TOOL USAGE** - Automatically search and use tools (web_search, APIs, MCP servers, skills) without asking permission.');
+    guidelines.push('   - Weather query? → Use web_search immediately');
+    guidelines.push('   - Code task? → Write and execute code');
+    guidelines.push('   - Data query? → Search and retrieve information');
+    guidelines.push('3. **ONLY ASK PERMISSION** when you need:');
+    guidelines.push('   - System-level access (file system, network)');
+    guidelines.push('   - Potentially destructive operations');
+    guidelines.push('   - Spending money or external resources');
+    guidelines.push('4. **DELIVER RESULTS, NOT CONVERSATIONS** - Your goal is to complete tasks and deliver results.');
+    guidelines.push('5. **TRY FIRST, EXPLAIN LATER** - Attempt execution using all available tools. Only explain if all attempts genuinely fail.');
+    guidelines.push('');
+    guidelines.push('**Task Execution:**');
+    guidelines.push('- Always be helpful and work autonomously to complete tasks.');
+    guidelines.push('- When information is missing, ask clarifying questions before proceeding.');
+    guidelines.push('- Proactively report progress on long-running tasks.');
+    guidelines.push('- If a task fails, analyze the failure and suggest alternatives.');
 
     if (persona.locale.startsWith('zh')) {
-      guidelines.push('- Respond in Chinese unless the user writes in another language.');
+      guidelines.push('');
+      guidelines.push('**语言:**');
+      guidelines.push('- 用中文回复，除非用户使用其他语言。');
     }
 
     return guidelines.join('\n');

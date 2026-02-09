@@ -308,10 +308,16 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     const query = goal_id
       ? 'SELECT * FROM work_items WHERE status = ? AND goal_id = ? ORDER BY priority DESC, created_at ASC'
       : 'SELECT * FROM work_items WHERE status = ? ORDER BY priority DESC, created_at ASC';
-    
+
     const params = goal_id ? ['ready', goal_id] : ['ready'];
     const stmt = this.db.prepare(query);
     const rows = stmt.all(...params) as WorkItemRow[];
+    return rows.map(r => this.parseWorkItemRow(r));
+  }
+
+  getWorkItemsByGoal(goal_id: string): WorkItem[] {
+    const stmt = this.db.prepare('SELECT * FROM work_items WHERE goal_id = ? ORDER BY priority DESC, created_at ASC');
+    const rows = stmt.all(goal_id) as WorkItemRow[];
     return rows.map(r => this.parseWorkItemRow(r));
   }
 

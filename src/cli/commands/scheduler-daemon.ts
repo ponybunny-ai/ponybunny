@@ -17,6 +17,7 @@ import { ExecutionService } from '../../app/lifecycle/execution/execution-servic
 import { getLLMService } from '../../infra/llm/index.js';
 import { LLMRouter, MockLLMProvider } from '../../infra/llm/llm-provider.js';
 import { SchedulerDaemon } from '../../scheduler-daemon/daemon.js';
+import { getGlobalSkillRegistry } from '../../infra/skills/skill-registry.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -142,12 +143,30 @@ async function runScheduler(dbPath: string, socketPath: string, debugMode: boole
       }
     }
 
-    // Create execution service
+    // Initialize Skill Registry (for enhanced execution capabilities)
+    const skillRegistry = getGlobalSkillRegistry();
+    const managedSkillsDir = process.env.PONYBUNNY_SKILLS_DIR || `${process.env.HOME}/.ponybunny/skills`;
+
+    await skillRegistry.loadSkills({
+      workspaceDir: process.cwd(),
+      managedSkillsDir,
+    });
+
+    const loadedSkills = skillRegistry.getSkills();
+    if (!isBackground && loadedSkills.length > 0) {
+      console.log(chalk.gray(`  Skills Loaded: ${loadedSkills.length}`));
+    }
+    log(`Loaded ${loadedSkills.length} skills`);
+
+    // Create execution service with enhanced capabilities
     const executionService = new ExecutionService(
       repository,
       { maxConsecutiveErrors: 3 },
       llmProvider
     );
+
+    // Initialize skills for execution service
+    await executionService.initializeSkills(process.cwd());
 
     // Create scheduler daemon
     const daemon = new SchedulerDaemon(

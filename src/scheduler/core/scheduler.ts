@@ -262,7 +262,11 @@ export class SchedulerCore implements ISchedulerCore {
     }
 
     this.state.lastTickAt = Date.now();
-    this.debug('Tick at', this.state.lastTickAt);
+
+    // Only log tick if there are active goals or in verbose debug mode
+    if (this.state.activeGoals.length > 0) {
+      this.debug('Tick at', this.state.lastTickAt, `(${this.state.activeGoals.length} active goals)`);
+    }
 
     // Process each active goal
     for (const goalId of this.state.activeGoals) {

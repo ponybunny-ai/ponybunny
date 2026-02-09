@@ -13,6 +13,7 @@ export interface IWorkOrderRepository {
   getWorkItem(id: string): WorkItem | undefined;
   updateWorkItemStatus(id: string, status: WorkItem['status']): void;
   getReadyWorkItems(goalId?: string): WorkItem[];
+  getWorkItemsByGoal(goalId: string): WorkItem[];
   
   createRun(params: CreateRunParams): Run;
   getRun(id: string): Run | undefined;

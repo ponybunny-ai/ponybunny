@@ -6,7 +6,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage } from 'http';
 import type Database from 'better-sqlite3';
 
-import type { GatewayConfig, Permission } from './types.js';
+import type { GatewayConfig, Permission, EventFrame } from './types.js';
 import { DEFAULT_GATEWAY_CONFIG } from './types.js';
 import { EventBus } from './events/event-bus.js';
 import { EventEmitter } from './events/event-emitter.js';
@@ -104,6 +104,7 @@ export class GatewayServer {
     this.connectionManager = new ConnectionManager(
       {
         maxConnectionsPerIp: this.config.maxConnectionsPerIp,
+        maxLocalConnections: this.config.maxLocalConnections ?? 512,
         heartbeat: {
           intervalMs: this.config.heartbeatIntervalMs,
           timeoutMs: this.config.heartbeatTimeoutMs,
@@ -280,7 +281,20 @@ export class GatewayServer {
             );
           }
 
-          console.log(`[GatewayServer] Listening on ws://${this.config.host}:${this.config.port}`);
+          // Display startup configuration
+          console.log('═══════════════════════════════════════════════════════');
+          console.log('🌐 PonyBunny Gateway Server Started');
+          console.log('═══════════════════════════════════════════════════════');
+          console.log(`  Address: ws://${this.config.host}:${this.config.port}`);
+          console.log(`  Connection Limits:`);
+          console.log(`    • Local (127.0.0.1):  ${this.config.maxLocalConnections ?? 512} connections`);
+          console.log(`    • Remote:             ${this.config.maxConnectionsPerIp} connections per IP`);
+          console.log(`  Heartbeat: ${this.config.heartbeatIntervalMs}ms interval, ${this.config.heartbeatTimeoutMs}ms timeout`);
+          console.log(`  Auth Timeout: ${this.config.authTimeoutMs}ms`);
+          console.log(`  TLS: ${this.config.enableTls ? 'Enabled' : 'Disabled'}`);
+          console.log(`  Debug Mode: ${this.debugMode ? 'Enabled' : 'Disabled'}`);
+          console.log('═══════════════════════════════════════════════════════\n');
+
           resolve();
         });
       } catch (error) {
@@ -421,11 +435,10 @@ export class GatewayServer {
     // Assign connection ID
     (ws as any)._connectionId = `conn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-    console.log(`[GatewayServer] New connection from ${remoteAddress}`);
-
     // Check connection limit
     if (!this.connectionManager.canAcceptConnection(remoteAddress)) {
-      console.log(`[GatewayServer] Connection limit exceeded for ${remoteAddress}`);
+      const stats = this.connectionManager.getConnectionCount(remoteAddress);
+      console.log(`[GatewayServer] ❌ Connection limit exceeded for ${remoteAddress} [${stats.current}/${stats.max}]`);
       ws.close(4006, 'Connection limit exceeded');
       return;
     }
@@ -435,7 +448,6 @@ export class GatewayServer {
 
     if (isLocalConnection) {
       // Auto-authenticate local connections with full permissions
-      console.log(`[GatewayServer] Auto-authenticating local connection from ${remoteAddress}`);
       const sessionData = {
         id: `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         publicKey: `local:${remoteAddress}`,
@@ -444,10 +456,27 @@ export class GatewayServer {
         lastActivityAt: Date.now(),
       };
       this.connectionManager.addPendingConnection(ws, remoteAddress, this.config.authTimeoutMs);
-      this.connectionManager.promoteConnection(ws, sessionData);
+      const session = this.connectionManager.promoteConnection(ws, sessionData);
+
+      // Get connection stats and display
+      const stats = this.connectionManager.getConnectionCount(remoteAddress);
+      console.log(`[GatewayServer] ✅ Local connection authenticated from ${remoteAddress} [${stats.current}/${stats.max}]`);
+
+      // Send authentication success event to client
+      const authEvent: EventFrame = {
+        type: 'event',
+        event: 'connection.authenticated',
+        data: {
+          sessionId: session.id,
+          permissions: session.permissions,
+        },
+      };
+      ws.send(JSON.stringify(authEvent));
     } else {
       // Add as pending connection (requires authentication)
       this.connectionManager.addPendingConnection(ws, remoteAddress, this.config.authTimeoutMs);
+      const stats = this.connectionManager.getConnectionCount(remoteAddress);
+      console.log(`[GatewayServer] 🔑 New connection from ${remoteAddress} [${stats.current}/${stats.max}] (auth required)`);
     }
 
     // Set up message handler
@@ -461,7 +490,8 @@ export class GatewayServer {
 
     // Set up close handler
     ws.on('close', (code, reason) => {
-      console.log(`[GatewayServer] Connection closed: ${code} ${reason.toString()}`);
+      const stats = this.connectionManager.getConnectionCount(remoteAddress);
+      console.log(`[GatewayServer] 🔌 Connection closed: ${code} ${reason.toString()} from ${remoteAddress} [${stats.current - 1}/${stats.max}]`);
       this.connectionManager.handleDisconnect(ws);
       this.authManager.cancelAuth((ws as any)._connectionId);
     });

@@ -91,6 +91,7 @@ export interface GatewayConfig {
   heartbeatIntervalMs: number;
   heartbeatTimeoutMs: number;
   maxConnectionsPerIp: number;
+  maxLocalConnections?: number; // Separate limit for localhost connections (default: 512)
   authTimeoutMs: number;
   enableTls: boolean;
   tlsCertPath?: string;
