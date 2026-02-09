@@ -9,10 +9,13 @@
   "scripts": {
     "build": "tsc && cp src/infra/persistence/schema.sql dist/infra/persistence/",
     "build:cli": "tsc -p tsconfig.cli.json && cp src/infra/persistence/schema.sql dist/infra/persistence/ && chmod +x dist/cli/index.js",
+    "start": "node dist/main.js",
+    "start:enhanced": "npm run build && node dist/main-enhanced.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "test:llm-provider-manager": "jest test/infra/llm/provider-manager/provider-manager.test.ts --verbose"
+    "test:llm-provider-manager": "jest test/infra/llm/provider-manager/provider-manager.test.ts --verbose",
+    "test:enhanced": "npm run build && npx tsx test/test-enhanced-system.ts"
   },
   "bin": {
     "pb": "./dist/cli/index.js"

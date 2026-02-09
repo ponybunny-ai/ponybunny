@@ -7,38 +7,88 @@ import { PlanningService } from './app/lifecycle/planning/planning-service.js';
 import { getLLMService } from './infra/llm/index.js';
 import type { ILLMProvider } from './infra/llm/llm-provider.js';
 import { MockLLMProvider, LLMRouter } from './infra/llm/llm-provider.js';
+import { getGlobalSkillRegistry } from './infra/skills/skill-registry.js';
 
 const DB_PATH = process.env.PONY_DB_PATH || './pony-work-orders.db';
 
+async function initializeEnhancedSystem() {
+  console.log('[PonyBunny] 🚀 Initializing Enhanced System...\n');
+
+  // 1. Initialize Skill Registry
+  console.log('[PonyBunny] 📚 Loading skills...');
+  const skillRegistry = getGlobalSkillRegistry();
+
+  const managedSkillsDir = process.env.PONYBUNNY_SKILLS_DIR ||
+    `${process.env.HOME}/.ponybunny/skills`;
+
+  await skillRegistry.loadSkills({
+    workspaceDir: process.cwd(),
+    managedSkillsDir,
+  });
+
+  const skills = skillRegistry.getSkills();
+  console.log(`[PonyBunny] ✅ Loaded ${skills.length} skills`);
+
+  if (skills.length > 0) {
+    console.log('[PonyBunny] Available skills:');
+    skills.forEach(skill => {
+      console.log(`  - ${skill.name}: ${skill.description} [${skill.source}]`);
+    });
+  } else {
+    console.log('[PonyBunny] ℹ️  No skills loaded. Create skills in ./skills/ directory.');
+  }
+
+  const stats = skillRegistry.getStats();
+  console.log(`[PonyBunny] 📊 Skill Stats:`, stats);
+  console.log('');
+
+  return { skillRegistry };
+}
+
 async function main() {
+  // Initialize enhanced system
+  const { skillRegistry } = await initializeEnhancedSystem();
+
+  // Initialize database
   const repository = new WorkOrderDatabase(DB_PATH);
   await repository.initialize();
 
-  // Use the unified LLM service (supports credentials.json with baseUrl override)
+  // Initialize LLM Service
   const llmService = getLLMService();
   const availableProviders = llmService.getAvailableProviders();
 
-  // Use LLMService directly as ILLMProvider - it uses UnifiedLLMProvider internally
-  // which supports credentials.json configuration including custom baseUrl
   let llmProvider: ILLMProvider;
 
   if (availableProviders.length === 0) {
-    console.warn('[PonyBunny] No API keys found. Using Mock LLM Provider.');
+    console.warn('[PonyBunny] ⚠️  No API keys found. Using Mock LLM Provider.');
+    console.warn('[PonyBunny] To use real LLMs, configure ~/.ponybunny/credentials.json');
     llmProvider = new LLMRouter([new MockLLMProvider('mock-provider')]);
   } else {
-    // Use llmService directly - it implements ILLMProvider and handles routing internally
+    console.log(`[PonyBunny] ✅ Active LLM Providers: ${availableProviders.join(', ')}`);
     llmProvider = llmService;
   }
 
-  const planningService = new PlanningService(repository, llmProvider);
+  // Use Enhanced Services (Phase-aware prompts + Skills integration)
+  console.log('[PonyBunny] 🧠 Initializing Enhanced Lifecycle Services...');
 
-  const executionService = new ExecutionService(repository, {
-    maxConsecutiveErrors: 3,
-  }, llmProvider);
+  const planningService = new PlanningService(repository, llmProvider);
+  console.log('[PonyBunny] ✅ Planning Service (Enhanced) initialized');
+
+  const executionService = new ExecutionService(
+    repository,
+    { maxConsecutiveErrors: 3 },
+    llmProvider
+  );
+
+  // Initialize skills for execution service
+  await executionService.initializeSkills(process.cwd());
+  console.log('[PonyBunny] ✅ Execution Service (Enhanced) initialized');
 
   const verificationService = new VerificationService();
+  console.log('[PonyBunny] ✅ Verification Service initialized');
 
   const evaluationService = new EvaluationService(repository);
+  console.log('[PonyBunny] ✅ Evaluation Service initialized\n');
 
   const daemon = new AutonomyDaemon(
     repository,
@@ -53,20 +103,31 @@ async function main() {
   );
 
   process.on('SIGINT', () => {
-    console.log('\n[PonyBunny] Shutting down gracefully...');
+    console.log('\n[PonyBunny] 👋 Shutting down gracefully...');
     daemon.stop();
     process.exit(0);
   });
 
-  console.log('[PonyBunny] Autonomy Daemon starting...');
-  console.log(`[PonyBunny] Database: ${DB_PATH}`);
-  console.log(`[PonyBunny] Active LLM Providers: ${availableProviders.length > 0 ? availableProviders.join(', ') : 'mock-provider'}`);
-  console.log(`[PonyBunny] Model Tiers: ${JSON.stringify(llmService.getTierModels())}`);
+  console.log('═══════════════════════════════════════════════════════');
+  console.log('🎉 PonyBunny Enhanced System Ready!');
+  console.log('═══════════════════════════════════════════════════════');
+  console.log(`📁 Database: ${DB_PATH}`);
+  console.log(`🤖 LLM Providers: ${availableProviders.length > 0 ? availableProviders.join(', ') : 'mock-provider'}`);
+  console.log(`🎯 Model Tiers: ${JSON.stringify(llmService.getTierModels())}`);
+  console.log(`📚 Skills Loaded: ${skillRegistry.getSkills().length}`);
+  console.log('');
+  console.log('✨ Enhanced Features:');
+  console.log('  ✅ Phase-aware System Prompts');
+  console.log('  ✅ Skill-driven Execution');
+  console.log('  ✅ Budget-conscious Planning');
+  console.log('  ✅ Default Concise Mode');
+  console.log('  ✅ Clear Escalation Paths');
+  console.log('═══════════════════════════════════════════════════════\n');
 
   await daemon.start();
 }
 
 main().catch(error => {
-  console.error('[PonyBunny] Fatal error:', error);
+  console.error('[PonyBunny] ❌ Fatal error:', error);
   process.exit(1);
 });

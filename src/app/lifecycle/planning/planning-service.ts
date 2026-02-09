@@ -3,8 +3,8 @@ import type { IWorkOrderRepository } from '../../../infra/persistence/repository
 import type { IPlanningService, PlanningResult } from '../stage-interfaces.js';
 import type { ILLMProvider } from '../../../infra/llm/llm-provider.js';
 import type { IModelSelector } from '../../../scheduler/model-selector/types.js';
-import { validateWorkItemInvariants } from '../../../domain/work-order/invariants.js';
 import { ModelSelector } from '../../../scheduler/model-selector/model-selector.js';
+import { getGlobalPromptProvider } from '../../../infra/prompts/prompt-provider.js';
 
 interface PlannedItem {
   id: string;
@@ -19,6 +19,7 @@ interface PlannedItem {
 
 export class PlanningService implements IPlanningService {
   private modelSelector: IModelSelector;
+  private promptProvider = getGlobalPromptProvider();
 
   constructor(
     private repository: IWorkOrderRepository,
@@ -75,8 +76,19 @@ export class PlanningService implements IPlanningService {
   }
 
   private async generatePlanWithLLM(goal: Goal): Promise<PlannedItem[]> {
-    const systemPrompt = `You are a Senior Technical Project Manager.
-Your goal is to break down a high-level Goal into a Directed Acyclic Graph (DAG) of granular WorkItems.
+    // Use enhanced phase-aware system prompt
+    const systemPrompt = this.promptProvider.generatePlanningPrompt({
+      workspaceDir: process.cwd(),
+      goal,
+      budgetTokens: goal.budget_tokens,
+      spentTokens: goal.spent_tokens,
+    });
+
+    const userPrompt = `Goal Title: ${goal.title}
+Goal Description: ${goal.description}
+Budget Tokens: ${goal.budget_tokens || 'N/A'}
+
+Break this down into execution steps.
 
 Output format: JSON array of objects.
 Do not include markdown blocks or backticks. Return ONLY the JSON.
@@ -94,25 +106,12 @@ Each object must have:
       {
         name: string,
         type: "deterministic",
-        command: string, // Shell command to verify success (exit code 0). E.g. "npm test", "tsc", "ls dist/"
+        command: string, // Shell command to verify success (exit code 0)
         required: true
       }
     ],
     acceptance_criteria: string[]
-}
-
-Rules:
-1. Ensure the DAG is valid (no cycles).
-2. Break down complex tasks into small, verifiable steps.
-3. Every "code" item should ideally have a verification command.
-4. Use standard tools: npm, node, tsc, git, jest.
-`;
-
-    const userPrompt = `Goal Title: ${goal.title}
-Goal Description: ${goal.description}
-Budget Tokens: ${goal.budget_tokens || 'N/A'}
-
-Break this down into execution steps.`;
+}`;
 
     try {
       const selection = this.modelSelector.selectModelForPlanning(goal);
@@ -128,7 +127,7 @@ Break this down into execution steps.`;
 
       const content = response.content.replace(/```json/g, '').replace(/```/g, '').trim();
       const plans = JSON.parse(content) as PlannedItem[];
-      
+
       return plans;
     } catch (error) {
       throw new Error(`Failed to generate plan: ${error}`);

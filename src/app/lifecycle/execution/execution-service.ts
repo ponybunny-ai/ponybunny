@@ -9,14 +9,14 @@ import { WriteFileTool } from '../../../infra/tools/implementations/write-file-t
 import { ExecuteCommandTool } from '../../../infra/tools/implementations/execute-command-tool.js';
 import { SearchCodeTool } from '../../../infra/tools/implementations/search-code-tool.js';
 import { WebSearchTool } from '../../../infra/tools/implementations/web-search-tool.js';
-import { SkillLoader } from '../../../infra/skills/skill-loader.js';
+import { getGlobalSkillRegistry } from '../../../infra/skills/skill-registry.js';
 
 export class ExecutionService implements IExecutionService {
   private reactIntegration: ReActIntegration;
   private toolRegistry: ToolRegistry;
   private toolAllowlist: ToolAllowlist;
   private toolEnforcer: ToolEnforcer;
-  private skillLoader: SkillLoader;
+  private skillRegistry = getGlobalSkillRegistry();
 
   constructor(
     private repository: IWorkOrderRepository,
@@ -27,14 +27,25 @@ export class ExecutionService implements IExecutionService {
   ) {
     this.toolRegistry = new ToolRegistry();
     this.toolAllowlist = new ToolAllowlist();
-    this.skillLoader = new SkillLoader(['./skills']); // Default skills directory
-    
+
     this.registerTools();
-    this.registerSkills();
-    
+
     this.toolEnforcer = new ToolEnforcer(this.toolRegistry, this.toolAllowlist);
-    
+
+    // Use enhanced ReAct integration with phase-aware prompts
     this.reactIntegration = new ReActIntegration(llmProvider, this.toolEnforcer);
+  }
+
+  /**
+   * Initialize skills - should be called after workspace is known
+   */
+  async initializeSkills(workspaceDir: string): Promise<void> {
+    await this.skillRegistry.loadSkills({
+      workspaceDir,
+      managedSkillsDir: `${process.env.HOME}/.ponybunny/skills`,
+    });
+
+    console.log(`[ExecutionService] Loaded ${this.skillRegistry.getSkills().length} skills`);
   }
 
   private registerTools(): void {
@@ -43,28 +54,21 @@ export class ExecutionService implements IExecutionService {
     this.toolRegistry.register(new ExecuteCommandTool());
     this.toolRegistry.register(new SearchCodeTool());
     this.toolRegistry.register(new WebSearchTool());
-    
-    // Allow search_code by default (it's safe)
+
+    // Allow tools by default (safe tools)
     this.toolAllowlist.addTool('search_code');
-    // Allow execute_command (it's powerful, but needed for 'build' and 'test')
-    this.toolAllowlist.addTool('execute_command');
-    
     this.toolAllowlist.addTool('read_file');
     this.toolAllowlist.addTool('write_file');
+    this.toolAllowlist.addTool('execute_command');
     this.toolAllowlist.addTool('web_search');
-  }
-
-  private registerSkills(): void {
-    const skills = this.skillLoader.loadSkills();
-    
-    if (this.reactIntegration) {
-        this.reactIntegration.setAvailableSkills(skills);
-    }
   }
 
   async executeWorkItem(workItem: WorkItem): Promise<ExecutionResult> {
     const startTime = Date.now();
-    
+
+    // Get goal for context
+    const goal = this.repository.getGoal(workItem.goal_id);
+
     const runSequence = this.repository.getRunsByWorkItem(workItem.id).length + 1;
     const run = this.repository.createRun({
       work_item_id: workItem.id,
@@ -74,10 +78,12 @@ export class ExecutionService implements IExecutionService {
     });
 
     try {
+      // Enhanced: Pass goal context for phase-aware prompts
       const agentResult = await this.reactIntegration.executeWorkCycle({
         workItem,
         run,
-        signal: new AbortController().signal, // TODO: pass from caller
+        goal,
+        signal: new AbortController().signal,
       });
 
       const timeSeconds = Math.floor((Date.now() - startTime) / 1000);
@@ -110,7 +116,7 @@ export class ExecutionService implements IExecutionService {
       };
     } catch (error) {
       const timeSeconds = Math.floor((Date.now() - startTime) / 1000);
-      
+
       this.repository.completeRun(run.id, {
         status: 'failure',
         error_message: String(error),
@@ -138,19 +144,19 @@ export class ExecutionService implements IExecutionService {
       workItem.id,
       this.config.maxConsecutiveErrors
     );
-    
+
     return repeatedErrors.length > 0;
   }
 
   private generateErrorSignature(error?: string): string | undefined {
     if (!error) return undefined;
-    
+
     const normalized = error
       .replace(/\d+/g, 'N')
       .replace(/0x[0-9a-f]+/gi, 'HEX')
       .replace(/\/[\w\/.-]+/g, 'PATH')
       .substring(0, 200);
-    
+
     return this.simpleHash(normalized);
   }
 
