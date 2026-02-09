@@ -1,79 +1,218 @@
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import type { Skill, SkillMetadata } from '../../domain/skill/types.js';
+/**
+ * Skill Loader
+ * Loads skills from multiple directories with precedence handling
+ */
 
-export class SkillLoader {
-  private skills = new Map<string, Skill>();
-  private skillDirs: string[] = [];
+import fs from 'node:fs';
+import path from 'node:path';
+import { promisify } from 'node:util';
+import type { Skill, SkillMetadata, SkillSource } from './types.js';
 
-  constructor(baseDirs: string[]) {
-    this.skillDirs = baseDirs.map(d => resolve(d));
+const readFile = promisify(fs.readFile);
+const readdir = promisify(fs.readdir);
+const stat = promisify(fs.stat);
+
+/**
+ * Parse frontmatter from SKILL.md
+ */
+export function parseFrontmatter(content: string): SkillMetadata {
+  const frontmatterRegex = /^---\s*\n([\s\S]*?)\n---/;
+  const match = content.match(frontmatterRegex);
+
+  if (!match) {
+    return { name: '', description: '' };
   }
 
-  loadSkills(): Skill[] {
-    this.skills.clear();
+  const frontmatterText = match[1];
+  const metadata: Partial<SkillMetadata> = {};
 
-    for (const dir of this.skillDirs) {
-      if (!existsSync(dir)) continue;
+  // Parse YAML-like frontmatter
+  const lines = frontmatterText.split('\n');
+  for (const line of lines) {
+    const colonIndex = line.indexOf(':');
+    if (colonIndex === -1) continue;
 
-      const entries = readdirSync(dir);
-      for (const entry of entries) {
-        const fullPath = join(dir, entry);
-        if (statSync(fullPath).isDirectory()) {
-          const skillMdPath = join(fullPath, 'SKILL.md');
-          if (existsSync(skillMdPath)) {
-            this.parseAndRegisterSkill(skillMdPath);
-          }
+    const key = line.slice(0, colonIndex).trim();
+    const value = line.slice(colonIndex + 1).trim();
+
+    switch (key) {
+      case 'name':
+        metadata.name = value.replace(/['"]/g, '');
+        break;
+      case 'description':
+        metadata.description = value.replace(/['"]/g, '');
+        break;
+      case 'version':
+        metadata.version = value.replace(/['"]/g, '');
+        break;
+      case 'author':
+        metadata.author = value.replace(/['"]/g, '');
+        break;
+      case 'tags':
+        metadata.tags = value
+          .replace(/[\[\]'"]/g, '')
+          .split(',')
+          .map(t => t.trim());
+        break;
+      case 'phases':
+        metadata.phases = value
+          .replace(/[\[\]'"]/g, '')
+          .split(',')
+          .map(p => p.trim());
+        break;
+      case 'requires-approval':
+      case 'requiresApproval':
+        metadata.requiresApproval = value.toLowerCase() === 'true';
+        break;
+      case 'primary-env':
+      case 'primaryEnv':
+        metadata.primaryEnv = value.replace(/['"]/g, '') as 'host' | 'sandbox';
+        break;
+      case 'user-invocable':
+      case 'userInvocable':
+        metadata.userInvocable = value.toLowerCase() !== 'false';
+        break;
+      case 'disable-model-invocation':
+      case 'disableModelInvocation':
+        metadata.disableModelInvocation = value.toLowerCase() === 'true';
+        break;
+      case 'command-dispatch':
+      case 'commandDispatch':
+        metadata.commandDispatch = value.replace(/['"]/g, '') as 'tool' | 'skill';
+        break;
+      case 'command-tool':
+      case 'commandTool':
+        metadata.commandTool = value.replace(/['"]/g, '');
+        break;
+      case 'command-arg-mode':
+      case 'commandArgMode':
+        metadata.commandArgMode = value.replace(/['"]/g, '') as 'raw' | 'parsed';
+        break;
+    }
+  }
+
+  return metadata as SkillMetadata;
+}
+
+/**
+ * Load a single skill from a directory
+ */
+export async function loadSkill(
+  skillDir: string,
+  source: SkillSource
+): Promise<Skill | null> {
+  try {
+    const skillMdPath = path.join(skillDir, 'SKILL.md');
+    const skillStat = await stat(skillMdPath);
+
+    if (!skillStat.isFile()) {
+      return null;
+    }
+
+    const content = await readFile(skillMdPath, 'utf-8');
+    const metadata = parseFrontmatter(content);
+
+    // Use directory name as fallback if name not in frontmatter
+    if (!metadata.name) {
+      metadata.name = path.basename(skillDir);
+    }
+
+    // Extract description from content if not in frontmatter
+    if (!metadata.description) {
+      const lines = content.split('\n');
+      for (const line of lines) {
+        if (line.startsWith('#') && !line.startsWith('##')) {
+          metadata.description = line.replace(/^#+\s*/, '').trim();
+          break;
         }
       }
     }
 
-    return Array.from(this.skills.values());
+    return {
+      name: metadata.name,
+      description: metadata.description || 'No description provided',
+      filePath: skillMdPath,
+      baseDir: skillDir,
+      source,
+      metadata,
+    };
+  } catch (error) {
+    console.warn(`[skills] Failed to load skill from ${skillDir}:`, error);
+    return null;
   }
+}
 
-  private parseAndRegisterSkill(filePath: string): void {
-    try {
-      const content = readFileSync(filePath, 'utf-8');
-      const metadata = this.extractFrontmatter(content);
-      
-      if (metadata) {
-        const skill: Skill = {
-          name: metadata.name,
-          description: metadata.description,
-          path: filePath,
-        };
-        this.skills.set(skill.name, skill);
+/**
+ * Load all skills from a directory
+ */
+export async function loadSkillsFromDir(
+  dir: string,
+  source: SkillSource
+): Promise<Skill[]> {
+  try {
+    const dirStat = await stat(dir);
+    if (!dirStat.isDirectory()) {
+      return [];
+    }
+
+    const entries = await readdir(dir);
+    const skills: Skill[] = [];
+
+    for (const entry of entries) {
+      const entryPath = path.join(dir, entry);
+      const entryStat = await stat(entryPath);
+
+      if (entryStat.isDirectory()) {
+        const skill = await loadSkill(entryPath, source);
+        if (skill) {
+          skills.push(skill);
+        }
       }
-    } catch (error) {
-      console.error(`Failed to load skill from ${filePath}:`, error);
+    }
+
+    return skills;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Load skills with precedence: extra < bundled < managed < workspace
+ */
+export async function loadSkillsWithPrecedence(options: {
+  workspaceDir: string;
+  managedSkillsDir?: string;
+  bundledSkillsDir?: string;
+  extraDirs?: string[];
+}): Promise<Skill[]> {
+  const skillMap = new Map<string, Skill>();
+
+  for (const dir of options.extraDirs ?? []) {
+    const skills = await loadSkillsFromDir(dir, 'extra');
+    for (const skill of skills) {
+      skillMap.set(skill.name, skill);
     }
   }
 
-  private extractFrontmatter(content: string): SkillMetadata | null {
-    const match = content.match(/^---\n([\s\S]*?)\n---/);
-    if (!match) return null;
-
-    const yaml = match[1];
-    const metadata: any = {};
-    
-    // Simple YAML parser for flat keys (robust enough for our needs)
-    yaml.split('\n').forEach(line => {
-      const [key, ...values] = line.split(':');
-      if (key && values.length) {
-        metadata[key.trim()] = values.join(':').trim();
-      }
-    });
-
-    if (!metadata.name || !metadata.description) return null;
-
-    return {
-      name: metadata.name,
-      description: metadata.description,
-      // emoji/requires parsing omitted for MVP simplicity
-    };
+  if (options.bundledSkillsDir) {
+    const skills = await loadSkillsFromDir(options.bundledSkillsDir, 'bundled');
+    for (const skill of skills) {
+      skillMap.set(skill.name, skill);
+    }
   }
 
-  getSkill(name: string): Skill | undefined {
-    return this.skills.get(name);
+  if (options.managedSkillsDir) {
+    const skills = await loadSkillsFromDir(options.managedSkillsDir, 'managed');
+    for (const skill of skills) {
+      skillMap.set(skill.name, skill);
+    }
   }
+
+  const workspaceSkillsDir = path.join(options.workspaceDir, 'skills');
+  const skills = await loadSkillsFromDir(workspaceSkillsDir, 'workspace');
+  for (const skill of skills) {
+    skillMap.set(skill.name, skill);
+  }
+
+  return Array.from(skillMap.values());
 }
