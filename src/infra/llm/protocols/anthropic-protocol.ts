@@ -3,6 +3,7 @@ import type {
   EndpointCredentials,
   ProtocolRequestConfig,
   RawApiResponse,
+  StreamChunk,
 } from './protocol-adapter.js';
 import { BaseProtocolAdapter } from './protocol-adapter.js';
 
@@ -86,6 +87,76 @@ export class AnthropicProtocolAdapter extends BaseProtocolAdapter {
       }
     }
     return super.extractErrorMessage(response);
+  }
+
+  supportsStreaming(): boolean {
+    return true;
+  }
+
+  parseStreamChunk(line: string, chunkIndex: number): StreamChunk | null {
+    // Skip empty lines and comments
+    if (!line.trim() || line.startsWith(':')) {
+      return null;
+    }
+
+    // Parse SSE format: "event: message_start", "data: {...}"
+    if (line.startsWith('event:')) {
+      // Store event type for next data line (not implemented here, would need state)
+      return null;
+    }
+
+    if (line.startsWith('data:')) {
+      const jsonStr = line.slice(5).trim();
+
+      // Check for stream end marker
+      if (jsonStr === '[DONE]') {
+        return {
+          content: '',
+          index: chunkIndex,
+          done: true,
+          finishReason: 'stop',
+        };
+      }
+
+      try {
+        const data = JSON.parse(jsonStr) as {
+          type?: string;
+          delta?: { type?: string; text?: string };
+          content_block?: { type?: string; text?: string };
+          message?: { stop_reason?: string; usage?: { input_tokens: number; output_tokens: number } };
+        };
+
+        // Handle different event types
+        if (data.type === 'content_block_delta' && data.delta?.type === 'text_delta') {
+          return {
+            content: data.delta.text || '',
+            index: chunkIndex,
+            done: false,
+          };
+        }
+
+        if (data.type === 'message_delta' && data.message?.stop_reason) {
+          const usage = data.message.usage;
+          const tokensUsed = usage ? (usage.input_tokens || 0) + (usage.output_tokens || 0) : undefined;
+
+          return {
+            content: '',
+            index: chunkIndex,
+            done: true,
+            finishReason: this.mapAnthropicFinishReason(data.message.stop_reason),
+            tokensUsed,
+          };
+        }
+
+        // Skip other event types (message_start, content_block_start, etc.)
+        return null;
+      } catch (error) {
+        console.warn('[AnthropicProtocol] Failed to parse stream chunk:', error);
+        return null;
+      }
+    }
+
+    return null;
   }
 
   private mapAnthropicFinishReason(reason?: string): 'stop' | 'length' | 'error' {

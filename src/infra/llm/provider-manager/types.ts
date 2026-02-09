@@ -135,6 +135,20 @@ export interface LLMCompletionOptions {
   temperature?: number;
   /** Timeout in milliseconds */
   timeout?: number;
+  /** Enable streaming mode */
+  stream?: boolean;
+  /** Callback for streaming chunks */
+  onChunk?: (chunk: string, index: number) => void;
+  /** Callback for streaming completion */
+  onComplete?: (response: LLMResponse) => void;
+  /** Callback for streaming errors */
+  onError?: (error: Error) => void;
+  /** Goal ID for event routing */
+  goalId?: string;
+  /** Work item ID for event routing */
+  workItemId?: string;
+  /** Run ID for event routing */
+  runId?: string;
   /** Additional provider-specific options */
   [key: string]: unknown;
 }

@@ -14,6 +14,8 @@ import { EndpointManager, getEndpointManager } from './endpoint-manager.js';
 import { AgentModelResolver, getAgentModelResolver } from './agent-model-resolver.js';
 import { getProtocolAdapter } from '../protocols/index.js';
 import type { EndpointCredentials } from '../protocols/index.js';
+import { gatewayEventBus } from '../../../gateway/events/event-bus.js';
+import { randomUUID } from 'crypto';
 
 /**
  * LLM Provider Manager
@@ -224,6 +226,11 @@ export class LLMProviderManager implements ILLMProviderManager {
       temperature: options?.temperature ?? this.defaultTemperature,
     });
 
+    // Add streaming to request body if enabled
+    if (options?.stream && adapter.supportsStreaming()) {
+      (requestBody as Record<string, unknown>).stream = true;
+    }
+
     // Build URL and headers
     const baseUrl = credentials.baseUrl || endpointConfig.baseUrl || '';
     const url = adapter.buildUrl(baseUrl, modelId, endpointCreds);
@@ -233,6 +240,21 @@ export class LLMProviderManager implements ILLMProviderManager {
     const timeout = options?.timeout || this.defaultTimeout;
 
     try {
+      // Check if streaming is enabled and supported
+      if (options?.stream && adapter.supportsStreaming()) {
+        return await this.callEndpointStreaming(
+          url,
+          headers,
+          requestBody,
+          timeout,
+          adapter,
+          modelId,
+          endpointId,
+          options
+        );
+      }
+
+      // Non-streaming request
       const response = await fetch(url, {
         method: 'POST',
         headers,
@@ -267,6 +289,185 @@ export class LLMProviderManager implements ILLMProviderManager {
 
       throw new LLMProviderError(
         `${endpointId} request failed: ${(error as Error).message}`,
+        endpointId,
+        true
+      );
+    }
+  }
+
+  /**
+   * Call endpoint with streaming support
+   */
+  private async callEndpointStreaming(
+    url: string,
+    headers: Record<string, string>,
+    requestBody: unknown,
+    timeout: number,
+    adapter: ReturnType<typeof getProtocolAdapter>,
+    modelId: string,
+    endpointId: string,
+    options: LLMCompletionOptions
+  ): Promise<LLMResponse> {
+    const requestId = randomUUID();
+    const startTime = Date.now();
+
+    // Emit stream start event
+    gatewayEventBus.emit('llm.stream.start', {
+      requestId,
+      goalId: options.goalId,
+      workItemId: options.workItemId,
+      runId: options.runId,
+      model: modelId,
+      timestamp: startTime,
+    });
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(timeout),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({ error: { message: response.statusText } }));
+        const errorMessage = adapter.extractErrorMessage(data);
+
+        // Emit error event
+        gatewayEventBus.emit('llm.stream.error', {
+          requestId,
+          goalId: options.goalId,
+          error: errorMessage,
+          timestamp: Date.now(),
+        });
+
+        throw new LLMProviderError(
+          `${endpointId} API error: ${errorMessage}`,
+          endpointId,
+          adapter.isRecoverableError(response.status, data)
+        );
+      }
+
+      // Process streaming response
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('Response body is not readable');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let chunkIndex = 0;
+      let fullContent = '';
+      let tokensUsed = 0;
+      let finishReason: 'stop' | 'length' | 'error' = 'stop';
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) {
+          break;
+        }
+
+        // Decode chunk and add to buffer
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process complete lines
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          const chunk = adapter.parseStreamChunk(line, chunkIndex);
+
+          if (chunk) {
+            if (chunk.content) {
+              fullContent += chunk.content;
+
+              // Emit chunk event
+              gatewayEventBus.emit('llm.stream.chunk', {
+                requestId,
+                goalId: options.goalId,
+                chunk: chunk.content,
+                index: chunkIndex,
+                timestamp: Date.now(),
+              });
+
+              // Call user callback
+              if (options.onChunk) {
+                options.onChunk(chunk.content, chunkIndex);
+              }
+
+              chunkIndex++;
+            }
+
+            if (chunk.done) {
+              finishReason = chunk.finishReason || 'stop';
+              tokensUsed = chunk.tokensUsed || 0;
+            }
+          }
+        }
+      }
+
+      // Process any remaining buffer
+      if (buffer.trim()) {
+        const chunk = adapter.parseStreamChunk(buffer, chunkIndex);
+        if (chunk?.content) {
+          fullContent += chunk.content;
+          gatewayEventBus.emit('llm.stream.chunk', {
+            requestId,
+            goalId: options.goalId,
+            chunk: chunk.content,
+            index: chunkIndex,
+            timestamp: Date.now(),
+          });
+          if (options.onChunk) {
+            options.onChunk(chunk.content, chunkIndex);
+          }
+        }
+      }
+
+      // Emit stream end event
+      gatewayEventBus.emit('llm.stream.end', {
+        requestId,
+        goalId: options.goalId,
+        totalChunks: chunkIndex,
+        tokensUsed,
+        finishReason,
+        timestamp: Date.now(),
+      });
+
+      const llmResponse: LLMResponse = {
+        content: fullContent,
+        tokensUsed,
+        model: modelId,
+        finishReason,
+      };
+
+      // Call completion callback
+      if (options.onComplete) {
+        options.onComplete(llmResponse);
+      }
+
+      return llmResponse;
+    } catch (error) {
+      // Emit error event
+      gatewayEventBus.emit('llm.stream.error', {
+        requestId,
+        goalId: options.goalId,
+        error: (error as Error).message,
+        timestamp: Date.now(),
+      });
+
+      // Call error callback
+      if (options.onError) {
+        options.onError(error as Error);
+      }
+
+      if (error instanceof LLMProviderError) {
+        throw error;
+      }
+
+      throw new LLMProviderError(
+        `${endpointId} streaming request failed: ${(error as Error).message}`,
         endpointId,
         true
       );

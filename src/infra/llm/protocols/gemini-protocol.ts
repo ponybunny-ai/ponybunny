@@ -3,6 +3,7 @@ import type {
   EndpointCredentials,
   ProtocolRequestConfig,
   RawApiResponse,
+  StreamChunk,
 } from './protocol-adapter.js';
 import { BaseProtocolAdapter } from './protocol-adapter.js';
 
@@ -132,6 +133,79 @@ export class GeminiProtocolAdapter extends BaseProtocolAdapter {
       }
     }
     return super.extractErrorMessage(response);
+  }
+
+  supportsStreaming(): boolean {
+    return true;
+  }
+
+  parseStreamChunk(line: string, chunkIndex: number): StreamChunk | null {
+    // Skip empty lines and comments
+    if (!line.trim() || line.startsWith(':')) {
+      return null;
+    }
+
+    // Gemini uses JSON streaming (newline-delimited JSON), not SSE
+    // Each line is a complete JSON object
+    try {
+      const data = JSON.parse(line) as {
+        candidates?: Array<{
+          content?: { parts?: Array<{ text?: string }> };
+          finishReason?: string;
+        }>;
+        usageMetadata?: {
+          promptTokenCount?: number;
+          candidatesTokenCount?: number;
+        };
+      };
+
+      const candidate = data.candidates?.[0];
+      if (!candidate) {
+        return null;
+      }
+
+      // Extract text content
+      const textParts: string[] = [];
+      const parts = candidate.content?.parts;
+      if (Array.isArray(parts)) {
+        for (const part of parts) {
+          if (part?.text) {
+            textParts.push(part.text);
+          }
+        }
+      }
+
+      const content = textParts.join('');
+
+      // Check for finish reason
+      if (candidate.finishReason) {
+        const usageMetadata = data.usageMetadata;
+        const tokensUsed = (usageMetadata?.promptTokenCount || 0) +
+                          (usageMetadata?.candidatesTokenCount || 0);
+
+        return {
+          content,
+          index: chunkIndex,
+          done: true,
+          finishReason: this.mapGeminiFinishReason(candidate.finishReason),
+          tokensUsed: tokensUsed || undefined,
+        };
+      }
+
+      // Return content chunk
+      if (content) {
+        return {
+          content,
+          index: chunkIndex,
+          done: false,
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.warn('[GeminiProtocol] Failed to parse stream chunk:', error);
+      return null;
+    }
   }
 
   private mapGeminiFinishReason(reason?: string): 'stop' | 'length' | 'error' {

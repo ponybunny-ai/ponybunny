@@ -148,7 +148,12 @@ export type GatewayEventType =
   | 'conversation.typing'
   | 'conversation.ended'
   | 'task.narration'
-  | 'task.result';
+  | 'task.result'
+  // LLM streaming events
+  | 'llm.stream.start'
+  | 'llm.stream.chunk'
+  | 'llm.stream.end'
+  | 'llm.stream.error';
 
 export interface GatewayEvent<T = unknown> {
   type: GatewayEventType;

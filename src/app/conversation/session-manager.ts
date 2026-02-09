@@ -228,7 +228,12 @@ export class SessionManager implements ISessionManager {
     // Subscribe to progress updates
     this.taskBridge.subscribeToProgress(result.goalId, (progress) => {
       // Progress updates will be handled by the monitoring state
-      console.log(`[SessionManager] Progress update for ${result.goalId}:`, progress);
+      debug.custom('session.progress.update', 'session-manager', {
+        goalId: result.goalId,
+        status: progress.goalStatus,
+        completedItems: progress.completedItems,
+        totalItems: progress.totalItems,
+      });
     });
 
     // Generate confirmation response

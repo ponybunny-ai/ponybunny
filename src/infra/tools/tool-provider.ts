@@ -50,18 +50,13 @@ export class ToolProvider {
     // Domain-specific tools
     const domainTools: ToolSummary[] = [
       {
-        name: 'git',
-        description: 'Execute git commands for version control',
+        name: 'web_search',
+        description: 'Search the web for information',
         category: 'domain',
       },
       {
-        name: 'npm',
-        description: 'Execute npm commands for package management',
-        category: 'domain',
-      },
-      {
-        name: 'test',
-        description: 'Run automated tests',
+        name: 'find_skills',
+        description: 'Search and install skills from skills.sh marketplace',
         category: 'domain',
       },
     ];

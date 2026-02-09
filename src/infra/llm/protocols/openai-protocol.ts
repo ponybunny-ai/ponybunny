@@ -3,6 +3,7 @@ import type {
   EndpointCredentials,
   ProtocolRequestConfig,
   RawApiResponse,
+  StreamChunk,
 } from './protocol-adapter.js';
 import { BaseProtocolAdapter } from './protocol-adapter.js';
 
@@ -84,6 +85,75 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
 
   isRecoverableError(status: number, _response?: unknown): boolean {
     return status !== 429;
+  }
+
+  supportsStreaming(): boolean {
+    return true;
+  }
+
+  parseStreamChunk(line: string, chunkIndex: number): StreamChunk | null {
+    // Skip empty lines and comments
+    if (!line.trim() || line.startsWith(':')) {
+      return null;
+    }
+
+    // Parse SSE format: "data: {...}"
+    if (line.startsWith('data:')) {
+      const jsonStr = line.slice(5).trim();
+
+      // Check for stream end marker
+      if (jsonStr === '[DONE]') {
+        return {
+          content: '',
+          index: chunkIndex,
+          done: true,
+          finishReason: 'stop',
+        };
+      }
+
+      try {
+        const data = JSON.parse(jsonStr) as {
+          choices?: Array<{
+            delta?: { content?: string };
+            finish_reason?: string | null;
+          }>;
+          usage?: { total_tokens: number };
+        };
+
+        const choice = data.choices?.[0];
+        if (!choice) {
+          return null;
+        }
+
+        // Handle content delta
+        if (choice.delta?.content) {
+          return {
+            content: choice.delta.content,
+            index: chunkIndex,
+            done: false,
+          };
+        }
+
+        // Handle finish reason
+        if (choice.finish_reason) {
+          return {
+            content: '',
+            index: chunkIndex,
+            done: true,
+            finishReason: this.mapOpenAIFinishReason(choice.finish_reason),
+            tokensUsed: data.usage?.total_tokens,
+          };
+        }
+
+        // Skip chunks without content or finish reason
+        return null;
+      } catch (error) {
+        console.warn('[OpenAIProtocol] Failed to parse stream chunk:', error);
+        return null;
+      }
+    }
+
+    return null;
   }
 
   private mapOpenAIFinishReason(reason?: string): 'stop' | 'length' | 'error' {

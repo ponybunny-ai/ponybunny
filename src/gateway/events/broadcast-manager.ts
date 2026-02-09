@@ -39,6 +39,12 @@ export class BroadcastManager {
     // Escalation events
     this.subscribeAndBroadcast('escalation.created', 'escalation.created');
     this.subscribeAndBroadcast('escalation.resolved', 'escalation.resolved');
+
+    // LLM streaming events
+    this.subscribeAndBroadcast('llm.stream.start', 'llm.stream.start');
+    this.subscribeAndBroadcast('llm.stream.chunk', 'llm.stream.chunk');
+    this.subscribeAndBroadcast('llm.stream.end', 'llm.stream.end');
+    this.subscribeAndBroadcast('llm.stream.error', 'llm.stream.error');
   }
 
   /**

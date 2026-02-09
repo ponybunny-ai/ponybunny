@@ -6,6 +6,7 @@ import { useDebug } from '@/components/providers/debug-provider';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { EventList } from '@/components/events/event-list';
+import { StreamingList } from '@/components/llm/streaming-response';
 import { formatTimestamp } from '@/lib/utils';
 
 function getStatusVariant(status: string): 'default' | 'success' | 'warning' | 'destructive' {
@@ -37,6 +38,13 @@ export default function GoalDetailPage() {
   const goal = state.goals.get(goalId);
   const workItems = state.workItems.get(goalId) || [];
   const goalEvents = state.events.filter((e) => e.goalId === goalId);
+
+  // Filter streams related to this goal
+  const goalStreams = new Map(
+    Array.from(state.activeStreams.entries()).filter(
+      ([_, stream]) => stream.goalId === goalId
+    )
+  );
 
   if (!goal) {
     return (
@@ -112,6 +120,17 @@ export default function GoalDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {goalStreams.size > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>LLM Streams ({goalStreams.size})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <StreamingList streams={goalStreams} maxDisplay={5} />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

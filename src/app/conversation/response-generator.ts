@@ -90,14 +90,17 @@ export class ResponseGenerator implements IResponseGenerator {
     });
 
     debug.custom('response.llm.request', 'response-generator', {
-      tier: 'simple',
+      agent: 'conversation',
       messageCount: messages.length,
     });
 
-    const response = await this.llmService.completeWithTier(
+    const response = await this.llmService.completeForAgent(
+      'conversation',
       messages,
-      'simple',
-      { maxTokens: 1000 }
+      {
+        maxTokens: 1000,
+        stream: true,
+      }
     );
 
     debug.custom('response.llm.response', 'response-generator', {

@@ -2,13 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Activity, Target, BarChart3, List } from 'lucide-react';
+import { Activity, Target, BarChart3, List, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navigation = [
   { name: 'Overview', href: '/', icon: Activity },
   { name: 'Goals', href: '/goals', icon: Target },
   { name: 'Events', href: '/events', icon: List },
+  { name: 'Streams', href: '/streams', icon: Zap },
   { name: 'Metrics', href: '/metrics', icon: BarChart3 },
 ];
 

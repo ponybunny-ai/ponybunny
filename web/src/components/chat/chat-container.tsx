@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Chat } from '@/components/ui/chat';
 import { type Message } from '@/components/ui/chat-message';
 import { useGateway } from '@/components/providers/gateway-provider';
+import { StreamingList } from '@/components/chat/streaming-message';
 
 const SUGGESTIONS = [
   '帮我分析一下这个代码库的架构',
@@ -119,6 +120,17 @@ export function ChatContainer() {
           {conversationStateLabel}
         </div>
       )}
+
+      {/* Show active streaming responses */}
+      {state.activeStreams.size > 0 && (
+        <div className="mb-4">
+          <StreamingList
+            streams={state.activeStreams}
+            goalId={state.conversation.activeGoalId || undefined}
+          />
+        </div>
+      )}
+
       <Chat
         messages={messages}
         input={input}

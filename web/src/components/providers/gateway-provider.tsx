@@ -30,6 +30,20 @@ interface ConversationInfo {
   activeGoalId: string | null;
 }
 
+interface StreamingResponse {
+  requestId: string;
+  goalId?: string;
+  workItemId?: string;
+  runId?: string;
+  model: string;
+  chunks: string[];
+  startTime: number;
+  endTime?: number;
+  status: 'streaming' | 'completed' | 'error';
+  tokensUsed?: number;
+  finishReason?: string;
+}
+
 interface GatewayState {
   connected: boolean;
   connecting: boolean;
@@ -41,6 +55,7 @@ interface GatewayState {
   escalations: Escalation[];
   error: string | null;
   conversation: ConversationInfo;
+  activeStreams: Map<string, StreamingResponse>;
 }
 
 type GatewayAction =
@@ -59,7 +74,11 @@ type GatewayAction =
   | { type: 'ESCALATIONS_LOADED'; escalations: Escalation[] }
   | { type: 'CLEAR_ERROR' }
   | { type: 'CONVERSATION_UPDATED'; sessionId: string; state: ConversationState; goalId?: string }
-  | { type: 'CONVERSATION_ENDED' };
+  | { type: 'CONVERSATION_ENDED' }
+  | { type: 'LLM_STREAM_START'; data: any }
+  | { type: 'LLM_STREAM_CHUNK'; data: any }
+  | { type: 'LLM_STREAM_END'; data: any }
+  | { type: 'LLM_STREAM_ERROR'; data: any };
 
 const MAX_EVENTS = 100;
 
@@ -158,6 +177,55 @@ function gatewayReducer(state: GatewayState, action: GatewayAction): GatewayStat
         },
       };
 
+    case 'LLM_STREAM_START': {
+      const activeStreams = new Map(state.activeStreams);
+      activeStreams.set(action.data.requestId, {
+        requestId: action.data.requestId,
+        goalId: action.data.goalId,
+        workItemId: action.data.workItemId,
+        runId: action.data.runId,
+        model: action.data.model,
+        chunks: [],
+        startTime: action.data.timestamp,
+        status: 'streaming',
+      });
+      return { ...state, activeStreams };
+    }
+
+    case 'LLM_STREAM_CHUNK': {
+      const activeStreams = new Map(state.activeStreams);
+      const stream = activeStreams.get(action.data.requestId);
+      if (stream) {
+        stream.chunks.push(action.data.chunk);
+        activeStreams.set(action.data.requestId, { ...stream });
+      }
+      return { ...state, activeStreams };
+    }
+
+    case 'LLM_STREAM_END': {
+      const activeStreams = new Map(state.activeStreams);
+      const stream = activeStreams.get(action.data.requestId);
+      if (stream) {
+        stream.status = 'completed';
+        stream.endTime = action.data.timestamp;
+        stream.tokensUsed = action.data.tokensUsed;
+        stream.finishReason = action.data.finishReason;
+        activeStreams.set(action.data.requestId, { ...stream });
+      }
+      return { ...state, activeStreams };
+    }
+
+    case 'LLM_STREAM_ERROR': {
+      const activeStreams = new Map(state.activeStreams);
+      const stream = activeStreams.get(action.data.requestId);
+      if (stream) {
+        stream.status = 'error';
+        stream.endTime = action.data.timestamp;
+        activeStreams.set(action.data.requestId, { ...stream });
+      }
+      return { ...state, activeStreams };
+    }
+
     default:
       return state;
   }
@@ -179,6 +247,7 @@ const initialState: GatewayState = {
     state: 'idle',
     activeGoalId: null,
   },
+  activeStreams: new Map(),
 };
 
 // ============================================================================
@@ -240,6 +309,18 @@ export function GatewayProvider({ children }: GatewayProviderProps) {
         break;
       case 'escalation.resolved':
         dispatch({ type: 'ESCALATION_UPDATED', escalation: data as Escalation });
+        break;
+      case 'llm.stream.start':
+        dispatch({ type: 'LLM_STREAM_START', data });
+        break;
+      case 'llm.stream.chunk':
+        dispatch({ type: 'LLM_STREAM_CHUNK', data });
+        break;
+      case 'llm.stream.end':
+        dispatch({ type: 'LLM_STREAM_END', data });
+        break;
+      case 'llm.stream.error':
+        dispatch({ type: 'LLM_STREAM_ERROR', data });
         break;
     }
   }, []);

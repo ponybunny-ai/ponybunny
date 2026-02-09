@@ -221,12 +221,15 @@ Begin by analyzing the task and forming a plan.`;
 
   private async think(context: ReActContext): Promise<string> {
     const prompt = this.buildThoughtPrompt(context);
-    
+
     const response = await this.callLLM({
       system: context.systemPrompt,
       messages: this.buildMessageHistory(context),
       prompt,
       model: context.model,
+      goalId: context.goal?.id,
+      workItemId: context.workItem.id,
+      runId: context.run.id,
     });
 
     context.totalTokens += response.tokensUsed;
@@ -249,6 +252,9 @@ What action should be taken next? Respond with a JSON object:
       system: context.systemPrompt,
       messages: [...this.buildMessageHistory(context), { role: 'user', content: actionPrompt }],
       model: context.model,
+      goalId: context.goal?.id,
+      workItemId: context.workItem.id,
+      runId: context.run.id,
     });
 
     context.totalTokens += response.tokensUsed;
@@ -357,6 +363,9 @@ What should you do next to complete this task? Think step by step.`;
     messages: Array<{ role: string; content: string }>;
     prompt?: string;
     model?: string;
+    goalId?: string;
+    workItemId?: string;
+    runId?: string;
   }): Promise<{ text: string; tokensUsed: number; cost: number }> {
     if (!this.llmProvider) {
       return {
@@ -379,7 +388,13 @@ What should you do next to complete this task? Think step by step.`;
     }
 
     try {
-      const options = params.model ? { model: params.model } : undefined;
+      const options = {
+        ...(params.model ? { model: params.model } : {}),
+        stream: true, // Enable streaming
+        goalId: params.goalId,
+        workItemId: params.workItemId,
+        runId: params.runId,
+      };
       const response = await this.llmProvider.complete(messages, options);
       const cost = this.llmProvider.estimateCost(response.tokensUsed);
 

@@ -178,6 +178,10 @@ class ApiClient {
       'workitem.failed',
       'escalation.created',
       'escalation.resolved',
+      'llm.stream.start',
+      'llm.stream.chunk',
+      'llm.stream.end',
+      'llm.stream.error',
     ];
 
     eventTypes.forEach((eventType) => {

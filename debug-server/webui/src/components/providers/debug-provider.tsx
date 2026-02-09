@@ -23,6 +23,21 @@ interface DebugState {
   selectedGoalId: string | null;
   eventFilter: EventFilter;
   health: HealthStatus | null;
+  activeStreams: Map<string, StreamingResponse>;
+}
+
+interface StreamingResponse {
+  requestId: string;
+  goalId?: string;
+  workItemId?: string;
+  runId?: string;
+  model: string;
+  chunks: string[];
+  startTime: number;
+  endTime?: number;
+  status: 'streaming' | 'completed' | 'error';
+  tokensUsed?: number;
+  finishReason?: string;
 }
 
 type DebugAction =
@@ -37,7 +52,11 @@ type DebugAction =
   | { type: 'WORKITEMS_LOADED'; goalId: string; workItems: CachedWorkItem[] }
   | { type: 'METRICS_LOADED'; metrics: AggregatedMetrics }
   | { type: 'FILTER_CHANGED'; filter: EventFilter }
-  | { type: 'CLEAR_EVENTS' };
+  | { type: 'CLEAR_EVENTS' }
+  | { type: 'LLM_STREAM_START'; data: any }
+  | { type: 'LLM_STREAM_CHUNK'; data: any }
+  | { type: 'LLM_STREAM_END'; data: any }
+  | { type: 'LLM_STREAM_ERROR'; data: any };
 
 const initialState: DebugState = {
   connected: false,
@@ -50,6 +69,7 @@ const initialState: DebugState = {
   selectedGoalId: null,
   eventFilter: { limit: 100 },
   health: null,
+  activeStreams: new Map(),
 };
 
 function debugReducer(state: DebugState, action: DebugAction): DebugState {
@@ -96,6 +116,51 @@ function debugReducer(state: DebugState, action: DebugAction): DebugState {
       return { ...state, eventFilter: action.filter };
     case 'CLEAR_EVENTS':
       return { ...state, events: [] };
+    case 'LLM_STREAM_START': {
+      const activeStreams = new Map(state.activeStreams);
+      activeStreams.set(action.data.requestId, {
+        requestId: action.data.requestId,
+        goalId: action.data.goalId,
+        workItemId: action.data.workItemId,
+        runId: action.data.runId,
+        model: action.data.model,
+        chunks: [],
+        startTime: action.data.timestamp,
+        status: 'streaming',
+      });
+      return { ...state, activeStreams };
+    }
+    case 'LLM_STREAM_CHUNK': {
+      const activeStreams = new Map(state.activeStreams);
+      const stream = activeStreams.get(action.data.requestId);
+      if (stream) {
+        stream.chunks.push(action.data.chunk);
+        activeStreams.set(action.data.requestId, { ...stream });
+      }
+      return { ...state, activeStreams };
+    }
+    case 'LLM_STREAM_END': {
+      const activeStreams = new Map(state.activeStreams);
+      const stream = activeStreams.get(action.data.requestId);
+      if (stream) {
+        stream.status = 'completed';
+        stream.endTime = action.data.timestamp;
+        stream.tokensUsed = action.data.tokensUsed;
+        stream.finishReason = action.data.finishReason;
+        activeStreams.set(action.data.requestId, { ...stream });
+      }
+      return { ...state, activeStreams };
+    }
+    case 'LLM_STREAM_ERROR': {
+      const activeStreams = new Map(state.activeStreams);
+      const stream = activeStreams.get(action.data.requestId);
+      if (stream) {
+        stream.status = 'error';
+        stream.endTime = action.data.timestamp;
+        activeStreams.set(action.data.requestId, { ...stream });
+      }
+      return { ...state, activeStreams };
+    }
     default:
       return state;
   }
@@ -146,11 +211,31 @@ export function DebugProvider({ children }: { children: React.ReactNode }) {
       });
     });
 
+    const unsubStreamStart = debugApiClient.on('llm.stream.start', (data) => {
+      dispatch({ type: 'LLM_STREAM_START', data });
+    });
+
+    const unsubStreamChunk = debugApiClient.on('llm.stream.chunk', (data) => {
+      dispatch({ type: 'LLM_STREAM_CHUNK', data });
+    });
+
+    const unsubStreamEnd = debugApiClient.on('llm.stream.end', (data) => {
+      dispatch({ type: 'LLM_STREAM_END', data });
+    });
+
+    const unsubStreamError = debugApiClient.on('llm.stream.error', (data) => {
+      dispatch({ type: 'LLM_STREAM_ERROR', data });
+    });
+
     return () => {
       unsubConnected();
       unsubDisconnected();
       unsubEvent();
       unsubStatus();
+      unsubStreamStart();
+      unsubStreamChunk();
+      unsubStreamEnd();
+      unsubStreamError();
       debugApiClient.disconnectWebSocket();
     };
   }, []);

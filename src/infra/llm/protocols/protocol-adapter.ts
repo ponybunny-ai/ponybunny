@@ -37,6 +37,17 @@ export interface RawApiResponse {
 }
 
 /**
+ * Streaming chunk from SSE response
+ */
+export interface StreamChunk {
+  content: string;
+  index: number;
+  done: boolean;
+  finishReason?: 'stop' | 'length' | 'error';
+  tokensUsed?: number;
+}
+
+/**
  * Protocol adapter interface
  * Handles API format conversion between internal types and provider-specific formats
  */
@@ -73,6 +84,17 @@ export interface IProtocolAdapter {
    * Extract error message from response
    */
   extractErrorMessage(response: unknown): string;
+
+  /**
+   * Check if this adapter supports streaming
+   */
+  supportsStreaming(): boolean;
+
+  /**
+   * Parse a single SSE line into a stream chunk
+   * Returns null if the line should be skipped
+   */
+  parseStreamChunk(line: string, chunkIndex: number): StreamChunk | null;
 }
 
 /**
@@ -109,6 +131,22 @@ export abstract class BaseProtocolAdapter implements IProtocolAdapter {
       }
     }
     return 'Unknown error';
+  }
+
+  /**
+   * Default: streaming not supported
+   * Override in subclasses that support streaming
+   */
+  supportsStreaming(): boolean {
+    return false;
+  }
+
+  /**
+   * Default: no streaming support
+   * Override in subclasses that support streaming
+   */
+  parseStreamChunk(_line: string, _chunkIndex: number): StreamChunk | null {
+    return null;
   }
 
   /**

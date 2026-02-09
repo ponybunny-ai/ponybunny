@@ -11,6 +11,7 @@ import { debugCommand } from './commands/debug.js';
 import { initCommand } from './commands/init.js';
 import { serviceCommand } from './commands/service.js';
 import { registerWorkCommand } from './commands/work.js';
+import { registerSkillsCommand } from './commands/skills.js';
 import { startTui } from './tui/start.js';
 
 const program = new Command();
@@ -34,6 +35,7 @@ program.addCommand(debugCommand);
 program.addCommand(initCommand);
 program.addCommand(serviceCommand);
 registerWorkCommand(program);
+registerSkillsCommand(program);
 
 program
   .command('status')
