@@ -32,7 +32,24 @@ PONY_DB_PATH=./pony.db node dist/main.js
 pb init                    # Initialize config files
 pb status                  # Check system status
 pb auth login              # Login to OpenAI Codex
-pb auth antigravity login  # Login to Antigravity (Google)
+
+# Service Management
+pb service start all       # Start Gateway + Scheduler in background
+pb service status          # Check all services status
+pb service stop all        # Stop all services
+pb service logs gateway    # View Gateway logs
+pb service logs scheduler  # View Scheduler logs
+
+# Individual Services
+pb gateway start           # Start Gateway (background by default)
+pb gateway stop            # Stop Gateway
+pb scheduler start         # Start Scheduler (background by default)
+pb scheduler stop          # Stop Scheduler
+pb scheduler logs -f       # Follow Scheduler logs
+
+# Debug & Observability
+pb debug web               # Launch Debug Server with Web UI
+pb debug tui               # Launch Terminal UI (default)
 ```
 
 ## Critical Code Conventions
@@ -80,6 +97,14 @@ src/
 │   └── skills/       # Skill implementations
 ├── autonomy/         # ReAct integration & daemon
 ├── cli/              # Commander.js CLI with Ink terminal UI
+│   └── commands/     # CLI command implementations
+│       ├── auth.ts           # Authentication management
+│       ├── config.ts         # Configuration commands
+│       ├── debug.ts          # Debug/observability tools
+│       ├── gateway.ts        # Gateway management
+│       ├── scheduler-daemon.ts # Scheduler daemon control
+│       ├── service.ts        # Unified service management
+│       └── work.ts           # Work execution
 └── app/              # Application services
     └── conversation/ # Conversation agent
 ```
@@ -97,6 +122,10 @@ src/
 | `src/infra/tools/tool-registry.ts` | Tool registration and allowlist |
 | `src/autonomy/react-integration.ts` | ReAct autonomous execution loop |
 | `src/autonomy/daemon.ts` | Continuous operation engine |
+| `src/cli/commands/service.ts` | Unified service management (start/stop/status/logs) |
+| `src/cli/commands/scheduler-daemon.ts` | Scheduler background mode with PID management |
+| `debug-server/server/src/api-server.ts` | Debug Server HTTP API and WebSocket |
+| `debug-server/webui/` | Next.js-based Debug Dashboard |
 
 ## Layer Rules
 
@@ -206,6 +235,11 @@ const model = service.getModelForTier('complex'); // Returns primary or fallback
 ## Documentation
 
 - `AGENTS.md` - Detailed development patterns and testing guidelines
+- `docs/cli/` - CLI documentation and usage guides
+  - `CLI-USAGE.md` - Complete CLI reference (985 lines)
+  - `SCHEDULER-BACKGROUND-MODE.md` - Background mode implementation
+  - `BUG-FIX-SERVICE-START-ALL.md` - Service command fixes
+  - `BUG-FIX-DEBUG-SERVER-NOT-FOUND.md` - Debug server fixes
 - `docs/techspec/` - Technical specifications and architecture design
   - `architecture-overview.md` - System architecture diagram and overview
   - `gateway-design.md` - WebSocket protocol, authentication, message routing
@@ -213,3 +247,49 @@ const model = service.getModelForTier('complex'); // Returns primary or fallback
   - `ai-employee-paradigm.md` - Responsibility layers, escalation philosophy
 - `docs/requirement/` - Product requirements documentation
 - `docs/engineering/` - Reference materials (OpenClaw architecture)
+
+## CLI Commands
+
+### Service Management
+```bash
+pb service start all       # Start Gateway + Scheduler
+pb service status          # Check all services
+pb service stop all        # Stop all services
+pb service logs <service>  # View logs (-f to follow)
+```
+
+### Gateway Management
+```bash
+pb gateway start           # Start in background (default)
+pb gateway start --daemon  # Start with auto-restart
+pb gateway stop            # Stop gracefully
+pb gateway status          # Check status
+pb gateway logs -f         # Follow logs
+pb gateway pair            # Generate pairing token
+```
+
+### Scheduler Management
+```bash
+pb scheduler start         # Start in background (default)
+pb scheduler start --foreground  # Run in foreground
+pb scheduler stop          # Stop gracefully
+pb scheduler status        # Check status and uptime
+pb scheduler logs -f       # Follow logs
+```
+
+### Debug & Observability
+```bash
+pb debug web               # Launch Web UI (http://localhost:3001)
+pb debug tui               # Launch Terminal UI
+```
+
+### Configuration Files
+
+All configuration stored in `~/.ponybunny/`:
+- `credentials.json` - API keys (sensitive)
+- `llm-config.json` - LLM configuration
+- `auth.json` - OAuth tokens
+- `gateway.pid` - Gateway process info
+- `scheduler.pid` - Scheduler process info
+- `gateway.log` - Gateway logs
+- `scheduler.log` - Scheduler logs

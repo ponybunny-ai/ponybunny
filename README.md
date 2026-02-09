@@ -10,6 +10,9 @@ Durable like a pony. Fast like a bunny. Local-first, security-first, and trim-to
 ✅ **Claude-First Strategy** - Optimized for Claude Opus/Sonnet/Haiku 4.5 with GPT-5.2 fallback
 ✅ **8-Phase Autonomous Lifecycle** - Intake → Elaboration → Planning → Execution → Verification → Evaluation → Publish → Monitor
 ✅ **Gateway + Scheduler Architecture** - WebSocket-based communication with durable task orchestration
+✅ **Service Management** - Unified CLI for starting/stopping/monitoring all services
+✅ **Background Mode** - Services run as daemons with PID tracking and log management
+✅ **Debug Dashboard** - Web UI and Terminal UI for real-time system monitoring
 ✅ **JSON Configuration System** - Separate credentials and LLM config files with schema validation
 ✅ **Local-First SQLite Persistence** - Durable work order tracking with DAG structure
 ✅ **Comprehensive Test Coverage** - 779 tests across 40 suites, all passing
@@ -79,11 +82,34 @@ pb status
 ### Start the System
 
 ```bash
-# Start Gateway + Scheduler daemon
-PONY_DB_PATH=./pony.db node dist/main.js
+# Start all services (Gateway + Scheduler)
+pb service start all
 
-# Or use CLI to connect
-pb --url ws://127.0.0.1:18789
+# Check service status
+pb service status
+
+# View logs
+pb service logs gateway -f
+pb service logs scheduler -f
+
+# Stop all services
+pb service stop all
+```
+
+Or start services individually:
+
+```bash
+# Start Gateway
+pb gateway start           # Background mode (default)
+pb gateway start --daemon  # With auto-restart
+
+# Start Scheduler
+pb scheduler start         # Background mode (default)
+pb scheduler start --foreground  # Foreground mode
+
+# Start Debug Server
+pb debug web               # Web UI at http://localhost:3001
+pb debug tui               # Terminal UI
 ```
 
 ## Architecture
@@ -296,6 +322,67 @@ PONY_DB_PATH=./pony.db
 
 ## CLI Commands
 
+### Service Management
+
+```bash
+# Start/stop all services
+pb service start all       # Start Gateway + Scheduler
+pb service stop all        # Stop all services
+pb service restart all     # Restart all services
+pb service status          # Check all services status
+
+# Individual service control
+pb service start gateway
+pb service start scheduler
+pb service stop gateway
+pb service stop scheduler
+
+# View logs
+pb service logs gateway    # Last 50 lines
+pb service logs gateway -f # Follow logs
+pb service logs scheduler -n 100  # Last 100 lines
+
+# Process information
+pb service ps              # Detailed process info
+```
+
+### Gateway Management
+
+```bash
+pb gateway start           # Start in background (default)
+pb gateway start --daemon  # Start with auto-restart
+pb gateway start --foreground  # Run in foreground
+pb gateway stop            # Stop gracefully
+pb gateway stop --force    # Force kill
+pb gateway status          # Check status
+pb gateway logs -f         # Follow logs
+pb gateway pair            # Generate pairing token
+pb gateway tokens          # List active tokens
+pb gateway revoke <id>     # Revoke a token
+```
+
+### Scheduler Management
+
+```bash
+pb scheduler start         # Start in background (default)
+pb scheduler start --foreground  # Run in foreground
+pb scheduler stop          # Stop gracefully
+pb scheduler stop --force  # Force kill
+pb scheduler status        # Check status and uptime
+pb scheduler logs          # View logs
+pb scheduler logs -f       # Follow logs
+```
+
+### Debug & Observability
+
+```bash
+pb debug web               # Launch Web UI (http://localhost:3001)
+pb debug web --no-open     # Start without opening browser
+pb debug tui               # Launch Terminal UI
+```
+
+### Configuration & Authentication
+
 ```bash
 # Initialize configuration
 pb init                    # Create config files
@@ -306,28 +393,28 @@ pb init --dry-run          # Preview without creating
 # Authentication
 pb auth login              # Login to OpenAI Codex
 pb auth list               # List authenticated accounts
-pb auth antigravity login  # Login to Antigravity (Google)
+pb auth whoami             # Show current account
+pb auth switch <id>        # Switch account
+pb auth remove <id>        # Remove account
+pb auth logout             # Clear all credentials
+pb auth set-strategy <s>   # Set load balancing (stick/round-robin)
 
 # System status
 pb status                  # Check system and auth status
 
-# Work assignment
-pb work "task description" # Assign a task to the autonomous agent
-
-# Gateway management
-pb gateway start           # Start the gateway server
-pb gateway stop            # Stop the gateway server
-pb gateway status          # Check gateway status
-
 # Model management
 pb models list             # List available models
-pb models update           # Update model configurations
+pb models refresh          # Refresh from APIs
+pb models clear            # Clear cache
+pb models info             # Show cache info
+```
 
-# Configuration
-pb config                  # Manage CLI configuration
+### Work Execution
 
-# Debug tools
-pb debug                   # Launch debug/observability TUI or Web UI
+```bash
+# Assign a task to the autonomous agent
+pb work "task description"
+pb work "task" --db ./custom.db
 ```
 
 ## 8-Phase Autonomous Lifecycle
@@ -472,11 +559,42 @@ import { Goal } from './types';              // ✗ Wrong
 
 - `CLAUDE.md` - AI assistant instructions
 - `AGENTS.md` - Development patterns and testing guidelines
+- `docs/cli/` - CLI documentation and usage guides
+  - `CLI-USAGE.md` - Complete CLI reference (985 lines)
+  - `SCHEDULER-BACKGROUND-MODE.md` - Background mode implementation
+  - `BUG-FIX-SERVICE-START-ALL.md` - Service command fixes
+  - `BUG-FIX-DEBUG-SERVER-NOT-FOUND.md` - Debug server fixes
 - `docs/techspec/` - Technical specifications
   - `architecture-overview.md` - System architecture
   - `gateway-design.md` - WebSocket protocol, authentication
   - `scheduler-design.md` - Task orchestration, model selection
   - `ai-employee-paradigm.md` - Responsibility layers, escalation
+
+## Key Features
+
+### Service Management
+- **Unified Interface**: Single command to start/stop/status all services
+- **Background Mode**: Services run as daemons with PID tracking
+- **Log Management**: Persistent logs with real-time following
+- **Process Control**: Graceful shutdown with SIGTERM, force kill with SIGKILL
+
+### Gateway
+- **WebSocket Server**: Handles client connections and message routing
+- **Authentication**: Pairing token system with read/write/admin permissions
+- **Daemon Mode**: Auto-restart on crash for production deployments
+- **Debug TUI**: Real-time monitoring of connections and events
+
+### Scheduler
+- **Background Execution**: Runs autonomously in background
+- **PID Management**: Tracks process state in `~/.ponybunny/scheduler.pid`
+- **IPC Communication**: Connects to Gateway via Unix socket
+- **Log Streaming**: Real-time log viewing with `pb scheduler logs -f`
+
+### Debug Server
+- **Web UI**: Next.js-based dashboard at http://localhost:3001
+- **Terminal UI**: Ink-based TUI for command-line debugging
+- **Real-time Events**: WebSocket streaming of system events
+- **Metrics**: Performance tracking and visualization
 
 ## License
 
