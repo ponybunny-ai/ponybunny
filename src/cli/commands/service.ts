@@ -294,57 +294,41 @@ serviceCommand
   });
 
 async function stopService(serviceName: string, force: boolean = false): Promise<void> {
-  const state = readServicesState();
-
   switch (serviceName) {
     case 'gateway':
-      if (!state.gateway || !isProcessRunning(state.gateway.pid)) {
-        console.log(chalk.gray('Gateway is not running'));
-        return;
-      }
-
       console.log(chalk.blue('Stopping Gateway...'));
-      execSync(`pb gateway stop ${force ? '--force' : ''}`, { stdio: 'inherit' });
-      delete state.gateway;
-      writeServicesState(state);
+      try {
+        execSync(`pb gateway stop ${force ? '--force' : ''}`, { stdio: 'inherit' });
+      } catch (error: any) {
+        if (error.status === 1) {
+          console.log(chalk.gray('  (already stopped or not running)'));
+        } else {
+          throw error;
+        }
+      }
       break;
 
     case 'scheduler':
-      if (!state.scheduler || !isProcessRunning(state.scheduler.pid)) {
-        console.log(chalk.gray('Scheduler is not running'));
-        return;
-      }
-
       console.log(chalk.blue('Stopping Scheduler...'));
-      execSync(`pb scheduler stop ${force ? '--force' : ''}`, { stdio: 'inherit' });
-      delete state.scheduler;
-      writeServicesState(state);
+      try {
+        execSync(`pb scheduler stop ${force ? '--force' : ''}`, { stdio: 'inherit' });
+      } catch (error: any) {
+        if (error.status === 1) {
+          console.log(chalk.gray('  (already stopped or not running)'));
+        } else {
+          throw error;
+        }
+      }
       break;
 
     case 'debug':
-      if (!state.debugServer || !isProcessRunning(state.debugServer.pid)) {
-        console.log(chalk.gray('Debug Server is not running'));
-        return;
-      }
-
-      console.log(chalk.blue('Stopping Debug Server...'));
-      killProcess(state.debugServer.pid, force ? 'SIGKILL' : 'SIGTERM');
-      delete state.debugServer;
-      writeServicesState(state);
-      console.log(chalk.green('✓ Debug Server stopped'));
+      console.log(chalk.gray('Debug Server is not managed by service command'));
+      console.log(chalk.gray('Stop manually if running'));
       break;
 
     case 'web':
-      if (!state.webui || !isProcessRunning(state.webui.pid)) {
-        console.log(chalk.gray('Web UI is not running'));
-        return;
-      }
-
-      console.log(chalk.blue('Stopping Web UI...'));
-      killProcess(state.webui.pid, force ? 'SIGKILL' : 'SIGTERM');
-      delete state.webui;
-      writeServicesState(state);
-      console.log(chalk.green('✓ Web UI stopped'));
+      console.log(chalk.gray('Web UI is not managed by service command'));
+      console.log(chalk.gray('Stop manually if running'));
       break;
 
     default:
