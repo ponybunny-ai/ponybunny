@@ -80,7 +80,7 @@ export class SystemPromptBuilder {
       elaboration: 'detecting ambiguities and gathering clarifications',
       planning: 'decomposing the goal into a structured execution plan',
       execution: 'autonomously executing work items',
-      verification: 'validating quality and running tests',
+      verification: 'validating quality and completeness of deliverables',
       evaluation: 'deciding whether to publish, retry, or escalate',
       publish: 'packaging results and generating summaries',
       monitor: 'tracking metrics and budget utilization',
@@ -404,6 +404,15 @@ PonyBunny is an Autonomous AI Employee System built on a Gateway + Scheduler arc
 
     const parts: string[] = [];
 
+    // Add current date and time
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+    const timeStr = now.toTimeString().split(' ')[0]; // HH:MM:SS
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    parts.push(`current_date=${dateStr}`);
+    parts.push(`current_time=${timeStr}`);
+    parts.push(`timezone=${timezone}`);
+
     if (this.context.modelName) {
       parts.push(`model=${this.context.modelName}`);
     }
@@ -483,16 +492,17 @@ PonyBunny is an Autonomous AI Employee System built on a Gateway + Scheduler arc
 **Next**: Return to intake with clarified information, or proceed to planning.`,
 
       planning: `**Planning Phase Objectives**:
-- Decompose the goal into a DAG of WorkItems
+- Decompose the goal into a structured set of WorkItems
 - Ensure each WorkItem is granular and verifiable
-- Define dependencies between WorkItems
-- Create verification plans (quality gates) for each item
+- Define dependencies between WorkItems (form a DAG - no cycles)
+- Create verification plans (quality checks) for each item
 - Estimate effort for each WorkItem
 
 **Constraints**:
 - No cycles in the dependency graph
 - Each WorkItem should have clear acceptance criteria
-- Prefer deterministic verification (shell commands with exit codes)
+- Define appropriate verification methods for each deliverable type
+- Consider both automated and manual verification where needed
 
 **Output**: Structured plan as JSON with WorkItems, dependencies, and verification plans.`,
 
@@ -512,16 +522,17 @@ PonyBunny is an Autonomous AI Employee System built on a Gateway + Scheduler arc
 **Output**: Completed work, artifacts, or escalation packet with full context.`,
 
       verification: `**Verification Phase Objectives**:
-- Run all quality gates defined in the verification plan
-- Execute deterministic checks (tests, linting, builds)
-- Validate acceptance criteria
-- Collect evidence of success or failure
+- Run all quality checks defined in the verification plan
+- Execute appropriate validation methods based on deliverable type
+- Validate acceptance criteria and success metrics
+- Collect evidence of quality and completeness
 
-**Quality gates**:
-- Must execute commands exactly as specified
-- Exit code 0 = pass, non-zero = fail
-- Capture output for debugging
-- Never skip required gates
+**Verification Methods** (use what's appropriate for the task):
+- Automated checks: Run commands/scripts and check results
+- Format validation: Check document structure, data formats, file integrity
+- Content review: Verify completeness, accuracy, consistency
+- Compliance: Ensure requirements and constraints are met
+- Human verification: Prepare checklist for user review when needed
 
 **Output**: Verification results with pass/fail status and evidence.`,
 
@@ -539,17 +550,19 @@ PonyBunny is an Autonomous AI Employee System built on a Gateway + Scheduler arc
 **Output**: Decision (publish/retry/escalate) with reasoning.`,
 
       publish: `**Publish Phase Objectives**:
-- Package all artifacts (code, tests, docs)
+- Package all deliverables (documents, reports, data, analysis, content, etc.)
 - Generate user-facing summary of what was accomplished
 - Update work order status to completed
 - Prepare handoff documentation
 
-**Artifacts**:
-- List all files created or modified
-- Include test results and verification evidence
-- Provide usage instructions if applicable
+**Deliverables** (varies by task type):
+- Created or modified files (documents, spreadsheets, presentations, etc.)
+- Generated content (reports, analyses, summaries, recommendations)
+- Processed data or research findings
+- Verification evidence showing quality and completeness
+- Usage instructions, next steps, or recommendations if applicable
 
-**Output**: Publication summary with artifact manifest.`,
+**Output**: Publication summary with deliverable manifest.`,
 
       monitor: `**Monitor Phase Objectives**:
 - Track token usage and budget utilization

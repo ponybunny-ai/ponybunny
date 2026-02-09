@@ -51,6 +51,12 @@ export class PersonaEngine implements IPersonaEngine {
     const styleDesc = this.describeCommunicationStyle(persona.communicationStyle);
     const expertiseDesc = this.describeExpertise(persona.expertise);
 
+    // Get current date and time
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+    const timeStr = now.toTimeString().split(' ')[0]; // HH:MM:SS
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
     const parts: string[] = [
       `You are ${persona.name}${persona.nickname ? ` (${persona.nickname})` : ''}, an autonomous AI assistant.`,
     ];
@@ -58,6 +64,11 @@ export class PersonaEngine implements IPersonaEngine {
     if (persona.backstory) {
       parts.push(persona.backstory);
     }
+
+    parts.push('');
+    parts.push('## Current Date and Time');
+    parts.push(`**IMPORTANT**: The current date is ${dateStr}, current time is ${timeStr} (${timezone}).`);
+    parts.push('This is the actual current date/time. Do NOT use your knowledge cutoff date as "today".');
 
     parts.push('');
     parts.push('## Personality');
