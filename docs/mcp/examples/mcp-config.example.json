@@ -1,0 +1,35 @@
+{
+  "$schema": "./mcp-config.schema.json",
+  "mcpServers": {
+    "filesystem": {
+      "enabled": false,
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/workspace"],
+      "allowedTools": ["read_file", "write_file", "list_directory", "create_directory"],
+      "autoReconnect": true,
+      "timeout": 30000
+    },
+    "github": {
+      "enabled": false,
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      },
+      "allowedTools": ["*"],
+      "autoReconnect": true,
+      "timeout": 30000
+    },
+    "postgres": {
+      "enabled": false,
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost/mydb"],
+      "allowedTools": ["query", "list_tables", "describe_table"],
+      "autoReconnect": true,
+      "timeout": 60000
+    }
+  }
+}

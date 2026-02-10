@@ -12,6 +12,7 @@ import { initCommand } from './commands/init.js';
 import { serviceCommand } from './commands/service.js';
 import { registerWorkCommand } from './commands/work.js';
 import { registerSkillsCommand } from './commands/skills.js';
+import { createMCPCommand } from './commands/mcp.js';
 import { startTui } from './tui/start.js';
 
 const program = new Command();
@@ -34,6 +35,7 @@ program.addCommand(schedulerCommand);
 program.addCommand(debugCommand);
 program.addCommand(initCommand);
 program.addCommand(serviceCommand);
+program.addCommand(createMCPCommand());
 registerWorkCommand(program);
 registerSkillsCommand(program);
 

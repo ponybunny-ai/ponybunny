@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 PonyBunny is an **Autonomous AI Employee System** that solves the **delegation bottleneck** in knowledge work. Built on a **Gateway + Scheduler** architecture where humans set goals and AI delivers complete results autonomously.
 
-**New**: PonyBunny now supports **Model Context Protocol (MCP)** for seamless integration with external tools and services. See `docs/cli/MCP-INTEGRATION.md` for details.
+**New**: PonyBunny now supports **Model Context Protocol (MCP)** for seamless integration with external tools and services. See [MCP Documentation](docs/mcp/README.md) for details.
 
 See `docs/techspec/architecture-overview.md` for detailed system architecture.
 
