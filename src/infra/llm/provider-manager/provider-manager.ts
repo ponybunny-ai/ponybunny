@@ -370,6 +370,7 @@ export class LLMProviderManager implements ILLMProviderManager {
       let fullContent = '';
       let tokensUsed = 0;
       let finishReason: 'stop' | 'length' | 'tool_calls' | 'error' = 'stop';
+      const accumulatedToolCalls: import('../llm-provider.js').ToolCall[] = [];
 
       while (true) {
         const { done, value } = await reader.read();
@@ -409,6 +410,11 @@ export class LLMProviderManager implements ILLMProviderManager {
               chunkIndex++;
             }
 
+            // Accumulate tool calls emitted at stream end
+            if (chunk.toolCalls) {
+              accumulatedToolCalls.push(...chunk.toolCalls);
+            }
+
             if (chunk.done) {
               finishReason = chunk.finishReason || 'stop';
               // Note: tokensUsed not available in streaming mode
@@ -420,17 +426,22 @@ export class LLMProviderManager implements ILLMProviderManager {
       // Process any remaining buffer
       if (buffer.trim()) {
         const chunk = adapter.parseStreamChunk(buffer, chunkIndex);
-        if (chunk?.content) {
-          fullContent += chunk.content;
-          gatewayEventBus.emit('llm.stream.chunk', {
-            requestId,
-            goalId: options.goalId,
-            chunk: chunk.content,
-            index: chunkIndex,
-            timestamp: Date.now(),
-          });
-          if (options.onChunk) {
-            options.onChunk(chunk.content, chunkIndex);
+        if (chunk) {
+          if (chunk.content) {
+            fullContent += chunk.content;
+            gatewayEventBus.emit('llm.stream.chunk', {
+              requestId,
+              goalId: options.goalId,
+              chunk: chunk.content,
+              index: chunkIndex,
+              timestamp: Date.now(),
+            });
+            if (options.onChunk) {
+              options.onChunk(chunk.content, chunkIndex);
+            }
+          }
+          if (chunk.toolCalls) {
+            accumulatedToolCalls.push(...chunk.toolCalls);
           }
         }
       }
@@ -450,6 +461,7 @@ export class LLMProviderManager implements ILLMProviderManager {
         tokensUsed,
         model: modelId,
         finishReason,
+        toolCalls: accumulatedToolCalls.length > 0 ? accumulatedToolCalls : undefined,
       };
 
       // Call completion callback

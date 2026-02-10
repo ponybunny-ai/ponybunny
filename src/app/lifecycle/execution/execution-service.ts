@@ -67,7 +67,7 @@ export class ExecutionService implements IExecutionService {
       await initializeMCPIntegration(this.toolRegistry);
 
       // Auto-allow all newly registered MCP tools
-      const mcpTools = this.toolRegistry.getAllTools().filter(t => t.name.startsWith('mcp_'));
+      const mcpTools = this.toolRegistry.getAllTools().filter(t => t.name.startsWith('mcp__'));
       for (const tool of mcpTools) {
         this.toolAllowlist.addTool(tool.name);
       }

@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Toaster } from "sonner";
+import { GatewayProvider } from "@/components/providers/gateway-provider";
+import { Sidebar } from "@/components/layout/sidebar";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -25,9 +28,17 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased h-screen overflow-hidden`}
       >
-        {children}
+        <GatewayProvider>
+          <div className="flex h-full">
+            <Sidebar />
+            <main className="flex-1 overflow-hidden bg-background">
+              {children}
+            </main>
+          </div>
+          <Toaster />
+        </GatewayProvider>
       </body>
     </html>
   );

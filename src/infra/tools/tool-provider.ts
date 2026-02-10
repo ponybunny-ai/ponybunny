@@ -251,7 +251,7 @@ export class ToolProvider {
         continue;
       }
 
-      if (tool.name.startsWith('mcp_')) {
+      if (tool.name.startsWith('mcp__')) {
         definitions.push(this.buildMCPToolDefinition(tool));
       } else {
         definitions.push(this.buildBuiltinToolDefinition(tool));
@@ -318,7 +318,7 @@ export class ToolProvider {
         continue;
       }
 
-      const category = tool.name.startsWith('mcp_') ? 'mcp' :
+      const category = tool.name.startsWith('mcp__') ? 'mcp' :
                         ['read_file', 'write_file', 'edit_file', 'execute_command', 'list_dir', 'search_code'].includes(tool.name) ? 'core' : 'domain';
 
       summaries.push({

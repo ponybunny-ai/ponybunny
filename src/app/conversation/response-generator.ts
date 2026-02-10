@@ -95,10 +95,10 @@ export class ResponseGenerator implements IResponseGenerator {
       content: responsePrompt,
     });
 
-    // Get tool definitions (only domain tools like web_search for conversation)
+    // Get tool definitions (domain tools + MCP tools for conversation)
     const allTools = this.toolProvider.getToolDefinitions();
     const conversationTools = allTools.filter(tool =>
-      ['web_search', 'find_skills'].includes(tool.name)
+      ['web_search', 'find_skills'].includes(tool.name) || tool.name.startsWith('mcp__')
     );
 
     debug.custom('response.llm.request', 'response-generator', {

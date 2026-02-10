@@ -49,6 +49,15 @@ import { InMemorySessionRepository } from '../infra/conversation/session-reposit
 import { getLLMService } from '../infra/llm/llm-service.js';
 import * as path from 'path';
 import * as fs from 'fs';
+import { ToolRegistry, ToolAllowlist, ToolEnforcer } from '../infra/tools/tool-registry.js';
+import { ToolProvider, setGlobalToolProvider } from '../infra/tools/tool-provider.js';
+import { initializeMCPIntegration } from '../infra/mcp/adapters/registry-integration.js';
+import { ReadFileTool } from '../infra/tools/implementations/read-file-tool.js';
+import { WriteFileTool } from '../infra/tools/implementations/write-file-tool.js';
+import { ExecuteCommandTool } from '../infra/tools/implementations/execute-command-tool.js';
+import { SearchCodeTool } from '../infra/tools/implementations/search-code-tool.js';
+import { WebSearchTool } from '../infra/tools/implementations/web-search-tool.js';
+import { findSkillsTool } from '../infra/tools/implementations/find-skills-tool.js';
 
 export interface GatewayServerDependencies {
   db: Database.Database;
@@ -83,9 +92,15 @@ export class GatewayServer {
   private auditRepository: AuditLogRepository;
   private auditService: AuditService;
 
+  // Tool components
+  private toolRegistry: ToolRegistry;
+  private toolAllowlist: ToolAllowlist;
+  private toolEnforcer: ToolEnforcer;
+
   // Conversation components
   private sessionManager: ISessionManager;
   private personaEngine: IPersonaEngine;
+  private responseGenerator?: ResponseGenerator;
 
   private isRunning = false;
 
@@ -139,6 +154,16 @@ export class GatewayServer {
     this.auditRepository.initialize();
     this.auditService = new AuditService(this.auditRepository, { asyncMode: true });
 
+    // Initialize tool components
+    this.toolRegistry = new ToolRegistry();
+    this.toolAllowlist = new ToolAllowlist();
+    this.registerTools();
+    this.toolEnforcer = new ToolEnforcer(this.toolRegistry, this.toolAllowlist);
+
+    // Wire up ToolProvider with ToolRegistry so LLM sees all registered tools
+    const toolProvider = new ToolProvider(this.toolEnforcer);
+    setGlobalToolProvider(toolProvider);
+
     // Initialize conversation components
     const { personaEngine, sessionManager } = this.initializeConversation(dependencies.personasDir);
     this.personaEngine = personaEngine;
@@ -146,6 +171,46 @@ export class GatewayServer {
 
     // Register RPC handlers
     this.registerHandlers();
+  }
+
+  /**
+   * Register built-in tools
+   */
+  private registerTools(): void {
+    this.toolRegistry.register(new ReadFileTool());
+    this.toolRegistry.register(new WriteFileTool());
+    this.toolRegistry.register(new ExecuteCommandTool());
+    this.toolRegistry.register(new SearchCodeTool());
+    this.toolRegistry.register(new WebSearchTool());
+    this.toolRegistry.register(findSkillsTool);
+
+    // Allow tools by default (safe tools)
+    this.toolAllowlist.addTool('read_file');
+    this.toolAllowlist.addTool('write_file');
+    this.toolAllowlist.addTool('execute_command');
+    this.toolAllowlist.addTool('search_code');
+    this.toolAllowlist.addTool('web_search');
+    this.toolAllowlist.addTool('find_skills');
+  }
+
+  /**
+   * Initialize MCP integration - connects to MCP servers and registers their tools
+   * Should be called once during server startup
+   */
+  async initializeMCP(): Promise<void> {
+    try {
+      await initializeMCPIntegration(this.toolRegistry);
+
+      // Auto-allow all newly registered MCP tools
+      const mcpTools = this.toolRegistry.getAllTools().filter(t => t.name.startsWith('mcp__'));
+      for (const tool of mcpTools) {
+        this.toolAllowlist.addTool(tool.name);
+      }
+
+      console.log(`[GatewayServer] MCP initialized with ${mcpTools.length} tools`);
+    } catch (error) {
+      console.warn(`[GatewayServer] MCP initialization failed (non-fatal): ${error}`);
+    }
   }
 
   /**
@@ -187,7 +252,10 @@ export class GatewayServer {
     const llmService = getLLMService();
 
     const inputAnalyzer = new InputAnalysisService(llmService);
-    const responseGenerator = new ResponseGenerator(llmService, personaEngine);
+
+    // Initialize ResponseGenerator with ToolEnforcer for conversation tools (including MCP)
+    this.responseGenerator = new ResponseGenerator(llmService, personaEngine, this.toolEnforcer);
+
     const taskBridge = new TaskBridge(this.repository as any, () => this.scheduler);
     const retryHandler = new RetryHandler(llmService);
 
@@ -195,7 +263,7 @@ export class GatewayServer {
       sessionRepository,
       personaEngine,
       inputAnalyzer,
-      responseGenerator,
+      this.responseGenerator,
       taskBridge,
       retryHandler
     );
@@ -261,6 +329,11 @@ export class GatewayServer {
           this.isRunning = true;
           this.connectionManager.start();
           this.broadcastManager.start();
+
+          // Initialize MCP integration (connect to external tool servers)
+          this.initializeMCP().catch((error) => {
+            console.error('[GatewayServer] MCP initialization failed:', error);
+          });
 
           // Start IPC server
           this.ipcServer.start()

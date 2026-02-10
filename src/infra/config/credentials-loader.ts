@@ -44,7 +44,7 @@ export interface CredentialsFile {
  * Get the PonyBunny config directory path
  */
 export function getConfigDir(): string {
-  return path.join(os.homedir(), '.ponybunny');
+  return process.env.PONYBUNNY_CONFIG_DIR || path.join(os.homedir(), '.ponybunny');
 }
 
 /**

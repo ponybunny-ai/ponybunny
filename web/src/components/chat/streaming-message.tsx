@@ -1,6 +1,7 @@
 'use client';
 
 import { Card, CardContent } from '@/components/ui/card';
+import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
 
 interface StreamingResponse {
   requestId: string;
@@ -31,8 +32,8 @@ export function StreamingMessage({ stream }: StreamingMessageProps) {
       <div className="flex-1 space-y-2">
         <Card className="bg-muted/50">
           <CardContent className="p-4">
-            <div className="prose prose-sm max-w-none dark:prose-invert">
-              {content}
+            <div className="text-sm">
+              <MarkdownRenderer>{content}</MarkdownRenderer>
               {stream.status === 'streaming' && (
                 <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1 align-middle">▊</span>
               )}

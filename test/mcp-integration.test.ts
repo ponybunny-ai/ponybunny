@@ -63,17 +63,11 @@ async function testMCPClient() {
 async function testConnectionManager() {
   console.log('🧪 Test 2: Connection Manager\n');
 
-  // Create a temporary MCP config
-  const configDir = path.join(os.homedir(), '.ponybunny');
+  // Use a temp directory to avoid overwriting real ~/.ponybunny/mcp-config.json
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ponybunny-test-'));
   const configPath = path.join(configDir, 'mcp-config.json');
-  const backupPath = configPath + '.backup';
 
-  // Backup existing config
-  if (fs.existsSync(configPath)) {
-    fs.copyFileSync(configPath, backupPath);
-  }
-
-  // Create test config
+  // Create test config in temp directory
   const testConfig = {
     mcpServers: {
       'test-fs': {
@@ -89,6 +83,9 @@ async function testConnectionManager() {
   };
 
   fs.writeFileSync(configPath, JSON.stringify(testConfig, null, 2));
+
+  // Override config dir so the loader reads from temp directory
+  process.env.PONYBUNNY_CONFIG_DIR = configDir;
 
   try {
     console.log('  ⏳ Initializing connection manager...');
@@ -121,27 +118,20 @@ async function testConnectionManager() {
     console.error('  ❌ Test failed:', (error as Error).message);
     return false;
   } finally {
-    // Restore backup
-    if (fs.existsSync(backupPath)) {
-      fs.copyFileSync(backupPath, configPath);
-      fs.unlinkSync(backupPath);
-    }
+    // Clean up temp directory
+    delete process.env.PONYBUNNY_CONFIG_DIR;
+    fs.rmSync(configDir, { recursive: true, force: true });
   }
 }
 
 async function testToolRegistryIntegration() {
   console.log('🧪 Test 3: Tool Registry Integration\n');
 
-  const configDir = path.join(os.homedir(), '.ponybunny');
+  // Use a temp directory to avoid overwriting real ~/.ponybunny/mcp-config.json
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ponybunny-test-'));
   const configPath = path.join(configDir, 'mcp-config.json');
-  const backupPath = configPath + '.backup';
 
-  // Backup existing config
-  if (fs.existsSync(configPath)) {
-    fs.copyFileSync(configPath, backupPath);
-  }
-
-  // Create test config
+  // Create test config in temp directory
   const testConfig = {
     mcpServers: {
       'test-fs': {
@@ -158,6 +148,9 @@ async function testToolRegistryIntegration() {
 
   fs.writeFileSync(configPath, JSON.stringify(testConfig, null, 2));
 
+  // Override config dir so the loader reads from temp directory
+  process.env.PONYBUNNY_CONFIG_DIR = configDir;
+
   try {
     console.log('  ⏳ Creating tool registry...');
     const registry = new ToolRegistry();
@@ -171,7 +164,7 @@ async function testToolRegistryIntegration() {
     const allTools = registry.getAllTools();
     console.log(`  ✅ Registered ${allTools.length} tools in registry`);
 
-    const mcpTools = allTools.filter((t) => t.name.startsWith('mcp_'));
+    const mcpTools = allTools.filter((t) => t.name.startsWith('mcp__'));
     console.log(`  ✅ MCP tools: ${mcpTools.length}`);
     mcpTools.forEach((tool) => {
       console.log(`     - ${tool.name}`);
@@ -180,7 +173,7 @@ async function testToolRegistryIntegration() {
 
     // Test tool execution through registry
     console.log('\n  ⏳ Testing tool execution through registry...');
-    const readTool = registry.getTool('mcp_test-fs_read_file');
+    const readTool = registry.getTool('mcp__test-fs__read_file');
     if (readTool) {
       const result = await readTool.execute(
         { path: 'package.json' },
@@ -206,11 +199,9 @@ async function testToolRegistryIntegration() {
     console.error((error as Error).stack);
     return false;
   } finally {
-    // Restore backup
-    if (fs.existsSync(backupPath)) {
-      fs.copyFileSync(backupPath, configPath);
-      fs.unlinkSync(backupPath);
-    }
+    // Clean up temp directory
+    delete process.env.PONYBUNNY_CONFIG_DIR;
+    fs.rmSync(configDir, { recursive: true, force: true });
   }
 }
 

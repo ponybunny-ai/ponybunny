@@ -15,8 +15,9 @@ export function adaptMCPTool(
   serverName: string,
   mcpTool: MCPToolDefinition
 ): ToolDefinition {
-  // Create namespaced tool name: mcp_<server>_<tool>
-  const toolName = `mcp_${serverName}_${mcpTool.name}`;
+  // Create namespaced tool name: mcp__<server>__<tool>
+  // Uses double-underscore separator to avoid ambiguity with underscores in server/tool names
+  const toolName = `mcp__${serverName}__${mcpTool.name}`;
 
   // Cache the MCP tool's inputSchema so ToolProvider can expose it to the LLM
   cacheMCPToolSchema(toolName, mcpTool.inputSchema);
@@ -91,7 +92,7 @@ export function extractMCPToolName(namespacedName: string): {
   serverName: string;
   toolName: string;
 } | null {
-  const match = namespacedName.match(/^mcp_([^_]+)_(.+)$/);
+  const match = namespacedName.match(/^mcp__(.+?)__(.+)$/);
   if (!match) {
     return null;
   }
@@ -106,7 +107,7 @@ export function extractMCPToolName(namespacedName: string): {
  * Check if a tool name is an MCP tool
  */
 export function isMCPTool(toolName: string): boolean {
-  return toolName.startsWith('mcp_');
+  return toolName.startsWith('mcp__');
 }
 
 /**

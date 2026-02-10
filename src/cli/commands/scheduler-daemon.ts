@@ -168,6 +168,9 @@ async function runScheduler(dbPath: string, socketPath: string, debugMode: boole
     // Initialize skills for execution service
     await executionService.initializeSkills(process.cwd());
 
+    // Initialize MCP integration (connect to external tool servers)
+    await executionService.initializeMCP();
+
     // Create scheduler daemon
     const daemon = new SchedulerDaemon(
       repository,

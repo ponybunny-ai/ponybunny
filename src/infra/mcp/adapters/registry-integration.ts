@@ -48,7 +48,7 @@ export async function refreshMCPTools(registry: ToolRegistry): Promise<void> {
   const allTools = registry.getAllTools();
   let removedCount = 0;
   for (const tool of allTools) {
-    if (tool.name.startsWith('mcp_')) {
+    if (tool.name.startsWith('mcp__')) {
       registry.unregister(tool.name);
       removedCount++;
     }

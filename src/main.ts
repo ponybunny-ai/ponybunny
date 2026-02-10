@@ -82,6 +82,10 @@ async function main() {
 
   // Initialize skills for execution service
   await executionService.initializeSkills(process.cwd());
+
+  // Initialize MCP integration (connect to external tool servers)
+  await executionService.initializeMCP();
+
   console.log('[PonyBunny] ✅ Execution Service (Enhanced) initialized');
 
   const verificationService = new VerificationService();
