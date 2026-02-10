@@ -10,6 +10,7 @@ import type { IConversationTurn, IConversationContext } from '../../domain/conve
 import type { ConversationState } from '../../domain/conversation/state-machine-rules.js';
 import type { IPersonaEngine } from './persona-engine.js';
 import type { LLMMessage, ToolCall } from '../../infra/llm/llm-provider.js';
+import type { ToolEnforcer } from '../../infra/tools/tool-registry.js';
 import { getGlobalToolProvider } from '../../infra/tools/tool-provider.js';
 import { debug } from '../../debug/index.js';
 
@@ -62,7 +63,8 @@ export class ResponseGenerator implements IResponseGenerator {
 
   constructor(
     private llmService: LLMService,
-    private personaEngine: IPersonaEngine
+    private personaEngine: IPersonaEngine,
+    private toolEnforcer?: ToolEnforcer
   ) {}
 
   async generate(context: IResponseContext): Promise<string> {
@@ -164,16 +166,31 @@ export class ResponseGenerator implements IResponseGenerator {
     const toolName = toolCall.function.name;
     const parameters = JSON.parse(toolCall.function.arguments);
 
-    // Mock tool execution for conversation tools
-    if (toolName === 'web_search') {
-      return `Search results for "${parameters.query}": [Mock search results would appear here]`;
+    // If we have a ToolEnforcer, use real tool execution
+    if (this.toolEnforcer) {
+      const check = this.toolEnforcer.checkToolInvocation(toolName, parameters);
+      if (!check.allowed) {
+        return `Tool '${toolName}' denied: ${check.reason}`;
+      }
+
+      const tool = this.toolEnforcer.registry.getTool(toolName);
+      if (!tool) {
+        return `Tool '${toolName}' not found in registry`;
+      }
+
+      try {
+        return await tool.execute(parameters, {
+          cwd: process.cwd(),
+          allowlist: this.toolEnforcer.allowlist,
+          enforcer: this.toolEnforcer,
+        });
+      } catch (error) {
+        return `Tool '${toolName}' execution failed: ${(error as Error).message}`;
+      }
     }
 
-    if (toolName === 'find_skills') {
-      return `Skills matching "${parameters.query}": [Mock skill results would appear here]`;
-    }
-
-    return `Tool ${toolName} executed successfully.`;
+    // Fallback: no enforcer available
+    return `Tool '${toolName}' executed (no registry configured)`;
   }
 
   private buildResponsePrompt(context: IResponseContext): string {

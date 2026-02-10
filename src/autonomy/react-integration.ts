@@ -405,7 +405,7 @@ Begin by analyzing the task and forming a plan.`;
       return `Action denied: ${check.reason}`;
     }
 
-    const tool = (this.toolEnforcer as any).registry.getTool(toolName);
+    const tool = this.toolEnforcer.registry.getTool(toolName);
     if (!tool) {
       return `Error: Tool '${toolName}' not found`;
     }
@@ -413,7 +413,7 @@ Begin by analyzing the task and forming a plan.`;
     try {
       const result = await tool.execute(parameters, {
         cwd: process.cwd(),
-        allowlist: (this.toolEnforcer as any).allowlist,
+        allowlist: this.toolEnforcer.allowlist,
         enforcer: this.toolEnforcer,
       });
       return result;

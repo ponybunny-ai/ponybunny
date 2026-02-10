@@ -13,6 +13,16 @@ import { BaseProtocolAdapter } from './protocol-adapter.js';
 export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
   readonly protocolId = 'openai' as const;
 
+  // Streaming tool_calls accumulator state
+  private streamingToolCalls = new Map<number, { id: string; type: string; name: string; arguments: string }>();
+
+  /**
+   * Reset streaming state (call before each new stream)
+   */
+  resetStreamState(): void {
+    this.streamingToolCalls.clear();
+  }
+
   formatRequest(messages: LLMMessage[], config: ProtocolRequestConfig): unknown {
     // Convert messages to OpenAI format
     const openaiMessages = messages.map(m => {
@@ -236,18 +246,60 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
           };
         }
 
-        // Handle tool_calls delta
+        // Handle tool_calls delta - accumulate across chunks
         if (delta?.tool_calls && delta.tool_calls.length > 0) {
-          // For now, we'll accumulate tool calls and return them when complete
-          // This is a simplified implementation - full implementation would need state management
+          for (const tc of delta.tool_calls) {
+            const index = tc.index ?? 0;
+            if (!this.streamingToolCalls.has(index)) {
+              // First chunk for this tool call — initialize
+              this.streamingToolCalls.set(index, {
+                id: tc.id || '',
+                type: tc.type || 'function',
+                name: tc.function?.name || '',
+                arguments: tc.function?.arguments || '',
+              });
+            } else {
+              // Subsequent chunk — accumulate arguments
+              const existing = this.streamingToolCalls.get(index)!;
+              if (tc.id) existing.id = tc.id;
+              if (tc.function?.name) existing.name = tc.function.name;
+              if (tc.function?.arguments) existing.arguments += tc.function.arguments;
+            }
+          }
+          // Don't emit yet — wait for finish_reason
           return null;
         }
 
-        // Handle finish reason
+        // Handle finish reason — emit accumulated tool calls if any
         if (choice.finish_reason) {
+          const finishReason = this.mapOpenAIFinishReason(choice.finish_reason);
+
+          // If we accumulated tool calls during streaming, emit them now
+          if (this.streamingToolCalls.size > 0) {
+            const toolCalls: ToolCall[] = [];
+            const sorted = [...this.streamingToolCalls.entries()].sort((a, b) => a[0] - b[0]);
+            for (const [, tc] of sorted) {
+              toolCalls.push({
+                id: tc.id,
+                type: 'function' as const,
+                function: {
+                  name: tc.name,
+                  arguments: tc.arguments,
+                },
+              });
+            }
+            this.streamingToolCalls.clear();
+
+            return {
+              toolCalls,
+              done: true,
+              finishReason,
+            };
+          }
+
           return {
             done: true,
-            finishReason: this.mapOpenAIFinishReason(choice.finish_reason),
+            finishReason,
           };
         }
 

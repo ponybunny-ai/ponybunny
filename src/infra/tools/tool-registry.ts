@@ -79,9 +79,17 @@ export class ToolAllowlist {
 
 export class ToolEnforcer {
   constructor(
-    private registry: ToolRegistry,
-    private allowlist: ToolAllowlist
+    private _registry: ToolRegistry,
+    private _allowlist: ToolAllowlist
   ) {}
+
+  get registry(): ToolRegistry {
+    return this._registry;
+  }
+
+  get allowlist(): ToolAllowlist {
+    return this._allowlist;
+  }
 
   canExecute(toolName: string): { allowed: boolean; reason?: string } {
     const tool = this.registry.getTool(toolName);

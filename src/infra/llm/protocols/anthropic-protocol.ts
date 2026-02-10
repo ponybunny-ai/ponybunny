@@ -13,6 +13,16 @@ import { BaseProtocolAdapter } from './protocol-adapter.js';
 export class AnthropicProtocolAdapter extends BaseProtocolAdapter {
   readonly protocolId = 'anthropic' as const;
 
+  // Streaming tool_calls accumulator state
+  private streamingToolCalls = new Map<number, { id: string; name: string; arguments: string }>();
+
+  /**
+   * Reset streaming state (call before each new stream)
+   */
+  resetStreamState(): void {
+    this.streamingToolCalls.clear();
+  }
+
   formatRequest(messages: LLMMessage[], config: ProtocolRequestConfig): unknown {
     // Extract system message separately (Anthropic API requirement)
     const systemMessage = messages.find(m => m.role === 'system');
@@ -242,9 +252,14 @@ export class AnthropicProtocolAdapter extends BaseProtocolAdapter {
           };
         };
 
-        // Handle content_block_start for tool_use
+        // Handle content_block_start for tool_use — initialize accumulator
         if (data.type === 'content_block_start' && data.content_block?.type === 'tool_use') {
-          // Tool use started - we'll accumulate the input in subsequent deltas
+          const index = data.index ?? this.streamingToolCalls.size;
+          this.streamingToolCalls.set(index, {
+            id: data.content_block.id || '',
+            name: data.content_block.name || '',
+            arguments: '',
+          });
           return null;
         }
 
@@ -264,18 +279,45 @@ export class AnthropicProtocolAdapter extends BaseProtocolAdapter {
           };
         }
 
-        // Handle content_block_delta for tool input (partial JSON)
+        // Handle content_block_delta for tool input (partial JSON) — accumulate
         if (data.type === 'content_block_delta' && data.delta?.type === 'input_json_delta') {
-          // Tool input is being streamed - we need to accumulate this
-          // For now, we'll skip individual chunks and wait for the complete message
+          const index = data.index ?? 0;
+          const existing = this.streamingToolCalls.get(index);
+          if (existing && data.delta.partial_json) {
+            existing.arguments += data.delta.partial_json;
+          }
           return null;
         }
 
-        // Handle message_delta (end of message)
+        // Handle message_delta (end of message) — emit accumulated tool calls if any
         if (data.type === 'message_delta' && data.message?.stop_reason) {
+          const finishReason = this.mapAnthropicFinishReason(data.message.stop_reason);
+
+          if (this.streamingToolCalls.size > 0) {
+            const toolCalls: ToolCall[] = [];
+            const sorted = [...this.streamingToolCalls.entries()].sort((a, b) => a[0] - b[0]);
+            for (const [, tc] of sorted) {
+              toolCalls.push({
+                id: tc.id,
+                type: 'function' as const,
+                function: {
+                  name: tc.name,
+                  arguments: tc.arguments,
+                },
+              });
+            }
+            this.streamingToolCalls.clear();
+
+            return {
+              toolCalls,
+              done: true,
+              finishReason,
+            };
+          }
+
           return {
             done: true,
-            finishReason: this.mapAnthropicFinishReason(data.message.stop_reason),
+            finishReason,
           };
         }
 

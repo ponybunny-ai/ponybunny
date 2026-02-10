@@ -6,6 +6,7 @@
 import { ToolRegistry } from '../../tools/tool-registry.js';
 import { getMCPConnectionManager } from '../client/connection-manager.js';
 import { adaptMCPTools } from '../adapters/tool-adapter.js';
+import { clearMCPToolSchemaCache } from '../../tools/tool-provider.js';
 
 /**
  * Register all tools from all connected MCP servers into the ToolRegistry
@@ -39,6 +40,9 @@ export async function registerMCPTools(registry: ToolRegistry): Promise<void> {
  */
 export async function refreshMCPTools(registry: ToolRegistry): Promise<void> {
   console.log('[MCP] Refreshing MCP tools...');
+
+  // Clear cached MCP tool schemas
+  clearMCPToolSchemaCache();
 
   // Remove all existing MCP tools
   const allTools = registry.getAllTools();

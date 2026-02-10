@@ -4,12 +4,15 @@ import type { IExecutionService, ExecutionResult } from '../stage-interfaces.js'
 import type { ILLMProvider } from '../../../infra/llm/llm-provider.js';
 import { ReActIntegration } from '../../../autonomy/react-integration.js';
 import { ToolRegistry, ToolAllowlist, ToolEnforcer } from '../../../infra/tools/tool-registry.js';
+import { ToolProvider, setGlobalToolProvider } from '../../../infra/tools/tool-provider.js';
 import { ReadFileTool } from '../../../infra/tools/implementations/read-file-tool.js';
 import { WriteFileTool } from '../../../infra/tools/implementations/write-file-tool.js';
 import { ExecuteCommandTool } from '../../../infra/tools/implementations/execute-command-tool.js';
 import { SearchCodeTool } from '../../../infra/tools/implementations/search-code-tool.js';
 import { WebSearchTool } from '../../../infra/tools/implementations/web-search-tool.js';
+import { findSkillsTool } from '../../../infra/tools/implementations/find-skills-tool.js';
 import { getGlobalSkillRegistry } from '../../../infra/skills/skill-registry.js';
+import { initializeMCPIntegration } from '../../../infra/mcp/adapters/registry-integration.js';
 
 export class ExecutionService implements IExecutionService {
   private reactIntegration: ReActIntegration;
@@ -17,6 +20,7 @@ export class ExecutionService implements IExecutionService {
   private toolAllowlist: ToolAllowlist;
   private toolEnforcer: ToolEnforcer;
   private skillRegistry = getGlobalSkillRegistry();
+  private mcpInitialized = false;
 
   constructor(
     private repository: IWorkOrderRepository,
@@ -31,6 +35,10 @@ export class ExecutionService implements IExecutionService {
     this.registerTools();
 
     this.toolEnforcer = new ToolEnforcer(this.toolRegistry, this.toolAllowlist);
+
+    // Wire up ToolProvider with ToolRegistry so LLM sees all registered tools
+    const toolProvider = new ToolProvider(this.toolEnforcer);
+    setGlobalToolProvider(toolProvider);
 
     // Use enhanced ReAct integration with phase-aware prompts
     this.reactIntegration = new ReActIntegration(llmProvider, this.toolEnforcer);
@@ -48,19 +56,44 @@ export class ExecutionService implements IExecutionService {
     console.log(`[ExecutionService] Loaded ${this.skillRegistry.getSkills().length} skills`);
   }
 
+  /**
+   * Initialize MCP integration - connects to MCP servers and registers their tools
+   * Should be called once during service startup
+   */
+  async initializeMCP(): Promise<void> {
+    if (this.mcpInitialized) return;
+
+    try {
+      await initializeMCPIntegration(this.toolRegistry);
+
+      // Auto-allow all newly registered MCP tools
+      const mcpTools = this.toolRegistry.getAllTools().filter(t => t.name.startsWith('mcp_'));
+      for (const tool of mcpTools) {
+        this.toolAllowlist.addTool(tool.name);
+      }
+
+      this.mcpInitialized = true;
+      console.log(`[ExecutionService] MCP initialized with ${mcpTools.length} tools`);
+    } catch (error) {
+      console.warn(`[ExecutionService] MCP initialization failed (non-fatal): ${error}`);
+    }
+  }
+
   private registerTools(): void {
     this.toolRegistry.register(new ReadFileTool());
     this.toolRegistry.register(new WriteFileTool());
     this.toolRegistry.register(new ExecuteCommandTool());
     this.toolRegistry.register(new SearchCodeTool());
     this.toolRegistry.register(new WebSearchTool());
+    this.toolRegistry.register(findSkillsTool);
 
     // Allow tools by default (safe tools)
-    this.toolAllowlist.addTool('search_code');
     this.toolAllowlist.addTool('read_file');
     this.toolAllowlist.addTool('write_file');
     this.toolAllowlist.addTool('execute_command');
+    this.toolAllowlist.addTool('search_code');
     this.toolAllowlist.addTool('web_search');
+    this.toolAllowlist.addTool('find_skills');
   }
 
   async executeWorkItem(workItem: WorkItem): Promise<ExecutionResult> {

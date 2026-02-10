@@ -6,6 +6,7 @@
 import type { ToolDefinition, ToolContext } from '../../tools/tool-registry.js';
 import type { MCPToolDefinition, MCPToolCallResult } from '../client/types.js';
 import { getMCPConnectionManager } from '../client/connection-manager.js';
+import { cacheMCPToolSchema } from '../../tools/tool-provider.js';
 
 /**
  * Convert MCP tool to PonyBunny ToolDefinition
@@ -16,6 +17,9 @@ export function adaptMCPTool(
 ): ToolDefinition {
   // Create namespaced tool name: mcp_<server>_<tool>
   const toolName = `mcp_${serverName}_${mcpTool.name}`;
+
+  // Cache the MCP tool's inputSchema so ToolProvider can expose it to the LLM
+  cacheMCPToolSchema(toolName, mcpTool.inputSchema);
 
   return {
     name: toolName,
