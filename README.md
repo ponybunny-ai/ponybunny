@@ -64,6 +64,11 @@ Edit `~/.ponybunny/credentials.json`:
       "apiKey": "sk-xxx",
       "baseUrl": ""
     },
+    "openai-compatible": {
+      "enabled": false,
+      "apiKey": "your-api-key",
+      "baseUrl": "http://localhost:8000/v1"
+    },
     "google-ai-studio": {
       "enabled": true,
       "apiKey": "xxx",

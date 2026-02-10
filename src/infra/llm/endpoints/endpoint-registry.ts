@@ -46,6 +46,17 @@ export const ENDPOINT_CONFIGS: Record<EndpointId, EndpointConfig> = {
     description: 'OpenAI models via Azure',
   },
 
+  'openai-compatible': {
+    id: 'openai-compatible',
+    protocol: 'openai',
+    baseUrl: '', // Set from OPENAI_COMPATIBLE_BASE_URL or credentials file
+    requiredEnvVars: ['OPENAI_COMPATIBLE_API_KEY'],
+    optionalEnvVars: ['OPENAI_COMPATIBLE_BASE_URL'],
+    priority: 3,
+    displayName: 'OpenAI Compatible',
+    description: 'Any OpenAI-compatible API endpoint (e.g., LocalAI, vLLM, Ollama, LM Studio)',
+  },
+
   'google-ai-studio': {
     id: 'google-ai-studio',
     protocol: 'gemini',

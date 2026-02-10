@@ -9,6 +9,7 @@ export type EndpointId =
   | 'aws-bedrock'
   | 'openai-direct'
   | 'azure-openai'
+  | 'openai-compatible'
   | 'google-ai-studio'
   | 'google-vertex-ai';
 
@@ -59,6 +60,8 @@ const ENV_TO_CREDENTIAL_FIELD: Record<string, keyof ResolvedEndpointCredentials>
   'OPENAI_API_KEY': 'apiKey',
   'GEMINI_API_KEY': 'apiKey',
   'AZURE_OPENAI_API_KEY': 'apiKey',
+  'OPENAI_COMPATIBLE_API_KEY': 'apiKey',
+  'OPENAI_COMPATIBLE_BASE_URL': 'baseUrl',
   'AWS_ACCESS_KEY_ID': 'accessKeyId',
   'AWS_SECRET_ACCESS_KEY': 'secretAccessKey',
   'AWS_REGION': 'region',

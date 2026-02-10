@@ -1,0 +1,201 @@
+{
+  "$schema": "../../llm-config.schema.json",
+  "endpoints": {
+    "anthropic-direct": {
+      "enabled": true,
+      "protocol": "anthropic",
+      "baseUrl": "https://api.anthropic.com/v1/messages",
+      "priority": 1,
+      "rateLimit": {
+        "requestsPerMinute": 60
+      }
+    },
+    "aws-bedrock": {
+      "enabled": false,
+      "protocol": "anthropic",
+      "region": "us-east-1",
+      "priority": 2,
+      "costMultiplier": 1.0
+    },
+    "openai-direct": {
+      "enabled": true,
+      "protocol": "openai",
+      "baseUrl": "https://api.openai.com/v1",
+      "priority": 1,
+      "rateLimit": {
+        "requestsPerMinute": 60
+      }
+    },
+    "azure-openai": {
+      "enabled": false,
+      "protocol": "openai",
+      "priority": 2
+    },
+    "openai-compatible": {
+      "enabled": false,
+      "protocol": "openai",
+      "baseUrl": "http://localhost:8000/v1",
+      "priority": 3,
+      "rateLimit": {
+        "requestsPerMinute": 60
+      }
+    },
+    "google-ai-studio": {
+      "enabled": true,
+      "protocol": "gemini",
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+      "priority": 1
+    },
+    "google-vertex-ai": {
+      "enabled": false,
+      "protocol": "gemini",
+      "priority": 2
+    }
+  },
+  "models": {
+    "claude-haiku-4-5": {
+      "displayName": "Claude Haiku 4.5",
+      "endpoints": ["anthropic-direct", "aws-bedrock"],
+      "costPer1kTokens": {
+        "input": 0.001,
+        "output": 0.005
+      },
+      "maxContextTokens": 200000,
+      "capabilities": ["text", "vision"],
+      "thinking": false,
+      "streaming": true
+    },
+    "claude-sonnet-4-5": {
+      "displayName": "Claude Sonnet 4.5",
+      "endpoints": ["anthropic-direct", "aws-bedrock"],
+      "costPer1kTokens": {
+        "input": 0.003,
+        "output": 0.015
+      },
+      "maxContextTokens": 200000,
+      "capabilities": ["text", "vision", "function-calling"],
+      "thinking": true,
+      "streaming": true
+    },
+    "claude-opus-4-5": {
+      "displayName": "Claude Opus 4.5",
+      "endpoints": ["anthropic-direct", "aws-bedrock"],
+      "costPer1kTokens": {
+        "input": 0.015,
+        "output": 0.075
+      },
+      "maxContextTokens": 200000,
+      "capabilities": ["text", "vision", "function-calling"],
+      "thinking": true,
+      "streaming": true
+    },
+    "gpt-4o": {
+      "displayName": "GPT-4o",
+      "endpoints": ["openai-direct", "azure-openai"],
+      "costPer1kTokens": {
+        "input": 0.005,
+        "output": 0.015
+      },
+      "maxContextTokens": 128000,
+      "capabilities": ["text", "vision", "function-calling", "json-mode"],
+      "thinking": false,
+      "streaming": true
+    },
+    "gpt-4o-mini": {
+      "displayName": "GPT-4o Mini",
+      "endpoints": ["openai-direct", "azure-openai"],
+      "costPer1kTokens": {
+        "input": 0.00015,
+        "output": 0.0006
+      },
+      "maxContextTokens": 128000,
+      "capabilities": ["text", "vision", "function-calling", "json-mode"],
+      "thinking": false,
+      "streaming": true
+    },
+    "gemini-2.0-flash": {
+      "displayName": "Gemini 2.0 Flash",
+      "endpoints": ["google-ai-studio", "google-vertex-ai"],
+      "costPer1kTokens": {
+        "input": 0.00035,
+        "output": 0.0014
+      },
+      "maxContextTokens": 1000000,
+      "capabilities": ["text", "vision", "function-calling"],
+      "thinking": false,
+      "streaming": true
+    },
+    "gemini-2.0-pro": {
+      "displayName": "Gemini 2.0 Pro",
+      "endpoints": ["google-ai-studio", "google-vertex-ai"],
+      "costPer1kTokens": {
+        "input": 0.00125,
+        "output": 0.005
+      },
+      "maxContextTokens": 2000000,
+      "capabilities": ["text", "vision", "function-calling"],
+      "thinking": false,
+      "streaming": true
+    },
+    "llama-3-70b-local": {
+      "displayName": "Llama 3 70B (Local)",
+      "endpoints": ["openai-compatible"],
+      "costPer1kTokens": {
+        "input": 0.0,
+        "output": 0.0
+      },
+      "maxContextTokens": 8192,
+      "capabilities": ["text", "function-calling"],
+      "thinking": false,
+      "streaming": true
+    }
+  },
+  "tiers": {
+    "simple": {
+      "primary": "claude-haiku-4-5",
+      "fallback": ["gpt-4o-mini", "gemini-2.0-flash"]
+    },
+    "medium": {
+      "primary": "claude-sonnet-4-5",
+      "fallback": ["gpt-4o", "gemini-2.0-pro"]
+    },
+    "complex": {
+      "primary": "claude-opus-4-5",
+      "fallback": ["gpt-4o", "claude-sonnet-4-5"]
+    }
+  },
+  "agents": {
+    "input-analysis": {
+      "tier": "simple",
+      "description": "Intent and emotion analysis"
+    },
+    "planning": {
+      "tier": "complex",
+      "description": "Goal decomposition and planning"
+    },
+    "execution": {
+      "tier": "medium",
+      "primary": "claude-sonnet-4-5",
+      "description": "ReAct execution loop"
+    },
+    "verification": {
+      "tier": "medium",
+      "description": "Result verification"
+    },
+    "response-generation": {
+      "tier": "simple",
+      "description": "Natural language response"
+    },
+    "conversation": {
+      "tier": "medium",
+      "description": "Conversation agent"
+    }
+  },
+  "defaults": {
+    "timeout": 120000,
+    "maxTokens": 4096,
+    "maxRetries": 2,
+    "retryDelayMs": 1000,
+    "temperature": 0.7
+  }
+}

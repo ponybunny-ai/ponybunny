@@ -14,6 +14,7 @@ describe('EndpointRegistry', () => {
         'aws-bedrock',
         'openai-direct',
         'azure-openai',
+        'openai-compatible',
         'google-ai-studio',
         'google-vertex-ai',
       ]);
@@ -27,6 +28,7 @@ describe('EndpointRegistry', () => {
     it('should have correct protocol for openai endpoints', () => {
       expect(ENDPOINT_CONFIGS['openai-direct'].protocol).toBe('openai');
       expect(ENDPOINT_CONFIGS['azure-openai'].protocol).toBe('openai');
+      expect(ENDPOINT_CONFIGS['openai-compatible'].protocol).toBe('openai');
     });
 
     it('should have correct protocol for gemini endpoints', () => {
@@ -37,6 +39,7 @@ describe('EndpointRegistry', () => {
     it('should have required env vars for each endpoint', () => {
       expect(ENDPOINT_CONFIGS['anthropic-direct'].requiredEnvVars).toContain('ANTHROPIC_API_KEY');
       expect(ENDPOINT_CONFIGS['openai-direct'].requiredEnvVars).toContain('OPENAI_API_KEY');
+      expect(ENDPOINT_CONFIGS['openai-compatible'].requiredEnvVars).toContain('OPENAI_COMPATIBLE_API_KEY');
       expect(ENDPOINT_CONFIGS['google-ai-studio'].requiredEnvVars).toContain('GEMINI_API_KEY');
       expect(ENDPOINT_CONFIGS['aws-bedrock'].requiredEnvVars).toContain('AWS_ACCESS_KEY_ID');
       expect(ENDPOINT_CONFIGS['azure-openai'].requiredEnvVars).toContain('AZURE_OPENAI_API_KEY');
@@ -60,9 +63,10 @@ describe('EndpointRegistry', () => {
     it('should return all endpoint configs', () => {
       const configs = getAllEndpointConfigs();
 
-      expect(configs.length).toBe(6);
+      expect(configs.length).toBe(7);
       expect(configs.map(c => c.id)).toContain('anthropic-direct');
       expect(configs.map(c => c.id)).toContain('openai-direct');
+      expect(configs.map(c => c.id)).toContain('openai-compatible');
     });
   });
 
@@ -123,9 +127,10 @@ describe('EndpointRegistry', () => {
     it('should return openai endpoints sorted by priority', () => {
       const endpoints = getEndpointsByProtocol('openai');
 
-      expect(endpoints.length).toBe(2);
-      expect(endpoints[0].id).toBe('openai-direct');
-      expect(endpoints[1].id).toBe('azure-openai');
+      expect(endpoints.length).toBe(3);
+      expect(endpoints[0].id).toBe('openai-direct'); // priority 1
+      expect(endpoints[1].id).toBe('azure-openai'); // priority 2
+      expect(endpoints[2].id).toBe('openai-compatible'); // priority 3
     });
 
     it('should return gemini endpoints sorted by priority', () => {

@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 PonyBunny is an **Autonomous AI Employee System** that solves the **delegation bottleneck** in knowledge work. Built on a **Gateway + Scheduler** architecture where humans set goals and AI delivers complete results autonomously.
 
+**New**: PonyBunny now supports **Model Context Protocol (MCP)** for seamless integration with external tools and services. See `docs/cli/MCP-INTEGRATION.md` for details.
+
 See `docs/techspec/architecture-overview.md` for detailed system architecture.
 
 ## Build, Test & Run Commands
@@ -50,6 +52,13 @@ pb scheduler logs -f       # Follow Scheduler logs
 # Debug & Observability
 pb debug web               # Launch Debug Server with Web UI
 pb debug tui               # Launch Terminal UI (default)
+
+# MCP (Model Context Protocol)
+pb mcp init                # Initialize MCP configuration
+pb mcp list                # List configured MCP servers
+pb mcp status              # Show connection status
+pb mcp add <name>          # Add new MCP server
+pb mcp test <name>         # Test connection to server
 ```
 
 ## Critical Code Conventions
@@ -94,7 +103,11 @@ src/
 │   │   ├── protocols/         # Anthropic, OpenAI, Gemini adapters
 │   │   └── routing/           # Model routing & fallback
 │   ├── tools/        # Tool registry & allowlist
-│   └── skills/       # Skill implementations
+│   ├── skills/       # Skill implementations
+│   └── mcp/          # Model Context Protocol integration
+│       ├── client/   # MCP client and connection manager
+│       ├── config/   # MCP configuration loader
+│       └── adapters/ # Tool/resource/prompt adapters
 ├── autonomy/         # ReAct integration & daemon
 ├── cli/              # Commander.js CLI with Ink terminal UI
 │   └── commands/     # CLI command implementations
@@ -120,6 +133,9 @@ src/
 | `src/infra/llm/llm-service.ts` | LLM service with tier-based routing |
 | `src/infra/config/credentials-loader.ts` | Credentials management (~/.ponybunny/credentials.json) |
 | `src/infra/tools/tool-registry.ts` | Tool registration and allowlist |
+| `src/infra/mcp/client/mcp-client.ts` | MCP client wrapper for external tools |
+| `src/infra/mcp/client/connection-manager.ts` | MCP connection manager |
+| `src/infra/mcp/config/mcp-config-loader.ts` | MCP configuration loader (~/.ponybunny/mcp-config.json) |
 | `src/autonomy/react-integration.ts` | ReAct autonomous execution loop |
 | `src/autonomy/daemon.ts` | Continuous operation engine |
 | `src/cli/commands/service.ts` | Unified service management (start/stop/status/logs) |
@@ -138,7 +154,7 @@ src/
 
 ## Configuration System
 
-PonyBunny uses two JSON config files in `~/.ponybunny/`:
+PonyBunny uses multiple JSON config files in `~/.ponybunny/`:
 
 ### 1. `credentials.json` - API Keys (Sensitive)
 ```json
@@ -152,6 +168,11 @@ PonyBunny uses two JSON config files in `~/.ponybunny/`:
     "openai-direct": {
       "enabled": true,
       "apiKey": "sk-xxx"
+    },
+    "openai-compatible": {
+      "enabled": false,
+      "apiKey": "your-api-key",
+      "baseUrl": "http://localhost:8000/v1"
     }
   }
 }
@@ -165,6 +186,31 @@ Defines endpoints, models, tiers, and agent-to-model mappings. See README.md for
 - **Models**: Cost, capabilities, available endpoints
 - **Tiers**: simple/medium/complex with primary + fallback chains
 - **Agents**: Maps lifecycle phases to tiers or specific models
+
+### 3. `mcp-config.json` - MCP Server Configuration
+Defines Model Context Protocol server connections for external tools. See `docs/cli/MCP-INTEGRATION.md` for details.
+
+**Key concepts:**
+- **Transport**: stdio (local) or http (remote)
+- **Allowed Tools**: Per-server tool filtering
+- **Environment Variables**: Secure credential management with `${VAR}` expansion
+- **Auto-reconnect**: Automatic reconnection on failure
+
+Example:
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "enabled": true,
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+      "allowedTools": ["*"],
+      "autoReconnect": true
+    }
+  }
+}
+```
 
 ## Testing Conventions
 
