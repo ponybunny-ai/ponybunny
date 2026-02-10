@@ -5,6 +5,7 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { spawn, ChildProcess } from 'child_process';
 import type {
   MCPServerConfig,
@@ -31,7 +32,7 @@ export interface MCPClientOptions {
  */
 export class MCPClient {
   private client: Client | null = null;
-  private transport: StdioClientTransport | null = null;
+  private transport: StdioClientTransport | StreamableHTTPClientTransport | null = null;
   private process: ChildProcess | null = null;
   private state: MCPConnectionState = 'disconnected';
   private serverInfo: MCPServerInfo | null = null;
@@ -39,6 +40,7 @@ export class MCPClient {
   private reconnectAttempts = 0;
   private readonly maxReconnectAttempts = 5;
   private readonly reconnectDelayMs = 5000;
+  private intentionalDisconnect = false;
 
   constructor(private options: MCPClientOptions) {}
 
@@ -197,11 +199,45 @@ export class MCPClient {
    * Connect using HTTP transport
    */
   private async connectHttp(): Promise<void> {
-    // TODO: Implement HTTP transport when SDK supports it
-    throw new MCPConnectionError(
-      this.options.serverName,
-      'HTTP transport not yet implemented'
+    const { url, headers = {} } = this.options.config;
+
+    if (!url) {
+      throw new MCPConnectionError(this.options.serverName, 'Missing url for HTTP transport');
+    }
+
+    // Create HTTP transport
+    this.transport = new StreamableHTTPClientTransport(new URL(url), {
+      requestInit: {
+        headers: headers,
+      },
+    });
+
+    // Set up transport event handlers
+    this.transport.onclose = () => {
+      console.warn(`[MCPClient:${this.options.serverName}] HTTP transport closed`);
+      this.handleDisconnection();
+    };
+
+    this.transport.onerror = (error) => {
+      console.error(`[MCPClient:${this.options.serverName}] HTTP transport error:`, error);
+      this.handleDisconnection();
+    };
+
+    // Create MCP client
+    this.client = new Client(
+      {
+        name: 'ponybunny',
+        version: '1.0.0',
+      },
+      {
+        capabilities: {
+          sampling: {},
+        },
+      }
     );
+
+    // Connect the client to the transport
+    await this.client.connect(this.transport);
   }
 
   /**
@@ -253,6 +289,12 @@ export class MCPClient {
     this.client = null;
     this.transport = null;
     this.process = null;
+
+    // Don't reconnect if this was an intentional disconnect
+    if (this.intentionalDisconnect) {
+      this.intentionalDisconnect = false;
+      return;
+    }
 
     // Attempt reconnection if enabled
     if (
@@ -425,10 +467,19 @@ export class MCPClient {
    * Disconnect from the MCP server
    */
   async disconnect(): Promise<void> {
+    // Mark this as an intentional disconnect to prevent auto-reconnect
+    this.intentionalDisconnect = true;
+
     // Clear reconnect timer
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+
+    // Clear transport event handlers to prevent them from triggering during shutdown
+    if (this.transport) {
+      this.transport.onclose = undefined;
+      this.transport.onerror = undefined;
     }
 
     // Close client
