@@ -16,17 +16,20 @@ import { debug } from '../../debug/index.js';
 
 export interface IResponseGenerator {
   generate(
-    context: IResponseContext
+    context: IResponseContext,
+    onChunk?: (chunk: string) => void
   ): Promise<string>;
 
   generateProgressNarration(
     progress: ITaskProgress,
-    persona: IPersona
+    persona: IPersona,
+    onChunk?: (chunk: string) => void
   ): Promise<string>;
 
   generateResultSummary(
     result: ITaskResult,
-    persona: IPersona
+    persona: IPersona,
+    onChunk?: (chunk: string) => void
   ): Promise<string>;
 }
 
@@ -67,7 +70,7 @@ export class ResponseGenerator implements IResponseGenerator {
     private toolEnforcer?: ToolEnforcer
   ) {}
 
-  async generate(context: IResponseContext): Promise<string> {
+  async generate(context: IResponseContext, onChunk?: (chunk: string) => void): Promise<string> {
     debug.custom('response.generate.start', 'response-generator', {
       state: context.conversationState,
       personaId: context.persona.id,
@@ -110,6 +113,7 @@ export class ResponseGenerator implements IResponseGenerator {
     // Simple tool calling loop (max 3 iterations)
     let maxIterations = 3;
     let finalResponse = '';
+    let accumulatedContent = '';
 
     while (maxIterations > 0) {
       const response = await this.llmService.completeForAgent(
@@ -120,12 +124,19 @@ export class ResponseGenerator implements IResponseGenerator {
           tools: conversationTools,
           tool_choice: 'auto',
           thinking: true,
+          stream: !!onChunk,
+          onChunk: onChunk ? (chunk: string) => {
+            accumulatedContent += chunk;
+            onChunk(chunk);
+          } : undefined,
         }
       );
 
       // Handle text response
       if (response.content) {
         finalResponse = response.content;
+      } else if (accumulatedContent) {
+        finalResponse = accumulatedContent;
       }
 
       // Handle tool calls
@@ -229,7 +240,8 @@ export class ResponseGenerator implements IResponseGenerator {
 
   async generateProgressNarration(
     progress: ITaskProgress,
-    persona: IPersona
+    persona: IPersona,
+    onChunk?: (chunk: string) => void
   ): Promise<string> {
     const systemPrompt = this.personaEngine.generateSystemPrompt(persona);
 
@@ -248,7 +260,15 @@ Keep the update concise (1-2 sentences) and match the persona's style.`;
         { role: 'user', content: progressPrompt },
       ],
       'simple',
-      { maxTokens: 200 }
+      {
+        maxTokens: 200,
+        stream: !!onChunk,
+        onChunk: onChunk ? (chunk) => {
+          if (chunk.content) {
+            onChunk(chunk.content);
+          }
+        } : undefined,
+      }
     );
 
     return response.content || 'Task is in progress.';
@@ -256,7 +276,8 @@ Keep the update concise (1-2 sentences) and match the persona's style.`;
 
   async generateResultSummary(
     result: ITaskResult,
-    persona: IPersona
+    persona: IPersona,
+    onChunk?: (chunk: string) => void
   ): Promise<string> {
     const systemPrompt = this.personaEngine.generateSystemPrompt(persona);
 
@@ -285,7 +306,15 @@ Summary: ${result.summary}`;
         { role: 'user', content: resultPrompt },
       ],
       'simple',
-      { maxTokens: 500 }
+      {
+        maxTokens: 500,
+        stream: !!onChunk,
+        onChunk: onChunk ? (chunk) => {
+          if (chunk.content) {
+            onChunk(chunk.content);
+          }
+        } : undefined,
+      }
     );
 
     return response.content || (result.success ? 'Task completed successfully.' : 'Task failed.');

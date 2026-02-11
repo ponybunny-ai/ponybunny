@@ -15,6 +15,7 @@ export interface ConversationMessageParams {
   personaId?: string;
   message: string;
   attachments?: IAttachment[];
+  stream?: boolean;
 }
 
 export interface ConversationHistoryParams {
@@ -59,9 +60,55 @@ export function registerConversationHandlers(
         sessionId: params.sessionId,
         messageLength: params.message.length,
         hasAttachments: !!(params.attachments && params.attachments.length > 0),
+        stream: params.stream,
       });
 
       try {
+        // If streaming is requested, handle it differently
+        if (params.stream) {
+          const streamId = `stream-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+          // Emit stream start event
+          eventBus.emit('conversation.stream.start', {
+            streamId,
+            sessionId: params.sessionId,
+            timestamp: Date.now(),
+          });
+
+          // Process message with streaming callback
+          const result = await sessionManager.processMessageWithStream(
+            params.message,
+            params.sessionId,
+            params.personaId,
+            params.attachments,
+            (chunk: string) => {
+              // Emit each chunk as an event
+              eventBus.emit('conversation.stream.chunk', {
+                streamId,
+                chunk,
+                timestamp: Date.now(),
+              });
+            }
+          );
+
+          // Emit stream end event
+          eventBus.emit('conversation.stream.end', {
+            streamId,
+            sessionId: result.sessionId,
+            timestamp: Date.now(),
+          });
+
+          debug.custom('conversation.message.streamed', 'gateway', {
+            sessionId: result.sessionId,
+            streamId,
+            responseLength: result.response.length,
+            state: result.state,
+          });
+
+          return result;
+        }
+
+        // Non-streaming path (original behavior)
         const result = await sessionManager.processMessage(
           params.message,
           params.sessionId,

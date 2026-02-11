@@ -5,6 +5,7 @@ import { Save, RotateCcw, AlertCircle } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { CodeEditor } from '@/components/ui/code-editor';
 import { toast } from 'sonner';
 
 const CONFIG_FILES = [
@@ -149,11 +150,11 @@ export default function ConfigPage() {
                     </Button>
                   </div>
                 ) : (
-                  <textarea
+                  <CodeEditor
                     value={content}
-                    onChange={(e) => setContent(e.target.value)}
-                    className="w-full h-full min-h-[500px] p-4 font-mono text-sm bg-muted/30 resize-none focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary/20"
-                    spellCheck={false}
+                    onChange={(value) => setContent(value || '')}
+                    language="json"
+                    height="100%"
                   />
                 )}
               </CardContent>

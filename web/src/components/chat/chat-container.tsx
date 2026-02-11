@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Chat } from '@/components/ui/chat';
 import { type Message } from '@/components/ui/chat-message';
 import { useGateway } from '@/components/providers/gateway-provider';
@@ -113,34 +113,45 @@ export function ChatContainer() {
   }, [state.conversation.state]);
 
   return (
-    <div className="flex flex-col h-full p-4">
+    <div className="flex flex-col h-full">
+      {/* Conversation state indicator */}
       {conversationStateLabel && state.conversation.state !== 'idle' && (
-        <div className="mb-2 text-sm text-muted-foreground flex items-center gap-2">
-          <span className="animate-pulse">●</span>
-          {conversationStateLabel}
+        <div className="px-4 py-2 bg-muted/50 border-b">
+          <div className="max-w-4xl mx-auto flex items-center gap-2 text-sm text-muted-foreground">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+            </span>
+            {conversationStateLabel}
+          </div>
         </div>
       )}
 
       {/* Show active streaming responses */}
       {state.activeStreams.size > 0 && (
-        <div className="mb-4">
-          <StreamingList
-            streams={state.activeStreams}
-            goalId={state.conversation.activeGoalId || undefined}
-          />
+        <div className="px-4 py-2 bg-accent/50 border-b">
+          <div className="max-w-4xl mx-auto">
+            <StreamingList
+              streams={state.activeStreams}
+              goalId={state.conversation.activeGoalId || undefined}
+            />
+          </div>
         </div>
       )}
 
-      <Chat
-        messages={messages}
-        input={input}
-        handleInputChange={handleInputChange}
-        handleSubmit={handleSubmit}
-        isGenerating={isGenerating}
-        setMessages={setMessages}
-        append={handleAppend}
-        suggestions={SUGGESTIONS}
-      />
+      <div className="flex-1 overflow-hidden p-4">
+        <Chat
+          messages={messages}
+          input={input}
+          handleInputChange={handleInputChange}
+          handleSubmit={handleSubmit}
+          isGenerating={isGenerating}
+          setMessages={setMessages}
+          append={handleAppend}
+          suggestions={SUGGESTIONS}
+          className="h-full"
+        />
+      </div>
     </div>
   );
 }

@@ -44,6 +44,14 @@ export interface ISessionManager {
     attachments?: IAttachment[]
   ): Promise<IConversationResponse>;
 
+  processMessageWithStream(
+    message: string,
+    sessionId: string | undefined,
+    personaId: string | undefined,
+    attachments: IAttachment[] | undefined,
+    onChunk: (chunk: string) => void
+  ): Promise<IConversationResponse>;
+
   getSession(sessionId: string): IConversationSession | null;
   getHistory(sessionId: string, limit?: number): IConversationTurn[];
   endSession(sessionId: string): boolean;
@@ -67,6 +75,26 @@ export class SessionManager implements ISessionManager {
     sessionId?: string,
     personaId?: string,
     attachments?: IAttachment[]
+  ): Promise<IConversationResponse> {
+    return this.processMessageInternal(message, sessionId, personaId, attachments, undefined);
+  }
+
+  async processMessageWithStream(
+    message: string,
+    sessionId: string | undefined,
+    personaId: string | undefined,
+    attachments: IAttachment[] | undefined,
+    onChunk: (chunk: string) => void
+  ): Promise<IConversationResponse> {
+    return this.processMessageInternal(message, sessionId, personaId, attachments, onChunk);
+  }
+
+  private async processMessageInternal(
+    message: string,
+    sessionId?: string,
+    personaId?: string,
+    attachments?: IAttachment[],
+    onChunk?: (chunk: string) => void
   ): Promise<IConversationResponse> {
     debug.custom('session.process.start', 'session-manager', {
       sessionId,
@@ -146,19 +174,19 @@ export class SessionManager implements ISessionManager {
 
     switch (stateMachine.getCurrentState()) {
       case 'executing':
-        const result = await this.handleExecuting(session, analysis, persona);
+        const result = await this.handleExecuting(session, analysis, persona, onChunk);
         response = result.response;
         taskInfo = result.taskInfo;
         break;
 
       case 'monitoring':
-        const monitorResult = await this.handleMonitoring(session, persona);
+        const monitorResult = await this.handleMonitoring(session, persona, onChunk);
         response = monitorResult.response;
         taskInfo = monitorResult.taskInfo;
         break;
 
       case 'retrying':
-        response = await this.handleRetrying(session, persona);
+        response = await this.handleRetrying(session, persona, onChunk);
         break;
 
       default:
@@ -171,7 +199,7 @@ export class SessionManager implements ISessionManager {
             goalId: session.activeGoalId,
             status: 'active',
           } : undefined,
-        });
+        }, onChunk);
     }
 
     // Add assistant turn
@@ -206,7 +234,8 @@ export class SessionManager implements ISessionManager {
   private async handleExecuting(
     session: IConversationSession,
     analysis: IInputAnalysis,
-    persona: IPersona
+    persona: IPersona,
+    onChunk?: (chunk: string) => void
   ): Promise<{ response: string; taskInfo?: IConversationResponse['taskInfo'] }> {
     // Extract requirements from analysis
     const requirements: IExtractedRequirements = {
@@ -246,7 +275,7 @@ export class SessionManager implements ISessionManager {
         goalId: result.goalId,
         status: 'started',
       },
-    });
+    }, onChunk);
 
     return {
       response,
@@ -260,7 +289,8 @@ export class SessionManager implements ISessionManager {
 
   private async handleMonitoring(
     session: IConversationSession,
-    persona: IPersona
+    persona: IPersona,
+    onChunk?: (chunk: string) => void
   ): Promise<{ response: string; taskInfo?: IConversationResponse['taskInfo'] }> {
     if (!session.activeGoalId) {
       return {
@@ -283,7 +313,8 @@ export class SessionManager implements ISessionManager {
         currentStep: progress.currentItem?.title || 'Processing...',
         elapsedTime: Date.now() - progress.startedAt,
       },
-      persona
+      persona,
+      onChunk
     );
 
     return {
@@ -298,7 +329,8 @@ export class SessionManager implements ISessionManager {
 
   private async handleRetrying(
     session: IConversationSession,
-    persona: IPersona
+    persona: IPersona,
+    onChunk?: (chunk: string) => void
   ): Promise<string> {
     // Get or initialize retry context
     let retryContext = this.retryContexts.get(session.id);

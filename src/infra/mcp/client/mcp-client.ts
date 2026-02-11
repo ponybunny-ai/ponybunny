@@ -199,17 +199,52 @@ export class MCPClient {
    * Connect using HTTP transport
    */
   private async connectHttp(): Promise<void> {
-    const { url, headers = {} } = this.options.config;
+    const { url, headers = {}, timeout = 90000 } = this.options.config;
 
     if (!url) {
       throw new MCPConnectionError(this.options.serverName, 'Missing url for HTTP transport');
     }
 
-    // Create HTTP transport
+    // Create a custom fetch with extended timeout for SSE connections
+    const customFetch = async (input: string | URL, init?: RequestInit) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+      try {
+        // Workaround for Unla MCP gateway: Skip GET SSE request
+        // Unla's /mcp endpoint requires session ID before accepting GET SSE,
+        // but session is only available after POST initialize.
+        // Return 405 to force SDK into POST-only mode.
+        if (init?.method === 'GET' || !init?.method) {
+          const headers = new Headers(init?.headers);
+          if (headers.get('Accept') === 'text/event-stream') {
+            return new Response(null, {
+              status: 405,
+              statusText: 'Method Not Allowed',
+            });
+          }
+        }
+
+        const response = await fetch(input, {
+          ...init,
+          signal: controller.signal,
+          // @ts-ignore - undici-specific options
+          headersTimeout: timeout,
+          bodyTimeout: timeout,
+        });
+
+        return response;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    };
+
+    // Create HTTP transport with custom fetch
     this.transport = new StreamableHTTPClientTransport(new URL(url), {
       requestInit: {
         headers: headers,
       },
+      fetch: customFetch as any,
     });
 
     // Set up transport event handlers
