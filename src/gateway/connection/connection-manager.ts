@@ -282,11 +282,18 @@ export class ConnectionManager {
     totalSessions: number;
     pendingConnections: number;
     uniqueIps: number;
+    connectionsByIp: Record<string, number>;
   } {
+    const connectionsByIp: Record<string, number> = {};
+    for (const [ip, count] of this.ipConnectionCounts.entries()) {
+      connectionsByIp[ip] = count;
+    }
+
     return {
       totalSessions: this.sessions.size,
       pendingConnections: this.pendingConnections.size,
       uniqueIps: this.ipConnectionCounts.size,
+      connectionsByIp,
     };
   }
 

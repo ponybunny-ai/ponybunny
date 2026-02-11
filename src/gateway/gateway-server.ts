@@ -31,6 +31,7 @@ import { registerDebugHandlers } from './rpc/handlers/debug-handlers.js';
 import { registerConversationHandlers } from './rpc/handlers/conversation-handlers.js';
 import { registerPersonaHandlers } from './rpc/handlers/persona-handlers.js';
 import { registerAuditHandlers } from './rpc/handlers/audit-handlers.js';
+import { registerSystemHandlers } from './rpc/handlers/system-handlers.js';
 import { setupDebugBroadcaster } from './debug-broadcaster.js';
 
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
@@ -58,12 +59,14 @@ import { ExecuteCommandTool } from '../infra/tools/implementations/execute-comma
 import { SearchCodeTool } from '../infra/tools/implementations/search-code-tool.js';
 import { WebSearchTool } from '../infra/tools/implementations/web-search-tool.js';
 import { findSkillsTool } from '../infra/tools/implementations/find-skills-tool.js';
+import { ConfigWatcher, createConfigWatcher } from './config/config-watcher.js';
 
 export interface GatewayServerDependencies {
   db: Database.Database;
   repository: IWorkOrderRepository;
   debugMode?: boolean;
-  personasDir?: string;  // Optional custom personas directory
+  personasDir?: string;
+  enableConfigWatch?: boolean;
 }
 
 export class GatewayServer {
@@ -102,6 +105,9 @@ export class GatewayServer {
   private personaEngine: IPersonaEngine;
   private responseGenerator?: ResponseGenerator;
 
+  private configWatcher?: ConfigWatcher;
+  private enableConfigWatch: boolean;
+
   private isRunning = false;
 
   constructor(
@@ -112,6 +118,7 @@ export class GatewayServer {
     this.db = dependencies.db;
     this.repository = dependencies.repository;
     this.debugMode = dependencies.debugMode ?? false;
+    this.enableConfigWatch = dependencies.enableConfigWatch ?? false;
 
     // Initialize components
     this.eventBus = new EventBus();
@@ -169,7 +176,10 @@ export class GatewayServer {
     this.personaEngine = personaEngine;
     this.sessionManager = sessionManager;
 
-    // Register RPC handlers
+    if (this.enableConfigWatch) {
+      this.initializeConfigWatcher();
+    }
+
     this.registerHandlers();
   }
 
@@ -271,6 +281,26 @@ export class GatewayServer {
     return { personaEngine, sessionManager };
   }
 
+  private initializeConfigWatcher(): void {
+    const configDir = join(homedir(), '.ponybunny');
+    this.configWatcher = createConfigWatcher(configDir);
+
+    this.configWatcher.on('change', (event: { path: string; timestamp: number }) => {
+      console.log(`[GatewayServer] Config file changed: ${event.path}`);
+      this.eventBus.emit('config.changed', event);
+      
+      if (this.config.autoRestart) {
+        console.log('[GatewayServer] Auto-restart triggered by config change');
+        this.restartServer().catch((error: Error) => {
+          console.error('[GatewayServer] Auto-restart failed:', error);
+        });
+      }
+    });
+
+    this.configWatcher.start();
+    console.log('[GatewayServer] Config watcher initialized');
+  }
+
   private registerHandlers(): void {
     registerGoalHandlers(this.rpcHandler, this.repository, this.eventBus, () => this.scheduler, this.auditService);
     registerWorkItemHandlers(this.rpcHandler, this.repository);
@@ -284,14 +314,23 @@ export class GatewayServer {
       () => this.connectionManager
     );
 
-    // Conversation handlers
     registerConversationHandlers(this.rpcHandler, this.sessionManager, this.eventBus);
     registerPersonaHandlers(this.rpcHandler, this.personaEngine);
 
-    // Audit handlers
     registerAuditHandlers(this.rpcHandler, this.auditService, this.auditRepository);
 
-    // System methods
+    registerSystemHandlers(
+      this.rpcHandler,
+      () => this.connectionManager,
+      () => this.scheduler,
+      () => ({
+        isRunning: this.isRunning,
+        daemonConnected: this.daemonBridge.isConnected(),
+        schedulerConnected: this.schedulerBridge.isConnected(),
+      }),
+      () => this.toolRegistry
+    );
+
     this.rpcHandler.register('system.ping', [], async () => ({ pong: Date.now() }));
     this.rpcHandler.register('system.methods', ['read'], async (_, session) => ({
       methods: this.rpcHandler.listAccessibleMethods(session),
@@ -386,17 +425,18 @@ export class GatewayServer {
 
     this.isRunning = false;
 
-    // Stop debug broadcaster
+    if (this.configWatcher) {
+      this.configWatcher.stop();
+    }
+
     if (this.debugBroadcasterCleanup) {
       this.debugBroadcasterCleanup();
       this.debugBroadcasterCleanup = null;
     }
 
-    // Stop IPC bridge and server
     this.ipcBridge.disconnect();
     await this.ipcServer.stop();
 
-    // Shutdown audit service (flush pending logs)
     await this.auditService.shutdown();
 
     this.broadcastManager.stop();
@@ -412,6 +452,14 @@ export class GatewayServer {
         resolve();
       }
     });
+  }
+
+  async restartServer(): Promise<void> {
+    console.log('[GatewayServer] Restarting server...');
+    await this.stop();
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    await this.start();
+    console.log('[GatewayServer] Server restarted successfully');
   }
 
   /**

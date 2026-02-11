@@ -255,6 +255,16 @@ export function createMCPCommand(): Command {
         const tools = await client.listTools();
         console.log(chalk.gray(`  Tools available: ${tools.length}`));
 
+        if (tools.length > 0) {
+          console.log(chalk.bold('\n  Available Tools:'));
+          for (const tool of tools) {
+            console.log(chalk.cyan(`    • ${tool.name}`));
+            if (tool.description) {
+              console.log(chalk.gray(`      ${tool.description}`));
+            }
+          }
+        }
+
         await client.disconnect();
       } catch (error) {
         console.error(chalk.red('✗ Connection failed:'), (error as Error).message);

@@ -91,11 +91,12 @@ export interface GatewayConfig {
   heartbeatIntervalMs: number;
   heartbeatTimeoutMs: number;
   maxConnectionsPerIp: number;
-  maxLocalConnections?: number; // Separate limit for localhost connections (default: 512)
+  maxLocalConnections?: number;
   authTimeoutMs: number;
   enableTls: boolean;
   tlsCertPath?: string;
   tlsKeyPath?: string;
+  autoRestart?: boolean;
 }
 
 export const DEFAULT_GATEWAY_CONFIG: GatewayConfig = {
