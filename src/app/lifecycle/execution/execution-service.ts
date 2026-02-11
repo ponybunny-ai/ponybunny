@@ -99,8 +99,11 @@ export class ExecutionService implements IExecutionService {
   async executeWorkItem(workItem: WorkItem): Promise<ExecutionResult> {
     const startTime = Date.now();
 
-    // Get goal for context
     const goal = this.repository.getGoal(workItem.goal_id);
+
+    if (process.env.PONY_SKILL_AUTO_DISCOVERY !== 'false') {
+      await this.preSearchSkills(workItem);
+    }
 
     const runSequence = this.repository.getRunsByWorkItem(workItem.id).length + 1;
     const run = this.repository.createRun({
@@ -111,7 +114,6 @@ export class ExecutionService implements IExecutionService {
     });
 
     try {
-      // Enhanced: Pass goal context for phase-aware prompts
       const agentResult = await this.reactIntegration.executeWorkCycle({
         workItem,
         run,
@@ -201,5 +203,75 @@ export class ExecutionService implements IExecutionService {
       hash = hash & hash;
     }
     return Math.abs(hash).toString(16);
+  }
+
+  private async preSearchSkills(workItem: WorkItem): Promise<void> {
+    try {
+      const keywords = this.extractKeywords(workItem.description);
+      if (keywords.length === 0) return;
+
+      const suggestedSkills: any[] = [];
+      const searchLimit = Math.min(keywords.length, 3);
+
+      for (let i = 0; i < searchLimit; i++) {
+        const keyword = keywords[i];
+        try {
+          const searchResult = await findSkillsTool.execute(
+            {
+              query: keyword,
+              install: false,
+              limit: 2,
+            },
+            { cwd: process.cwd(), allowlist: this.toolAllowlist, enforcer: this.toolEnforcer }
+          );
+
+          const parsed = JSON.parse(searchResult);
+          if (parsed.skills && Array.isArray(parsed.skills) && parsed.skills.length > 0) {
+            suggestedSkills.push(...parsed.skills);
+          }
+        } catch (error) {
+          console.warn(`[ExecutionService] Skill pre-search failed for "${keyword}":`, error);
+        }
+      }
+
+      if (suggestedSkills.length > 0) {
+        const uniqueSkills = this.deduplicateSkills(suggestedSkills);
+        workItem.context = {
+          ...workItem.context,
+          suggestedSkills: uniqueSkills.slice(0, 5),
+        };
+        console.log(`[ExecutionService] Pre-searched ${uniqueSkills.length} skills for work item ${workItem.id}`);
+      }
+    } catch (error) {
+      console.warn('[ExecutionService] Skill pre-search failed:', error);
+    }
+  }
+
+  private extractKeywords(text: string): string[] {
+    const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been', 'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'what', 'which', 'who', 'when', 'where', 'why', 'how']);
+    
+    const words = text
+      .toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(word => word.length > 3 && !stopWords.has(word));
+    
+    const uniqueWords = [...new Set(words)];
+    return uniqueWords.slice(0, 5);
+  }
+
+  private deduplicateSkills(skills: any[]): any[] {
+    const seen = new Set<string>();
+    const unique: any[] = [];
+    
+    for (const skill of skills) {
+      const key = skill.name || skill.url;
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        unique.push(skill);
+      }
+    }
+    
+    return unique;
   }
 }

@@ -60,6 +60,7 @@ import { SearchCodeTool } from '../infra/tools/implementations/search-code-tool.
 import { WebSearchTool } from '../infra/tools/implementations/web-search-tool.js';
 import { findSkillsTool } from '../infra/tools/implementations/find-skills-tool.js';
 import { ConfigWatcher, createConfigWatcher } from './config/config-watcher.js';
+import { getGlobalSkillRegistry } from '../infra/skills/skill-registry.js';
 
 export interface GatewayServerDependencies {
   db: Database.Database;
@@ -181,6 +182,26 @@ export class GatewayServer {
     }
 
     this.registerHandlers();
+  }
+
+  /**
+   * Initialize skills registry for read-only access
+   */
+  private async initializeSkills(): Promise<void> {
+    try {
+      const skillRegistry = getGlobalSkillRegistry();
+      const managedSkillsDir = process.env.PONYBUNNY_SKILLS_DIR || 
+        path.join(homedir(), '.ponybunny', 'skills');
+      
+      await skillRegistry.loadSkills({
+        workspaceDir: process.cwd(),
+        managedSkillsDir,
+      });
+      
+      console.log(`[GatewayServer] Loaded ${skillRegistry.getSkills().length} skills for monitoring`);
+    } catch (error) {
+      console.warn(`[GatewayServer] Failed to load skills (non-fatal): ${error}`);
+    }
   }
 
   /**
@@ -364,10 +385,13 @@ export class GatewayServer {
           }
         });
 
-        this.wss.on('listening', () => {
+        this.wss.on('listening', async () => {
           this.isRunning = true;
           this.connectionManager.start();
           this.broadcastManager.start();
+
+          // Initialize Skills
+          await this.initializeSkills();
 
           // Initialize MCP integration (connect to external tool servers)
           this.initializeMCP().catch((error) => {

@@ -303,7 +303,7 @@ export class ReActIntegration {
   }
 
   private buildInitialObservation(workItem: WorkItem): string {
-    return `Task: ${workItem.title}
+    const baseObservation = `Task: ${workItem.title}
 
 Description: ${workItem.description}
 
@@ -316,9 +316,58 @@ ${workItem.verification_plan.quality_gates.map(g => `- ${g.name}: ${g.command ||
 
 ${workItem.context ? `Context:
 ${JSON.stringify(workItem.context, null, 2)}
-` : ''}
+` : ''}`;
+
+    // Add skill suggestions if available (from pre-search)
+    const skillSuggestions = this.buildSkillSuggestions(workItem);
+    
+    return `${baseObservation}
+
+${skillSuggestions}
 
 Begin by analyzing the task and forming a plan.`;
+  }
+
+  private buildSkillSuggestions(workItem: WorkItem): string {
+    const suggestions: string[] = [];
+    
+    // Check if pre-searched skills are available
+    if (workItem.context?.suggestedSkills && Array.isArray(workItem.context.suggestedSkills)) {
+      const skills = workItem.context.suggestedSkills;
+      if (skills.length > 0) {
+        suggestions.push('**Suggested Skills** (pre-searched from skills.sh):');
+        for (const skill of skills) {
+          suggestions.push(`- ${skill.name}: ${skill.description}`);
+          suggestions.push(`  Install: find_skills({"query": "${skill.name}", "install": true})`);
+        }
+        suggestions.push('');
+      }
+    }
+    
+    // Extract keywords for skill search
+    const keywords = this.extractKeywords(workItem.description);
+    if (keywords.length > 0 && process.env.PONY_SKILL_SUGGESTIONS !== 'false') {
+      suggestions.push('**Skill Search Suggestions**:');
+      suggestions.push(`Consider searching for skills related to: ${keywords.join(', ')}`);
+      suggestions.push(`Example: find_skills({"query": "${keywords[0]}", "install": true})`);
+    }
+    
+    return suggestions.join('\n');
+  }
+
+  private extractKeywords(text: string): string[] {
+    // Simple keyword extraction - can be enhanced with NLP
+    const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been', 'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'what', 'which', 'who', 'when', 'where', 'why', 'how']);
+    
+    const words = text
+      .toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(word => word.length > 3 && !stopWords.has(word));
+    
+    // Get unique words and limit to top 5
+    const uniqueWords = [...new Set(words)];
+    return uniqueWords.slice(0, 5);
   }
 
 

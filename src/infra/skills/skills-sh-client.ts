@@ -1,10 +1,12 @@
 /**
- * Skills.sh API Client
+ * Skills.sh CLI Client
  * Integrates with https://skills.sh to discover and download skills
+ * Uses the skills CLI (npx skills) for searching
  */
 
 import https from 'node:https';
 import http from 'node:http';
+import { spawn } from 'node:child_process';
 
 export interface SkillsShSkill {
   name: string;
@@ -43,45 +45,90 @@ export class SkillsShClient {
     const { query = '', limit = 10 } = options;
 
     try {
-      // Call the find-skills API
-      const searchUrl = `${this.baseUrl}/api/vercel-labs/skills/find-skills`;
-      const requestBody = JSON.stringify({
-        query,
-        limit,
-        tags: options.tags,
-        author: options.author,
-      });
-
-      const result = await this.makeRequest(searchUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(requestBody).toString(),
-        },
-        body: requestBody,
-      });
-
-      const data = JSON.parse(result);
-
-      // Parse response into SkillsShSkill format
-      const skills: SkillsShSkill[] = (data.skills || []).map((skill: any) => ({
-        name: skill.name || skill.id,
-        description: skill.description || '',
-        author: skill.author,
-        version: skill.version,
-        tags: skill.tags || [],
-        url: skill.url || `${this.baseUrl}/${skill.author}/skills/${skill.name}`,
-        downloadUrl: skill.downloadUrl,
-      }));
+      const output = await this.executeSkillsCLI(['find', query]);
+      const skills = this.parseSkillsOutput(output, limit);
 
       return {
         skills,
-        total: data.total || skills.length,
+        total: skills.length,
       };
     } catch (error) {
       console.error('[SkillsShClient] Search failed:', error);
       throw new Error(`Failed to search skills: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+  private executeSkillsCLI(args: string[]): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const child = spawn('npx', ['skills', ...args], {
+        stdio: 'pipe',
+      });
+
+      let stdout = '';
+      let stderr = '';
+      let timeoutId: NodeJS.Timeout;
+
+      const cleanup = () => {
+        if (timeoutId) clearTimeout(timeoutId);
+      };
+
+      timeoutId = setTimeout(() => {
+        child.kill('SIGTERM');
+        reject(new Error('skills CLI timeout after 10s'));
+      }, 10000);
+
+      child.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      child.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      child.on('close', (code) => {
+        cleanup();
+        if (code === 0 || stdout.length > 0) {
+          resolve(stdout);
+        } else {
+          reject(new Error(`skills CLI exited with code ${code}: ${stderr}`));
+        }
+      });
+
+      child.on('error', (error) => {
+        cleanup();
+        reject(error);
+      });
+    });
+  }
+
+  private parseSkillsOutput(output: string, limit: number): SkillsShSkill[] {
+    const skills: SkillsShSkill[] = [];
+    const lines = output.split('\n');
+
+    for (const line of lines) {
+      const cleanLine = line.replace(/\x1b\[[0-9;]*m/g, '');
+      
+      const skillMatch = cleanLine.match(/^([^\s]+\/[^\s]+)@([^\s]+)$/);
+      if (skillMatch) {
+        const [, ownerRepo, skillName] = skillMatch;
+        const [owner, repo] = ownerRepo.split('/');
+        const url = `https://skills.sh/${ownerRepo}/${skillName}`;
+        
+        skills.push({
+          name: skillName,
+          description: '',
+          author: owner,
+          url,
+          downloadUrl: `${url}/SKILL.md`,
+        });
+
+        if (skills.length >= limit) {
+          break;
+        }
+      }
+    }
+
+    return skills;
   }
 
   /**
