@@ -231,7 +231,7 @@ cat skills/weather-query/SKILL.md
 
 - **完整集成文档**: `docs/INTEGRATION-COMPLETE.md`
 - **OpenClaw 分析**: `docs/engineering/openclaw-system-prompt-analysis.md`
-- **本文档**: `FINAL-DELIVERY.md`
+- **本文档**: `docs/delivery/final-delivery.md`
 
 ## ✅ 检查清单
 
