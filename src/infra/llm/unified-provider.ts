@@ -5,6 +5,7 @@ import { getProtocolAdapter } from './protocols/index.js';
 import type { EndpointConfig } from './endpoints/index.js';
 import { resolveCredentials } from './endpoints/index.js';
 import { ModelRouter, getModelRouter } from './routing/index.js';
+import { authManagerV2 } from '../../cli/lib/auth-manager-v2.js';
 
 /**
  * Configuration for UnifiedLLMProvider
@@ -40,15 +41,7 @@ export class UnifiedLLMProvider implements ILLMProvider {
       throw new LLMProviderError('Model must be specified', 'unified-provider', false);
     }
 
-    const protocolId = this.router.getProtocolForModel(model);
-    if (!protocolId) {
-      throw new LLMProviderError(
-        `No protocol found for model: ${model}`,
-        'unified-provider',
-        false
-      );
-    }
-
+    console.log(`🚀 [UnifiedProvider] Received request for model: ${model}`);
     const endpoints = this.router.getEndpointsForModel(model);
     if (endpoints.length === 0) {
       throw new LLMProviderError(
@@ -58,15 +51,21 @@ export class UnifiedLLMProvider implements ILLMProvider {
       );
     }
 
-    const adapter = getProtocolAdapter(protocolId);
+    console.log(`📋 [UnifiedProvider] Endpoints candidates: ${endpoints.map(e => e.id).join(', ')}`);
     let lastError: Error | null = null;
 
     // Try endpoints in priority order with fallback
     for (const endpoint of endpoints) {
       try {
-        return await this.callEndpoint(adapter, endpoint, messages, model, options);
+        const adapter = getProtocolAdapter(endpoint.protocol);
+        console.log(`pw [UnifiedProvider] Attempting to call endpoint: ${endpoint.id} (${endpoint.baseUrl})`);
+        const response = await this.callEndpoint(adapter, endpoint, messages, model, options);
+        console.log(`🎉 [UnifiedProvider] Success from ${endpoint.id}`);
+        return response;
       } catch (error) {
         lastError = error as Error;
+
+        console.log(`⚠️ [UnifiedProvider] Failed call to ${endpoint.id}: ${(error as Error).message}`);
 
         // Log the failure
         console.warn(
@@ -115,7 +114,24 @@ export class UnifiedLLMProvider implements ILLMProvider {
       secretAccessKey: credentials.secretAccessKey,
       region: credentials.region,
       projectId: credentials.projectId,
+      accessToken: credentials.accessToken,
     };
+
+    // Special handling for Codex OAuth
+    if (adapter.protocolId === 'codex') {
+      try {
+        const token = await authManagerV2.getAccessToken();
+        if (token) {
+          endpointCreds.accessToken = token;
+        } else {
+          // If we can't get a token, we should probably warn or throw, 
+          // but the adapter might have other ways to auth (unlikely for Codex)
+          console.warn('[UnifiedProvider] No OAuth token available for Codex');
+        }
+      } catch (error) {
+        console.warn(`[UnifiedProvider] Failed to get Codex token: ${(error as Error).message}`);
+      }
+    }
 
     // Build request
     const requestBody = adapter.formatRequest(messages, {
@@ -132,12 +148,15 @@ export class UnifiedLLMProvider implements ILLMProvider {
     const baseUrl = credentials.baseUrl || credentials.endpoint || endpoint.baseUrl;
     const url = adapter.buildUrl(baseUrl, model, endpointCreds);
     const headers = this.buildHeaders(adapter, endpoint, endpointCreds);
+    if (adapter.protocolId === 'codex') {
+      headers['Accept'] = 'text/event-stream';
+    }
 
     // Make request
     const timeout = options?.timeout || this.config.defaultTimeout || 60000;
 
     // Handle streaming
-    if (options?.stream && adapter.supportsStreaming()) {
+    if ((options?.stream && adapter.supportsStreaming()) || adapter.protocolId === 'codex') {
       return await this.handleStreamingRequest(
         url,
         headers,
@@ -145,7 +164,7 @@ export class UnifiedLLMProvider implements ILLMProvider {
         timeout,
         adapter,
         model,
-        options.onChunk
+        options?.onChunk
       );
     }
 

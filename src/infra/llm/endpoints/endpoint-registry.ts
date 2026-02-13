@@ -1,4 +1,5 @@
 import type { EndpointId, EndpointConfig } from './endpoint-config.js';
+import { hasRequiredCredentials } from './endpoint-config.js';
 
 /**
  * All supported endpoint configurations
@@ -77,6 +78,16 @@ export const ENDPOINT_CONFIGS: Record<EndpointId, EndpointConfig> = {
     displayName: 'Google Vertex AI',
     description: 'Gemini via Google Cloud Vertex AI',
   },
+
+  'codex': {
+    id: 'codex',
+    protocol: 'codex',
+    baseUrl: 'https://chatgpt.com/backend-api',
+    requiredEnvVars: [], // OAuth token managed dynamically
+    priority: 1,
+    displayName: 'OpenAI Codex (OAuth)',
+    description: 'ChatGPT Backend API via OAuth',
+  },
 };
 
 /**
@@ -101,9 +112,7 @@ export function getAllEndpointConfigs(): EndpointConfig[] {
  * Get available endpoints (those with required credentials)
  */
 export function getAvailableEndpoints(): EndpointConfig[] {
-  return getAllEndpointConfigs().filter(config => {
-    return config.requiredEnvVars.every(envVar => !!process.env[envVar]);
-  });
+  return getAllEndpointConfigs().filter(config => hasRequiredCredentials(config));
 }
 
 /**

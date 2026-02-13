@@ -119,6 +119,7 @@ export class ExecutionService implements IExecutionService {
         run,
         goal,
         signal: new AbortController().signal,
+        model: workItem.context?.model,
       });
 
       const timeSeconds = Math.floor((Date.now() - startTime) / 1000);

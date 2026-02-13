@@ -91,7 +91,7 @@ export class OpenAIClient {
     const userMessages = request.messages.filter(m => m.role !== 'system');
     
     const body = {
-      model: request.model === 'gpt-5.2' ? 'gpt-5.2-codex' : request.model,
+      model: request.model,
       store: false,
       stream: false,
       instructions: systemMessage?.content || 'You are a helpful AI assistant.',
@@ -134,7 +134,7 @@ export class OpenAIClient {
     const userMessages = request.messages.filter(m => m.role !== 'system');
 
     const body = {
-      model: request.model === 'gpt-5.2' ? 'gpt-5.2-codex' : request.model,
+      model: request.model,
       store: false,
       stream: true,
       instructions: systemMessage?.content || 'You are a helpful AI assistant.',

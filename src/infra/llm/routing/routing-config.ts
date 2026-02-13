@@ -25,9 +25,14 @@ export const DEFAULT_ROUTING_CONFIG: ModelRoutingConfig[] = [
     endpoints: ['anthropic-direct', 'aws-bedrock'],
   },
   {
+    pattern: 'gpt-*-codex',
+    protocol: 'codex',
+    endpoints: ['codex'],
+  },
+  {
     pattern: 'gpt-*',
     protocol: 'openai',
-    endpoints: ['openai-direct', 'azure-openai'],
+    endpoints: ['openai-direct', 'azure-openai', 'openai-compatible'],
   },
   {
     pattern: 'o1*',

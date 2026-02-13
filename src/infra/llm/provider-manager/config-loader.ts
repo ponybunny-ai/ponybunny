@@ -53,6 +53,11 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
       priority: 1,
       rateLimit: { requestsPerMinute: 60 },
     },
+    'openai-compatible': {
+      enabled: false,
+      protocol: 'openai',
+      priority: 3,
+    },
     'azure-openai': {
       enabled: false,
       protocol: 'openai',
@@ -68,6 +73,12 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
       enabled: false,
       protocol: 'gemini',
       priority: 2,
+    },
+    codex: {
+      enabled: true,
+      protocol: 'codex',
+      baseUrl: 'https://chatgpt.com/backend-api',
+      priority: 1,
     },
   },
   models: {
@@ -95,6 +106,13 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
     'gpt-5.2': {
       displayName: 'GPT-5.2',
       endpoints: ['openai-direct'],
+      costPer1kTokens: { input: 0.01, output: 0.03 },
+      maxContextTokens: 128000,
+      capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
+    },
+    'gpt-5.2-codex': {
+      displayName: 'GPT-5.2 Codex (OAuth)',
+      endpoints: ['codex'],
       costPer1kTokens: { input: 0.01, output: 0.03 },
       maxContextTokens: 128000,
       capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
@@ -182,7 +200,7 @@ const EMBEDDED_SCHEMA = {
         required: ['enabled', 'protocol', 'priority'],
         properties: {
           enabled: { type: 'boolean' },
-          protocol: { type: 'string', enum: ['anthropic', 'openai', 'gemini'] },
+          protocol: { type: 'string', enum: ['anthropic', 'openai', 'gemini', 'codex'] },
           baseUrl: { type: 'string' },
           priority: { type: 'integer', minimum: 1 },
           rateLimit: {
@@ -280,16 +298,36 @@ function createValidator(): Ajv2020 {
 function loadSchema(): object {
   const schemaPath = getSchemaPath();
 
+  const patchSchema = (schema: any): any => {
+    const patchEnum = (maybeEnum: unknown) => {
+      if (Array.isArray(maybeEnum) && !maybeEnum.includes('codex')) {
+        maybeEnum.push('codex');
+      }
+    };
+
+    try {
+      patchEnum(schema?.properties?.endpoints?.additionalProperties?.properties?.protocol?.enum);
+    } catch {
+    }
+
+    try {
+      patchEnum(schema?.$defs?.EndpointConfig?.properties?.protocol?.enum);
+    } catch {
+    }
+
+    return schema;
+  };
+
   try {
     if (fs.existsSync(schemaPath)) {
       const content = fs.readFileSync(schemaPath, 'utf-8');
-      return JSON.parse(content);
+      return patchSchema(JSON.parse(content));
     }
   } catch (error) {
     console.warn(`[ConfigLoader] Failed to load schema file, using embedded schema: ${(error as Error).message}`);
   }
 
-  return EMBEDDED_SCHEMA;
+  return patchSchema(EMBEDDED_SCHEMA);
 }
 
 /**

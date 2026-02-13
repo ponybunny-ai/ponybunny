@@ -4,6 +4,7 @@ import type { LLMProviderRegistry } from './provider-registry.js';
 import { getProviderRegistry, estimateModelCost } from './provider-factory.js';
 import { UnifiedLLMProvider } from './unified-provider.js';
 import { getModelRouter } from './routing/index.js';
+import { getAvailableEndpoints } from './endpoints/index.js';
 import type { ModelTier } from '../../scheduler/model-selector/types.js';
 import { getLLMProviderManager } from './provider-manager/index.js';
 import type { AgentId, LLMCompletionOptions } from './provider-manager/index.js';
@@ -321,6 +322,9 @@ export class LLMService implements ILLMProvider {
    * Get list of available provider IDs (those with valid API keys)
    */
   getAvailableProviders(): string[] {
+    if (this.unifiedProvider) {
+      return getAvailableEndpoints().map(e => e.id);
+    }
     return this.registry.getAvailableProviderIds();
   }
 

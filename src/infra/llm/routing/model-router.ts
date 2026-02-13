@@ -3,6 +3,16 @@ import type { EndpointId, EndpointConfig } from '../endpoints/index.js';
 import { getEndpointConfig, hasRequiredCredentials } from '../endpoints/index.js';
 import type { ModelRoutingConfig } from './routing-config.js';
 import { getRoutingConfig } from './routing-config.js';
+import { getModelConfig as getLLMModelConfig, getEndpointConfig as getLLMEndpointConfig } from '../provider-manager/config-loader.js';
+import { authManagerV2 } from '../../../cli/lib/auth-manager-v2.js';
+
+function safeGetEndpointConfig(endpointId: string): EndpointConfig | null {
+  try {
+    return getEndpointConfig(endpointId as EndpointId);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Model router for determining protocol and endpoints for a given model
@@ -19,6 +29,14 @@ export class ModelRouter {
    * Get the protocol for a model
    */
   getProtocolForModel(modelId: string): ProtocolId | undefined {
+    const llmModelConfig = getLLMModelConfig(modelId);
+    if (llmModelConfig) {
+      const firstEndpointId = llmModelConfig.endpoints[0];
+      if (!firstEndpointId) return undefined;
+      const endpoint = safeGetEndpointConfig(firstEndpointId);
+      return endpoint?.protocol;
+    }
+
     const config = this.findRoutingConfig(modelId);
     return config?.protocol;
   }
@@ -27,21 +45,69 @@ export class ModelRouter {
    * Get available endpoints for a model, ordered by priority
    */
   getEndpointsForModel(modelId: string): EndpointConfig[] {
-    const config = this.findRoutingConfig(modelId);
-    if (!config) {
+    console.log(`🔍 [ModelRouter] Resolving endpoints for model: ${modelId}`);
+
+    const llmModelConfig = getLLMModelConfig(modelId);
+    const candidateEndpointIds: string[] = llmModelConfig?.endpoints ?? [];
+
+    if (llmModelConfig) {
+      console.log(`✅ [ModelRouter] Exact model match in llm-config: ${modelId}`);
+      console.log(`📋 [ModelRouter] Candidate endpoints from llm-config.models['${modelId}'].endpoints: ${candidateEndpointIds.join(', ')}`);
+    } else {
+      console.log(`⚠️ [ModelRouter] No exact model match in llm-config for: ${modelId}`);
+    }
+
+    const routingConfig = llmModelConfig ? undefined : this.findRoutingConfig(modelId);
+    const fallbackEndpointIds = routingConfig?.endpoints ?? [];
+
+    const endpointIdsToTry = llmModelConfig ? candidateEndpointIds : fallbackEndpointIds;
+
+    if (!llmModelConfig && routingConfig) {
+      console.log(`✅ [ModelRouter] Matched pattern '${routingConfig.pattern}' -> Protocol '${routingConfig.protocol}'`);
+      console.log(`📋 [ModelRouter] Candidate endpoints from routing-config: ${endpointIdsToTry.join(', ')}`);
+    }
+
+    if (endpointIdsToTry.length === 0) {
+      console.log(`❌ [ModelRouter] No candidate endpoints for model: ${modelId}`);
       return [];
     }
 
-    return config.endpoints
+    const endpointsWithMeta = endpointIdsToTry
       .map(endpointId => {
-        try {
-          return getEndpointConfig(endpointId);
-        } catch {
+        const endpoint = safeGetEndpointConfig(endpointId);
+        if (!endpoint) return null;
+
+        const llmEndpointConfig = getLLMEndpointConfig(endpointId);
+        if (llmEndpointConfig && llmEndpointConfig.enabled === false) {
+          console.log(`⚠️ [ModelRouter] Endpoint ${endpointId} disabled in llm-config.endpoints`);
           return null;
         }
+
+        const baseUrlOverride = llmEndpointConfig?.baseUrl;
+        return baseUrlOverride ? { ...endpoint, baseUrl: baseUrlOverride } : endpoint;
       })
       .filter((config): config is EndpointConfig => config !== null)
-      .filter(config => this.isEndpointAvailable(config.id));
+      .filter(config => {
+        const available = this.isEndpointAvailable(config.id);
+        if (!available) {
+          console.log(`⚠️ [ModelRouter] Endpoint ${config.id} is unavailable (missing credentials/disabled)`);
+        }
+        return available;
+      });
+
+    const isOAuthEndpoint = (endpoint: EndpointConfig): boolean => endpoint.protocol === 'codex';
+    const endpoints = endpointsWithMeta
+      .map((endpoint, index) => ({ endpoint, index }))
+      .sort((a, b) => {
+        const ao = isOAuthEndpoint(a.endpoint) ? 0 : 1;
+        const bo = isOAuthEndpoint(b.endpoint) ? 0 : 1;
+        if (ao !== bo) return ao - bo;
+        return a.index - b.index;
+      })
+      .map(x => x.endpoint);
+
+    console.log(`✅ [ModelRouter] Final available endpoints (oauth preferred): ${endpoints.map(e => e.id).join(', ')}`);
+    return endpoints;
   }
 
   /**
@@ -55,7 +121,14 @@ export class ModelRouter {
 
     try {
       const config = getEndpointConfig(endpointId);
-      const available = hasRequiredCredentials(config);
+
+      const hasCreds = hasRequiredCredentials(config);
+      let available = hasCreds;
+
+      if (available && config.protocol === 'codex') {
+        available = authManagerV2.isAuthenticated();
+      }
+
       this.availabilityCache.set(endpointId, available);
       return available;
     } catch {
@@ -99,6 +172,7 @@ export class ModelRouter {
   private findRoutingConfig(modelId: string): ModelRoutingConfig | undefined {
     for (const config of this.routingConfig) {
       if (this.matchPattern(modelId, config.pattern)) {
+        console.log(`✅ [ModelRouter] Matched pattern '${config.pattern}' -> Protocol '${config.protocol}'`);
         return config;
       }
     }

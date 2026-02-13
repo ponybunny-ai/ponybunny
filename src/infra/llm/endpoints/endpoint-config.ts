@@ -1,5 +1,6 @@
 import type { ProtocolId } from '../protocols/index.js';
 import { getCachedEndpointCredential } from '../../config/credentials-loader.js';
+import { authManagerV2 } from '../../../cli/lib/auth-manager-v2.js';
 
 /**
  * Supported endpoint identifiers
@@ -11,7 +12,8 @@ export type EndpointId =
   | 'azure-openai'
   | 'openai-compatible'
   | 'google-ai-studio'
-  | 'google-vertex-ai';
+  | 'google-vertex-ai'
+  | 'codex';
 
 /**
  * Endpoint configuration
@@ -50,6 +52,7 @@ export interface ResolvedEndpointCredentials {
   endpoint?: string;
   /** Override base URL from credentials file */
   baseUrl?: string;
+  accessToken?: string;
 }
 
 /**
@@ -121,6 +124,10 @@ export function hasRequiredCredentials(config: EndpointConfig): boolean {
   // Check if explicitly disabled in credentials file
   if (fileCredential?.enabled === false) {
     return false;
+  }
+
+  if (config.protocol === 'codex') {
+    return authManagerV2.isAuthenticated();
   }
 
   return config.requiredEnvVars.every(envVar => {

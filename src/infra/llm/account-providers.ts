@@ -48,8 +48,8 @@ export class CodexAccountProvider implements ILLMProvider {
           'OpenAI-Beta': 'responses=experimental',
           'originator': 'codex_cli_rs',
         },
-        body: JSON.stringify({
-          model: model === 'gpt-5.2' ? 'gpt-5.2-codex' : model,
+         body: JSON.stringify({
+          model,
           store: false,
           stream: false,
           instructions: systemMessage?.content || 'You are a helpful AI assistant.',

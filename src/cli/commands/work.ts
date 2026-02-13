@@ -3,14 +3,16 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { WorkOrderDatabase } from '../../work-order/database/manager.js';
 import { ExecutionService } from '../../app/lifecycle/execution/execution-service.js';
-import { getLLMService, LLMRouter, MockLLMProvider } from '../../infra/llm/index.js';
+import { getLLMService, MockLLMProvider } from '../../infra/llm/index.js';
 
 export function registerWorkCommand(program: Command) {
+
   program
     .command('work')
     .description('Assign a task to the autonomous agent')
     .argument('<task>', 'The task description')
     .option('--db <path>', 'Path to SQLite database', './pony-work-orders.db')
+    .option('--model <model>', 'Specific LLM model to use')
     .action(async (task, options) => {
       console.log(chalk.bold.cyan('\n🐴 PonyBunny Autonomous Agent\n'));
 
@@ -31,27 +33,29 @@ export function registerWorkCommand(program: Command) {
       const llmService = getLLMService();
       const availableProviders = llmService.getAvailableProviders();
 
-      let llmRouter: LLMRouter;
+      let llmProvider;
 
       if (availableProviders.length === 0) {
         spinner.warn(chalk.yellow('No API keys found. Using Mock Provider (results will be simulated).'));
-        llmRouter = new LLMRouter([new MockLLMProvider('cli-mock')]);
+        llmProvider = new MockLLMProvider('cli-mock');
       } else {
-        llmRouter = llmService.createRouter();
-        spinner.info(chalk.dim(`Using providers: ${availableProviders.join(', ')}`));
+        llmProvider = llmService;
+        spinner.info(chalk.dim(`Available providers: ${availableProviders.join(', ')}`));
       }
 
       // 3. Initialize Services
       const executionService = new ExecutionService(
         repository,
         { maxConsecutiveErrors: 3 },
-        llmRouter
+        llmProvider
       );
 
       spinner.succeed('System ready');
 
       // 4. Create Goal & Work Item
       console.log(chalk.blue(`\n📝 Task: ${task}`));
+
+      const model = options.model || llmService.getModelForAgent('execution');
 
       const goal = repository.createGoal({
         title: 'CLI Task',
@@ -69,8 +73,9 @@ export function registerWorkCommand(program: Command) {
         goal_id: goal.id,
         title: 'Execute CLI Task',
         description: task,
-        item_type: 'code', // Defaulting to code for now
+        item_type: 'code',
         priority: 50,
+        context: { model },
       });
 
       repository.updateWorkItemStatus(workItem.id, 'ready');

@@ -3,13 +3,14 @@ import type { LLMMessage, LLMResponse, ToolDefinition, StreamChunk } from '../ll
 /**
  * Supported protocol identifiers
  */
-export type ProtocolId = 'anthropic' | 'openai' | 'gemini';
+export type ProtocolId = 'anthropic' | 'openai' | 'gemini' | 'codex';
 
 /**
  * Credentials for endpoint authentication
  */
 export interface EndpointCredentials {
   apiKey?: string;
+  accessToken?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
   region?: string;
