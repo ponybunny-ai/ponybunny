@@ -58,7 +58,6 @@ export class UnifiedLLMProvider implements ILLMProvider {
     for (const endpoint of endpoints) {
       try {
         const adapter = getProtocolAdapter(endpoint.protocol);
-        console.log(`pw [UnifiedProvider] Attempting to call endpoint: ${endpoint.id} (${endpoint.baseUrl})`);
         const response = await this.callEndpoint(adapter, endpoint, messages, model, options);
         console.log(`🎉 [UnifiedProvider] Success from ${endpoint.id}`);
         return response;
@@ -147,6 +146,15 @@ export class UnifiedLLMProvider implements ILLMProvider {
     // Build URL and headers (prefer credentials file baseUrl override)
     const baseUrl = credentials.baseUrl || credentials.endpoint || endpoint.baseUrl;
     const url = adapter.buildUrl(baseUrl, model, endpointCreds);
+
+    const baseUrlSource = credentials.baseUrl || credentials.endpoint
+      ? 'credentials'
+      : (endpoint.baseUrl ? 'config' : 'default');
+
+    console.log(
+      `pw [UnifiedProvider] Attempting endpoint: ${endpoint.id} protocol=${adapter.protocolId} baseUrl=${baseUrl} baseUrlSource=${baseUrlSource} url=${url}`
+    );
+
     const headers = this.buildHeaders(adapter, endpoint, endpointCreds);
     if (adapter.protocolId === 'codex') {
       headers['Accept'] = 'text/event-stream';

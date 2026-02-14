@@ -15,6 +15,12 @@ The Scheduler is the core brain of PonyBunny, acting as the Agent responsible fo
 | **Evaluate** | Run Quality Gates, determine if requirements met |
 | **Retry** | On failure: switch strategy → switch model → escalate |
 
+## Startup Initialization
+
+- Load skills into the global registry (managed dir: `PONYBUNNY_SKILLS_DIR` or `~/.ponybunny/skills`)
+- Initialize MCP integration and register MCP tools
+- Emit startup logs with loaded skill counts
+
 ## Invocation Chain: Scheduler → Skills → Tools → OS Services
 
 ```

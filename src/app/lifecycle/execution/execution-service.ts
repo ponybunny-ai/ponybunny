@@ -48,9 +48,10 @@ export class ExecutionService implements IExecutionService {
    * Initialize skills - should be called after workspace is known
    */
   async initializeSkills(workspaceDir: string): Promise<void> {
+    const managedSkillsDir = process.env.PONYBUNNY_SKILLS_DIR || `${process.env.HOME}/.ponybunny/skills`;
     await this.skillRegistry.loadSkills({
       workspaceDir,
-      managedSkillsDir: `${process.env.HOME}/.ponybunny/skills`,
+      managedSkillsDir,
     });
 
     console.log(`[ExecutionService] Loaded ${this.skillRegistry.getSkills().length} skills`);

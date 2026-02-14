@@ -12,6 +12,12 @@ The Gateway is the communication layer between external clients and the Schedule
 | **Auth** | Verify client identity, manage sessions |
 | **Routing** | Dispatch messages to correct Scheduler instance/Lane |
 
+## Non-Responsibilities
+
+- No MCP initialization or MCP server connections
+- No skill loading or skill registry initialization
+- No business service startup (owned by Scheduler)
+
 ## WebSocket Protocol (JSON-RPC Style)
 
 ```
