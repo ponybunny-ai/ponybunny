@@ -30,6 +30,8 @@ export {
   CREDENTIALS_TEMPLATE,
   LLM_CONFIG_SCHEMA_TEMPLATE,
   LLM_CONFIG_TEMPLATE,
+  MCP_CONFIG_SCHEMA_TEMPLATE,
+  MCP_CONFIG_TEMPLATE,
   getOnboardingFiles,
   initConfigFile,
   initAllConfigFiles,

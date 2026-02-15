@@ -45,6 +45,8 @@ This creates:
 - `~/.ponybunny/credentials.schema.json` - JSON Schema for validation
 - `~/.ponybunny/llm-config.json` - LLM endpoints, models, tiers, agents
 - `~/.ponybunny/llm-config.schema.json` - JSON Schema for validation
+- `~/.ponybunny/mcp-config.json` - MCP server configuration (disabled by default)
+- `~/.ponybunny/mcp-config.schema.json` - JSON Schema for validation
 
 ### Configure API Keys
 

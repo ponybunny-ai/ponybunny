@@ -343,6 +343,131 @@ export const LLM_CONFIG_TEMPLATE = {
 };
 
 /**
+ * Template for mcp-config.schema.json
+ */
+export const MCP_CONFIG_SCHEMA_TEMPLATE = {
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  $id: 'https://ponybunny.dev/schemas/mcp-config.schema.json',
+  title: 'PonyBunny MCP Configuration',
+  description: 'Configuration for Model Context Protocol (MCP) server connections',
+  type: 'object',
+  properties: {
+    $schema: { type: 'string', description: 'JSON Schema reference' },
+    mcpServers: {
+      type: 'object',
+      description: 'Map of MCP server configurations',
+      additionalProperties: { $ref: '#/$defs/MCPServerConfig' },
+    },
+  },
+  additionalProperties: false,
+  $defs: {
+    MCPServerConfig: {
+      type: 'object',
+      properties: {
+        enabled: {
+          type: 'boolean',
+          description: 'Whether this MCP server is enabled',
+          default: true,
+        },
+        transport: {
+          type: 'string',
+          enum: ['stdio', 'http'],
+          description: 'Transport mechanism for MCP communication',
+        },
+        command: {
+          type: 'string',
+          description: "Command to execute for stdio transport (e.g., 'npx', 'node')",
+        },
+        args: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Arguments for the command (stdio transport)',
+        },
+        env: {
+          type: 'object',
+          additionalProperties: { type: 'string' },
+          description: 'Environment variables for the MCP server process',
+        },
+        url: {
+          type: 'string',
+          format: 'uri',
+          description: 'URL for HTTP transport',
+        },
+        headers: {
+          type: 'object',
+          additionalProperties: { type: 'string' },
+          description: 'HTTP headers for authentication (HTTP transport)',
+        },
+        allowedTools: {
+          type: 'array',
+          items: { type: 'string' },
+          description: "List of allowed tool names. Use '*' to allow all tools.",
+          default: ['*'],
+        },
+        autoReconnect: {
+          type: 'boolean',
+          description: 'Automatically reconnect on connection loss',
+          default: true,
+        },
+        timeout: {
+          type: 'number',
+          description: 'Timeout in milliseconds for MCP operations',
+          default: 30000,
+          minimum: 1000,
+          maximum: 300000,
+        },
+      },
+      required: ['transport'],
+      allOf: [
+        {
+          if: {
+            properties: {
+              transport: {
+                const: 'stdio',
+              },
+            },
+          },
+          then: {
+            required: ['command', 'args'],
+          },
+        },
+        {
+          if: {
+            properties: {
+              transport: {
+                const: 'http',
+              },
+            },
+          },
+          then: {
+            required: ['url'],
+          },
+        },
+      ],
+      additionalProperties: false,
+    },
+  },
+};
+
+/**
+ * Template for mcp-config.json
+ */
+export const MCP_CONFIG_TEMPLATE = {
+  $schema: './mcp-config.schema.json',
+  mcpServers: {
+    filesystem: {
+      enabled: false,
+      transport: 'stdio' as const,
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '/path/to/workspace'],
+      allowedTools: ['read_file', 'write_file', 'list_directory', 'create_directory'],
+      autoReconnect: true,
+      timeout: 30000,
+    },
+  },
+};
+
+/**
  * File info for onboarding
  */
 export interface OnboardingFile {
@@ -387,6 +512,20 @@ export function getOnboardingFiles(): OnboardingFile[] {
       template: LLM_CONFIG_TEMPLATE,
       mode: 0o644,
       description: 'LLM endpoints, models, tiers, and agent configuration',
+    },
+    {
+      name: 'mcp-config.schema.json',
+      path: path.join(configDir, 'mcp-config.schema.json'),
+      template: MCP_CONFIG_SCHEMA_TEMPLATE,
+      mode: 0o644,
+      description: 'JSON Schema for MCP configuration validation',
+    },
+    {
+      name: 'mcp-config.json',
+      path: path.join(configDir, 'mcp-config.json'),
+      template: MCP_CONFIG_TEMPLATE,
+      mode: 0o600,
+      description: 'MCP server configuration',
     },
   ];
 }

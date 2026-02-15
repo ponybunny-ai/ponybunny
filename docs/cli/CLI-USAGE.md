@@ -210,8 +210,11 @@ Options:
 
 **Created files:**
 - `credentials.json` - API keys and credentials
+- `credentials.schema.json` - JSON Schema for credentials validation
 - `llm-config.json` - LLM endpoint and model configuration
-- `auth.json` - OAuth authentication tokens
+- `llm-config.schema.json` - JSON Schema for LLM configuration validation
+- `mcp-config.json` - MCP server configuration (disabled by default)
+- `mcp-config.schema.json` - JSON Schema for MCP configuration validation
 
 **Examples:**
 ```bash
@@ -940,6 +943,7 @@ All configuration files are stored in `~/.ponybunny/`:
 |------|---------|
 | `credentials.json` | API keys and credentials (sensitive) |
 | `llm-config.json` | LLM endpoint and model configuration |
+| `mcp-config.json` | MCP server configuration |
 | `auth.json` | OAuth authentication tokens |
 | `models-cache.json` | Cached model lists |
 | `debug-config.json` | Debug server configuration |
