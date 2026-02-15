@@ -172,6 +172,10 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
       tier: 'medium',
       description: 'Conversation agent',
     },
+    agent_a_market_listener: {
+      tier: 'medium',
+      description: 'Agent A market listener',
+    },
   },
   defaults: {
     timeout: 120000,
