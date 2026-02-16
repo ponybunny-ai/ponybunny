@@ -169,6 +169,13 @@ export class AgentAService {
 
   private shouldSkipSource(source: AgentASourceConfig, checkpoint: AgentACheckpoint | null): boolean {
     const now = this.nowFn().getTime();
+    if (checkpoint?.updated_at) {
+      const updatedAt = new Date(checkpoint.updated_at).getTime();
+      const pollIntervalMs = source.poll_interval_seconds * 1000;
+      if (Number.isFinite(updatedAt) && pollIntervalMs > 0 && now - updatedAt < pollIntervalMs) {
+        return true;
+      }
+    }
     if (checkpoint?.backoff_until) {
       const backoffUntil = new Date(checkpoint.backoff_until).getTime();
       if (backoffUntil > now) {

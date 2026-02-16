@@ -10,6 +10,7 @@ import type {
   AgentARoleGuess,
   AgentALimitsConfig,
 } from './types.js';
+import { getDetectSystemPrompt, getExtractSystemPrompt, getRoleSystemPrompt } from './prompts.js';
 
 const AGENT_ID = 'agent_a_market_listener';
 
@@ -41,7 +42,7 @@ export class AgentALLMHelper {
   constructor(private llmService: LLMService, private limits: AgentALimitsConfig) {}
 
   async detectProblemSignal(request: AgentADetectRequest): Promise<AgentADetectResult> {
-    const systemPrompt = 'You are a classifier. Return ONLY valid JSON.';
+    const systemPrompt = getDetectSystemPrompt();
     const userPrompt = `Classify if the text contains a user-expressed problem/pain/need.
 Return JSON with:
 {
@@ -94,7 +95,7 @@ ${request.raw_text}`;
   }
 
   async extractProblemBlock(request: AgentAExtractRequest): Promise<AgentAExtractResult> {
-    const systemPrompt = 'You are a strict extractor. Return ONLY valid JSON.';
+    const systemPrompt = getExtractSystemPrompt();
     const userPrompt = `Extract the smallest useful verbatim block that represents the problem, plus minimal context.
 Return JSON with:
 {
@@ -141,7 +142,7 @@ ${request.raw_text}`;
   }
 
   async guessAuthorRole(rawText: string): Promise<AgentARoleResult> {
-    const systemPrompt = 'You are a weak role guesser. Return ONLY valid JSON.';
+    const systemPrompt = getRoleSystemPrompt();
     const userPrompt = `Guess the author role based on the text.
 Return JSON with:
 {

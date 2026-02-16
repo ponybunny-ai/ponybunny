@@ -175,7 +175,7 @@ export class AgentAStorage {
   }
 
   async listSources(limit: number): Promise<AgentASourceConfig[]> {
-    const result = await this.executor.callTool('postgres', 'pg.select', {
+    const result = await this.executor.callTool('pg', 'pg.select', {
       sql: SELECT_SOURCES,
       params: [limit],
     });
@@ -183,7 +183,7 @@ export class AgentAStorage {
   }
 
   async getCheckpoint(platform: string, sourceId: string): Promise<AgentACheckpoint | null> {
-    const result = await this.executor.callTool('postgres', 'pg.select', {
+    const result = await this.executor.callTool('pg', 'pg.select', {
       sql: SELECT_CHECKPOINT,
       params: [platform, sourceId],
     });
@@ -221,14 +221,14 @@ export class AgentAStorage {
   }
 
   async isDeduped(permalink: string, rawTextHash: string): Promise<boolean> {
-    const permalinkResult = await this.executor.callTool('postgres', 'pg.select', {
+    const permalinkResult = await this.executor.callTool('pg', 'pg.select', {
       sql: SELECT_OBSERVATION_BY_PERMALINK,
       params: [permalink],
     });
     const permalinkRows = parseRows<{ id: string }>(permalinkResult);
     if (permalinkRows.length > 0) return true;
 
-    const hashResult = await this.executor.callTool('postgres', 'pg.select', {
+    const hashResult = await this.executor.callTool('pg', 'pg.select', {
       sql: SELECT_OBSERVATION_BY_HASH,
       params: [rawTextHash],
     });
@@ -273,6 +273,6 @@ export class AgentAStorage {
 
   private async execute(sql: string, params: unknown[] = []): Promise<MCPToolCallResult> {
     ensureApprovedExecute(sql);
-    return this.executor.callTool('postgres', 'pg.execute', { sql, params });
+    return this.executor.callTool('pg', 'pg.execute', { sql, params });
   }
 }

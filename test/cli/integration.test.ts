@@ -46,6 +46,16 @@ describe('CLI Integration Tests', () => {
     });
   });
 
+  describe('pb scheduler', () => {
+    test('scheduler start --help includes agent-a flag', () => {
+      const output = execSync(`${pbCommand} scheduler start --help`, {
+        encoding: 'utf-8',
+      });
+
+      expect(output).toContain('--agent-a');
+    });
+  });
+
   describe('pb auth', () => {
     test('auth --help shows authentication commands', () => {
       const output = execSync(`${pbCommand} auth --help`, {

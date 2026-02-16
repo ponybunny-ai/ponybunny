@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: pony
+      POSTGRES_PASSWORD: pony_pass
+      POSTGRES_DB: ponybunny
+    ports:
+      - "15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pony -d ponybunny"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mcp-postgres:
+    image: node:20-bullseye
+    working_dir: /workspace
+    command:
+      - npx
+      - -y
+      - "@modelcontextprotocol/server-postgres"
+      - postgresql://pony:pony_pass@postgres:5432/ponybunny
+      - --transport
+      - http
+      - --host
+      - 0.0.0.0
+      - --port
+      - "17788"
+    ports:
+      - "17788:17788"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  mcp-playwright:
+    image: mcr.microsoft.com/playwright/mcp
+    command:
+      - --port
+      - "17777"
+    ports:
+      - "17777:17777"

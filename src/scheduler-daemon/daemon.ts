@@ -5,9 +5,11 @@
  * Sends scheduler and debug events to Gateway via IPC for real-time monitoring.
  */
 
+import { randomUUID } from 'crypto';
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
 import type { IExecutionService } from '../app/lifecycle/stage-interfaces.js';
 import type { ILLMProvider } from '../infra/llm/llm-provider.js';
+import type { AgentAService } from '../app/agents/agent-a/agent-a-service.js';
 import type { SchedulerEvent } from '../scheduler/types.js';
 import type { DebugEvent } from '../debug/types.js';
 import { SchedulerCore } from '../scheduler/core/index.js';
@@ -15,6 +17,7 @@ import { createScheduler } from '../gateway/integration/scheduler-factory.js';
 import { IPCClient } from '../ipc/ipc-client.js';
 import { debugEmitter } from '../debug/emitter.js';
 import type { AnyIPCMessage } from '../ipc/types.js';
+import { AgentATickRunner } from './agent-a-loop.js';
 
 export interface SchedulerDaemonConfig {
   /** Path to Gateway IPC socket */
@@ -27,6 +30,9 @@ export interface SchedulerDaemonConfig {
   tickIntervalMs?: number;
   /** Maximum concurrent goals */
   maxConcurrentGoals?: number;
+  agentAEnabled?: boolean;
+  agentATickIntervalMs?: number;
+  agentAService?: AgentAService;
 }
 
 export class SchedulerDaemon {
@@ -37,6 +43,7 @@ export class SchedulerDaemon {
   private llmProvider: ILLMProvider;
   private config: SchedulerDaemonConfig;
   private isRunning = false;
+  private agentATickRunner: AgentATickRunner | null = null;
 
   constructor(
     repository: IWorkOrderRepository,
@@ -111,6 +118,27 @@ export class SchedulerDaemon {
     await this.scheduler.start();
     this.isRunning = true;
 
+    if (this.config.agentAEnabled && this.config.agentAService) {
+      this.agentATickRunner = new AgentATickRunner({
+        intervalMs: this.config.agentATickIntervalMs ?? 60_000,
+        tick: async (input) => {
+          await this.config.agentAService?.tick(input);
+        },
+        inputFactory: (now) => ({
+          run_id: randomUUID(),
+          now: now.toISOString(),
+          max_sources_per_tick: 10,
+          max_items_per_source: 50,
+          default_time_window: '6h',
+        }),
+        onError: (error) => {
+          console.error('[SchedulerDaemon] Agent A tick failed:', error);
+        },
+      });
+      this.agentATickRunner.start();
+      console.log('[SchedulerDaemon] Agent A loop enabled');
+    }
+
     console.log('[SchedulerDaemon] Started successfully');
   }
 
@@ -125,6 +153,11 @@ export class SchedulerDaemon {
     console.log('[SchedulerDaemon] Stopping...');
 
     this.isRunning = false;
+
+    if (this.agentATickRunner) {
+      await this.agentATickRunner.stop();
+      this.agentATickRunner = null;
+    }
 
     // Stop scheduler
     if (this.scheduler) {

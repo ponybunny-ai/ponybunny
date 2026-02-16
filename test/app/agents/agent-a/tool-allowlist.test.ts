@@ -13,7 +13,7 @@ describe('Agent A tool allowlist', () => {
 
   test('allows approved MCP tools', () => {
     expect(isAllowedMCPTool('reddit', 'reddit.list_new_posts')).toBe(true);
-    expect(isAllowedMCPTool('postgres', 'pg.select')).toBe(true);
+  expect(isAllowedMCPTool('pg', 'pg.select')).toBe(true);
   });
 
   test('assertAllowedTool throws for forbidden tool', () => {

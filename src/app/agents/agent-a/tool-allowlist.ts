@@ -24,7 +24,7 @@ const MCP_ALLOWLIST: Record<string, Set<string>> = {
     'github.list_issues',
     'github.list_issue_comments',
   ]),
-  postgres: new Set([
+  pg: new Set([
     'pg.select',
     'pg.insert',
     'pg.execute',

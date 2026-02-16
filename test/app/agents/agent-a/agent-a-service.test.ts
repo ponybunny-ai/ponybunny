@@ -50,7 +50,10 @@ class FakeStorage {
 }
 
 class FakeSourceReader {
+  public calls: string[] = [];
+
   async readStream(_request: unknown): Promise<{ items: AgentARawItem[]; next_cursor: string | null }> {
+    this.calls.push('readStream');
     return {
       items: [{
         platform: 'reddit',
@@ -109,6 +112,43 @@ describe('AgentAService', () => {
 
     expect(llm.calls).toEqual(['detect', 'extract', 'role']);
     expect(storage.calls).toContain('storeRecord');
+    expect(reader.calls).toEqual(['readStream']);
     expect(result.items_stored).toBe(1);
+  });
+
+  test('skips sources that are within poll interval', async () => {
+    const storage = new FakeStorage();
+    const reader = new FakeSourceReader();
+    const llm = new FakeLLMHelper();
+
+    storage.checkpoints = {
+      platform: 'reddit',
+      source_id: 'SaaS',
+      cursor: null,
+      last_seen_at: null,
+      backoff_until: null,
+      failure_count: 0,
+      updated_at: '2026-01-01T00:05:00Z',
+    };
+
+    const service = new AgentAService({
+      storage,
+      sourceReader: reader,
+      llmHelper: llm,
+      now: () => new Date('2026-01-01T00:10:00Z'),
+    });
+
+    const result = await service.tick({
+      run_id: 'run-2',
+      now: new Date().toISOString(),
+      max_sources_per_tick: 1,
+      max_items_per_source: 10,
+      default_time_window: '6h',
+    });
+
+    expect(reader.calls).toEqual([]);
+    expect(llm.calls).toEqual([]);
+    expect(result.items_fetched).toBe(0);
+    expect(result.items_stored).toBe(0);
   });
 });

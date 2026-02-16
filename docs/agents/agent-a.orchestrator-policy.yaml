@@ -1,0 +1,53 @@
+version: 1
+agent: agent_a_market_listener
+
+tool_allowlist:
+  llm:
+    - llm.extract_json
+    - llm.classify
+  mcp:
+    pg:
+      - pg.select
+      - pg.insert
+      - pg.execute
+    reddit:
+      - reddit.list_new_posts
+      - reddit.list_new_comments
+    github:
+      - github.list_issues
+      - github.list_issue_comments
+    playwright:
+      - playwright.navigate
+      - playwright.get_content
+      - playwright.query_selector_all
+
+forbidden_patterns:
+  suffixes:
+    - .post
+    - .reply
+    - .send_message
+  prefixes:
+    - create_
+    - update_
+    - delete_
+
+rate_limits:
+  reddit:
+    max_requests_per_minute: 30
+    backoff_on_429_seconds: [60, 120, 300]
+  github:
+    max_requests_per_minute: 60
+    backoff_on_403_seconds: [60, 120, 300]
+  forum_web:
+    max_requests_per_minute: 10
+    backoff_on_403_429_seconds: [120, 300, 900]
+
+limits:
+  raw_text_max_chars: 12000
+  problem_raw_text_max_chars: 2000
+  surrounding_context_max_chars: 2000
+  signal_markers_max_items: 5
+
+circuit_breaker:
+  failure_threshold: 5
+  backoff_hours: 6
