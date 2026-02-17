@@ -13,7 +13,7 @@ import type { AgentAPlatform } from '../../src/app/agents/agent-a/types.js';
 import { MCPToolExecutor, parseJsonResult } from '../../src/app/agents/agent-a/mcp-tool-executor.js';
 import { initializeMCPConnectionManager, shutdownMCPConnectionManager } from '../../src/infra/mcp/index.js';
 
-const PG_URL = 'http://localhost:17788';
+const PG_CONNECTION_STRING = 'postgresql://pony:pony_pass@localhost:15432/ponybunny';
 const PLAYWRIGHT_URL = 'http://localhost:17777';
 
 function createTempConfigDir(): string {
@@ -26,11 +26,10 @@ function writeMcpConfig(dir: string): void {
     mcpServers: {
       pg: {
         enabled: true,
-        transport: 'http' as const,
-        url: PG_URL,
+        transport: 'stdio' as const,
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-postgres', PG_CONNECTION_STRING],
         allowedTools: ['pg.select', 'pg.insert', 'pg.execute'],
-        autoReconnect: true,
-        timeout: 60000,
       },
       playwright: {
         enabled: true,

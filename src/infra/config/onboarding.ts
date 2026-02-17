@@ -464,8 +464,51 @@ export const MCP_CONFIG_TEMPLATE = {
       autoReconnect: true,
       timeout: 30000,
     },
+    pg: {
+      enabled: true,
+      transport: 'stdio' as const,
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-postgres', 'postgresql://pony:pony_pass@localhost:15432/ponybunny'],
+      allowedTools: ['pg.select', 'pg.insert', 'pg.execute'],
+      autoReconnect: true,
+      timeout: 60000,
+    },
+    playwright: {
+      enabled: true,
+      transport: 'http' as const,
+      url: 'http://localhost:17777',
+      allowedTools: ['playwright.navigate', 'playwright.get_content', 'playwright.query_selector_all'],
+      autoReconnect: true,
+      timeout: 60000,
+    },
   },
 };
+
+const COMMON_RESOURCES_COMPOSE_TEMPLATE = `services:
+  postgres:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: pony
+      POSTGRES_PASSWORD: pony_pass
+      POSTGRES_DB: ponybunny
+    ports:
+      - "15432:5432"
+    volumes:
+      - "./data/postgres:/var/lib/postgresql"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pony -d ponybunny"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mcp-playwright:
+    image: mcr.microsoft.com/playwright/mcp
+    command:
+      - --port
+      - "17777"
+    ports:
+      - "17777:17777"
+`;
 
 /**
  * File info for onboarding
@@ -473,7 +516,8 @@ export const MCP_CONFIG_TEMPLATE = {
 export interface OnboardingFile {
   name: string;
   path: string;
-  template: object;
+  template: object | string;
+  format: 'json' | 'raw';
   mode: number;
   description: string;
 }
@@ -489,6 +533,7 @@ export function getOnboardingFiles(): OnboardingFile[] {
       name: 'credentials.schema.json',
       path: path.join(configDir, 'credentials.schema.json'),
       template: CREDENTIALS_SCHEMA_TEMPLATE,
+      format: 'json',
       mode: 0o644,
       description: 'JSON Schema for credentials validation',
     },
@@ -496,6 +541,7 @@ export function getOnboardingFiles(): OnboardingFile[] {
       name: 'credentials.json',
       path: path.join(configDir, 'credentials.json'),
       template: CREDENTIALS_TEMPLATE,
+      format: 'json',
       mode: 0o600, // Restricted permissions for credentials
       description: 'API keys and endpoint credentials',
     },
@@ -503,6 +549,7 @@ export function getOnboardingFiles(): OnboardingFile[] {
       name: 'llm-config.schema.json',
       path: path.join(configDir, 'llm-config.schema.json'),
       template: LLM_CONFIG_SCHEMA_TEMPLATE,
+      format: 'json',
       mode: 0o644,
       description: 'JSON Schema for LLM configuration validation',
     },
@@ -510,6 +557,7 @@ export function getOnboardingFiles(): OnboardingFile[] {
       name: 'llm-config.json',
       path: path.join(configDir, 'llm-config.json'),
       template: LLM_CONFIG_TEMPLATE,
+      format: 'json',
       mode: 0o644,
       description: 'LLM endpoints, models, tiers, and agent configuration',
     },
@@ -517,6 +565,7 @@ export function getOnboardingFiles(): OnboardingFile[] {
       name: 'mcp-config.schema.json',
       path: path.join(configDir, 'mcp-config.schema.json'),
       template: MCP_CONFIG_SCHEMA_TEMPLATE,
+      format: 'json',
       mode: 0o644,
       description: 'JSON Schema for MCP configuration validation',
     },
@@ -524,8 +573,17 @@ export function getOnboardingFiles(): OnboardingFile[] {
       name: 'mcp-config.json',
       path: path.join(configDir, 'mcp-config.json'),
       template: MCP_CONFIG_TEMPLATE,
+      format: 'json',
       mode: 0o600,
       description: 'MCP server configuration',
+    },
+    {
+      name: 'resources/docker-compose.common.yml',
+      path: path.join(configDir, 'resources', 'docker-compose.common.yml'),
+      template: COMMON_RESOURCES_COMPOSE_TEMPLATE,
+      format: 'raw',
+      mode: 0o644,
+      description: 'Common services (Postgres + Playwright MCP)',
     },
   ];
 }
@@ -535,7 +593,7 @@ export function getOnboardingFiles(): OnboardingFile[] {
  */
 export interface InitFileResult {
   file: string;
-  status: 'created' | 'exists' | 'error';
+  status: 'created' | 'updated' | 'exists' | 'error';
   message: string;
 }
 
@@ -581,9 +639,9 @@ export function initConfigFile(file: OnboardingFile, options: InitOptions = {}):
     }
 
     // Write file
-    fs.writeFileSync(file.path, JSON.stringify(file.template, null, 2), {
-      mode: file.mode,
-    });
+    const payload =
+      file.format === 'raw' ? String(file.template) : JSON.stringify(file.template, null, 2);
+    fs.writeFileSync(file.path, payload, { mode: file.mode });
 
     return {
       file: file.name,
@@ -599,12 +657,91 @@ export function initConfigFile(file: OnboardingFile, options: InitOptions = {}):
   }
 }
 
+function mergeCommonMCPServers(config: Record<string, unknown>): boolean {
+  const mcpServers = (config.mcpServers ?? {}) as Record<string, unknown>;
+  const commonServers = (MCP_CONFIG_TEMPLATE as { mcpServers: Record<string, unknown> }).mcpServers;
+
+  let changed = false;
+  for (const [serverName, serverConfig] of Object.entries(commonServers)) {
+    if (!(serverName in mcpServers)) {
+      mcpServers[serverName] = serverConfig;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    config.mcpServers = mcpServers;
+  }
+
+  return changed;
+}
+
+function ensureCommonMCPConfig(options: InitOptions = {}): InitFileResult {
+  const configPath = path.join(getConfigDir(), 'mcp-config.json');
+
+  try {
+    if (!fs.existsSync(configPath)) {
+      return initConfigFile(
+        {
+          name: 'mcp-config.json',
+          path: configPath,
+          template: MCP_CONFIG_TEMPLATE,
+          format: 'json',
+          mode: 0o600,
+          description: 'MCP server configuration',
+        },
+        options
+      );
+    }
+
+    const raw = fs.readFileSync(configPath, 'utf-8');
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const changed = mergeCommonMCPServers(parsed);
+
+    if (!changed) {
+      return {
+        file: 'mcp-config.json',
+        status: 'exists',
+        message: `Already includes common MCP servers at ${configPath}`,
+      };
+    }
+
+    if (options.dryRun) {
+      return {
+        file: 'mcp-config.json',
+        status: 'updated',
+        message: `Would merge common MCP servers into ${configPath}`,
+      };
+    }
+
+    fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2), { mode: 0o600 });
+    return {
+      file: 'mcp-config.json',
+      status: 'updated',
+      message: `Merged common MCP servers into ${configPath}`,
+    };
+  } catch (error) {
+    return {
+      file: 'mcp-config.json',
+      status: 'error',
+      message: `Failed: ${(error as Error).message}`,
+    };
+  }
+}
+
 /**
  * Initialize all config files
  */
 export function initAllConfigFiles(options: InitOptions = {}): InitFileResult[] {
   const files = getOnboardingFiles();
-  return files.map((file) => initConfigFile(file, options));
+  const results = files.map((file) => initConfigFile(file, options));
+
+  const mcpIndex = results.findIndex((result) => result.file === 'mcp-config.json');
+  if (mcpIndex !== -1 && results[mcpIndex].status === 'exists') {
+    results[mcpIndex] = ensureCommonMCPConfig(options);
+  }
+
+  return results;
 }
 
 /**

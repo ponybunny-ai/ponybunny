@@ -57,6 +57,7 @@ export const initCommand = new Command('init')
     });
 
     let created = 0;
+    let updated = 0;
     let skipped = 0;
     let errors = 0;
 
@@ -69,6 +70,11 @@ export const initCommand = new Command('init')
           icon = options.dryRun ? '○' : '✓';
           color = chalk.green;
           created++;
+          break;
+        case 'updated':
+          icon = options.dryRun ? '○' : '↺';
+          color = chalk.cyan;
+          updated++;
           break;
         case 'exists':
           icon = '•';
@@ -94,6 +100,14 @@ export const initCommand = new Command('init')
 
     if (created > 0 && !options.dryRun) {
       console.log(chalk.green(`${created} file(s) created.`));
+    }
+
+    if (updated > 0) {
+      console.log(
+        options.dryRun
+          ? chalk.cyan(`${updated} file(s) would be updated.`)
+          : chalk.cyan(`${updated} file(s) updated.`)
+      );
     }
 
     if (skipped > 0 && !options.force) {
