@@ -1,0 +1,9 @@
+Task 8 evidence - cron job claim exclusivity
+
+- Test: test/infra/persistence/cron-job-repository.test.ts
+  - claims due jobs exclusively between instances: only one claim returns across two repositories.
+  - respects backoff windows when claiming: no claim when backoff_until_ms > now.
+  - deduplicates cron job runs by agent and schedule: insert-or-ignore returns same run_key.
+- Mechanism: claim uses UPDATE with WHERE guards on claim_expires_at_ms, in_flight_run_key, backoff_until_ms, and next_run_at_ms, so only one instance can set the lease.
+
+Update: WorkOrderDatabase.initialize now resolves schema path relative to module URL with dist fallback, avoiding cwd dependence.

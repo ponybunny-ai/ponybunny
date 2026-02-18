@@ -19,6 +19,7 @@ export interface IWorkItemRepository {
   getWorkItem(id: string): WorkItem | undefined;
   getWorkItemsByGoal(goalId: string): WorkItem[];
   updateWorkItemStatus(id: string, status: WorkItemStatus): void;
+  updateWorkItemStatusIfDependenciesMet(id: string): void;
 }
 
 /**
@@ -53,7 +54,11 @@ export class WorkItemManager implements IWorkItemManager {
         // Check if dependencies are satisfied
         const satisfied = await this.areDependenciesSatisfied(item);
         if (satisfied) {
-          readyItems.push(item);
+          this.repository.updateWorkItemStatusIfDependenciesMet(item.id);
+          const refreshedItem = this.repository.getWorkItem(item.id);
+          if (refreshedItem && refreshedItem.status === 'ready') {
+            readyItems.push(refreshedItem);
+          }
         }
       }
     }

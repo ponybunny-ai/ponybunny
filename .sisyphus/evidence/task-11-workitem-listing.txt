@@ -1,0 +1,5 @@
+Task 11 evidence:
+- Updated scheduler factory to wire work-item listing via getWorkItemsByGoal and expose updateWorkItemStatusIfDependenciesMet.
+- WorkItemManager now transitions queued items with satisfied dependencies to ready before returning them.
+- Tests: npx jest test/scheduler/work-item-manager/work-item-manager.test.ts test/gateway/integration/scheduler-factory.test.ts
+- Build: npm run build

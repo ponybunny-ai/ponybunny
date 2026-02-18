@@ -1,0 +1,10 @@
+Task 13 coalesce QA evidence
+Timestamp (UTC): 2026-02-18T19:11:16Z
+
+Command:
+npx jest test/infra/scheduler/schedule-computation.test.ts
+
+Result (excerpt):
+PASS test/infra/scheduler/schedule-computation.test.ts
+Tests:       5 passed, 5 total
+Test Suites: 1 passed, 1 total

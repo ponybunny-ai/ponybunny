@@ -9,6 +9,9 @@ import type { WorkItem } from '../../work-order/types/index.js';
 import type { LaneId } from '../../scheduler/types.js';
 import type { IExecutionEngineAdapter } from '../../scheduler/core/types.js';
 import type { IExecutionService } from '../../app/lifecycle/stage-interfaces.js';
+import { getAgentTickContext } from '../../infra/agents/agent-tick-context.js';
+import { getGlobalAgentRegistry } from '../../infra/agents/agent-registry.js';
+import { getGlobalRunnerRegistry } from '../../infra/agents/runner-registry.js';
 
 interface ExecutionContext {
   model: string;
@@ -41,6 +44,99 @@ export class ExecutionEngineAdapter implements IExecutionEngineAdapter {
   constructor(private executionService: IExecutionService) {}
 
   async execute(workItem: WorkItem, _context: ExecutionContext): Promise<ExecutionResult> {
+    const agentTick = getAgentTickContext(workItem);
+    if (agentTick) {
+      const registry = getGlobalAgentRegistry();
+      const definition = registry.getAgent(agentTick.agent_id);
+      if (!definition) {
+        return {
+          success: false,
+          tokensUsed: 0,
+          timeSeconds: 0,
+          costUsd: 0,
+          artifacts: [],
+          error: {
+            code: 'AGENT_NOT_FOUND',
+            message: `Agent definition not found for '${agentTick.agent_id}'`,
+            recoverable: false,
+          },
+        };
+      }
+
+      if (definition.definitionHash !== agentTick.definition_hash) {
+        console.warn(
+          `[ExecutionEngineAdapter] Agent definition hash mismatch for ${agentTick.agent_id}: ` +
+          `expected ${definition.definitionHash}, got ${agentTick.definition_hash}`
+        );
+      }
+
+      const runnerRegistry = getGlobalRunnerRegistry();
+      let runner;
+      try {
+        runner = runnerRegistry.resolve(definition.id, definition.config);
+      } catch (error) {
+        return {
+          success: false,
+          tokensUsed: 0,
+          timeSeconds: 0,
+          costUsd: 0,
+          artifacts: [],
+          error: {
+            code: 'RUNNER_NOT_FOUND',
+            message: error instanceof Error ? error.message : String(error),
+            recoverable: false,
+          },
+        };
+      }
+
+      if (!runner) {
+        return {
+          success: false,
+          tokensUsed: 0,
+          timeSeconds: 0,
+          costUsd: 0,
+          artifacts: [],
+          error: {
+            code: 'RUNNER_NOT_FOUND',
+            message: `Runner not available for '${definition.config.type}'`,
+            recoverable: false,
+          },
+        };
+      }
+
+      try {
+        await runner.runTick({
+          agentId: definition.id,
+          config: definition.config,
+          tick: {
+            now: new Date(agentTick.scheduled_for_ms),
+            runKey: agentTick.run_key,
+          },
+        });
+
+        return {
+          success: true,
+          tokensUsed: 0,
+          timeSeconds: 0,
+          costUsd: 0,
+          artifacts: [],
+        };
+      } catch (error) {
+        return {
+          success: false,
+          tokensUsed: 0,
+          timeSeconds: 0,
+          costUsd: 0,
+          artifacts: [],
+          error: {
+            code: 'RUNNER_EXECUTION_FAILED',
+            message: error instanceof Error ? error.message : String(error),
+            recoverable: true,
+          },
+        };
+      }
+    }
+
     const abortController = new AbortController();
 
     // We'll use workItem.id as a temporary runId until we get the real one

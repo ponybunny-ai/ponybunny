@@ -1,0 +1,4 @@
+- Added cron_jobs and cron_job_runs tables to schema.sql with schedule constraint and indexes.
+- Test: npx jest test/infra/persistence/cron-jobs-schema.test.ts
+- Build: npm run build (schema.sql copied to dist).
+- Verified unique agent_id constraint via cron-jobs schema test (duplicate insert fails).

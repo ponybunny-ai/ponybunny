@@ -40,6 +40,21 @@ describe('WorkItemManager', () => {
           workItems.set(id, { ...item, status, updated_at: Date.now() });
         }
       }),
+      updateWorkItemStatusIfDependenciesMet: jest.fn((id: string) => {
+        const item = workItems.get(id);
+        if (!item || item.status !== 'queued') {
+          return;
+        }
+
+        const allDependenciesCompleted = (item.dependencies || []).every((depId) => {
+          const dep = workItems.get(depId);
+          return dep?.status === 'done';
+        });
+
+        if (allDependenciesCompleted) {
+          workItems.set(id, { ...item, status: 'ready', updated_at: Date.now() });
+        }
+      }),
     };
 
     manager = new WorkItemManager(mockRepository);
@@ -58,6 +73,18 @@ describe('WorkItemManager', () => {
 
       expect(ready).toHaveLength(3); // wi-2 has no deps so it's also ready
       expect(ready[0].id).toBe('wi-3'); // Higher priority first
+    });
+
+    it('should transition queued items with satisfied dependencies to ready', async () => {
+      const item = createWorkItem({ id: 'wi-1', status: 'queued' });
+      workItems.set('wi-1', item);
+
+      const ready = await manager.getReadyWorkItems('goal-1');
+
+      expect(mockRepository.updateWorkItemStatusIfDependenciesMet).toHaveBeenCalledWith('wi-1');
+      expect(ready).toHaveLength(1);
+      expect(ready[0].status).toBe('ready');
+      expect(workItems.get('wi-1')?.status).toBe('ready');
     });
 
     it('should include queued items with satisfied dependencies', async () => {

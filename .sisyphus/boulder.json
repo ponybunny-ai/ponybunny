@@ -1,9 +1,9 @@
 {
-  "active_plan": "/Users/nickma/Develop/nick-ma/pony/.sisyphus/plans/agent-a.md",
-  "started_at": "2026-02-15T23:50:07.462Z",
+  "active_plan": "/Users/nickma/Develop/nick-ma/pony/.sisyphus/plans/agent-loader-config-driven-agents.md",
+  "started_at": "2026-02-18T16:52:22.105Z",
   "session_ids": [
-    "ses_39d6704fbffe5S736pu9uO0h0M"
+    "ses_38e553e5affeSnaCm3pb6st8Ck"
   ],
-  "plan_name": "agent-a",
+  "plan_name": "agent-loader-config-driven-agents",
   "agent": "atlas"
 }

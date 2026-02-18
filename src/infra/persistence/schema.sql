@@ -430,6 +430,52 @@ CREATE TABLE IF NOT EXISTS session_turns (
 
 CREATE INDEX IF NOT EXISTS idx_session_turns_session ON session_turns(session_id, timestamp);
 
+-- ============================================================================
+-- 15. CRON_JOBS Table
+-- ============================================================================
+-- Durable recurring schedules for agents
+CREATE TABLE IF NOT EXISTS cron_jobs (
+    agent_id TEXT PRIMARY KEY,
+    enabled BOOLEAN NOT NULL DEFAULT 1,
+    schedule_cron TEXT,
+    schedule_timezone TEXT,
+    schedule_interval_ms INTEGER,
+    next_run_at_ms INTEGER,
+    last_run_at_ms INTEGER,
+    in_flight_run_key TEXT,
+    in_flight_goal_id TEXT,
+    in_flight_started_at_ms INTEGER,
+    claimed_at_ms INTEGER,
+    claimed_by TEXT,
+    claim_expires_at_ms INTEGER,
+    definition_hash TEXT NOT NULL,
+    backoff_until_ms INTEGER,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    CHECK (
+        (schedule_cron IS NOT NULL AND schedule_interval_ms IS NULL)
+        OR (schedule_cron IS NULL AND schedule_interval_ms IS NOT NULL)
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_cron_jobs_enabled_next_run ON cron_jobs(enabled, next_run_at_ms);
+CREATE INDEX IF NOT EXISTS idx_cron_jobs_claim_expires ON cron_jobs(claim_expires_at_ms);
+
+-- ============================================================================
+-- 16. CRON_JOB_RUNS Table
+-- ============================================================================
+-- Scheduled run records for recurring agents
+CREATE TABLE IF NOT EXISTS cron_job_runs (
+    run_key TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    scheduled_for_ms INTEGER NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    goal_id TEXT,
+    status TEXT NOT NULL,
+    UNIQUE (agent_id, scheduled_for_ms)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cron_job_runs_agent_scheduled ON cron_job_runs(agent_id, scheduled_for_ms);
+
 -- Update schema version
 INSERT OR REPLACE INTO meta (key, value, updated_at)
 VALUES ('schema_version', '1.3.0', strftime('%s', 'now') * 1000);

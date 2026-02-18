@@ -1,0 +1,6 @@
+Task 6 evidence: misfire semantics design + tests
+
+- Added scheduling semantics module with types, defaults, and helpers.
+- Coalesce interval helper computes latest scheduled time and next run.
+- Deterministic idempotency key helper uses agentId + scheduledForMs.
+- Jest coverage added for coalesce behavior, idempotency determinism, and defaults.

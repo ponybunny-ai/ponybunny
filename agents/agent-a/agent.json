@@ -1,0 +1,100 @@
+{
+  "$schema": "https://ponybunny.dev/schemas/agent.schema.json",
+  "schemaVersion": 1,
+  "id": "agent-a",
+  "name": "Agent A",
+  "enabled": true,
+  "type": "market_listener",
+  "schedule": {
+    "everyMs": 60000,
+    "catchUp": {
+      "mode": "coalesce"
+    }
+  },
+  "policy": {
+    "toolAllowlist": [
+      "llm.extract_json",
+      "llm.classify",
+      "pg.select",
+      "pg.insert",
+      "pg.execute",
+      "reddit.list_new_posts",
+      "reddit.list_new_comments",
+      "github.list_issues",
+      "github.list_issue_comments",
+      "playwright.navigate",
+      "playwright.get_content",
+      "playwright.query_selector_all"
+    ],
+    "forbiddenPatterns": [
+      {
+        "pattern": ".post",
+        "description": "Disallow posting tools",
+        "severity": "high"
+      },
+      {
+        "pattern": ".reply",
+        "description": "Disallow reply tools",
+        "severity": "high"
+      },
+      {
+        "pattern": ".send_message",
+        "description": "Disallow direct messaging tools",
+        "severity": "high"
+      },
+      {
+        "pattern": "create_",
+        "description": "Disallow create tool prefixes",
+        "severity": "high"
+      },
+      {
+        "pattern": "update_",
+        "description": "Disallow update tool prefixes",
+        "severity": "high"
+      },
+      {
+        "pattern": "delete_",
+        "description": "Disallow delete tool prefixes",
+        "severity": "high"
+      }
+    ],
+    "prompts": {
+      "detect_system": "You are Agent A: a passive market listener. Never post, reply, DM, or contact users. Never provide advice or solutions. Return ONLY valid JSON. You are a classifier.",
+      "extract_system": "You are Agent A: a passive market listener. Never post, reply, DM, or contact users. Never provide advice or solutions. Return ONLY valid JSON. You are a strict extractor.",
+      "role_system": "You are Agent A: a passive market listener. Never post, reply, DM, or contact users. Never provide advice or solutions. Return ONLY valid JSON. You are a weak role guesser."
+    },
+    "limits": {
+      "raw_text_max_chars": 12000,
+      "problem_raw_text_max_chars": 2000,
+      "surrounding_context_max_chars": 2000,
+      "signal_markers_max_items": 5
+    }
+  },
+  "runner": {
+    "config": {
+      "tick_defaults": {
+        "max_sources_per_tick": 10,
+        "max_items_per_source": 50,
+        "default_time_window": "6h"
+      },
+      "rate_limits": {
+        "reddit": {
+          "max_requests_per_minute": 30,
+          "backoff_on_429_seconds": [60, 120, 300]
+        },
+        "github": {
+          "max_requests_per_minute": 60,
+          "backoff_on_403_seconds": [60, 120, 300]
+        },
+        "forum_web": {
+          "max_requests_per_minute": 10,
+          "backoff_on_403_429_seconds": [120, 300, 900]
+        }
+      },
+      "circuit_breaker": {
+        "failure_threshold": 5,
+        "backoff_hours": 6
+      }
+    }
+  }
+}

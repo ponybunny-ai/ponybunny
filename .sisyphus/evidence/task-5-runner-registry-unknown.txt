@@ -1,0 +1,2 @@
+RunnerRegistry throws "Unknown runner type 'unknown_type' for enabled agent 'unknown-agent'" when resolving an enabled agent with an unregistered type.
+Test: npx jest test/infra/agents/runner-registry.test.ts

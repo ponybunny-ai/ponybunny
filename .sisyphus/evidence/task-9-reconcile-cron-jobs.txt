@@ -1,0 +1,6 @@
+Reconciled AgentRegistry -> cron_jobs using repository APIs.
+- Added cron job reconciler that upserts enabled/disabled agents and disables missing jobs via listCronJobs.
+- Wired reconciliation into scheduler daemon startup after DB init.
+- Tests: npx jest test/infra/scheduler/cron-job-reconciler.test.ts
+- Typecheck: npx tsc -p tsconfig.json --noEmit
+- Build: npm run build

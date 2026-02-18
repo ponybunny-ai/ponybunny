@@ -1,0 +1,15 @@
+Scenario: Validate a known-good sample config
+Command: npx jest test/infra/agents/agent-config-validator.test.ts
+Result: PASS
+
+Output:
+PASS test/infra/agents/agent-config-validator.test.ts
+  Agent config validator
+    ✓ accepts a minimal valid config (18 ms)
+    ✓ rejects configs with unknown properties (11 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       2 passed, 2 total
+Snapshots:   0 total
+Time:        1.447 s
+Ran all test suites matching test/infra/agents/agent-config-validator.test.ts.

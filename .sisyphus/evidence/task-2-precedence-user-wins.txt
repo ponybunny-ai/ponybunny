@@ -1,0 +1,7 @@
+npx jest test/infra/agents
+
+PASS test/infra/agents/agent-discovery.test.ts
+PASS test/infra/agents/agent-config-validator.test.ts
+
+Agent discovery precedence validated in test:
+- prefers user agent over workspace with same id

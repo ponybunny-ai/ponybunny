@@ -1,8 +1,18 @@
-import type { IWorkOrderRepository } from "./repository-interface.js";
+import type {
+  IWorkOrderRepository,
+  CronJob,
+  CronJobRun,
+  CronJobRunStatus,
+  UpsertCronJobParams,
+  ClaimDueCronJobsParams,
+  MarkCronJobInFlightParams,
+  UpdateCronJobAfterOutcomeParams,
+  CreateCronJobRunParams,
+} from "./repository-interface.js";
 import Database from 'better-sqlite3';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import * as crypto from 'node:crypto';
 
@@ -12,6 +22,34 @@ import type {
   GoalStatus, WorkItemStatus, SuccessCriterion, VerificationPlan, ContextSnapshot,
   EscalationContext, DecisionOption
 } from '../../work-order/types/index.js';
+
+interface CronJobRow {
+  agent_id: string;
+  enabled: number;
+  schedule_cron: string | null;
+  schedule_timezone: string | null;
+  schedule_interval_ms: number | null;
+  next_run_at_ms: number | null;
+  last_run_at_ms: number | null;
+  in_flight_run_key: string | null;
+  in_flight_goal_id: string | null;
+  in_flight_started_at_ms: number | null;
+  claimed_at_ms: number | null;
+  claimed_by: string | null;
+  claim_expires_at_ms: number | null;
+  definition_hash: string;
+  backoff_until_ms: number | null;
+  failure_count: number;
+}
+
+interface CronJobRunRow {
+  run_key: string;
+  agent_id: string;
+  scheduled_for_ms: number;
+  created_at_ms: number;
+  goal_id: string | null;
+  status: CronJobRunStatus;
+}
 
 export class WorkOrderDatabase implements IWorkOrderRepository {
   private db: Database.Database;
@@ -24,8 +62,18 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
   async initialize(): Promise<void> {
     if (this.isInitialized) return;
 
-    const schemaPath = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
-    const schema = readFileSync(schemaPath, 'utf-8');
+    const moduleUrl = (() => {
+      try {
+        return eval('import.meta.url') as string;
+      } catch {
+        return pathToFileURL(__filename).href;
+      }
+    })();
+    const moduleDir = dirname(fileURLToPath(moduleUrl));
+    const schemaPath = join(moduleDir, 'schema.sql');
+    const distSchemaPath = join(moduleDir, '..', '..', '..', 'dist', 'infra', 'persistence', 'schema.sql');
+    const resolvedSchemaPath = existsSync(distSchemaPath) ? distSchemaPath : schemaPath;
+    const schema = readFileSync(resolvedSchemaPath, 'utf-8');
     
     this.db.exec(schema);
     this.isInitialized = true;
@@ -110,6 +158,38 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
       snapshot_data: JSON.parse(row.snapshot_data),
       compressed: Boolean(row.compressed),
       metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+    };
+  }
+
+  private parseCronJobRow(row: CronJobRow): CronJob {
+    return {
+      agent_id: row.agent_id,
+      enabled: Boolean(row.enabled),
+      schedule_cron: row.schedule_cron ?? undefined,
+      schedule_timezone: row.schedule_timezone ?? undefined,
+      schedule_interval_ms: row.schedule_interval_ms ?? undefined,
+      next_run_at_ms: row.next_run_at_ms ?? undefined,
+      last_run_at_ms: row.last_run_at_ms ?? undefined,
+      in_flight_run_key: row.in_flight_run_key ?? undefined,
+      in_flight_goal_id: row.in_flight_goal_id ?? undefined,
+      in_flight_started_at_ms: row.in_flight_started_at_ms ?? undefined,
+      claimed_at_ms: row.claimed_at_ms ?? undefined,
+      claimed_by: row.claimed_by ?? undefined,
+      claim_expires_at_ms: row.claim_expires_at_ms ?? undefined,
+      definition_hash: row.definition_hash,
+      backoff_until_ms: row.backoff_until_ms ?? undefined,
+      failure_count: row.failure_count,
+    };
+  }
+
+  private parseCronJobRunRow(row: CronJobRunRow): CronJobRun {
+    return {
+      run_key: row.run_key,
+      agent_id: row.agent_id,
+      scheduled_for_ms: row.scheduled_for_ms,
+      created_at_ms: row.created_at_ms,
+      goal_id: row.goal_id ?? undefined,
+      status: row.status,
     };
   }
 
@@ -690,5 +770,202 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     const stmt = this.db.prepare(query);
     const row = stmt.get(...params) as ContextPackRow | undefined;
     return row ? this.parseContextPackRow(row) : undefined;
+  }
+
+  upsertCronJob(params: UpsertCronJobParams): CronJob {
+    const schedule = params.schedule;
+    const scheduleCron = schedule.kind === 'cron' ? schedule.cron ?? null : null;
+    const scheduleIntervalMs = schedule.kind === 'interval' ? schedule.every_ms ?? null : null;
+
+    const stmt = this.db.prepare(`
+      INSERT INTO cron_jobs (
+        agent_id,
+        enabled,
+        schedule_cron,
+        schedule_timezone,
+        schedule_interval_ms,
+        definition_hash
+      ) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(agent_id) DO UPDATE SET
+        enabled = excluded.enabled,
+        schedule_cron = excluded.schedule_cron,
+        schedule_timezone = excluded.schedule_timezone,
+        schedule_interval_ms = excluded.schedule_interval_ms,
+        definition_hash = excluded.definition_hash
+    `);
+
+    stmt.run(
+      params.agent_id,
+      params.enabled ? 1 : 0,
+      scheduleCron,
+      schedule.tz ?? null,
+      scheduleIntervalMs,
+      params.definition_hash
+    );
+
+    const row = this.db.prepare('SELECT * FROM cron_jobs WHERE agent_id = ?').get(params.agent_id) as CronJobRow;
+    return this.parseCronJobRow(row);
+  }
+
+  getCronJob(agent_id: string): CronJob | undefined {
+    const stmt = this.db.prepare('SELECT * FROM cron_jobs WHERE agent_id = ?');
+    const row = stmt.get(agent_id) as CronJobRow | undefined;
+    return row ? this.parseCronJobRow(row) : undefined;
+  }
+
+  listCronJobs(): CronJob[] {
+    const stmt = this.db.prepare('SELECT * FROM cron_jobs ORDER BY agent_id ASC');
+    const rows = stmt.all() as CronJobRow[];
+    return rows.map((row) => this.parseCronJobRow(row));
+  }
+
+  claimDueCronJobs(params: ClaimDueCronJobsParams): CronJob[] {
+    const nowMs = params.now_ms;
+    const claimExpiresAt = nowMs + params.claim_ttl_ms;
+    const limit = params.limit ?? 1;
+
+    const selectStmt = this.db.prepare(`
+      SELECT agent_id
+      FROM cron_jobs
+      WHERE enabled = 1
+        AND next_run_at_ms IS NOT NULL
+        AND next_run_at_ms <= ?
+        AND (backoff_until_ms IS NULL OR backoff_until_ms <= ?)
+        AND in_flight_run_key IS NULL
+        AND (claim_expires_at_ms IS NULL OR claim_expires_at_ms <= ?)
+      ORDER BY next_run_at_ms ASC
+      LIMIT ?
+    `);
+
+    const claimStmt = this.db.prepare(`
+      UPDATE cron_jobs
+      SET claimed_at_ms = ?,
+          claimed_by = ?,
+          claim_expires_at_ms = ?
+      WHERE agent_id = ?
+        AND enabled = 1
+        AND next_run_at_ms IS NOT NULL
+        AND next_run_at_ms <= ?
+        AND (backoff_until_ms IS NULL OR backoff_until_ms <= ?)
+        AND in_flight_run_key IS NULL
+        AND (claim_expires_at_ms IS NULL OR claim_expires_at_ms <= ?)
+    `);
+
+    const loadStmt = this.db.prepare('SELECT * FROM cron_jobs WHERE agent_id = ?');
+
+    const claimTransaction = this.db.transaction(() => {
+      const candidates = selectStmt.all(nowMs, nowMs, nowMs, limit) as Array<{ agent_id: string }>;
+      const claimed: CronJob[] = [];
+
+      for (const candidate of candidates) {
+        const result = claimStmt.run(
+          nowMs,
+          params.claimed_by,
+          claimExpiresAt,
+          candidate.agent_id,
+          nowMs,
+          nowMs,
+          nowMs
+        );
+
+        if (result.changes > 0) {
+          const row = loadStmt.get(candidate.agent_id) as CronJobRow;
+          claimed.push(this.parseCronJobRow(row));
+        }
+      }
+
+      return claimed;
+    });
+
+    return claimTransaction();
+  }
+
+  markCronJobInFlight(params: MarkCronJobInFlightParams): void {
+    const stmt = this.db.prepare(`
+      UPDATE cron_jobs SET
+        in_flight_run_key = ?,
+        in_flight_goal_id = ?,
+        in_flight_started_at_ms = ?,
+        last_run_at_ms = ?,
+        claimed_at_ms = NULL,
+        claimed_by = NULL,
+        claim_expires_at_ms = NULL
+      WHERE agent_id = ?
+    `);
+
+    stmt.run(
+      params.run_key,
+      params.goal_id ?? null,
+      params.started_at_ms,
+      params.last_run_at_ms,
+      params.agent_id
+    );
+  }
+
+  updateCronJobAfterOutcome(params: UpdateCronJobAfterOutcomeParams): void {
+    const stmt = this.db.prepare(`
+      UPDATE cron_jobs SET
+        next_run_at_ms = ?,
+        backoff_until_ms = ?,
+        failure_count = ?,
+        in_flight_run_key = NULL,
+        in_flight_goal_id = NULL,
+        in_flight_started_at_ms = NULL,
+        claimed_at_ms = NULL,
+        claimed_by = NULL,
+        claim_expires_at_ms = NULL
+      WHERE agent_id = ?
+    `);
+
+    stmt.run(
+      params.next_run_at_ms,
+      params.backoff_until_ms ?? null,
+      params.failure_count ?? 0,
+      params.agent_id
+    );
+  }
+
+  getOrCreateCronJobRun(params: CreateCronJobRunParams): CronJobRun {
+    const runKey = randomUUID();
+
+    const insertStmt = this.db.prepare(`
+      INSERT OR IGNORE INTO cron_job_runs (
+        run_key, agent_id, scheduled_for_ms, created_at_ms, goal_id, status
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    insertStmt.run(
+      runKey,
+      params.agent_id,
+      params.scheduled_for_ms,
+      params.created_at_ms,
+      params.goal_id ?? null,
+      params.status
+    );
+
+    const selectStmt = this.db.prepare(`
+      SELECT * FROM cron_job_runs
+      WHERE agent_id = ? AND scheduled_for_ms = ?
+    `);
+    const row = selectStmt.get(params.agent_id, params.scheduled_for_ms) as CronJobRunRow;
+    return this.parseCronJobRunRow(row);
+  }
+
+  linkCronJobRunToGoal(run_key: string, goal_id: string): void {
+    const stmt = this.db.prepare(`
+      UPDATE cron_job_runs SET goal_id = ?
+      WHERE run_key = ?
+    `);
+
+    stmt.run(goal_id, run_key);
+  }
+
+  updateCronJobRunStatus(run_key: string, status: CronJobRunStatus): void {
+    const stmt = this.db.prepare(`
+      UPDATE cron_job_runs SET status = ?
+      WHERE run_key = ?
+    `);
+
+    stmt.run(status, run_key);
   }
 }

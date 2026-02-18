@@ -70,9 +70,11 @@ export function createScheduler(
   // Create work item manager with repository adapter
   const workItemRepository: IWorkItemRepository = {
     getWorkItem: (id: string) => repository.getWorkItem(id),
-    getWorkItemsByGoal: (goalId: string) => repository.getReadyWorkItems(goalId),
+    getWorkItemsByGoal: (goalId: string) => repository.getWorkItemsByGoal(goalId),
     updateWorkItemStatus: (id: string, status: WorkItem['status']) =>
       repository.updateWorkItemStatus(id, status),
+    updateWorkItemStatusIfDependenciesMet: (id: string) =>
+      repository.updateWorkItemStatusIfDependenciesMet(id),
   };
   const workItemManager = new WorkItemManager(workItemRepository);
 

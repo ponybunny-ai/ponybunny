@@ -30,6 +30,16 @@ export interface IWorkOrderRepository {
   createDecision(params: CreateDecisionParams): Decision;
   createEscalation(params: CreateEscalationParams): Escalation;
   createContextPack(params: CreateContextPackParams): ContextPack;
+
+  upsertCronJob(params: UpsertCronJobParams): CronJob;
+  getCronJob(agent_id: string): CronJob | undefined;
+  listCronJobs(): CronJob[];
+  claimDueCronJobs(params: ClaimDueCronJobsParams): CronJob[];
+  markCronJobInFlight(params: MarkCronJobInFlightParams): void;
+  updateCronJobAfterOutcome(params: UpdateCronJobAfterOutcomeParams): void;
+  getOrCreateCronJobRun(params: CreateCronJobRunParams): CronJobRun;
+  linkCronJobRunToGoal(run_key: string, goal_id: string): void;
+  updateCronJobRunStatus(run_key: string, status: CronJobRunStatus): void;
 }
 
 export interface CreateGoalParams {
@@ -115,4 +125,78 @@ export interface CreateContextPackParams {
   pack_type: ContextPack['pack_type'];
   snapshot_data: ContextPack['snapshot_data'];
   compressed?: boolean;
+}
+
+export type CronJobRunStatus = 'pending' | 'claimed' | 'submitted' | 'running' | 'success' | 'failure';
+
+export interface CronJobScheduleInput {
+  kind: 'cron' | 'interval';
+  cron?: string;
+  every_ms?: number;
+  tz?: string;
+}
+
+export interface CronJob {
+  agent_id: string;
+  enabled: boolean;
+  schedule_cron?: string;
+  schedule_timezone?: string;
+  schedule_interval_ms?: number;
+  next_run_at_ms?: number;
+  last_run_at_ms?: number;
+  in_flight_run_key?: string;
+  in_flight_goal_id?: string;
+  in_flight_started_at_ms?: number;
+  claimed_at_ms?: number;
+  claimed_by?: string;
+  claim_expires_at_ms?: number;
+  definition_hash: string;
+  backoff_until_ms?: number;
+  failure_count: number;
+}
+
+export interface CronJobRun {
+  run_key: string;
+  agent_id: string;
+  scheduled_for_ms: number;
+  created_at_ms: number;
+  goal_id?: string;
+  status: CronJobRunStatus;
+}
+
+export interface UpsertCronJobParams {
+  agent_id: string;
+  enabled: boolean;
+  schedule: CronJobScheduleInput;
+  definition_hash: string;
+}
+
+export interface ClaimDueCronJobsParams {
+  now_ms: number;
+  claim_ttl_ms: number;
+  claimed_by: string;
+  limit?: number;
+}
+
+export interface MarkCronJobInFlightParams {
+  agent_id: string;
+  run_key: string;
+  goal_id?: string;
+  started_at_ms: number;
+  last_run_at_ms: number;
+}
+
+export interface UpdateCronJobAfterOutcomeParams {
+  agent_id: string;
+  next_run_at_ms: number | null;
+  backoff_until_ms?: number | null;
+  failure_count?: number;
+}
+
+export interface CreateCronJobRunParams {
+  agent_id: string;
+  scheduled_for_ms: number;
+  created_at_ms: number;
+  status: CronJobRunStatus;
+  goal_id?: string;
 }

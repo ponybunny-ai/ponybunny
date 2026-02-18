@@ -1,0 +1,7 @@
+Task 12 Cron Adapter Evidence
+
+- Added cron adapter with validation + next-fire computation.
+- Tests: npx jest test/infra/scheduler/cron-adapter.test.ts
+  Result: PASS (with non-fatal --localstorage-file warning)
+- Build: npm run build
+  Result: PASS

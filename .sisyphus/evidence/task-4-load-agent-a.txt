@@ -1,0 +1,9 @@
+Task 4 evidence: agent-a load validation
+
+Test run:
+- npx jest test/infra/agents/agent-registry.test.ts
+
+Assertions covered:
+- agent-a is discoverable in workspace registry
+- config is valid and enabled
+- schedule parsed as interval everyMs=60000

@@ -1,0 +1,13 @@
+UTC Timestamp: 2026-02-18T19:42:57Z
+
+Command:
+npx jest test/gateway/integration/execution-engine-adapter.test.ts
+
+Result Excerpt:
+PASS test/gateway/integration/execution-engine-adapter.test.ts
+  ExecutionEngineAdapter
+    ✓ routes agent_tick work items to runner path (1 ms)
+    ✓ routes non-agent_tick work items to ExecutionService (1 ms)
+
+Warning:
+(node:93257) Warning: `--localstorage-file` was provided without a valid path

@@ -1,0 +1,2 @@
+RunnerRegistry resolves market_listener to a registered runner and runTick is invoked with agentId, compiled config, and tick context.
+Test: npx jest test/infra/agents/runner-registry.test.ts

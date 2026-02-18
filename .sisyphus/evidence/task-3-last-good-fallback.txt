@@ -1,0 +1,6 @@
+Scenario: Invalid config does not break registry
+Steps:
+1) Load AgentRegistry with a valid agent config (test/infra/agents/agent-registry.test.ts).
+2) Replace agent.json with an invalid config and call reload().
+3) Verify getAgent(id) returns last-good definition with status using_last_good.
+Result: PASS (Jest: test/infra/agents/agent-registry.test.ts)

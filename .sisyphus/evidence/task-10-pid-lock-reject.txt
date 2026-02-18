@@ -1,0 +1,6 @@
+[2026-02-18] npx jest test/scheduler-daemon/pid-lock.test.ts
+Result: PASS
+Notes: IPCClient disconnect log during stop; warning about --localstorage-file.
+
+[2026-02-18] npm run build
+Result: PASS

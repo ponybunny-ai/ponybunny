@@ -24,6 +24,7 @@ describe('createScheduler', () => {
       getWorkItem: jest.fn(),
       updateWorkItemStatus: jest.fn(),
       getReadyWorkItems: jest.fn().mockReturnValue([]),
+      getWorkItemsByGoal: jest.fn().mockReturnValue([]),
       createRun: jest.fn().mockReturnValue({
         id: 'run-1',
         work_item_id: 'wi-1',
