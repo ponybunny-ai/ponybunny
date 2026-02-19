@@ -19,6 +19,23 @@ export interface UnifiedProviderConfig {
   defaultMaxTokens?: number;
 }
 
+interface RequestDebugMeta {
+  model: string;
+  endpointId: string;
+  protocol: string;
+  stream: boolean;
+  toolChoice: string;
+  toolCount: number;
+  hasTools: boolean;
+  stopCount: number;
+  hasEmptyStop: boolean;
+  responseFormatType: string;
+  messageCount: number;
+  roleCounts: Record<string, number>;
+  maxTokens: number | null;
+  temperature: number | null;
+}
+
 /**
  * Unified LLM Provider
  * Routes requests to appropriate protocol adapters and endpoints with automatic fallback
@@ -26,6 +43,8 @@ export interface UnifiedProviderConfig {
 export class UnifiedLLMProvider implements ILLMProvider {
   private router: ModelRouter;
   private config: UnifiedProviderConfig;
+  private previousRequestMeta = new Map<string, RequestDebugMeta>();
+  private requestCounter = 0;
 
   constructor(config: UnifiedProviderConfig = {}) {
     this.router = config.router || getModelRouter();
@@ -107,6 +126,7 @@ export class UnifiedLLMProvider implements ILLMProvider {
     model: string,
     options?: Partial<LLMProviderConfig>
   ): Promise<LLMResponse> {
+    const requestId = ++this.requestCounter;
     const credentials = resolveCredentials(endpoint);
     if (!credentials) {
       throw new LLMProviderError(
@@ -153,6 +173,8 @@ export class UnifiedLLMProvider implements ILLMProvider {
       stream: options?.stream,
     });
 
+    this.logRequestMeta(adapter, endpoint, model, requestBody, messages, requestId);
+
     // Build URL and headers (prefer credentials file baseUrl override)
     const baseUrl = credentials.baseUrl || credentials.endpoint || endpoint.baseUrl;
     const url = adapter.buildUrl(baseUrl, model, endpointCreds);
@@ -182,6 +204,8 @@ export class UnifiedLLMProvider implements ILLMProvider {
         timeout,
         adapter,
         model,
+        endpoint.id,
+        requestId,
         options?.onChunk
       );
     }
@@ -210,10 +234,13 @@ export class UnifiedLLMProvider implements ILLMProvider {
         );
       }
 
-      return adapter.parseResponse(
+      const parsed = adapter.parseResponse(
         { status: response.status, statusText: response.statusText, data },
         model
       );
+
+      this.logInboundMessage(parsed, requestId, endpoint.id);
+      return parsed;
     } catch (error) {
       if (error instanceof LLMProviderError) {
         throw error;
@@ -237,6 +264,8 @@ export class UnifiedLLMProvider implements ILLMProvider {
     timeout: number,
     adapter: IProtocolAdapter,
     model: string,
+    endpointId: string,
+    requestId: number,
     onChunk?: (chunk: import('./llm-provider.js').StreamChunk) => void
   ): Promise<LLMResponse> {
     const response = await fetch(url, {
@@ -319,7 +348,7 @@ export class UnifiedLLMProvider implements ILLMProvider {
       reader.releaseLock();
     }
 
-    return {
+    const parsed: LLMResponse = {
       content: fullContent || null,
       tokensUsed: 0, // Token count not available in streaming
       model,
@@ -327,6 +356,9 @@ export class UnifiedLLMProvider implements ILLMProvider {
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       thinking: fullThinking || undefined,
     };
+
+    this.logInboundMessage(parsed, requestId, endpointId);
+    return parsed;
   }
 
   /**
@@ -375,6 +407,95 @@ export class UnifiedLLMProvider implements ILLMProvider {
    */
   getRouter(): ModelRouter {
     return this.router;
+  }
+
+  private logRequestMeta(
+    adapter: IProtocolAdapter,
+    endpoint: EndpointConfig,
+    model: string,
+    requestBody: unknown,
+    messages: LLMMessage[],
+    requestId: number
+  ): void {
+    const body = (requestBody && typeof requestBody === 'object')
+      ? requestBody as Record<string, unknown>
+      : {};
+
+    const tools = Array.isArray(body.tools) ? body.tools : [];
+    const stop = Array.isArray(body.stop) ? body.stop : [];
+    const roleCounts: Record<string, number> = {};
+
+    for (const message of messages) {
+      roleCounts[message.role] = (roleCounts[message.role] || 0) + 1;
+    }
+
+    const meta: RequestDebugMeta = {
+      model,
+      endpointId: endpoint.id,
+      protocol: adapter.protocolId,
+      stream: Boolean(body.stream),
+      toolChoice: typeof body.tool_choice === 'string'
+        ? body.tool_choice
+        : (body.tool_choice ? 'function' : 'unset'),
+      toolCount: tools.length,
+      hasTools: tools.length > 0,
+      stopCount: stop.length,
+      hasEmptyStop: stop.some(item => typeof item === 'string' && item.length === 0),
+      responseFormatType: body.response_format && typeof body.response_format === 'object'
+        ? String((body.response_format as Record<string, unknown>).type || 'object')
+        : (body.response_format ? String(body.response_format) : 'unset'),
+      messageCount: messages.length,
+      roleCounts,
+      maxTokens: typeof body.max_tokens === 'number' ? body.max_tokens : null,
+      temperature: typeof body.temperature === 'number' ? body.temperature : null,
+    };
+
+    const key = `${endpoint.id}:${model}`;
+    const previous = this.previousRequestMeta.get(key);
+    const outboundMessages = messages.map((message) => ({
+      role: message.role,
+      content: message.content,
+      tool_calls: message.tool_calls,
+      tool_call_id: message.tool_call_id,
+    }));
+
+    console.log(`[UnifiedProvider][#${requestId}] Outbound messages:`, JSON.stringify(outboundMessages, null, 2));
+    console.log(`[UnifiedProvider][#${requestId}] Request meta:`, JSON.stringify(meta));
+
+    if (previous) {
+      const diff: Record<string, { from: unknown; to: unknown }> = {};
+      const fields = Object.keys(meta) as Array<keyof RequestDebugMeta>;
+
+      for (const field of fields) {
+        const before = previous[field];
+        const after = meta[field];
+        if (JSON.stringify(before) !== JSON.stringify(after)) {
+          diff[String(field)] = { from: before, to: after };
+        }
+      }
+
+      if (Object.keys(diff).length > 0) {
+        console.log(`[UnifiedProvider][#${requestId}] Request meta diff from previous call:`, JSON.stringify(diff));
+      } else {
+        console.log(`[UnifiedProvider][#${requestId}] Request meta unchanged from previous call.`);
+      }
+    }
+
+    this.previousRequestMeta.set(key, meta);
+  }
+
+  private logInboundMessage(response: LLMResponse, requestId: number, endpointId: string): void {
+    const inboundMessage = {
+      role: 'assistant',
+      content: response.content,
+      tool_calls: response.toolCalls,
+      finish_reason: response.finishReason,
+      model: response.model,
+      tokens_used: response.tokensUsed,
+      thinking: response.thinking,
+    };
+
+    console.log(`[UnifiedProvider][#${requestId}] Inbound parsed message from ${endpointId}:`, JSON.stringify(inboundMessage, null, 2));
   }
 }
 

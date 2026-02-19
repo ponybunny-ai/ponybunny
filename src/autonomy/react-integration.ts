@@ -90,7 +90,11 @@ export class ReActIntegration {
       ];
 
       let maxIterations = 20;
+      const maxNoActionIterations = 3;
+      const maxEmptyResponseRetries = 1;
       let completed = false;
+      let noActionIterations = 0;
+      let emptyResponseRetries = 0;
       let incompleteExitReason: string | undefined;
 
       while (!completed && maxIterations > 0) {
@@ -129,6 +133,9 @@ export class ReActIntegration {
 
         // Handle tool calls
         if (response.toolCalls && response.toolCalls.length > 0) {
+          noActionIterations = 0;
+          emptyResponseRetries = 0;
+
           // Add assistant message with tool calls
           messages.push({
             role: 'assistant',
@@ -138,7 +145,17 @@ export class ReActIntegration {
 
           // Execute each tool call
           for (const toolCall of response.toolCalls) {
-              const result = await this.executeToolCall(context, toolCall, activeToolEnforcer);
+            if (toolCall.function.name === 'complete_task') {
+              const summary = this.extractCompleteTaskSummary(toolCall.function.arguments);
+              if (summary) {
+                await this.thought(context, `Completion summary: ${summary}`);
+              }
+              await this.observation(context, 'Tool complete_task: Task marked as complete.');
+              completed = true;
+              break;
+            }
+
+            const result = await this.executeToolCall(context, toolCall, activeToolEnforcer);
 
             // Add tool result to messages
             messages.push({
@@ -149,6 +166,10 @@ export class ReActIntegration {
 
             await this.observation(context, `Tool ${toolCall.function.name}: ${result}`);
           }
+
+          if (completed) {
+            break;
+          }
         } else {
           // No tool calls, add assistant message
           messages.push({
@@ -156,10 +177,38 @@ export class ReActIntegration {
             content: response.content,
           });
 
-          // If no tool calls and not complete, we're done
           if (!completed) {
-            incompleteExitReason = 'Execution stopped: no tool calls and completion not detected';
-            break;
+            const hasVisibleContent = typeof response.content === 'string' && response.content.trim().length > 0;
+
+            if (!hasVisibleContent) {
+              if (emptyResponseRetries >= maxEmptyResponseRetries) {
+                incompleteExitReason = 'Execution stopped: repeated empty model responses without tool calls';
+                break;
+              }
+
+              emptyResponseRetries++;
+              messages.push({
+                role: 'user',
+                content: 'Your previous response was empty. Output exactly one of: (1) a concrete tool call to continue execution, or (2) complete_task with a concise summary if the task is finished.',
+              });
+              await this.observation(context, 'Empty model response without tool call; forced explicit next action prompt.');
+              maxIterations--;
+              continue;
+            }
+
+            noActionIterations++;
+            emptyResponseRetries = 0;
+
+            if (noActionIterations >= maxNoActionIterations) {
+              incompleteExitReason = `Execution stopped: no actionable tool calls after ${maxNoActionIterations} attempts`;
+              break;
+            }
+
+            messages.push({
+              role: 'user',
+              content: 'Continue executing autonomously. Use tools for concrete actions. If all requirements are satisfied, call complete_task with a summary.',
+            });
+            await this.observation(context, 'No actionable tool call emitted; requested next concrete action.');
           }
         }
 
@@ -435,6 +484,18 @@ Begin by analyzing the task and forming a plan.`;
              lowerThought.includes('would you') ||
              lowerThought.includes('should i')
            ));
+  }
+
+  private extractCompleteTaskSummary(argumentsJson: string): string | null {
+    try {
+      const parsed = JSON.parse(argumentsJson) as { summary?: unknown };
+      if (typeof parsed.summary === 'string' && parsed.summary.trim().length > 0) {
+        return parsed.summary.trim();
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   private async callLLMWithTools(

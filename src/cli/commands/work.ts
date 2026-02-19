@@ -5,6 +5,17 @@ import { WorkOrderDatabase } from '../../work-order/database/manager.js';
 import { ExecutionService } from '../../app/lifecycle/execution/execution-service.js';
 import { getLLMService, MockLLMProvider } from '../../infra/llm/index.js';
 
+function buildWorkModelCandidates(fallbackChain: string[]): string[] {
+  const candidates = fallbackChain.flatMap((modelId) => {
+    if (modelId === 'gpt-5.2') {
+      return ['gpt-5.2-codex', modelId];
+    }
+    return [modelId];
+  });
+
+  return Array.from(new Set(candidates));
+}
+
 export function registerWorkCommand(program: Command) {
 
   program
@@ -55,7 +66,15 @@ export function registerWorkCommand(program: Command) {
       // 4. Create Goal & Work Item
       console.log(chalk.blue(`\n📝 Task: ${task}`));
 
-      const model = options.model || llmService.getModelForAgent('execution');
+      const defaultModel = llmService.getModelForAgent('execution');
+      const fallbackChain = llmService.getFallbackChainForAgent('execution');
+      const modelCandidates = buildWorkModelCandidates([defaultModel, ...fallbackChain]);
+
+      const model = options.model || modelCandidates.find((candidateModel) => {
+        return llmService.getAvailableEndpointsForModel(candidateModel).length > 0;
+      }) || defaultModel;
+
+      spinner.info(chalk.dim(`Selected model: ${model}`));
 
       const goal = repository.createGoal({
         title: 'CLI Task',

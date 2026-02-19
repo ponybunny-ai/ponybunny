@@ -15,6 +15,34 @@ export async function loginAntigravity(): Promise<void> {
   const { url, state } = authorizeAntigravity();
 
   return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+    const clearAuthTimeout = () => {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = undefined;
+      }
+    };
+
+    const resolveOnce = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearAuthTimeout();
+      resolve();
+    };
+
+    const rejectOnce = (error: Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearAuthTimeout();
+      reject(error);
+    };
+
     const server = createServer(async (req, res) => {
       if (!req.url?.startsWith(CALLBACK_URL.pathname)) {
         res.writeHead(404);
@@ -93,7 +121,7 @@ export async function loginAntigravity(): Promise<void> {
         `);
         server.close();
         spinner.fail('Authentication failed');
-        reject(new Error(error));
+        rejectOnce(new Error(error));
         return;
       }
 
@@ -102,7 +130,7 @@ export async function loginAntigravity(): Promise<void> {
         res.end('State mismatch - possible CSRF attack');
         server.close();
         spinner.fail('State validation failed');
-        reject(new Error('State mismatch'));
+        rejectOnce(new Error('State mismatch'));
         return;
       }
 
@@ -111,7 +139,7 @@ export async function loginAntigravity(): Promise<void> {
         res.end('Missing authorization code');
         server.close();
         spinner.fail('Missing authorization code');
-        reject(new Error('Missing code'));
+        rejectOnce(new Error('Missing code'));
         return;
       }
 
@@ -194,13 +222,13 @@ export async function loginAntigravity(): Promise<void> {
         console.log(chalk.green(`\n✓ Logged in as: ${account.email || 'Unknown'}`));
         console.log(chalk.cyan(`✓ Antigravity account added (${accounts.length} total)\n`));
         
-        resolve();
+        resolveOnce();
       } catch (err) {
         res.writeHead(500);
         res.end('Internal server error');
         server.close();
         spinner.fail('Token exchange failed');
-        reject(err);
+        rejectOnce(err as Error);
       }
     });
 
@@ -215,10 +243,13 @@ export async function loginAntigravity(): Promise<void> {
       });
     });
 
-    setTimeout(() => {
+    timeoutHandle = setTimeout(() => {
+      if (settled) {
+        return;
+      }
       server.close();
       spinner.fail('Authentication timeout (2 minutes)');
-      reject(new Error('Timeout'));
+      rejectOnce(new Error('Timeout'));
     }, 120000);
   });
 }
@@ -283,15 +314,17 @@ antigravityAuthCommand
             name: 'action',
             message: 'What would you like to do next?',
             choices: [
-              { name: '➕ Add another Antigravity account', value: 'add' },
-              { name: '✓ Done, exit', value: 'exit' },
+              { name: 'Add another Antigravity account', value: 'add' },
+              { name: 'Done and exit', value: 'exit' },
             ],
           },
         ]);
         
         if (action === 'exit') {
           continueAdding = false;
-          console.log(chalk.green('\n✓ All done! You can now use your Antigravity accounts.\n'));
+          console.log();
+          console.log(chalk.green('Done. You can now use your Antigravity accounts.'));
+          console.log();
         } else {
           console.log('\n');
         }

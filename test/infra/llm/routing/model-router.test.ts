@@ -103,6 +103,7 @@ describe('ModelRouter', () => {
 
       expect(endpoints.length).toBe(0);
     });
+
   });
 
   describe('isEndpointAvailable', () => {
