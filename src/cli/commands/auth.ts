@@ -6,7 +6,6 @@ import inquirer from 'inquirer';
 import { createServer } from 'http';
 import { randomBytes, createHash } from 'crypto';
 import { accountManagerV2 } from '../lib/auth-manager-v2.js';
-import { antigravityAuthCommand } from './auth-antigravity.js';
 import type { AntigravityAccount, CodexAccount, OpenAICompatibleAccount } from '../lib/account-types.js';
 import { getAllEndpointConfigs } from '../../infra/llm/endpoints/index.js';
 import { getCachedCredentials } from '../../infra/config/credentials-loader.js';
@@ -765,7 +764,6 @@ authCommand
           message: 'Select a provider to authenticate with:',
           choices: [
             { name: '🤖 OpenAI Codex (OAuth)', value: 'codex' },
-            { name: '🔮 Google Antigravity (OAuth)', value: 'antigravity' },
             { name: '🔑 OpenAI-Compatible API (API Key)', value: 'openai-compatible' },
           ],
         },
@@ -792,32 +790,6 @@ authCommand
           if (action === 'exit') {
             continueAdding = false;
             console.log(chalk.green('\n✓ All done! You can now use your Codex accounts.\n'));
-          } else {
-            console.log('\n');
-          }
-        }
-      } else if (provider === 'antigravity') {
-        const { loginAntigravity } = await import('./auth-antigravity.js');
-        let continueAdding = true;
-        
-        while (continueAdding) {
-          await loginAntigravity();
-          
-          const { action } = await inquirer.prompt([
-            {
-              type: 'select',
-              name: 'action',
-              message: 'What would you like to do next?',
-              choices: [
-                { name: '➕ Add another Antigravity account', value: 'add' },
-                { name: '✓ Done, exit', value: 'exit' },
-              ],
-            },
-          ]);
-          
-          if (action === 'exit') {
-            continueAdding = false;
-            console.log(chalk.green('\n✓ All done! You can now use your Antigravity accounts.\n'));
           } else {
             console.log('\n');
           }
@@ -860,5 +832,3 @@ authCommand
   .command('set-strategy <strategy>')
   .description('Set load balancing strategy (stick or round-robin)')
   .action(setStrategy);
-
-authCommand.addCommand(antigravityAuthCommand);

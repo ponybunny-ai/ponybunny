@@ -90,7 +90,6 @@ pb config validate             # Validate config
 
 # Authentication
 pb auth login                  # Login to OpenAI
-pb auth antigravity login      # Login to Antigravity (Google)
 pb auth status                 # Check auth status
 
 # Models

@@ -97,7 +97,6 @@ pb auth login
 
 **Interactive prompts:**
 - **OpenAI Codex (OAuth)** - Browser-based OAuth flow
-- **Google Antigravity (OAuth)** - Google Cloud authentication
 - **OpenAI-Compatible API (API Key)** - Custom API endpoints
 
 **Features:**
@@ -166,12 +165,6 @@ OpenAI Codex (2)
      Added: 2026-02-07T15:30:00.000Z
      Status: Valid (expires 2026-02-14T15:30:00.000Z)
 
-Google Antigravity (1)
-──────────────────────────────────────────────────
-  1. user@gmail.com
-     ID: acc_ghi789
-     Added: 2026-02-06T12:00:00.000Z
-     Project: my-project-123
 ```
 
 ### `pb auth switch <identifier>`
