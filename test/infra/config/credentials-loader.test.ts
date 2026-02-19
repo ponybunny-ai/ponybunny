@@ -26,7 +26,6 @@ import {
 } from '../../../src/infra/config/credentials-loader.js';
 
 describe('CredentialsLoader', () => {
-  // Use actual home directory for tests - the functions use real paths
   const configDir = getConfigDir();
   const credentialsPath = getCredentialsPath();
   let originalCredentials: string | null = null;
@@ -63,15 +62,27 @@ describe('CredentialsLoader', () => {
   describe('getConfigDir', () => {
     it('should return path under home directory', () => {
       const result = getConfigDir();
-      expect(result).toContain('.ponybunny');
-      expect(result).toContain(os.homedir());
+      const override = process.env.PONYBUNNY_CONFIG_DIR;
+
+      if (typeof override === 'string' && override.trim()) {
+        expect(result).toBe(override);
+      } else {
+        expect(result).toContain('.ponybunny');
+        expect(result).toContain(os.homedir());
+      }
     });
   });
 
   describe('getCredentialsPath', () => {
     it('should return credentials.json path under config dir', () => {
       const result = getCredentialsPath();
-      expect(result).toContain('.ponybunny');
+      const override = process.env.PONYBUNNY_CONFIG_DIR;
+
+      if (typeof override === 'string' && override.trim()) {
+        expect(result.startsWith(override)).toBe(true);
+      } else {
+        expect(result).toContain('.ponybunny');
+      }
       expect(result).toContain('credentials.json');
     });
   });

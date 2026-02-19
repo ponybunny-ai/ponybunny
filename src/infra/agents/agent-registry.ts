@@ -6,6 +6,7 @@ import type { CompiledAgentConfig } from './config/index.js';
 import { AgentConfigValidationError, validateAndCompileAgentConfig } from './config/index.js';
 
 export type AgentDefinitionStatus = 'valid' | 'using_last_good';
+export type AgentConfigStatus = 'valid' | 'invalid' | 'using_last_good';
 
 export interface AgentDefinition {
   id: string;
@@ -53,6 +54,7 @@ export class AgentRegistry {
   private lastLoadedAt = 0;
   private loading: Promise<void> | null = null;
   private loadOptions: AgentRegistryLoadOptions | null = null;
+  private logger: Pick<Console, 'info' | 'warn'> = console;
 
   async loadAgents(options: AgentRegistryLoadOptions): Promise<void> {
     this.loadOptions = options;
@@ -126,7 +128,11 @@ export class AgentRegistry {
     if (!candidate.idMatches) {
       return this.handleInvalid(
         candidate.id,
-        `agent.json id (${candidate.configId ?? 'missing'}) does not match directory id`
+        `agent.json id (${candidate.configId ?? 'missing'}) does not match directory id`,
+        {
+          source: candidate.source,
+          configPath: candidate.agentConfigPath,
+        }
       );
     }
 
@@ -135,24 +141,48 @@ export class AgentRegistry {
       const configContent = await fs.readFile(candidate.agentConfigPath, 'utf-8');
       rawConfig = JSON.parse(configContent);
     } catch (error) {
-      return this.handleInvalid(candidate.id, `Failed to parse agent.json: ${(error as Error).message}`);
+      return this.handleInvalid(candidate.id, `Failed to parse agent.json: ${(error as Error).message}`, {
+        source: candidate.source,
+        configPath: candidate.agentConfigPath,
+      });
     }
 
     let compiled: CompiledAgentConfig;
     try {
       compiled = validateAndCompileAgentConfig(rawConfig);
     } catch (error) {
-      const message = error instanceof AgentConfigValidationError
-        ? error.message
-        : (error as Error).message;
-      return this.handleInvalid(candidate.id, message);
+      if (error instanceof AgentConfigValidationError) {
+        this.logger.warn('[AgentRegistry] Agent config validation failed', {
+          agentId: candidate.id,
+          source: candidate.source,
+          configPath: candidate.agentConfigPath,
+          configStatus: 'invalid' as AgentConfigStatus,
+          errors: error.errors.map((validationError) => ({
+            path: validationError.path,
+            message: validationError.message,
+          })),
+        });
+
+        return this.handleInvalid(candidate.id, error.message, {
+          source: candidate.source,
+          configPath: candidate.agentConfigPath,
+        });
+      }
+
+      return this.handleInvalid(candidate.id, (error as Error).message, {
+        source: candidate.source,
+        configPath: candidate.agentConfigPath,
+      });
     }
 
     let markdown: string;
     try {
       markdown = await fs.readFile(candidate.agentMarkdownPath, 'utf-8');
     } catch (error) {
-      return this.handleInvalid(candidate.id, `Failed to read AGENT.md: ${(error as Error).message}`);
+      return this.handleInvalid(candidate.id, `Failed to read AGENT.md: ${(error as Error).message}`, {
+        source: candidate.source,
+        configPath: candidate.agentConfigPath,
+      });
     }
 
     const definition: AgentDefinition = {
@@ -167,20 +197,42 @@ export class AgentRegistry {
     };
 
     this.lastGood.set(candidate.id, definition);
+    this.logger.info('[AgentRegistry] Agent config loaded', {
+      agentId: candidate.id,
+      source: candidate.source,
+      configPath: candidate.agentConfigPath,
+      configStatus: 'valid' as AgentConfigStatus,
+    });
     return definition;
   }
 
-  private handleInvalid(id: string, reason: string): AgentDefinition | undefined {
+  private handleInvalid(
+    id: string,
+    reason: string,
+    context?: { source: AgentConfigSource; configPath: string }
+  ): AgentDefinition | undefined {
     const lastGood = this.lastGood.get(id);
     if (lastGood) {
-      console.warn(`[AgentRegistry] Invalid config for ${id}, using last-good: ${reason}`);
+      this.logger.warn('[AgentRegistry] Agent config fallback to last-good', {
+        agentId: id,
+        source: context?.source ?? lastGood.source,
+        configPath: context?.configPath ?? lastGood.configPath,
+        configStatus: 'using_last_good' as AgentConfigStatus,
+        reason,
+      });
       return {
         ...lastGood,
         status: 'using_last_good',
       };
     }
 
-    console.warn(`[AgentRegistry] Invalid config for ${id}, skipping: ${reason}`);
+    this.logger.warn('[AgentRegistry] Agent config invalid and skipped', {
+      agentId: id,
+      source: context?.source,
+      configPath: context?.configPath,
+      configStatus: 'invalid' as AgentConfigStatus,
+      reason,
+    });
     return undefined;
   }
 }

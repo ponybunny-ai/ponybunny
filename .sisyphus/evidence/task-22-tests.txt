@@ -1,0 +1,12 @@
+npx jest test/scheduler/agent-scheduling.test.ts --runInBand
+PASS test/scheduler/agent-scheduling.test.ts
+PASS summary: 4 passed, 4 total
+
+bun run build
+PASS build completed successfully
+
+Assertion summary:
+- due scan + claim exclusivity: two repository instances sharing one sqlite DB produce a single due claim lease for the same cron row.
+- cron_job_runs idempotency: repeated dispatch for identical scheduled_for_ms reuses existing cron_job_runs row and does not create a second goal/work item submission.
+- coalesce misfire behavior: overdue interval schedule coalesces backlog into one dispatch with expected coalesced_count and scheduled_for_ms/next_run progression.
+- multi-daemon contention: two AgentScheduler instances on the same sqlite DB dispatch exactly once for a shared due timestamp (single run row + single submission).

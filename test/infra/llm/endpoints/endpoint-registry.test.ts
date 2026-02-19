@@ -17,6 +17,7 @@ describe('EndpointRegistry', () => {
         'openai-compatible',
         'google-ai-studio',
         'google-vertex-ai',
+        'codex',
       ]);
     });
 
@@ -43,6 +44,7 @@ describe('EndpointRegistry', () => {
       expect(ENDPOINT_CONFIGS['google-ai-studio'].requiredEnvVars).toContain('GEMINI_API_KEY');
       expect(ENDPOINT_CONFIGS['aws-bedrock'].requiredEnvVars).toContain('AWS_ACCESS_KEY_ID');
       expect(ENDPOINT_CONFIGS['azure-openai'].requiredEnvVars).toContain('AZURE_OPENAI_API_KEY');
+      expect(ENDPOINT_CONFIGS['codex'].requiredEnvVars).toEqual([]);
     });
   });
 
@@ -63,7 +65,7 @@ describe('EndpointRegistry', () => {
     it('should return all endpoint configs', () => {
       const configs = getAllEndpointConfigs();
 
-      expect(configs.length).toBe(7);
+      expect(configs.length).toBe(8);
       expect(configs.map(c => c.id)).toContain('anthropic-direct');
       expect(configs.map(c => c.id)).toContain('openai-direct');
       expect(configs.map(c => c.id)).toContain('openai-compatible');

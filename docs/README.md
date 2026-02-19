@@ -9,6 +9,11 @@ User-facing documentation and getting started guides:
 - **QUICK_START.md** - Quick start guide for new users
 - **ANTIGRAVITY_AUTH.md** - Google Antigravity authentication setup
 
+### 🧪 Testing (`testing/`)
+User-facing and verification guides:
+- **END-USER-TESTING-MANUAL.md** - Final user testing operations manual
+- **END-USER-TEST-RECORD-TEMPLATE.md** - End-user test record checklist template
+
 ### 💻 CLI Documentation (`cli/`)
 Command-line interface documentation:
 - **CLI-USAGE.md** - Complete CLI reference (985 lines)
@@ -63,6 +68,8 @@ Historical documentation and session summaries:
 - [Quick Start Guide](./guides/QUICK_START.md)
 - [CLI Usage Guide](./cli/CLI-USAGE.md)
 - [Authentication Setup](./guides/ANTIGRAVITY_AUTH.md)
+- [End-User Testing Manual](./testing/END-USER-TESTING-MANUAL.md)
+- [End-User Test Record Template](./testing/END-USER-TEST-RECORD-TEMPLATE.md)
 
 ### Development
 - [Development Patterns](./development/AGENTS.md)

@@ -114,7 +114,7 @@ async function runScheduler(
   socketPath: string,
   debugMode: boolean,
   mode: 'foreground' | 'background',
-  agentAEnabled: boolean
+  agentsEnabled: boolean
 ): Promise<void> {
   const isBackground = process.env.PONY_SCHEDULER_BACKGROUND === '1';
 
@@ -123,9 +123,10 @@ async function runScheduler(
     console.log(chalk.gray(`  Database: ${dbPath}`));
     console.log(chalk.gray(`  IPC Socket: ${socketPath}`));
     console.log(chalk.gray(`  Debug Mode: ${debugMode ? 'enabled' : 'disabled'}`));
+    console.log(chalk.gray(`  Agent Scheduler: ${agentsEnabled ? 'enabled' : 'disabled'}`));
   }
 
-  log(`Scheduler starting with db=${dbPath}, socket=${socketPath}`);
+  log(`Scheduler starting with db=${dbPath}, socket=${socketPath}, agentsEnabled=${agentsEnabled}`);
 
   try {
     // Initialize database
@@ -189,8 +190,8 @@ async function runScheduler(
         debug: debugMode,
         tickIntervalMs: 1000,
         maxConcurrentGoals: 5,
-        agentAEnabled,
-        agentAService: agentAEnabled ? AgentAService.create(llmService) : undefined,
+        agentsEnabled,
+        agentAService: AgentAService.create(llmService),
       }
     );
 
@@ -241,7 +242,12 @@ async function runScheduler(
   }
 }
 
-function startBackground(dbPath: string, socketPath: string, debugMode: boolean, agentAEnabled: boolean): void {
+function startBackground(
+  dbPath: string,
+  socketPath: string,
+  debugMode: boolean,
+  agentsEnabled: boolean
+): void {
   console.log(chalk.blue('Starting Scheduler Daemon in background...'));
 
   const cliPath = join(__dirname, '../index.js');
@@ -254,8 +260,8 @@ function startBackground(dbPath: string, socketPath: string, debugMode: boolean,
   if (debugMode) {
     args.push('--debug');
   }
-  if (agentAEnabled) {
-    args.push('--agent-a');
+  if (agentsEnabled) {
+    args.push('--agents');
   }
 
   const child = spawn(process.execPath, args, {
@@ -295,14 +301,22 @@ export const schedulerCommand = new Command('scheduler')
       .option('--socket <path>', 'IPC socket path', join(homedir(), '.ponybunny', 'gateway.sock'))
       .option('--debug', 'Enable debug mode')
       .option('-f, --force', 'Force start even if already running')
-      .option('--agent-a', 'Enable Agent A background listener loop')
+      .option('--agents', 'Enable config-driven agent scheduler loop')
+      .option('--agent-a', 'Enable Agent A background listener loop (deprecated)')
       .action(async (options) => {
         const dbPath = options.db;
         const socketPath = options.socket;
         const debugMode = options.debug ?? false;
         const foreground = options.foreground ?? false;
         const force = options.force ?? false;
+        const agentsEnabled = options.agents ?? false;
         const agentAEnabled = options.agentA ?? false;
+
+        if (agentAEnabled) {
+          const deprecationMessage = '--agent-a is deprecated and has no runtime effect; Agent A runs via config-driven scheduling (--agents).';
+          log(deprecationMessage);
+          console.warn(chalk.yellow(`⚠ ${deprecationMessage}`));
+        }
 
         // Check if scheduler is already running
         const existingPid = readPidFile();
@@ -324,10 +338,10 @@ export const schedulerCommand = new Command('scheduler')
 
         if (foreground) {
           // Run in foreground
-          await runScheduler(dbPath, socketPath, debugMode, 'foreground', agentAEnabled);
+          await runScheduler(dbPath, socketPath, debugMode, 'foreground', agentsEnabled);
         } else {
           // Run in background (default)
-          startBackground(dbPath, socketPath, debugMode, agentAEnabled);
+          startBackground(dbPath, socketPath, debugMode, agentsEnabled);
         }
       })
   )

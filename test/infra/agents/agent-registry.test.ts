@@ -56,10 +56,16 @@ function canonicalize(value: unknown): string {
 }
 
 describe('AgentRegistry', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('loads a valid agent and exposes markdown and definition hash', async () => {
     const workspaceDir = createTempDir();
     const agentsDir = path.join(workspaceDir, 'agents');
-    writeAgentDir(agentsDir, 'alpha');
+    const agentDir = writeAgentDir(agentsDir, 'alpha');
+
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
 
     const registry = new AgentRegistry();
     await registry.loadAgents({ workspaceDir, userDir: createTempDir() });
@@ -81,12 +87,20 @@ describe('AgentRegistry', () => {
     };
     const expectedHash = createHash('sha256').update(canonicalize(config)).digest('hex');
     expect(agent?.definitionHash).toBe(expectedHash);
+    expect(infoSpy).toHaveBeenCalledWith('[AgentRegistry] Agent config loaded', {
+      agentId: 'alpha',
+      source: 'workspace',
+      configPath: path.join(agentDir, 'agent.json'),
+      configStatus: 'valid',
+    });
   });
 
   it('serves last-good when a config becomes invalid', async () => {
     const workspaceDir = createTempDir();
     const agentsDir = path.join(workspaceDir, 'agents');
     const agentDir = writeAgentDir(agentsDir, 'beta');
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     const registry = new AgentRegistry();
     await registry.loadAgents({ workspaceDir, userDir: createTempDir() });
@@ -116,6 +130,27 @@ describe('AgentRegistry', () => {
     expect(updated?.status).toBe('using_last_good');
     expect(updated?.definitionHash).toBe(firstHash);
     expect(updated?.config.name).toBe('beta agent');
+
+    expect(warnSpy).toHaveBeenCalledWith('[AgentRegistry] Agent config validation failed', {
+      agentId: 'beta',
+      source: 'workspace',
+      configPath: path.join(agentDir, 'agent.json'),
+      configStatus: 'invalid',
+      errors: expect.arrayContaining([
+        expect.objectContaining({
+          path: '/name',
+          message: 'must have required property \'name\'',
+        }),
+      ]),
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith('[AgentRegistry] Agent config fallback to last-good', {
+      agentId: 'beta',
+      source: 'workspace',
+      configPath: path.join(agentDir, 'agent.json'),
+      configStatus: 'using_last_good',
+      reason: expect.stringContaining('/name: must have required property \'name\''),
+    });
   });
 
   it('skips an invalid config at startup without throwing', async () => {
@@ -130,10 +165,31 @@ describe('AgentRegistry', () => {
       'utf-8'
     );
 
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
     const registry = new AgentRegistry();
     await registry.loadAgents({ workspaceDir, userDir: createTempDir() });
 
     expect(registry.getAgent('gamma')).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith('[AgentRegistry] Agent config validation failed', {
+      agentId: 'gamma',
+      source: 'workspace',
+      configPath: path.join(agentDir, 'agent.json'),
+      configStatus: 'invalid',
+      errors: expect.arrayContaining([
+        expect.objectContaining({
+          path: '/name',
+          message: 'must have required property \'name\'',
+        }),
+      ]),
+    });
+    expect(warnSpy).toHaveBeenCalledWith('[AgentRegistry] Agent config invalid and skipped', {
+      agentId: 'gamma',
+      source: 'workspace',
+      configPath: path.join(agentDir, 'agent.json'),
+      configStatus: 'invalid',
+      reason: expect.stringContaining('/name: must have required property \'name\''),
+    });
   });
 
   it('loads the workspace agent-a definition with defaults', async () => {

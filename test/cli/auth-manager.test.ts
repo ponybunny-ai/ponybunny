@@ -114,6 +114,17 @@ describe('AuthManager', () => {
       expect(authManager.isAuthenticated()).toBe(false);
     });
 
+    test('returns true when refresh token exists even if access token is expired', () => {
+      authManager.saveConfig({
+        accessToken: 'expired-token',
+        refreshToken: 'refresh-token',
+        expiresAt: Date.now() - 1000,
+        email: 'test@example.com',
+      });
+
+      expect(authManager.isAuthenticated()).toBe(true);
+    });
+
     test('returns true when token not yet expired', () => {
       authManager.saveConfig({
         accessToken: 'valid-token',

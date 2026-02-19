@@ -1,0 +1,47 @@
+F3 End-to-End QA Runbook Summary
+Date: 2026-02-18
+Workspace: /Users/nickma/Develop/nick-ma/pony
+
+Runbook Command Results
+1) PASS - npx jest test/gateway/integration/execution-engine-adapter.test.ts --runInBand
+   Evidence: Test Suites: 1 passed, 1 total; Tests: 2 passed, 2 total.
+
+2) PASS - npx jest test/app/lifecycle/execution/execution-service.test.ts --runInBand
+   Evidence: Test Suites: 1 passed, 1 total; Tests: 2 passed, 2 total.
+
+3) PASS - npx jest test/infra/scheduler/agent-scheduler.test.ts --runInBand
+   Evidence: Test Suites: 1 passed, 1 total; Tests: 3 passed, 3 total.
+
+4) PASS - npx jest test/scheduler/agent-scheduling.test.ts --runInBand
+   Evidence: Test Suites: 1 passed, 1 total; Tests: 4 passed, 4 total.
+
+5) PASS - npx tsx test/e2e-agent-scheduling.ts
+   Evidence: PASS: in-process scheduled-agent dispatch reached exactly one run.
+   Evidence: PASS: DB assertions satisfied for goal/work_item/cron_job_runs linkage and submitted status.
+
+6) PASS - bun run build
+   Evidence: $ tsc && cp src/infra/persistence/schema.sql dist/infra/persistence/
+
+Failure/Blocker Classification
+- No command failures observed.
+- Known non-fatal environment warning seen during jest runs:
+  "Warning: `--localstorage-file` was provided without a valid path"
+- Classification: non-blocker (tests still passed; no assertion failures).
+
+Feature Area Summary
+- PASS - agent_tick/react_goal routing
+  Covered by gateway integration and infra scheduler tests (route selection + react_goal dispatch path).
+
+- PASS - per-work-item allowlist isolation
+  Covered by execution-service tests (restrictive allowlist denial + concurrent run isolation).
+
+- PASS - durable scheduling/idempotency/coalesce/contention
+  Covered by scheduler integration tests (exclusive claim, idempotent cron_job_runs, coalesced misfires, contention safety).
+
+- PASS - e2e scheduled dispatch
+  Covered by e2e script (exactly one run, linkage/status assertions).
+
+- PASS - build/typecheck
+  Covered by build command (TypeScript compile and schema copy completed).
+
+Overall Final QA Status: PASS

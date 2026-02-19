@@ -1,0 +1,19 @@
+npx jest test/app/lifecycle/execution/execution-service.test.ts
+(node:50963) Warning: `--localstorage-file` was provided without a valid path
+PASS test/app/lifecycle/execution/execution-service.test.ts
+  ExecutionService per-work-item tool allowlist
+    ✓ denies disallowed tool invocation when work item allowlist is restrictive (11 ms)
+    ✓ keeps tool permissions isolated across concurrent runs
+
+Test Suites: 1 passed, 1 total
+Tests:       2 passed, 2 total
+
+Assertion summary:
+- Restrictive allowlist deterministically denies disallowed tool invocation ("Action denied" path asserted in test).
+- Concurrent runs with different allowlists remain isolated (allow-run succeeds, deny-run blocked, no permission leakage).
+
+bun run build
+$ tsc && cp src/infra/persistence/schema.sql dist/infra/persistence/
+
+Build summary:
+- TypeScript build completed successfully (exit code 0).

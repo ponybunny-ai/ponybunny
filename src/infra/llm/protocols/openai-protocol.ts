@@ -1,4 +1,4 @@
-import type { LLMMessage, LLMResponse, ToolCall, ToolDefinition, StreamChunk } from '../llm-provider.js';
+import type { LLMMessage, LLMResponse, ToolCall, StreamChunk } from '../llm-provider.js';
 import type {
   EndpointCredentials,
   ProtocolRequestConfig,
@@ -118,7 +118,7 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
     };
 
     const message = data.choices?.[0]?.message;
-    const content = message?.content || null;
+    const content = message?.content ?? '';
     const thinking = message?.reasoning_content;
     const toolCalls = message?.tool_calls;
     const tokensUsed = data.usage?.total_tokens || 0;

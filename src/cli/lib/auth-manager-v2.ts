@@ -83,7 +83,7 @@ export class AccountManagerV2 {
   private codexRateLimitResets = new Map<string, number>();
 
   constructor() {
-    this.configDir = join(homedir(), '.ponybunny');
+    this.configDir = asString(process.env.PONYBUNNY_CONFIG_DIR) ?? join(homedir(), '.ponybunny');
     this.configPath = join(this.configDir, 'accounts.json');
 
     if (!existsSync(this.configDir)) {
@@ -538,10 +538,24 @@ export class AccountManagerV2 {
 
     if (provider === 'codex') {
       const codex = account as CodexAccount;
-      if (codex.expiresAt && codex.expiresAt < nowMs()) {
+      if (codex.refreshToken) {
+        return true;
+      }
+
+      if (!codex.accessToken) {
         return false;
       }
-      return !!codex.accessToken || !!codex.refreshToken;
+
+      if (!codex.expiresAt) {
+        return true;
+      }
+
+      return codex.expiresAt >= nowMs();
+    }
+
+    if (provider === 'openai-compatible') {
+      const compat = account as OpenAICompatibleAccount;
+      return !!compat.apiKey;
     }
 
     const antigravity = account as AntigravityAccount;

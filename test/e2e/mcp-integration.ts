@@ -3,10 +3,10 @@
  * Tests the full MCP integration with a real filesystem server
  */
 
-import { MCPClient } from '../src/infra/mcp/client/mcp-client.js';
-import { getMCPConnectionManager, initializeMCPConnectionManager } from '../src/infra/mcp/index.js';
-import { ToolRegistry } from '../src/infra/tools/tool-registry.js';
-import { registerMCPTools } from '../src/infra/mcp/index.js';
+import { MCPClient } from '../../src/infra/mcp/client/mcp-client.js';
+import { getMCPConnectionManager, initializeMCPConnectionManager } from '../../src/infra/mcp/index.js';
+import { ToolRegistry } from '../../src/infra/tools/tool-registry.js';
+import { registerMCPTools } from '../../src/infra/mcp/index.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';

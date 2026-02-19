@@ -6,17 +6,17 @@ import type { ModelTierConfig } from './types.js';
  */
 export const DEFAULT_MODEL_TIER_CONFIG: ModelTierConfig = {
   simple: {
-    primary: 'claude-haiku-4-5',
+    primary: 'claude-haiku-4-5-20251001',
     fallback: 'gpt-5.2',
     temperature: 0.2,
   },
   medium: {
-    primary: 'claude-sonnet-4-5',
+    primary: 'claude-sonnet-4-5-20250929',
     fallback: 'gpt-5.2',
     temperature: 0.2,
   },
   complex: {
-    primary: 'claude-opus-4-5',
+    primary: 'claude-opus-4-5-20251101',
     fallback: 'gpt-5.2',
     temperature: 0.3,
   },

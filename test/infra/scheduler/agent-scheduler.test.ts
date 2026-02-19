@@ -149,8 +149,13 @@ describe('AgentScheduler', () => {
     db.close();
 
     const scheduler = new StubScheduler();
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    };
     const agentScheduler = new AgentScheduler(
-      { repository, scheduler, registry },
+      { repository, scheduler, registry, logger },
       { claimTtlMs: 60000, instanceId: 'test-instance' }
     );
 
@@ -183,6 +188,90 @@ describe('AgentScheduler', () => {
 
     expect(rows.count).toBe(1);
     expect(scheduler.submittedGoals).toHaveLength(1);
+
+    expect(logger.info).toHaveBeenCalledWith(
+      '[AgentScheduler] Dispatching cron job',
+      expect.objectContaining({
+        agentId: 'agent-2',
+        coalesced_count: 0,
+      })
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      '[AgentScheduler] Idempotent skip for existing run',
+      expect.objectContaining({
+        agentId: 'agent-2',
+        coalesced_count: 0,
+        reason: 'run_already_linked_to_goal',
+      })
+    );
+
+    repository.close();
+  });
+
+  it('dispatches react_goal agents with execution context and mapped goal budget', async () => {
+    const now = 1_700_000_200_000;
+    const workspaceDir = createTempDir();
+    const dbPath = createTempDbPath();
+
+    writeAgent(workspaceDir, 'agent-react-goal', {
+      schemaVersion: 1,
+      id: 'agent-react-goal',
+      name: 'React Goal Agent',
+      enabled: true,
+      type: 'react_goal',
+      schedule: { everyMs: 60000 },
+      policy: {},
+      runner: {
+        config: {
+          goal_title_template: 'Daily Validation Goal',
+          goal_description_template: 'Run daily validation workflow.',
+          budget: {
+            tokens: 3210,
+            time_minutes: 25,
+            cost_usd: 4.5,
+          },
+          model_hint: 'gpt-5.3-codex',
+          tool_allowlist: ['Bash', 'Read', 'Grep'],
+        },
+      },
+    });
+
+    const registry = new AgentRegistry();
+    await registry.loadAgents({ workspaceDir });
+
+    const repository = new WorkOrderDatabase(dbPath);
+    await repository.initialize();
+    await reconcileCronJobsFromRegistry({ repository, registry });
+
+    const db = new Database(dbPath);
+    db.prepare('UPDATE cron_jobs SET next_run_at_ms = ? WHERE agent_id = ?').run(now - 1000, 'agent-react-goal');
+    db.close();
+
+    const scheduler = new StubScheduler();
+    const agentScheduler = new AgentScheduler(
+      { repository, scheduler, registry },
+      { claimTtlMs: 60000, instanceId: 'test-instance' }
+    );
+
+    const summary = await agentScheduler.dispatchOnce(now);
+    expect(summary.claimed).toBe(1);
+    expect(summary.dispatched).toBe(1);
+
+    const goals = repository.listGoals();
+    expect(goals).toHaveLength(1);
+    expect(goals[0].budget_tokens).toBe(3210);
+    expect(goals[0].budget_time_minutes).toBe(25);
+    expect(goals[0].budget_cost_usd).toBe(4.5);
+
+    const workItems = repository.getWorkItemsByGoal(goals[0].id);
+    expect(workItems).toHaveLength(1);
+    expect((workItems[0].context as Record<string, unknown>).kind).toBeUndefined();
+    expect((workItems[0].context as Record<string, unknown>).tool_allowlist).toEqual([
+      'Bash',
+      'Read',
+      'Grep',
+    ]);
+    expect((workItems[0].context as Record<string, unknown>).model).toBe('gpt-5.3-codex');
 
     repository.close();
   });

@@ -19,17 +19,19 @@ function safeGetEndpointConfig(endpointId: string): EndpointConfig | null {
  */
 export class ModelRouter {
   private routingConfig: ModelRoutingConfig[];
+  private useLLMConfig: boolean;
   private availabilityCache = new Map<EndpointId, boolean>();
 
   constructor(routingConfig?: ModelRoutingConfig[]) {
-    this.routingConfig = routingConfig || getRoutingConfig();
+    this.routingConfig = routingConfig ?? getRoutingConfig();
+    this.useLLMConfig = routingConfig === undefined;
   }
 
   /**
    * Get the protocol for a model
    */
   getProtocolForModel(modelId: string): ProtocolId | undefined {
-    const llmModelConfig = getLLMModelConfig(modelId);
+    const llmModelConfig = this.useLLMConfig ? getLLMModelConfig(modelId) : undefined;
     if (llmModelConfig) {
       const firstEndpointId = llmModelConfig.endpoints[0];
       if (!firstEndpointId) return undefined;
@@ -47,7 +49,7 @@ export class ModelRouter {
   getEndpointsForModel(modelId: string): EndpointConfig[] {
     console.log(`🔍 [ModelRouter] Resolving endpoints for model: ${modelId}`);
 
-    const llmModelConfig = getLLMModelConfig(modelId);
+    const llmModelConfig = this.useLLMConfig ? getLLMModelConfig(modelId) : undefined;
     const candidateEndpointIds: string[] = llmModelConfig?.endpoints ?? [];
 
     if (llmModelConfig) {

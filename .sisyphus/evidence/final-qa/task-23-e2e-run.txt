@@ -1,0 +1,15 @@
+Final QA Evidence - Task 23 Scheduled-Agent E2E
+
+Executed commands:
+1. `npx tsx test/e2e-agent-scheduling.ts`
+2. `bun run build`
+
+Captured outputs:
+- PASS: in-process scheduled-agent dispatch reached exactly one run.
+- PASS: DB assertions satisfied for goal/work_item/cron_job_runs linkage and submitted status.
+- $ tsc && cp src/infra/persistence/schema.sql dist/infra/persistence/
+
+Verification assertions:
+- Exactly one due dispatch was observed in deterministic E2E execution.
+- Persistence assertions for goal/work item and cron_job_runs link/status succeeded.
+- Build pipeline completed with the expected TypeScript + schema copy step.

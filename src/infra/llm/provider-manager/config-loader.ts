@@ -10,6 +10,11 @@ import { ConfigValidationError } from './types.js';
  * Get the PonyBunny config directory path
  */
 export function getConfigDir(): string {
+  const override = process.env.PONYBUNNY_CONFIG_DIR;
+  if (typeof override === 'string' && override.trim()) {
+    return override;
+  }
+
   return path.join(os.homedir(), '.ponybunny');
 }
 
@@ -40,7 +45,7 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
       rateLimit: { requestsPerMinute: 60 },
     },
     'aws-bedrock': {
-      enabled: false,
+      enabled: true,
       protocol: 'anthropic',
       region: 'us-east-1',
       priority: 2,

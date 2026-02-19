@@ -141,6 +141,19 @@ pb auth list
 ```
 📋 Accounts (3 total) - Strategy: round-robin
 
+Enabled providers: ✓ Found
+
+- OpenAI OAuth
+  Status: Enabled
+
+- OpenAI-Compatible
+  Status: Enabled
+  API Key: sk-compatible-ab***
+
+- Anthropic Direct
+  Status: Enabled
+  API Key: sk-ant-1234567***
+
 OpenAI Codex (2)
 ──────────────────────────────────────────────────
 ➤ 1. user@example.com
@@ -260,11 +273,19 @@ pb status
 ```
 🔍 PonyBunny Status
 
-Authentication: ✓ Authenticated
+Enabled providers: ✓ Found
+
+- OpenAI OAuth
+  Status: Enabled
+  Provider: OpenAI
   User: user@example.com
 
-Testing OpenAI API connection...
-✓ OpenAI API connection successful
+- OpenAI-Compatible
+  Status: Enabled
+
+Testing enabled providers...
+✓ OpenAI OAuth test successful
+✓ OpenAI-Compatible test successful
 ```
 
 ---

@@ -1,12 +1,13 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { authManagerV2 } from '../lib/auth-manager-v2.js';
+import { accountManagerV2, authManagerV2 } from '../lib/auth-manager-v2.js';
 
 async function showConfig(): Promise<void> {
   const config = authManagerV2.getConfig();
+  const isAuth = accountManagerV2.isAuthenticated('codex');
   
   console.log(chalk.cyan('\nCurrent Configuration:\n'));
-  console.log(chalk.white('  Authenticated:'), config.accessToken ? chalk.green('Yes') : chalk.red('No'));
+  console.log(chalk.white('  Authenticated:'), isAuth ? chalk.green('Yes') : chalk.red('No'));
   
   if (config.email) {
     console.log(chalk.white('  Email:'), config.email);

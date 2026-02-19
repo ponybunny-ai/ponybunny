@@ -12,7 +12,7 @@ import type {
 import Database from 'better-sqlite3';
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import * as crypto from 'node:crypto';
 
@@ -54,6 +54,20 @@ interface CronJobRunRow {
 export class WorkOrderDatabase implements IWorkOrderRepository {
   private db: Database.Database;
   private isInitialized = false;
+  private static readonly MODULE_DIR = WorkOrderDatabase.resolveModuleDir();
+
+  private static resolveModuleDir(): string {
+    const importMetaUrl = WorkOrderDatabase.readImportMetaUrl();
+    return importMetaUrl ? dirname(fileURLToPath(importMetaUrl)) : process.cwd();
+  }
+
+  private static readImportMetaUrl(): string | undefined {
+    try {
+      return (0, eval)('import.meta.url') as string;
+    } catch {
+      return undefined;
+    }
+  }
 
   constructor(private dbPath: string) {
     this.db = new Database(dbPath);
@@ -62,17 +76,18 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
   async initialize(): Promise<void> {
     if (this.isInitialized) return;
 
-    const moduleUrl = (() => {
-      try {
-        return eval('import.meta.url') as string;
-      } catch {
-        return pathToFileURL(__filename).href;
-      }
-    })();
-    const moduleDir = dirname(fileURLToPath(moduleUrl));
-    const schemaPath = join(moduleDir, 'schema.sql');
-    const distSchemaPath = join(moduleDir, '..', '..', '..', 'dist', 'infra', 'persistence', 'schema.sql');
-    const resolvedSchemaPath = existsSync(distSchemaPath) ? distSchemaPath : schemaPath;
+    const schemaCandidates = [
+      join(WorkOrderDatabase.MODULE_DIR, 'schema.sql'),
+      join(WorkOrderDatabase.MODULE_DIR, '..', '..', '..', 'dist', 'infra', 'persistence', 'schema.sql'),
+      join(process.cwd(), 'dist', 'infra', 'persistence', 'schema.sql'),
+      join(process.cwd(), 'src', 'infra', 'persistence', 'schema.sql'),
+    ];
+
+    const resolvedSchemaPath = schemaCandidates.find((candidatePath) => existsSync(candidatePath));
+    if (!resolvedSchemaPath) {
+      throw new Error('Could not locate persistence schema.sql in dist/ or src/ paths');
+    }
+
     const schema = readFileSync(resolvedSchemaPath, 'utf-8');
     
     this.db.exec(schema);

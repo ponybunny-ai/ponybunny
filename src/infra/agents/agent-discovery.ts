@@ -27,6 +27,7 @@ export interface AgentDiscoveryCandidate {
 export interface AgentDiscoveryOptions {
   workspaceDir: string;
   userDir?: string;
+  logger?: Pick<Console, 'info'>;
 }
 
 const SOURCE_RANK: Record<AgentConfigSource, number> = {
@@ -88,7 +89,8 @@ async function readAgentConfigId(
 
 async function discoverAgentsFromDir(
   dir: string,
-  source: AgentConfigSource
+  source: AgentConfigSource,
+  logger: Pick<Console, 'info'>
 ): Promise<AgentDiscoveryCandidate[]> {
   if (!(await isDirectory(dir))) {
     return [];
@@ -121,7 +123,7 @@ async function discoverAgentsFromDir(
       entry
     );
 
-    candidates.push({
+    const candidate: AgentDiscoveryCandidate = {
       id: entry,
       source,
       agentDir,
@@ -133,7 +135,16 @@ async function discoverAgentsFromDir(
       configId,
       idMatches,
       ...(configParseError ? { configParseError } : {}),
+    };
+
+    logger.info('[AgentDiscovery] Candidate discovered', {
+      agentId: candidate.id,
+      source: candidate.source,
+      idMatches: candidate.idMatches,
+      configId: candidate.configId,
     });
+
+    candidates.push(candidate);
   }
 
   return candidates;
@@ -150,12 +161,13 @@ export function getUserAgentsDir(configDir: string = getConfigDir()): string {
 export async function discoverAgentCandidates(
   options: AgentDiscoveryOptions
 ): Promise<AgentDiscoveryCandidate[]> {
+  const logger = options.logger ?? console;
   const workspaceAgentsDir = getWorkspaceAgentsDir(options.workspaceDir);
   const userAgentsDir = options.userDir ?? getUserAgentsDir();
 
   const [workspaceCandidates, userCandidates] = await Promise.all([
-    discoverAgentsFromDir(workspaceAgentsDir, 'workspace'),
-    discoverAgentsFromDir(userAgentsDir, 'user'),
+    discoverAgentsFromDir(workspaceAgentsDir, 'workspace', logger),
+    discoverAgentsFromDir(userAgentsDir, 'user', logger),
   ]);
 
   const byId = new Map<string, AgentDiscoveryCandidate>();
@@ -177,6 +189,11 @@ export async function discoverAgentCandidates(
     }
 
     if (existingId) {
+      logger.info('[AgentDiscovery] Applying precedence override', {
+        agentId: candidate.id,
+        winnerSource: candidate.source,
+        loserSource: existingId.source,
+      });
       byRealPath.delete(existingId.agentDirRealPath);
     }
 

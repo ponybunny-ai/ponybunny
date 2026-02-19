@@ -1,0 +1,17 @@
+bun run build
+$ tsc && cp src/infra/persistence/schema.sql dist/infra/persistence/
+
+npx jest test/infra/scheduler/agent-scheduler.test.ts
+PASS test/infra/scheduler/agent-scheduler.test.ts
+  AgentScheduler
+    ✓ creates a goal and work item for a due job
+    ✓ deduplicates dispatch for the same scheduled run
+    ✓ dispatches react_goal agents with execution context and mapped goal budget
+
+Test Suites: 1 passed, 1 total
+Tests:       3 passed, 3 total
+
+Assertions summary:
+- react_goal dispatch creates one goal and one work item.
+- react_goal work item context omits kind=agent_tick and includes configured tool_allowlist and model.
+- goal budget_tokens/budget_time_minutes/budget_cost_usd map from runner.config.budget.

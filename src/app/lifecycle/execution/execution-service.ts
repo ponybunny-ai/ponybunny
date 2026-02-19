@@ -99,6 +99,7 @@ export class ExecutionService implements IExecutionService {
 
   async executeWorkItem(workItem: WorkItem): Promise<ExecutionResult> {
     const startTime = Date.now();
+    const scopedToolEnforcer = this.createScopedToolEnforcer(workItem);
 
     const goal = this.repository.getGoal(workItem.goal_id);
 
@@ -121,6 +122,7 @@ export class ExecutionService implements IExecutionService {
         goal,
         signal: new AbortController().signal,
         model: workItem.context?.model,
+        toolEnforcer: scopedToolEnforcer,
       });
 
       const timeSeconds = Math.floor((Date.now() - startTime) / 1000);
@@ -183,6 +185,17 @@ export class ExecutionService implements IExecutionService {
     );
 
     return repeatedErrors.length > 0;
+  }
+
+  private createScopedToolEnforcer(workItem: WorkItem): ToolEnforcer | undefined {
+    const allowlistOverride = workItem.context?.tool_allowlist;
+
+    if (!Array.isArray(allowlistOverride)) {
+      return undefined;
+    }
+
+    const scopedAllowlist = new ToolAllowlist(allowlistOverride);
+    return new ToolEnforcer(this.toolRegistry, scopedAllowlist);
   }
 
   private generateErrorSignature(error?: string): string | undefined {

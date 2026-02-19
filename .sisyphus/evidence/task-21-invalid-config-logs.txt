@@ -1,0 +1,18 @@
+npx jest test/infra/agents/agent-discovery.test.ts test/infra/agents/agent-registry.test.ts test/infra/scheduler/agent-scheduler.test.ts --runInBand
+PASS test/infra/scheduler/agent-scheduler.test.ts
+PASS test/infra/agents/agent-registry.test.ts
+PASS test/infra/agents/agent-discovery.test.ts
+Test Suites: 3 passed, 3 total
+Tests: 13 passed, 13 total
+
+bun run build
+$ tsc && cp src/infra/persistence/schema.sql dist/infra/persistence/
+
+Representative log excerpts/assertions for Task 21 diagnostics:
+- Discovery source log: [AgentDiscovery] Candidate discovered { agentId: 'alpha', source: 'workspace', idMatches: true, configId: 'alpha' }
+- Precedence override log: [AgentDiscovery] Applying precedence override { agentId: 'alpha', winnerSource: 'user', loserSource: 'workspace' }
+- Registry invalid validation log assertion: expect(warnSpy).toHaveBeenCalledWith('[AgentRegistry] Agent config validation failed', { agentId: 'beta', source: 'workspace', configStatus: 'invalid', errors: [...] })
+- Registry fallback status log assertion: expect(warnSpy).toHaveBeenCalledWith('[AgentRegistry] Agent config fallback to last-good', { agentId: 'beta', source: 'workspace', configStatus: 'using_last_good', reason: ... })
+- Registry invalid skip status log assertion: expect(warnSpy).toHaveBeenCalledWith('[AgentRegistry] Agent config invalid and skipped', { agentId: 'gamma', source: 'workspace', configStatus: 'invalid', reason: ... })
+- Dispatch coalesced_count log: [AgentScheduler] Dispatching cron job { agentId: 'agent-1', ..., coalesced_count: 0 }
+- Idempotency skip log assertion: expect(logger.info).toHaveBeenCalledWith('[AgentScheduler] Idempotent skip for existing run', { agentId: 'agent-2', coalesced_count: 0, reason: 'run_already_linked_to_goal' })

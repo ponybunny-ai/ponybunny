@@ -42,6 +42,16 @@ export class UnifiedLLMProvider implements ILLMProvider {
     }
 
     console.log(`🚀 [UnifiedProvider] Received request for model: ${model}`);
+
+    const protocol = this.router.getProtocolForModel(model);
+    if (!protocol) {
+      throw new LLMProviderError(
+        `No protocol found for model: ${model}`,
+        'unified-provider',
+        false
+      );
+    }
+
     const endpoints = this.router.getEndpointsForModel(model);
     if (endpoints.length === 0) {
       throw new LLMProviderError(

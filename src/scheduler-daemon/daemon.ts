@@ -5,7 +5,6 @@
  * Sends scheduler and debug events to Gateway via IPC for real-time monitoring.
  */
 
-import { randomUUID } from 'crypto';
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
 import type { IExecutionService } from '../app/lifecycle/stage-interfaces.js';
 import type { ILLMProvider } from '../infra/llm/llm-provider.js';
@@ -17,7 +16,6 @@ import { createScheduler } from '../gateway/integration/scheduler-factory.js';
 import { IPCClient } from '../ipc/ipc-client.js';
 import { debugEmitter } from '../debug/emitter.js';
 import type { AnyIPCMessage } from '../ipc/types.js';
-import { AgentATickRunner } from './agent-a-loop.js';
 import { getGlobalAgentRegistry } from '../infra/agents/agent-registry.js';
 import { getGlobalRunnerRegistry } from '../infra/agents/runner-registry.js';
 import { reconcileCronJobsFromRegistry } from '../infra/scheduler/cron-job-reconciler.js';
@@ -36,8 +34,7 @@ export interface SchedulerDaemonConfig {
   tickIntervalMs?: number;
   /** Maximum concurrent goals */
   maxConcurrentGoals?: number;
-  agentAEnabled?: boolean;
-  agentATickIntervalMs?: number;
+  agentsEnabled?: boolean;
   agentAService?: AgentAService;
 }
 
@@ -49,7 +46,6 @@ export class SchedulerDaemon {
   private llmProvider: ILLMProvider;
   private config: SchedulerDaemonConfig;
   private isRunning = false;
-  private agentATickRunner: AgentATickRunner | null = null;
   private hasPidLock = false;
   private agentScheduler: AgentScheduler | null = null;
   private agentSchedulerInterval: NodeJS.Timeout | null = null;
@@ -154,54 +150,35 @@ export class SchedulerDaemon {
         console.log('[SchedulerDaemon] Registered market_listener runner');
       }
 
-      this.agentScheduler = new AgentScheduler(
-        {
-          repository: this.repository,
-          scheduler: this.scheduler,
-          registry: registry,
-          logger: console,
-        },
-        {
-          claimTtlMs: schedulerTickIntervalMs * 2,
-          instanceId: `scheduler-daemon-${process.pid}`,
-        }
-      );
-      this.agentSchedulerInterval = setInterval(() => {
-        if (this.agentSchedulerDispatchActive || !this.agentScheduler) {
-          return;
-        }
-
-        this.agentSchedulerDispatchActive = true;
-        this.agentScheduler
-          .dispatchOnce()
-          .catch((error) => {
-            console.error('[SchedulerDaemon] AgentScheduler dispatch failed:', error);
-          })
-          .finally(() => {
-            this.agentSchedulerDispatchActive = false;
-          });
-      }, schedulerTickIntervalMs);
-      console.log('[SchedulerDaemon] AgentScheduler loop enabled');
-
-      if (this.config.agentAEnabled && this.config.agentAService) {
-        this.agentATickRunner = new AgentATickRunner({
-          intervalMs: this.config.agentATickIntervalMs ?? 60_000,
-          tick: async (input) => {
-            await this.config.agentAService?.tick(input);
+      if (this.config.agentsEnabled) {
+        this.agentScheduler = new AgentScheduler(
+          {
+            repository: this.repository,
+            scheduler: this.scheduler,
+            registry: registry,
+            logger: console,
           },
-          inputFactory: (now) => ({
-            run_id: randomUUID(),
-            now: now.toISOString(),
-            max_sources_per_tick: 10,
-            max_items_per_source: 50,
-            default_time_window: '6h',
-          }),
-          onError: (error) => {
-            console.error('[SchedulerDaemon] Agent A tick failed:', error);
-          },
-        });
-        this.agentATickRunner.start();
-        console.log('[SchedulerDaemon] Agent A loop enabled');
+          {
+            claimTtlMs: schedulerTickIntervalMs * 2,
+            instanceId: `scheduler-daemon-${process.pid}`,
+          }
+        );
+        this.agentSchedulerInterval = setInterval(() => {
+          if (this.agentSchedulerDispatchActive || !this.agentScheduler) {
+            return;
+          }
+
+          this.agentSchedulerDispatchActive = true;
+          this.agentScheduler
+            .dispatchOnce()
+            .catch((error) => {
+              console.error('[SchedulerDaemon] AgentScheduler dispatch failed:', error);
+            })
+            .finally(() => {
+              this.agentSchedulerDispatchActive = false;
+            });
+        }, schedulerTickIntervalMs);
+        console.log('[SchedulerDaemon] AgentScheduler loop enabled');
       }
 
       console.log('[SchedulerDaemon] Started successfully');
@@ -230,11 +207,6 @@ export class SchedulerDaemon {
     console.log('[SchedulerDaemon] Stopping...');
 
     this.isRunning = false;
-
-    if (this.agentATickRunner) {
-      await this.agentATickRunner.stop();
-      this.agentATickRunner = null;
-    }
 
     if (this.agentSchedulerInterval) {
       clearInterval(this.agentSchedulerInterval);

@@ -28,6 +28,7 @@ describe('Agent discovery', () => {
     } else {
       process.env.PONYBUNNY_CONFIG_DIR = ORIGINAL_CONFIG_DIR;
     }
+    jest.restoreAllMocks();
   });
 
   it('discovers workspace agents', async () => {
@@ -86,6 +87,41 @@ describe('Agent discovery', () => {
       id: 'alpha',
       source: 'user',
       agentDir: userAgentDir,
+    });
+  });
+
+  it('logs discovery source and precedence override decisions', async () => {
+    const workspaceDir = createTempDir();
+    const workspaceAgentsDir = path.join(workspaceDir, 'agents');
+    writeAgentDir(workspaceAgentsDir, 'alpha');
+
+    const configDir = createTempDir();
+    const userAgentsDir = path.join(configDir, 'agents');
+    writeAgentDir(userAgentsDir, 'alpha');
+    process.env.PONYBUNNY_CONFIG_DIR = configDir;
+
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+
+    await discoverAgentCandidates({ workspaceDir });
+
+    expect(infoSpy).toHaveBeenCalledWith('[AgentDiscovery] Candidate discovered', {
+      agentId: 'alpha',
+      source: 'workspace',
+      idMatches: true,
+      configId: 'alpha',
+    });
+
+    expect(infoSpy).toHaveBeenCalledWith('[AgentDiscovery] Candidate discovered', {
+      agentId: 'alpha',
+      source: 'user',
+      idMatches: true,
+      configId: 'alpha',
+    });
+
+    expect(infoSpy).toHaveBeenCalledWith('[AgentDiscovery] Applying precedence override', {
+      agentId: 'alpha',
+      winnerSource: 'user',
+      loserSource: 'workspace',
     });
   });
 

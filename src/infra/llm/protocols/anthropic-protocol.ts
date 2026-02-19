@@ -1,4 +1,4 @@
-import type { LLMMessage, LLMResponse, ToolCall, ToolDefinition, StreamChunk } from '../llm-provider.js';
+import type { LLMMessage, LLMResponse, ToolCall, StreamChunk } from '../llm-provider.js';
 import type {
   EndpointCredentials,
   ProtocolRequestConfig,
@@ -167,7 +167,7 @@ export class AnthropicProtocolAdapter extends BaseProtocolAdapter {
     const tokensUsed = (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0);
 
     return {
-      content: content || null,
+      content,
       tokensUsed,
       model: data.model || model,
       finishReason: this.mapAnthropicFinishReason(data.stop_reason),

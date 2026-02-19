@@ -7,7 +7,9 @@ import { createServer } from 'http';
 import { randomBytes, createHash } from 'crypto';
 import { accountManagerV2 } from '../lib/auth-manager-v2.js';
 import { antigravityAuthCommand } from './auth-antigravity.js';
-import type { CodexAccount } from '../lib/account-types.js';
+import type { AntigravityAccount, CodexAccount, OpenAICompatibleAccount } from '../lib/account-types.js';
+import { getAllEndpointConfigs } from '../../infra/llm/endpoints/index.js';
+import { getCachedCredentials } from '../../infra/config/credentials-loader.js';
 
 // OpenAI Codex CLI OAuth configuration
 // Using the official Codex CLI Client ID to ensure compatibility
@@ -519,21 +521,96 @@ async function whoami(): Promise<void> {
   console.log();
 }
 
-async function listAccounts(): Promise<void> {
+interface EnabledCredentialProvider {
+  id: string;
+  name: string;
+  maskedApiKey?: string;
+}
+
+function maskApiKey(apiKey: string): string {
+  const visiblePart = apiKey.slice(0, 15);
+  return `${visiblePart}***`;
+}
+
+function listEnabledCredentialProviders(): EnabledCredentialProvider[] {
+  const credentials = getCachedCredentials();
+  const endpointMap = new Map<string, string>(
+    getAllEndpointConfigs().map((endpoint) => [endpoint.id, endpoint.displayName])
+  );
+  const providers: EnabledCredentialProvider[] = [];
+
+  for (const [endpointId, credential] of Object.entries(credentials?.endpoints ?? {})) {
+    if (credential?.enabled !== true) {
+      continue;
+    }
+
+    const displayName = endpointId === 'openai-compatible'
+      ? 'OpenAI-Compatible'
+      : endpointMap.get(endpointId) ?? endpointId;
+
+    providers.push({
+      id: endpointId,
+      name: displayName,
+      maskedApiKey: credential.apiKey ? maskApiKey(credential.apiKey) : undefined,
+    });
+  }
+
+  return providers;
+}
+
+export async function listAccounts(): Promise<void> {
   const allAccounts = accountManagerV2.listAccounts();
   const config = accountManagerV2.getConfig();
   const strategy = config.strategy;
-  
-  if (allAccounts.length === 0) {
-    console.log(chalk.yellow('\nNo accounts found. Run `pb auth login` or `pb auth antigravity login` to add an account.\n'));
-    return;
-  }
-  
+
   const codexAccounts = allAccounts.filter(a => a.provider === 'codex');
   const antigravityAccounts = allAccounts.filter(a => a.provider === 'antigravity');
   const openaiCompatibleAccounts = allAccounts.filter(a => a.provider === 'openai-compatible');
+  const oauthEnabled = accountManagerV2.isAuthenticated('codex');
+  const enabledCredentialProviders = listEnabledCredentialProviders();
+  const openaiCompatibleProvider = enabledCredentialProviders.find((provider) => provider.id === 'openai-compatible');
+  const otherCredentialProviders = enabledCredentialProviders.filter((provider) => provider.id !== 'openai-compatible');
+
+  const hasAnyEnabledProvider =
+    oauthEnabled ||
+    enabledCredentialProviders.length > 0 ||
+    antigravityAccounts.length > 0;
+
+  if (!hasAnyEnabledProvider && allAccounts.length === 0) {
+    console.log(chalk.yellow('\nNo enabled providers found. Run `pb auth login` or configure credentials with `enabled: true`.\n'));
+    return;
+  }
   
   console.log(chalk.cyan(`\n📋 Accounts (${allAccounts.length} total) - Strategy: ${chalk.bold(strategy)}\n`));
+  console.log(chalk.white('Enabled providers:'), hasAnyEnabledProvider ? chalk.green('✓ Found') : chalk.red('✗ None'));
+
+  if (oauthEnabled) {
+    console.log(chalk.blue.bold('\n- OpenAI OAuth'));
+    console.log(chalk.white('  Status:'), chalk.green('Enabled'));
+  }
+
+  if (openaiCompatibleProvider) {
+    console.log(chalk.yellow.bold('\n- OpenAI-Compatible'));
+    console.log(chalk.white('  Status:'), chalk.green('Enabled'));
+    if (openaiCompatibleProvider.maskedApiKey) {
+      console.log(chalk.white('  API Key:'), chalk.gray(openaiCompatibleProvider.maskedApiKey));
+    }
+  }
+
+  if (antigravityAccounts.length > 0) {
+    console.log(chalk.magenta.bold('\n- Google Antigravity'));
+    console.log(chalk.white('  Status:'), chalk.green('Enabled'));
+  }
+
+  for (const provider of otherCredentialProviders) {
+    console.log(chalk.cyan(`\n- ${provider.name}`));
+    console.log(chalk.white('  Status:'), chalk.green('Enabled'));
+    if (provider.maskedApiKey) {
+      console.log(chalk.white('  API Key:'), chalk.gray(provider.maskedApiKey));
+    }
+  }
+
+  console.log();
   
   if (codexAccounts.length > 0) {
     console.log(chalk.blue.bold('OpenAI Codex') + chalk.gray(` (${codexAccounts.length})`));
@@ -563,7 +640,7 @@ async function listAccounts(): Promise<void> {
     console.log(chalk.gray('─'.repeat(50)));
     
     antigravityAccounts.forEach((account, index) => {
-      const antigravityAccount = account as any;
+      const antigravityAccount = account as AntigravityAccount;
       const isCurrent = config.currentAccountId === account.id;
       const prefix = isCurrent ? chalk.green('➤') : ' ';
       const label = isCurrent ? chalk.green.bold(account.email || 'Unknown') : chalk.white(account.email || 'Unknown');
@@ -584,7 +661,7 @@ async function listAccounts(): Promise<void> {
     console.log(chalk.gray('─'.repeat(50)));
     
     openaiCompatibleAccounts.forEach((account, index) => {
-      const compatAccount = account as any;
+      const compatAccount = account as OpenAICompatibleAccount;
       const isCurrent = config.currentAccountId === account.id;
       const prefix = isCurrent ? chalk.green('➤') : ' ';
       const label = isCurrent ? chalk.green.bold(account.email || account.userId || 'API Key Account') : chalk.white(account.email || account.userId || 'API Key Account');

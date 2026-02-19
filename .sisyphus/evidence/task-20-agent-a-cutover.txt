@@ -1,0 +1,46 @@
+Task 20 evidence - Agent A legacy loop cutover
+
+Changed files:
+- src/scheduler-daemon/daemon.ts
+- src/cli/commands/scheduler-daemon.ts
+
+Verification commands and key output lines:
+
+1) bun run build
+Command:
+  bun run build
+Result:
+  $ tsc && cp src/infra/persistence/schema.sql dist/infra/persistence/
+
+2) targeted CLI test
+Command:
+  npx jest test/cli/integration.test.ts --runInBand
+Result:
+  PASS test/cli/integration.test.ts
+  Test Suites: 1 passed, 1 total
+  Tests:       8 passed, 8 total
+
+3) help output includes deprecated compatibility flag
+Command:
+  node dist/cli/index.js scheduler start --help
+Excerpt:
+  --agents         Enable config-driven agent scheduler loop
+  --agent-a        Enable Agent A background listener loop (deprecated)
+
+4) bounded startup probe with --agents and without --agent-a
+Commands:
+  node dist/cli/index.js gateway start --force
+  node dist/cli/index.js scheduler start --foreground --agents --force
+  (sent SIGINT after bounded wait, then node dist/cli/index.js gateway stop --force)
+Excerpt:
+  Starting Scheduler Daemon...
+    Agent Scheduler: enabled
+  [SchedulerDaemon] Registered market_listener runner
+  [SchedulerDaemon] AgentScheduler loop enabled
+  [SchedulerDaemon] Started successfully
+  ✓ Scheduler Daemon started successfully
+
+Assertions:
+- No runtime AgentATickRunner path is used in scheduler daemon startup/stop flow.
+- Agent A runner registration remains via market_listener when agent service is available.
+- --agent-a remains present for compatibility and is marked deprecated; runtime behavior is driven by --agents.

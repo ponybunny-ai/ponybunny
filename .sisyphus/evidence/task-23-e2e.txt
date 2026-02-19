@@ -1,0 +1,19 @@
+Task 23 E2E Verification Summary
+
+Command:
+`npx tsx test/e2e-agent-scheduling.ts`
+
+Observed PASS lines:
+- PASS: in-process scheduled-agent dispatch reached exactly one run.
+- PASS: DB assertions satisfied for goal/work_item/cron_job_runs linkage and submitted status.
+
+Command:
+`bun run build`
+
+Observed output:
+- $ tsc && cp src/infra/persistence/schema.sql dist/infra/persistence/
+
+Assertion bullets:
+- E2E scheduler path executed non-interactively and completed with exactly one dispatch.
+- DB lifecycle assertions passed for goal/work item creation and cron_job_runs linkage/status.
+- TypeScript build command completed successfully.

@@ -8,7 +8,7 @@ import type { ILLMProvider, LLMMessage, LLMResponse, ToolCall } from '../infra/l
 import type { ToolEnforcer } from '../infra/tools/tool-registry.js';
 import { getGlobalPromptProvider } from '../infra/prompts/prompt-provider.js';
 import { getGlobalSkillRegistry } from '../infra/skills/skill-registry.js';
-import { getGlobalToolProvider } from '../infra/tools/tool-provider.js';
+import { ToolProvider, getGlobalToolProvider } from '../infra/tools/tool-provider.js';
 
 export interface ReActCycleParams {
   workItem: WorkItem;
@@ -16,6 +16,7 @@ export interface ReActCycleParams {
   signal: AbortSignal;
   model?: string;
   goal?: Goal;
+  toolEnforcer?: ToolEnforcer;
 }
 
 export interface ReActCycleResult {
@@ -55,6 +56,11 @@ export class ReActIntegration {
   ) {}
 
   async executeWorkCycle(params: ReActCycleParams): Promise<ReActCycleResult> {
+    const activeToolEnforcer = params.toolEnforcer ?? this.toolEnforcer;
+    const activeToolProvider = activeToolEnforcer
+      ? new ToolProvider(activeToolEnforcer)
+      : this.toolProvider;
+
     // Generate phase-aware system prompt
     const systemPrompt = this.promptProvider.generateExecutionPrompt({
       workspaceDir: process.cwd(),
@@ -85,6 +91,7 @@ export class ReActIntegration {
 
       let maxIterations = 20;
       let completed = false;
+      let incompleteExitReason: string | undefined;
 
       while (!completed && maxIterations > 0) {
         if (params.signal.aborted) {
@@ -92,7 +99,7 @@ export class ReActIntegration {
         }
 
         // Get tool definitions for this phase
-        const tools = this.toolProvider.getToolDefinitions('execution');
+        const tools = activeToolProvider.getToolDefinitions('execution');
 
         // Call LLM with tools
         const response = await this.callLLMWithTools(messages, tools, params.model);
@@ -115,6 +122,7 @@ export class ReActIntegration {
           }
 
           if (this.isQuestionForUser(response.content)) {
+            incompleteExitReason = 'Execution paused: model requested user input before completion';
             break;
           }
         }
@@ -130,7 +138,7 @@ export class ReActIntegration {
 
           // Execute each tool call
           for (const toolCall of response.toolCalls) {
-            const result = await this.executeToolCall(context, toolCall);
+              const result = await this.executeToolCall(context, toolCall, activeToolEnforcer);
 
             // Add tool result to messages
             messages.push({
@@ -150,6 +158,7 @@ export class ReActIntegration {
 
           // If no tool calls and not complete, we're done
           if (!completed) {
+            incompleteExitReason = 'Execution stopped: no tool calls and completion not detected';
             break;
           }
         }
@@ -161,6 +170,16 @@ export class ReActIntegration {
         return {
           success: false,
           error: 'Max iterations reached without completion',
+          tokensUsed: context.totalTokens,
+          costUsd: context.totalCost,
+          log: this.buildExecutionLog(context),
+        };
+      }
+
+      if (!completed) {
+        return {
+          success: false,
+          error: incompleteExitReason || 'Execution ended before completion',
           tokensUsed: context.totalTokens,
           costUsd: context.totalCost,
           log: this.buildExecutionLog(context),
@@ -186,6 +205,11 @@ export class ReActIntegration {
   }
 
   async chatStep(params: ReActCycleParams, userInput: string): Promise<ReActCycleResult & { reply: string }> {
+    const activeToolEnforcer = params.toolEnforcer ?? this.toolEnforcer;
+    const activeToolProvider = activeToolEnforcer
+      ? new ToolProvider(activeToolEnforcer)
+      : this.toolProvider;
+
     const systemPrompt = this.promptProvider.generateExecutionPrompt({
       workspaceDir: process.cwd(),
       goal: params.goal,
@@ -223,7 +247,7 @@ export class ReActIntegration {
     let reply = '';
 
     // Get tool definitions
-    const tools = this.toolProvider.getToolDefinitions('execution');
+    const tools = activeToolProvider.getToolDefinitions('execution');
 
     while (maxIterations > 0) {
       if (params.signal.aborted) throw new Error('Aborted');
@@ -264,7 +288,7 @@ export class ReActIntegration {
 
         // Execute each tool call
         for (const toolCall of response.toolCalls) {
-          const result = await this.executeToolCall(context, toolCall);
+          const result = await this.executeToolCall(context, toolCall, activeToolEnforcer);
 
           // Add tool result to messages
           messages.push({
@@ -435,7 +459,11 @@ Begin by analyzing the task and forming a plan.`;
     return await this.llmProvider.complete(messages, options);
   }
 
-  private async executeToolCall(context: ReActContext, toolCall: ToolCall): Promise<string> {
+  private async executeToolCall(
+    context: ReActContext,
+    toolCall: ToolCall,
+    toolEnforcer?: ToolEnforcer
+  ): Promise<string> {
     const toolName = toolCall.function.name;
     const parameters = JSON.parse(toolCall.function.arguments);
 
@@ -444,17 +472,17 @@ Begin by analyzing the task and forming a plan.`;
       return 'Task marked as complete.';
     }
 
-    if (!this.toolEnforcer) {
+    if (!toolEnforcer) {
       return 'Error: No tool enforcer configured. Cannot execute tools.';
     }
 
-    const check = this.toolEnforcer.checkToolInvocation(toolName, parameters);
+    const check = toolEnforcer.checkToolInvocation(toolName, parameters);
 
     if (!check.allowed) {
       return `Action denied: ${check.reason}`;
     }
 
-    const tool = this.toolEnforcer.registry.getTool(toolName);
+    const tool = toolEnforcer.registry.getTool(toolName);
     if (!tool) {
       return `Error: Tool '${toolName}' not found`;
     }
@@ -462,8 +490,8 @@ Begin by analyzing the task and forming a plan.`;
     try {
       const result = await tool.execute(parameters, {
         cwd: process.cwd(),
-        allowlist: this.toolEnforcer.allowlist,
-        enforcer: this.toolEnforcer,
+        allowlist: toolEnforcer.allowlist,
+        enforcer: toolEnforcer,
       });
       return result;
     } catch (error) {

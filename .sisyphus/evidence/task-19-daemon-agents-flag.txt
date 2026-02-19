@@ -1,0 +1,24 @@
+Task 19 Evidence - Wire AgentScheduler into daemon lifecycle + add CLI flag --agents
+
+Command: npx jest test/cli/integration.test.ts --runInBand
+PASS: Test suite passed (1/1), tests passed (8/8)
+Assertion summary:
+- scheduler start --help includes --agents
+- scheduler start --help still includes --agent-a
+- scheduler start --help marks --agent-a as deprecated
+
+Command: bun run build
+PASS: Build succeeded (tsc completed, schema copied)
+
+Command: node dist/cli/index.js scheduler start --foreground --agents --db /tmp/pony-task19.db --socket /tmp/nonexistent-gateway.sock
+Output excerpt:
+- Starting Scheduler Daemon...
+-   Agent Scheduler: enabled
+- [SchedulerDaemon] AgentScheduler loop enabled
+- [SchedulerDaemon] Started successfully
+- ✓ Scheduler Daemon started successfully
+- (bounded probe ended by timeout while daemon remained active)
+
+PASS assertion for --agents startup path:
+- CLI accepted --agents and printed "Agent Scheduler: enabled" in startup output.
+- No `__filename` runtime crash observed after fixing ESM-safe schema path resolution.
