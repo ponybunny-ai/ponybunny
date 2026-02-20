@@ -10,11 +10,13 @@ This directory contains documentation for the PonyBunny command-line interface (
   - Configuration management
   - Service management
   - Troubleshooting
+- **[INSTALLATION.md](./INSTALLATION.md)** - npm/Homebrew installation and maintainer release steps
 
 ## Quick Links
 
 ### Getting Started
 - [Installation](./CLI-USAGE.md#installation)
+- [npm/Homebrew Installation](./INSTALLATION.md)
 - [Quick Start](./CLI-USAGE.md#quick-start)
 - [Authentication](./CLI-USAGE.md#authentication)
 
