@@ -1,15 +1,15 @@
 ---
-name: agent-a-text-extract-problem-block
-description: Agent A A3 text.extract_problem_block verbatim extractor
+name: text-extract-problem-block
+description: Market listener text.extract_problem_block verbatim extractor
 version: 1.0.0
 author: PonyBunny
-tags: [agent-a, market-listener]
+tags: [market-listener, extraction, text-processing]
 phases: [execution]
 user-invocable: false
 disable-model-invocation: false
 ---
 
-# Skill A3 — text.extract_problem_block
+# Skill — text.extract_problem_block
 
 ## Intent
 Extract the smallest useful verbatim block that represents the problem, plus minimal surrounding context.

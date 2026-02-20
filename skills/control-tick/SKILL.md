@@ -1,18 +1,18 @@
 ---
-name: agent-a-control-tick
-description: Agent A A0 control.tick orchestrator
+name: control-tick
+description: Market listener control.tick orchestrator
 version: 1.0.0
 author: PonyBunny
-tags: [agent-a, market-listener]
+tags: [market-listener, orchestration, scheduler]
 phases: [execution]
 user-invocable: false
 disable-model-invocation: false
 ---
 
-# Skill A0 — control.tick
+# Skill — control.tick
 
 ## Intent
-Run one deterministic Agent A cycle. Handles source selection, rate limiting, checkpoint read/write, retries, and metrics.
+Run one deterministic market-listener cycle. Handles source selection, rate limiting, checkpoint read/write, retries, and metrics.
 
 ## Inputs
 

@@ -14,7 +14,7 @@ import { MCPToolExecutor, parseJsonResult } from '../../src/app/agents/agent-a/m
 import { initializeMCPConnectionManager, shutdownMCPConnectionManager } from '../../src/infra/mcp/index.js';
 
 const PG_CONNECTION_STRING = 'postgresql://pony:pony_pass@localhost:15432/ponybunny';
-const PLAYWRIGHT_URL = 'http://localhost:17777';
+const PLAYWRIGHT_URL = 'http://localhost:17777/mcp';
 
 function createTempConfigDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'ponybunny-agent-a-e2e-'));

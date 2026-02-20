@@ -1,15 +1,15 @@
 ---
-name: agent-a-analysis-guess-author-role
-description: Agent A A4 analysis.guess_author_role weak role guesser
+name: analysis-guess-author-role
+description: Market listener analysis.guess_author_role weak role guesser
 version: 1.0.0
 author: PonyBunny
-tags: [agent-a, market-listener]
+tags: [market-listener, role-inference, classification]
 phases: [execution]
 user-invocable: false
 disable-model-invocation: false
 ---
 
-# Skill A4 — analysis.guess_author_role
+# Skill — analysis.guess_author_role
 
 ## Intent
 Guess the author role from text with low confidence (weak signal only).

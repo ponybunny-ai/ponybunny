@@ -478,7 +478,7 @@ export const MCP_CONFIG_TEMPLATE = {
     playwright: {
       enabled: true,
       transport: 'http' as const,
-      url: 'http://localhost:17777',
+      url: 'http://localhost:17777/mcp',
       allowedTools: ['playwright.navigate', 'playwright.get_content', 'playwright.query_selector_all'],
       autoReconnect: true,
       timeout: 60000,
@@ -506,6 +506,8 @@ const COMMON_RESOURCES_COMPOSE_TEMPLATE = `services:
   mcp-playwright:
     image: mcr.microsoft.com/playwright/mcp
     command:
+      - --host
+      - 0.0.0.0
       - --port
       - "17777"
     ports:

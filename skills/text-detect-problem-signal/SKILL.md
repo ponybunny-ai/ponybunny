@@ -1,15 +1,15 @@
 ---
-name: agent-a-text-detect-problem-signal
-description: Agent A A2 text.detect_problem_signal classifier
+name: text-detect-problem-signal
+description: Market listener text.detect_problem_signal classifier
 version: 1.0.0
 author: PonyBunny
-tags: [agent-a, market-listener]
+tags: [market-listener, classification, problem-detection]
 phases: [execution]
 user-invocable: false
 disable-model-invocation: false
 ---
 
-# Skill A2 — text.detect_problem_signal
+# Skill — text.detect_problem_signal
 
 ## Intent
 Classify whether a piece of text contains a user-expressed problem, pain, or need.

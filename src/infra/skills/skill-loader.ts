@@ -12,6 +12,16 @@ const readFile = promisify(fs.readFile);
 const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
 
+async function hasSkillFile(dir: string): Promise<boolean> {
+  try {
+    const skillMdPath = path.join(dir, 'SKILL.md');
+    const skillStat = await stat(skillMdPath);
+    return skillStat.isFile();
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Parse frontmatter from SKILL.md
  */
@@ -137,6 +147,9 @@ export async function loadSkill(
       metadata,
     };
   } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null;
+    }
     console.warn(`[skills] Failed to load skill from ${skillDir}:`, error);
     return null;
   }
@@ -157,16 +170,23 @@ export async function loadSkillsFromDir(
 
     const entries = await readdir(dir);
     const skills: Skill[] = [];
+    const queue = entries.map(entry => path.join(dir, entry));
 
-    for (const entry of entries) {
-      const entryPath = path.join(dir, entry);
+    while (queue.length > 0) {
+      const entryPath = queue.shift()!;
       const entryStat = await stat(entryPath);
 
       if (entryStat.isDirectory()) {
-        const skill = await loadSkill(entryPath, source);
-        if (skill) {
-          skills.push(skill);
+        if (await hasSkillFile(entryPath)) {
+          const skill = await loadSkill(entryPath, source);
+          if (skill) {
+            skills.push(skill);
+          }
+          continue;
         }
+
+        const childEntries = await readdir(entryPath);
+        queue.push(...childEntries.map(child => path.join(entryPath, child)));
       }
     }
 

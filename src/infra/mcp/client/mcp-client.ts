@@ -217,7 +217,8 @@ export class MCPClient {
         // Return 405 to force SDK into POST-only mode.
         if (init?.method === 'GET' || !init?.method) {
           const headers = new Headers(init?.headers);
-          if (headers.get('Accept') === 'text/event-stream') {
+          const acceptHeader = headers.get('Accept')?.toLowerCase() || '';
+          if (acceptHeader.includes('text/event-stream')) {
             return new Response(null, {
               status: 405,
               statusText: 'Method Not Allowed',
@@ -239,8 +240,10 @@ export class MCPClient {
       }
     };
 
+    const endpointUrl = this.resolveHttpEndpointUrl(url);
+
     // Create HTTP transport with custom fetch
-    this.transport = new StreamableHTTPClientTransport(new URL(url), {
+    this.transport = new StreamableHTTPClientTransport(endpointUrl, {
       requestInit: {
         headers: headers,
       },
@@ -273,6 +276,19 @@ export class MCPClient {
 
     // Connect the client to the transport
     await this.client.connect(this.transport);
+  }
+
+  private resolveHttpEndpointUrl(rawUrl: string): URL {
+    const parsedUrl = new URL(rawUrl);
+
+    if (this.options.serverName === 'playwright' && parsedUrl.pathname === '/') {
+      parsedUrl.pathname = '/mcp';
+      console.warn(
+        `[MCPClient:${this.options.serverName}] URL '${rawUrl}' is missing '/mcp'; using '${parsedUrl.toString()}'`
+      );
+    }
+
+    return parsedUrl;
   }
 
   /**

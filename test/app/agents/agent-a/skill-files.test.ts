@@ -2,12 +2,12 @@ import fs from 'fs';
 import path from 'path';
 
 const skillPaths = [
-  'skills/agent-a/control-tick/SKILL.md',
-  'skills/agent-a/source-read-stream/SKILL.md',
-  'skills/agent-a/text-detect-problem-signal/SKILL.md',
-  'skills/agent-a/text-extract-problem-block/SKILL.md',
-  'skills/agent-a/analysis-guess-author-role/SKILL.md',
-  'skills/agent-a/data-store-record/SKILL.md',
+  'skills/control-tick/SKILL.md',
+  'skills/source-read-stream/SKILL.md',
+  'skills/text-detect-problem-signal/SKILL.md',
+  'skills/text-extract-problem-block/SKILL.md',
+  'skills/analysis-guess-author-role/SKILL.md',
+  'skills/data-store-record/SKILL.md',
 ];
 
 describe('Agent A skill files', () => {

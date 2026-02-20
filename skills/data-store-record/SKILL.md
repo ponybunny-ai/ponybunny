@@ -1,15 +1,15 @@
 ---
-name: agent-a-data-store-record
-description: Agent A A5 data.store_record persistence + dedupe
+name: data-store-record
+description: Market listener data.store_record persistence + dedupe
 version: 1.0.0
 author: PonyBunny
-tags: [agent-a, market-listener]
+tags: [market-listener, persistence, dedupe]
 phases: [execution]
 user-invocable: false
 disable-model-invocation: false
 ---
 
-# Skill A5 — data.store_record
+# Skill — data.store_record
 
 ## Intent
 Persist observation records in Postgres, enforcing append-only semantics and dedupe.

@@ -1,15 +1,15 @@
 ---
-name: agent-a-source-read-stream
-description: Agent A A1 source.read_stream for multi-source ingestion
+name: source-read-stream
+description: Market listener source.read_stream for multi-source ingestion
 version: 1.0.0
 author: PonyBunny
-tags: [agent-a, market-listener]
+tags: [market-listener, ingestion, source-reading]
 phases: [execution]
 user-invocable: false
 disable-model-invocation: false
 ---
 
-# Skill A1 — source.read_stream
+# Skill — source.read_stream
 
 ## Intent
 Fetch new items from a configured source using official APIs where possible; otherwise read via Playwright.
