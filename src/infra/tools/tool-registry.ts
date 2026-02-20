@@ -1,3 +1,6 @@
+import type { LayeredToolPolicy, ToolPolicyContext } from './layered-tool-policy.js';
+import { resolveLayeredToolPolicy } from './layered-tool-policy.js';
+
 export interface ToolContext {
   cwd: string;
   allowlist: ToolAllowlist;
@@ -12,6 +15,15 @@ export interface ToolDefinition {
   requiresApproval: boolean;
   description: string;
   execute(args: Record<string, any>, context: ToolContext): Promise<string>;
+}
+
+export interface ToolPolicyAuditSnapshot {
+  baselineAllowedTools: string[];
+  effectiveAllowedTools: string[];
+  deniedTools: Array<{ tool: string; reason: string }>;
+  appliedLayers: string[];
+  policyContext: ToolPolicyContext;
+  hasLayeredPolicy: boolean;
 }
 
 export class ToolRegistry {
@@ -78,10 +90,20 @@ export class ToolAllowlist {
 }
 
 export class ToolEnforcer {
+  private layeredPolicy?: LayeredToolPolicy;
+  private policyContext: ToolPolicyContext;
+
   constructor(
     private _registry: ToolRegistry,
-    private _allowlist: ToolAllowlist
-  ) {}
+    private _allowlist: ToolAllowlist,
+    options?: {
+      layeredPolicy?: LayeredToolPolicy;
+      policyContext?: ToolPolicyContext;
+    }
+  ) {
+    this.layeredPolicy = options?.layeredPolicy;
+    this.policyContext = options?.policyContext ?? {};
+  }
 
   get registry(): ToolRegistry {
     return this._registry;
@@ -89,6 +111,58 @@ export class ToolEnforcer {
 
   get allowlist(): ToolAllowlist {
     return this._allowlist;
+  }
+
+  setLayeredPolicy(policy: LayeredToolPolicy | undefined): void {
+    this.layeredPolicy = policy;
+  }
+
+  setPolicyContext(context: ToolPolicyContext): void {
+    this.policyContext = context;
+  }
+
+  private getLayeredPolicyDecision(): ReturnType<typeof resolveLayeredToolPolicy> | undefined {
+    if (!this.layeredPolicy) {
+      return undefined;
+    }
+
+    const allTools = this.registry.getAllTools().map((tool) => tool.name);
+    const baselineAllowedTools = this.allowlist.getAllowedTools();
+
+    return resolveLayeredToolPolicy({
+      allTools,
+      policy: this.layeredPolicy,
+      context: this.policyContext,
+      baselineAllowedTools,
+    });
+  }
+
+  getPolicyAuditSnapshot(): ToolPolicyAuditSnapshot {
+    const baselineAllowedTools = this.allowlist.getAllowedTools();
+    const layeredPolicyDecision = this.getLayeredPolicyDecision();
+
+    if (!layeredPolicyDecision) {
+      return {
+        baselineAllowedTools,
+        effectiveAllowedTools: baselineAllowedTools,
+        deniedTools: [],
+        appliedLayers: [],
+        policyContext: { ...this.policyContext },
+        hasLayeredPolicy: false,
+      };
+    }
+
+    return {
+      baselineAllowedTools,
+      effectiveAllowedTools: Array.from(layeredPolicyDecision.allowedTools),
+      deniedTools: Array.from(layeredPolicyDecision.deniedTools).map((tool) => ({
+        tool,
+        reason: layeredPolicyDecision.denialReasons.get(tool) ?? 'layered policy',
+      })),
+      appliedLayers: layeredPolicyDecision.appliedLayers,
+      policyContext: { ...this.policyContext },
+      hasLayeredPolicy: true,
+    };
   }
 
   canExecute(toolName: string): { allowed: boolean; reason?: string } {
@@ -105,6 +179,19 @@ export class ToolEnforcer {
       return {
         allowed: false,
         reason: `Tool '${toolName}' not in allowlist for this goal`,
+      };
+    }
+
+    const layeredPolicyDecision = this.getLayeredPolicyDecision();
+    if (layeredPolicyDecision && !layeredPolicyDecision.allowedTools.has(toolName)) {
+      const layeredReason = layeredPolicyDecision.denialReasons.get(toolName)
+        ?? (layeredPolicyDecision.appliedLayers.length > 0
+          ? `layered policy (${layeredPolicyDecision.appliedLayers.join(' -> ')})`
+          : 'layered policy');
+
+      return {
+        allowed: false,
+        reason: `Tool '${toolName}' denied by ${layeredReason}`,
       };
     }
 

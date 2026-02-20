@@ -40,6 +40,7 @@ export class SystemPromptBuilder {
 
     this.addIdentitySection(mode, phase);
     this.addToolingSection(mode);
+    this.addProviderToolEnvelopeSection(mode);
     this.addToolCallStyleSection(mode);
     this.addSafetySection(mode);
     this.addSkillsSection(mode);
@@ -177,6 +178,55 @@ export class SystemPromptBuilder {
     });
 
     promptDebugLog('inject', 'ToolCallStyle section');
+  }
+
+  private addProviderToolEnvelopeSection(mode: PromptMode): void {
+    if (mode === 'none') {
+      return;
+    }
+
+    const routeContext = this.context.routeContext;
+    const toolPolicyAudit = this.context.toolPolicyAudit;
+
+    if (!routeContext && !toolPolicyAudit) {
+      return;
+    }
+
+    const lines: string[] = ['## Provider-Aware Tool Envelope', ''];
+
+    if (routeContext) {
+      lines.push(
+        `route.source=${routeContext.source} | route.provider=${routeContext.providerId || 'unspecified'} | route.channel=${routeContext.channel || 'unspecified'} | route.agent=${routeContext.agentId || 'unspecified'}`
+      );
+      lines.push(
+        `route.owner=${routeContext.senderIsOwner === true ? 'true' : 'false'} | route.sandboxed=${routeContext.sandboxed === true ? 'true' : 'false'} | route.subagent=${routeContext.isSubagent === true ? 'true' : 'false'}`
+      );
+      lines.push('');
+    }
+
+    if (toolPolicyAudit) {
+      lines.push(
+        `policy.layered=${toolPolicyAudit.hasLayeredPolicy ? 'true' : 'false'} | policy.layers=${toolPolicyAudit.appliedLayers.join(' -> ') || 'none'}`
+      );
+      lines.push(
+        `tools.baseline=${toolPolicyAudit.baselineAllowedTools.length} | tools.effective=${toolPolicyAudit.effectiveAllowedTools.length} | tools.denied=${toolPolicyAudit.deniedTools.length}`
+      );
+      if (toolPolicyAudit.deniedTools.length > 0) {
+        lines.push('Denied tools:');
+        for (const denied of toolPolicyAudit.deniedTools) {
+          lines.push(`- ${denied.tool}: ${denied.reason}`);
+        }
+      }
+      lines.push('');
+    }
+
+    this.sections.push({
+      name: 'ProviderToolEnvelope',
+      content: lines.join('\n'),
+      required: false,
+    });
+
+    promptDebugLog('inject', 'ProviderToolEnvelope section');
   }
 
   private addSafetySection(mode: PromptMode): void {

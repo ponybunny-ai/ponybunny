@@ -32,6 +32,24 @@ export interface SkillInfo {
   };
 }
 
+export interface RouteContextSummary {
+  source: string;
+  providerId?: string;
+  channel?: string;
+  agentId?: string;
+  senderIsOwner?: boolean;
+  sandboxed?: boolean;
+  isSubagent?: boolean;
+}
+
+export interface ToolPolicyAuditSummary {
+  hasLayeredPolicy: boolean;
+  baselineAllowedTools: string[];
+  effectiveAllowedTools: string[];
+  deniedTools: Array<{ tool: string; reason: string }>;
+  appliedLayers: string[];
+}
+
 export interface SystemPromptContext {
   // Agent context
   agentPhase: AgentPhase;
@@ -52,6 +70,8 @@ export interface SystemPromptContext {
     deny?: string[];
     requireApproval?: string[];
   };
+  toolPolicyAudit?: ToolPolicyAuditSummary;
+  routeContext?: RouteContextSummary;
 
   // Skill context
   availableSkills?: SkillInfo[];

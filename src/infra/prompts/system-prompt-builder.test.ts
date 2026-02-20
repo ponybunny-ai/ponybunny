@@ -59,7 +59,7 @@ describe('SystemPromptBuilder', () => {
       });
 
       expect(result.prompt).toContain('Planning Phase Objectives');
-      expect(result.prompt).toContain('Decompose the goal into a DAG');
+      expect(result.prompt).toContain('form a DAG - no cycles');
     });
 
     it('should include skills section when skills are provided', () => {
@@ -173,6 +173,34 @@ describe('SystemPromptBuilder', () => {
       expect(result.prompt).toContain('## Additional Context');
       expect(result.prompt).toContain('Custom instructions');
     });
+
+    it('should include provider-aware tool envelope when route and policy audit are provided', () => {
+      const result = buildSystemPrompt({
+        ...baseContext,
+        routeContext: {
+          source: 'gateway.message',
+          providerId: 'openai/gpt-5.3-codex',
+          channel: 'telegram',
+          agentId: 'assistant',
+          senderIsOwner: false,
+          sandboxed: true,
+          isSubagent: false,
+        },
+        toolPolicyAudit: {
+          hasLayeredPolicy: true,
+          baselineAllowedTools: ['read_file', 'write_file', 'execute_command'],
+          effectiveAllowedTools: ['read_file', 'write_file'],
+          deniedTools: [{ tool: 'execute_command', reason: 'provider:openai/gpt-5.3-codex deny policy' }],
+          appliedLayers: ['global', 'provider:openai/gpt-5.3-codex'],
+        },
+      });
+
+      expect(result.prompt).toContain('## Provider-Aware Tool Envelope');
+      expect(result.prompt).toContain('route.provider=openai/gpt-5.3-codex');
+      expect(result.prompt).toContain('policy.layers=global -> provider:openai/gpt-5.3-codex');
+      expect(result.prompt).toContain('Denied tools:');
+      expect(result.prompt).toContain('execute_command: provider:openai/gpt-5.3-codex deny policy');
+    });
   });
 
   describe('Phase-specific guidance', () => {
@@ -213,7 +241,7 @@ describe('SystemPromptBuilder', () => {
       });
 
       expect(result.prompt).toContain('Verification Phase Objectives');
-      expect(result.prompt).toContain('quality gates');
+      expect(result.prompt).toContain('Run all quality checks defined in the verification plan');
     });
   });
 

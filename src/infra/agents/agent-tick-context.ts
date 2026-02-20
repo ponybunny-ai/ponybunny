@@ -1,4 +1,6 @@
 import type { WorkItem } from '../../work-order/types/index.js';
+import type { RouteContext } from '../routing/route-context.js';
+import { normalizeRouteContext } from '../routing/route-context.js';
 
 export interface AgentTickWorkItemContext {
   kind: 'agent_tick';
@@ -7,6 +9,7 @@ export interface AgentTickWorkItemContext {
   run_key: string;
   scheduled_for_ms: number;
   policy_snapshot: Record<string, unknown> | null;
+  routeContext?: RouteContext;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -48,9 +51,30 @@ export const isAgentTickContext = (context: unknown): context is AgentTickWorkIt
     return false;
   }
 
+  const routeContext = context.routeContext ?? context.route_context;
+  if (routeContext !== null && routeContext !== undefined && normalizeRouteContext(routeContext) === undefined) {
+    return false;
+  }
+
   return true;
 };
 
 export const getAgentTickContext = (workItem: WorkItem): AgentTickWorkItemContext | null => {
-  return isAgentTickContext(workItem.context) ? workItem.context : null;
+  if (!isAgentTickContext(workItem.context)) {
+    return null;
+  }
+
+  const rawContext = workItem.context as unknown as {
+    routeContext?: unknown;
+    route_context?: unknown;
+  };
+
+  const normalizedRouteContext = normalizeRouteContext(
+    rawContext.routeContext ?? rawContext.route_context
+  );
+
+  return {
+    ...workItem.context,
+    ...(normalizedRouteContext ? { routeContext: normalizedRouteContext } : {}),
+  };
 };

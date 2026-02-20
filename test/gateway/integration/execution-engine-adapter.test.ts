@@ -149,4 +149,81 @@ describe('ExecutionEngineAdapter', () => {
 
     expect(executionService.executeWorkItem).toHaveBeenCalledTimes(1);
   });
+
+  it('maps routeContext from work item into runner tick input', async () => {
+    const runTick = jest.fn().mockResolvedValue(undefined);
+    const runner: AgentRunner = { runTick };
+    const runnerRegistry = getGlobalRunnerRegistry();
+    runnerRegistry.register('test_runner', runner);
+
+    const definition = {
+      id: 'agent-route',
+      source: { type: 'test', path: 'agent.json' },
+      config: {
+        schemaVersion: 1,
+        id: 'agent-route',
+        name: 'Agent Route',
+        enabled: true,
+        type: 'test_runner',
+        schedule: {
+          kind: 'interval',
+          everyMs: 60000,
+          tz: undefined,
+          catchUp: {},
+        },
+        policy: {},
+        runner: {},
+      },
+      markdown: '# Agent Route',
+      definitionHash: 'hash-route',
+      status: 'valid',
+      configPath: 'agent.json',
+      markdownPath: 'AGENT.md',
+    };
+    const registry = getGlobalAgentRegistry() as unknown as { agents: Map<string, unknown> };
+    registry.agents.set('agent-route', definition);
+
+    const executionService = {
+      executeWorkItem: jest.fn(),
+    } as unknown as IExecutionService;
+    const adapter = new ExecutionEngineAdapter(executionService);
+
+    const workItem = createWorkItem({
+      context: {
+        kind: 'agent_tick',
+        agent_id: 'agent-route',
+        definition_hash: 'hash-route',
+        run_key: 'run-route-1',
+        scheduled_for_ms: 1700000000000,
+        policy_snapshot: {},
+        routeContext: {
+          source: 'gateway.message',
+          providerId: 'openai/gpt-5.3-codex',
+          channel: 'telegram',
+          senderIsOwner: false,
+        },
+      },
+    });
+
+    await adapter.execute(workItem, {
+      model: 'test',
+      laneId: 'main',
+      budgetRemaining: {},
+    });
+
+    expect(runTick).toHaveBeenCalledTimes(1);
+    expect(runTick).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tick: expect.objectContaining({
+          runKey: 'run-route-1',
+          routeContext: expect.objectContaining({
+            source: 'gateway.message',
+            providerId: 'openai/gpt-5.3-codex',
+            channel: 'telegram',
+            senderIsOwner: false,
+          }),
+        }),
+      })
+    );
+  });
 });

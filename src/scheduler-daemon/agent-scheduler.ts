@@ -7,6 +7,7 @@ import type {
 import type { SchedulerEvent, IScheduler } from '../scheduler/types.js';
 import { computeScheduleOutcome } from '../infra/scheduler/schedule-computation.js';
 import type { ReactGoalRunnerConfig } from '../infra/agents/config/agent-config-types.js';
+import { buildCronRouteContext } from '../infra/routing/route-context.js';
 
 export interface AgentSchedulerConfig {
   claimTtlMs: number;
@@ -183,6 +184,11 @@ export class AgentScheduler {
         context: isReactGoal
           ? {
               tool_allowlist: reactGoalRunnerConfig.tool_allowlist ?? [],
+              routeContext: buildCronRouteContext({
+                agentId: agent.id,
+                runKey: run.run_key,
+                providerId: reactGoalRunnerConfig.model_hint,
+              }),
               ...(reactGoalRunnerConfig.model_hint
                 ? { model: reactGoalRunnerConfig.model_hint }
                 : {}),
@@ -194,6 +200,10 @@ export class AgentScheduler {
               run_key: run.run_key,
               scheduled_for_ms: scheduleOutcome.scheduled_for_ms,
               policy_snapshot: agent.config.policy ?? null,
+              routeContext: buildCronRouteContext({
+                agentId: agent.id,
+                runKey: run.run_key,
+              }),
             },
       } as unknown as Parameters<IWorkOrderRepository['createWorkItem']>[0]);
 

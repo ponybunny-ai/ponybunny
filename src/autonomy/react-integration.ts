@@ -9,6 +9,7 @@ import type { ToolEnforcer } from '../infra/tools/tool-registry.js';
 import { getGlobalPromptProvider } from '../infra/prompts/prompt-provider.js';
 import { getGlobalSkillRegistry } from '../infra/skills/skill-registry.js';
 import { ToolProvider, getGlobalToolProvider } from '../infra/tools/tool-provider.js';
+import { routeContextFromWorkItemContext } from '../infra/routing/route-context.js';
 
 export interface ReActCycleParams {
   workItem: WorkItem;
@@ -96,6 +97,7 @@ export class ReActIntegration {
       let noActionIterations = 0;
       let emptyResponseRetries = 0;
       let incompleteExitReason: string | undefined;
+      let emittedRuntimeEnvelope = false;
 
       while (!completed && maxIterations > 0) {
         if (params.signal.aborted) {
@@ -104,6 +106,11 @@ export class ReActIntegration {
 
         // Get tool definitions for this phase
         const tools = activeToolProvider.getToolDefinitions('execution');
+
+        if (!emittedRuntimeEnvelope) {
+          await this.observation(context, this.buildRuntimeEnvelopeAudit(params.workItem, tools));
+          emittedRuntimeEnvelope = true;
+        }
 
         // Call LLM with tools
         const response = await this.callLLMWithTools(messages, tools, params.model);
@@ -376,6 +383,8 @@ export class ReActIntegration {
   }
 
   private buildInitialObservation(workItem: WorkItem): string {
+    const routeContext = routeContextFromWorkItemContext(workItem.context);
+
     const baseObservation = `Task: ${workItem.title}
 
 Description: ${workItem.description}
@@ -391,10 +400,22 @@ ${workItem.context ? `Context:
 ${JSON.stringify(workItem.context, null, 2)}
 ` : ''}`;
 
+    const routeContextHint = routeContext
+      ? `Route Context:
+- source: ${routeContext.source}
+- provider: ${routeContext.providerId || 'unspecified'}
+- channel: ${routeContext.channel || 'unspecified'}
+- agent: ${routeContext.agentId || 'unspecified'}
+- owner: ${routeContext.senderIsOwner === true ? 'true' : 'false'}
+`
+      : '';
+
     // Add skill suggestions if available (from pre-search)
     const skillSuggestions = this.buildSkillSuggestions(workItem);
     
     return `${baseObservation}
+
+${routeContextHint}
 
 ${skillSuggestions}
 
@@ -405,6 +426,20 @@ Execution contract:
 - If still unavailable, implement an ad-hoc local solution with available tools.
 
 Respond with at most 2 short planning lines, then immediately issue the first concrete tool call.`;
+  }
+
+  private buildRuntimeEnvelopeAudit(
+    workItem: WorkItem,
+    tools: import('../infra/llm/llm-provider.js').ToolDefinition[]
+  ): string {
+    const routeContext = routeContextFromWorkItemContext(workItem.context);
+    const toolNames = tools.map((tool) => tool.name).join(', ');
+
+    if (!routeContext) {
+      return `Runtime envelope selected: tools=[${toolNames}] routeContext=none`;
+    }
+
+    return `Runtime envelope selected: tools=[${toolNames}] routeContext={source:${routeContext.source},provider:${routeContext.providerId || 'unspecified'},channel:${routeContext.channel || 'unspecified'},agent:${routeContext.agentId || 'unspecified'},owner:${routeContext.senderIsOwner === true ? 'true' : 'false'}}`;
   }
 
   private buildImmediateActionDirective(

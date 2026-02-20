@@ -108,6 +108,7 @@ export interface CreateDecisionParams {
   selected_option: string;
   reasoning: string;
   confidence_score?: number;
+  metadata?: Record<string, any>;
 }
 
 export interface CreateEscalationParams {

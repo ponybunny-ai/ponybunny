@@ -7,14 +7,15 @@ export default {
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   transform: {
-    '^.+\\.ts$': [
+    '^.+\\.m?tsx?$': [
       'ts-jest',
       {
         useESM: true,
+        tsconfig: '<rootDir>/tsconfig.test.json',
       },
     ],
   },
-  testMatch: ['**/test/**/*.test.ts'],
+  testMatch: ['**/test/**/*.test.ts', '**/src/**/*.test.ts'],
   collectCoverageFrom: [
     'src/cli/**/*.ts',
     '!src/cli/index.ts',

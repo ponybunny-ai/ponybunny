@@ -149,6 +149,18 @@ function createRepository(goal: Goal): IWorkOrderRepository {
       });
     }),
     getRun: jest.fn((runId: string) => runsById.get(runId)),
+    createDecision: jest.fn(() => ({
+      id: `decision-${Date.now()}`,
+      created_at: Date.now(),
+      run_id: 'run-1',
+      work_item_id: 'work-item',
+      goal_id: goal.id,
+      decision_type: 'tool',
+      decision_point: 'tool_policy_resolution',
+      options_considered: [],
+      selected_option: 'allowlist_only',
+      reasoning: 'test',
+    })),
     updateGoalSpending: jest.fn(),
     getRepeatedErrorSignatures: jest.fn(() => []),
   };
@@ -232,5 +244,119 @@ describe('ExecutionService per-work-item tool allowlist', () => {
     expect(existsSync(allowPath)).toBe(true);
     expect(readFileSync(allowPath, 'utf-8')).toBe('allow-run');
     expect(existsSync(denyPath)).toBe(false);
+  });
+
+  it('enforces layered deny policy at execution boundary', async () => {
+    const goal = createGoal('goal-layered-deny');
+    const repository = createRepository(goal);
+    const service = new ExecutionService(repository, { maxConsecutiveErrors: 3 }, new ScriptedWriteToolLLMProvider());
+
+    const layeredDenyItem = createWorkItem({
+      id: 'work-item-layered-deny',
+      goal_id: goal.id,
+      title: 'DENY_WRITE layered policy run',
+      context: {
+        tool_allowlist: ['write_file', 'read_file'],
+        tool_policy: {
+          global: {
+            deny: ['write_file'],
+          },
+        },
+      },
+    });
+
+    const result = await service.executeWorkItem(layeredDenyItem);
+
+    expect(result.success).toBe(true);
+    expect(result.run.execution_log).toContain('Action denied: Tool \'write_file\' denied by global deny policy');
+    expect(result.run.execution_log).toContain('[POLICY_AUDIT]');
+    expect(existsSync(denyPath)).toBe(false);
+
+    const createDecisionMock = (repository as unknown as { createDecision: jest.Mock }).createDecision;
+    expect(createDecisionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decision_type: 'tool',
+        decision_point: 'tool_policy_resolution',
+        selected_option: 'layered_policy_applied',
+      })
+    );
+  });
+
+  it('uses routeContext provider to select tool envelope and emits policy audit metadata', async () => {
+    const goal = createGoal('goal-route-context-provider');
+    const repository = createRepository(goal);
+    const service = new ExecutionService(repository, { maxConsecutiveErrors: 3 }, new ScriptedWriteToolLLMProvider());
+
+    const providerDeniedItem = createWorkItem({
+      id: 'work-item-provider-deny',
+      goal_id: goal.id,
+      title: 'DENY_WRITE provider constrained run',
+      context: {
+        tool_allowlist: ['write_file', 'read_file'],
+        tool_policy: {
+          byProvider: {
+            'openai/gpt-5.3-codex': {
+              deny: ['write_file'],
+            },
+          },
+        },
+        routeContext: {
+          source: 'gateway.message',
+          providerId: 'openai/gpt-5.3-codex',
+        },
+      },
+    });
+
+    const deniedResult = await service.executeWorkItem(providerDeniedItem);
+    expect(deniedResult.success).toBe(true);
+    expect(deniedResult.run.execution_log).toContain('Action denied: Tool \'write_file\' denied by provider:openai/gpt-5.3-codex deny policy');
+    expect(deniedResult.run.execution_log).toContain('[ROUTE_CONTEXT] source=gateway.message provider=openai/gpt-5.3-codex');
+    expect((providerDeniedItem.context as Record<string, unknown>).tool_policy_audit).toEqual(
+      expect.objectContaining({
+        hasLayeredPolicy: true,
+        appliedLayers: expect.arrayContaining(['provider:openai/gpt-5.3-codex']),
+      })
+    );
+
+    const createDecisionMock = (repository as unknown as { createDecision: jest.Mock }).createDecision;
+    expect(createDecisionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decision_point: 'tool_policy_resolution',
+        metadata: expect.objectContaining({
+          routeContext: expect.objectContaining({
+            source: 'gateway.message',
+            providerId: 'openai/gpt-5.3-codex',
+          }),
+          policyAudit: expect.objectContaining({
+            hasLayeredPolicy: true,
+          }),
+        }),
+      })
+    );
+
+    const providerAllowedItem = createWorkItem({
+      id: 'work-item-provider-allow',
+      goal_id: goal.id,
+      title: 'ALLOW_WRITE provider unconstrained run',
+      context: {
+        tool_allowlist: ['write_file', 'read_file'],
+        tool_policy: {
+          byProvider: {
+            'openai/gpt-5.3-codex': {
+              deny: ['write_file'],
+            },
+          },
+        },
+        routeContext: {
+          source: 'gateway.message',
+          providerId: 'anthropic/claude-sonnet-4.5',
+        },
+      },
+    });
+
+    const allowedResult = await service.executeWorkItem(providerAllowedItem);
+    expect(allowedResult.success).toBe(true);
+    expect(allowedResult.run.execution_log).not.toContain('Action denied');
+    expect(existsSync(allowPath)).toBe(true);
   });
 });

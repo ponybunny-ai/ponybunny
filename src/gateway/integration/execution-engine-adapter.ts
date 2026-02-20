@@ -111,6 +111,7 @@ export class ExecutionEngineAdapter implements IExecutionEngineAdapter {
           tick: {
             now: new Date(agentTick.scheduled_for_ms),
             runKey: agentTick.run_key,
+            routeContext: agentTick.routeContext,
           },
         });
 

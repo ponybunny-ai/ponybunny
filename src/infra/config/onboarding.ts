@@ -1,6 +1,5 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { fileURLToPath } from 'url';
 import { getPromptSeedRelativePaths } from '../prompts/template-loader.js';
 import { getConfigDir as getGlobalConfigDir, getInstallDir } from './config-paths.js';
 
@@ -605,11 +604,23 @@ export function getOnboardingFiles(): OnboardingFile[] {
 }
 
 function getPromptDefaultsSourceDir(): string {
-  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const entryPoint = process.argv[1] ? path.resolve(process.argv[1]) : undefined;
+  const entryDir = entryPoint ? path.dirname(entryPoint) : undefined;
+
+  const entryCandidates = entryDir
+    ? [
+        path.join(entryDir, '..', 'prompts', 'defaults'),
+        path.join(entryDir, 'infra', 'prompts', 'defaults'),
+        path.join(entryDir, '..', 'infra', 'prompts', 'defaults'),
+      ]
+    : [];
+
+  const envCandidate = process.env.PONYBUNNY_PROMPT_DEFAULTS_DIR;
   const candidates = [
-    path.join(moduleDir, '..', 'prompts', 'defaults'),
+    ...(envCandidate ? [envCandidate] : []),
     path.join(process.cwd(), 'src', 'infra', 'prompts', 'defaults'),
     path.join(process.cwd(), 'dist', 'infra', 'prompts', 'defaults'),
+    ...entryCandidates,
   ];
 
   for (const candidate of candidates) {

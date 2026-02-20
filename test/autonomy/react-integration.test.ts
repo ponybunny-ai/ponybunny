@@ -32,7 +32,7 @@ jest.mock('../../src/infra/tools/tool-provider.js', () => {
 
 import { ReActIntegration } from '../../src/autonomy/react-integration.js';
 
-function createWorkItem(): WorkItem {
+function createWorkItem(overrides: Partial<WorkItem> = {}): WorkItem {
   return {
     id: 'wi-1',
     created_at: Date.now(),
@@ -49,6 +49,7 @@ function createWorkItem(): WorkItem {
     retry_count: 0,
     max_retries: 3,
     verification_status: 'not_started',
+    ...overrides,
   };
 }
 
@@ -213,5 +214,38 @@ describe('ReActIntegration', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('repeated empty model responses without tool calls');
     expect((provider.complete as jest.Mock).mock.calls.length).toBe(2);
+  });
+
+  it('records runtime envelope audit with route context in execution log', async () => {
+    const provider = createMockProvider([
+      {
+        content: 'Task is complete. All requirements met.',
+        tokensUsed: 8,
+        model: 'gpt-test',
+        finishReason: 'stop',
+      },
+    ]);
+
+    const integration = new ReActIntegration(provider);
+    const result = await integration.executeWorkCycle({
+      workItem: createWorkItem({
+        context: {
+          routeContext: {
+            source: 'gateway.message',
+            providerId: 'openai/gpt-5.3-codex',
+            channel: 'telegram',
+            senderIsOwner: false,
+          },
+        },
+      }),
+      run: createRun(),
+      signal: new AbortController().signal,
+      model: 'gpt-5.2-codex',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.log).toContain('Runtime envelope selected:');
+    expect(result.log).toContain('provider:openai/gpt-5.3-codex');
+    expect(result.log).toContain('channel:telegram');
   });
 });

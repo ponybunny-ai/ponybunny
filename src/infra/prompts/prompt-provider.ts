@@ -8,6 +8,13 @@ import type { AgentPhase, SystemPromptContext } from '../prompts/types.js';
 import { buildSystemPrompt } from '../prompts/system-prompt-builder.js';
 import { getGlobalSkillRegistry } from '../skills/skill-registry.js';
 import { getGlobalToolProvider } from '../tools/tool-provider.js';
+import { routeContextFromWorkItemContext } from '../routing/route-context.js';
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const toStringArray = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 
 export interface PromptOptions {
   phase: AgentPhase;
@@ -83,6 +90,29 @@ export class PromptProvider {
       },
     };
 
+    const workItemContext = options.workItem?.context;
+    const routeContext = routeContextFromWorkItemContext(workItemContext);
+    if (routeContext) {
+      context.routeContext = {
+        source: routeContext.source,
+        providerId: routeContext.providerId,
+        channel: routeContext.channel,
+        agentId: routeContext.agentId,
+        senderIsOwner: routeContext.senderIsOwner,
+        sandboxed: routeContext.sandboxed,
+        isSubagent: routeContext.isSubagent,
+      };
+    }
+
+    const toolPolicyAudit = this.extractToolPolicyAudit(workItemContext);
+    if (toolPolicyAudit) {
+      context.toolPolicyAudit = toolPolicyAudit;
+      context.toolPolicy = {
+        allow: toolPolicyAudit.effectiveAllowedTools,
+        deny: toolPolicyAudit.deniedTools.map((item) => item.tool),
+      };
+    }
+
     // Add goal context if available
     if (options.goal) {
       context.goalId = options.goal.id;
@@ -93,6 +123,29 @@ export class PromptProvider {
     }
 
     return context;
+  }
+
+  private extractToolPolicyAudit(context: unknown): SystemPromptContext['toolPolicyAudit'] | undefined {
+    if (!isRecord(context) || !isRecord(context.tool_policy_audit)) {
+      return undefined;
+    }
+
+    const audit = context.tool_policy_audit;
+
+    return {
+      hasLayeredPolicy: typeof audit.hasLayeredPolicy === 'boolean' ? audit.hasLayeredPolicy : false,
+      baselineAllowedTools: toStringArray(audit.baselineAllowedTools),
+      effectiveAllowedTools: toStringArray(audit.effectiveAllowedTools),
+      deniedTools: Array.isArray(audit.deniedTools)
+        ? audit.deniedTools
+            .filter((item): item is Record<string, unknown> => isRecord(item))
+            .map((item) => ({
+              tool: typeof item.tool === 'string' ? item.tool : 'unknown',
+              reason: typeof item.reason === 'string' ? item.reason : 'policy',
+            }))
+        : [],
+      appliedLayers: toStringArray(audit.appliedLayers),
+    };
   }
 
   /**

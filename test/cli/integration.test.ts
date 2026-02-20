@@ -96,7 +96,7 @@ describe('CLI Integration Tests', () => {
         encoding: 'utf-8',
       });
 
-      expect(output).toMatch(/Authentication:|Not authenticated/);
+      expect(output).toContain('Enabled providers:');
     });
   });
 

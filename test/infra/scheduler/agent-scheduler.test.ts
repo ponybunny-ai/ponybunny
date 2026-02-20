@@ -108,6 +108,14 @@ describe('AgentScheduler', () => {
     expect(goals).toHaveLength(1);
     const workItems = repository.getWorkItemsByGoal(goals[0].id);
     expect(workItems).toHaveLength(1);
+    expect((workItems[0].context as Record<string, unknown>).routeContext).toEqual(
+      expect.objectContaining({
+        source: 'scheduler.cron',
+        channel: 'internal',
+        agentId: 'agent-1',
+        matchedBy: 'cron_schedule',
+      })
+    );
 
     const verifyDb = new Database(dbPath);
     const run = verifyDb
@@ -272,6 +280,14 @@ describe('AgentScheduler', () => {
       'Grep',
     ]);
     expect((workItems[0].context as Record<string, unknown>).model).toBe('gpt-5.3-codex');
+    expect((workItems[0].context as Record<string, unknown>).routeContext).toEqual(
+      expect.objectContaining({
+        source: 'scheduler.cron',
+        providerId: 'gpt-5.3-codex',
+        channel: 'internal',
+        agentId: 'agent-react-goal',
+      })
+    );
 
     repository.close();
   });

@@ -1,4 +1,5 @@
 import { GoalScopedAllowlist } from '../../../src/infra/tools/goal-scoped-allowlist.js';
+import { resolveLayeredToolPolicy } from '../../../src/infra/tools/layered-tool-policy.js';
 
 describe('GoalScopedAllowlist', () => {
   let allowlist: GoalScopedAllowlist;
@@ -70,7 +71,7 @@ describe('GoalScopedAllowlist', () => {
     });
 
     it('should return existing config if already initialized', () => {
-      const config1 = allowlist.initializeGoal('goal-1');
+      allowlist.initializeGoal('goal-1');
       allowlist.allowTool('test_tool', 'goal-1');
       const config2 = allowlist.initializeGoal('goal-1');
 
@@ -288,6 +289,72 @@ describe('GoalScopedAllowlist', () => {
     it('should return false for non-existent goal', () => {
       const removed = allowlist.removeGoalConfig('non-existent');
       expect(removed).toBe(false);
+    });
+  });
+
+  describe('route-context policy integration', () => {
+    it('should apply owner and sandbox rules over goal-scoped baseline allowlist', () => {
+      allowlist.allowTool('write_file', 'goal-route');
+      allowlist.allowTool('execute_command', 'goal-route');
+
+      const baselineAllowed = allowlist.getAllowedTools('goal-route');
+      const allTools = ['read_file', 'search_code', 'write_file', 'execute_command'];
+
+      const policy = {
+        sandbox: {
+          deny: ['write_file'],
+        },
+        ownerOnlyTools: ['execute_command'],
+      };
+
+      const nonOwnerSandboxed = resolveLayeredToolPolicy({
+        allTools,
+        policy,
+        baselineAllowedTools: baselineAllowed,
+        context: {
+          isOwner: false,
+          sandboxed: true,
+        },
+      });
+
+      expect(nonOwnerSandboxed.allowedTools.has('read_file')).toBe(true);
+      expect(nonOwnerSandboxed.allowedTools.has('write_file')).toBe(false);
+      expect(nonOwnerSandboxed.allowedTools.has('execute_command')).toBe(false);
+
+      const ownerNonSandboxed = resolveLayeredToolPolicy({
+        allTools,
+        policy,
+        baselineAllowedTools: baselineAllowed,
+        context: {
+          isOwner: true,
+          sandboxed: false,
+        },
+      });
+
+      expect(ownerNonSandboxed.allowedTools.has('write_file')).toBe(true);
+      expect(ownerNonSandboxed.allowedTools.has('execute_command')).toBe(true);
+    });
+
+    it('should keep goal-scoped blocked tools denied even when route context is owner', () => {
+      allowlist.allowTool('execute_command', 'goal-owner');
+      allowlist.blockTool('execute_command', 'goal-owner');
+
+      const baselineAllowed = allowlist.getAllowedTools('goal-owner');
+
+      const resolved = resolveLayeredToolPolicy({
+        allTools: ['read_file', 'search_code', 'execute_command'],
+        policy: {
+          ownerOnlyTools: ['execute_command'],
+        },
+        baselineAllowedTools: baselineAllowed,
+        context: {
+          isOwner: true,
+          sandboxed: false,
+        },
+      });
+
+      expect(baselineAllowed.includes('execute_command')).toBe(false);
+      expect(resolved.allowedTools.has('execute_command')).toBe(false);
     });
   });
 });
