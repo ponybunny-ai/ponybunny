@@ -1,0 +1,30 @@
+{
+  "manifestVersion": "1.0.0",
+  "templates": {
+    "README.md": { "version": "1.0.0" },
+    "system/identity.md": { "version": "1.0.0" },
+    "system/identity-none.md": { "version": "1.0.0" },
+    "system/tooling.md": { "version": "1.0.0" },
+    "system/tool-call-style.md": { "version": "1.0.0" },
+    "system/skills.md": { "version": "1.0.0" },
+    "system/memory.md": { "version": "1.0.0" },
+    "system/workspace.md": { "version": "1.0.0" },
+    "system/project-context.md": { "version": "1.0.0" },
+    "system/runtime.md": { "version": "1.0.0" },
+    "system/additional-context.md": { "version": "1.0.0" },
+    "system/safety/core.md": { "version": "1.0.0" },
+    "system/safety/escalation.md": { "version": "1.0.0" },
+    "system/safety/budget.md": { "version": "1.0.0" },
+    "system/phases/intake.md": { "version": "1.0.0" },
+    "system/phases/elaboration.md": { "version": "1.0.0" },
+    "system/phases/planning.md": { "version": "1.0.0" },
+    "system/phases/execution.md": { "version": "1.0.0" },
+    "system/phases/verification.md": { "version": "1.0.0" },
+    "system/phases/evaluation.md": { "version": "1.0.0" },
+    "system/phases/publish.md": { "version": "1.0.0" },
+    "system/phases/monitor.md": { "version": "1.0.0" },
+    "system/phases/conversation.md": { "version": "1.0.0" },
+    "persona/base.md": { "version": "1.0.0" },
+    "persona/guidelines.md": { "version": "1.0.0" }
+  }
+}

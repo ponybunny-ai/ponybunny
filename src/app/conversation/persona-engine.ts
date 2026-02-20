@@ -9,6 +9,8 @@ import type {
   IPersonalityTraits,
   ICommunicationStyle,
 } from '../../domain/conversation/persona.js';
+import { loadPromptTemplate, renderPromptTemplate } from '../../infra/prompts/template-loader.js';
+import { promptDebugDump, promptDebugLog } from '../../infra/prompts/prompt-debug.js';
 
 export interface IPersonaRepository {
   getPersona(id: string): Promise<IPersona | null>;
@@ -57,36 +59,24 @@ export class PersonaEngine implements IPersonaEngine {
     const timeStr = now.toTimeString().split(' ')[0]; // HH:MM:SS
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-    const parts: string[] = [
-      `You are ${persona.name}${persona.nickname ? ` (${persona.nickname})` : ''}, an autonomous AI assistant.`,
-    ];
+    const template = loadPromptTemplate('persona.md');
+    promptDebugLog('template', `name=persona.md path=${template.path}`);
 
-    if (persona.backstory) {
-      parts.push(persona.backstory);
-    }
+    const prompt = renderPromptTemplate(template.content, {
+      PERSONA_NAME: persona.name,
+      PERSONA_NICKNAME: persona.nickname ? ` (${persona.nickname})` : '',
+      PERSONA_BACKSTORY: persona.backstory ?? '',
+      CURRENT_DATE: dateStr,
+      CURRENT_TIME: timeStr,
+      TIMEZONE: timezone,
+      PERSONALITY_DESCRIPTION: personalityDesc,
+      COMMUNICATION_STYLE_DESCRIPTION: styleDesc,
+      EXPERTISE_DESCRIPTION: expertiseDesc,
+      GUIDELINES: this.generateGuidelines(persona),
+    });
 
-    parts.push('');
-    parts.push('## Current Date and Time');
-    parts.push(`**IMPORTANT**: The current date is ${dateStr}, current time is ${timeStr} (${timezone}).`);
-    parts.push('This is the actual current date/time. Do NOT use your knowledge cutoff date as "today".');
-
-    parts.push('');
-    parts.push('## Personality');
-    parts.push(personalityDesc);
-
-    parts.push('');
-    parts.push('## Communication Style');
-    parts.push(styleDesc);
-
-    parts.push('');
-    parts.push('## Expertise');
-    parts.push(expertiseDesc);
-
-    parts.push('');
-    parts.push('## Guidelines');
-    parts.push(this.generateGuidelines(persona));
-
-    return parts.join('\n');
+    promptDebugDump('Final Persona Prompt', prompt);
+    return prompt;
   }
 
   private describePersonality(traits: IPersonalityTraits): string {
@@ -171,27 +161,9 @@ export class PersonaEngine implements IPersonaEngine {
   }
 
   private generateGuidelines(persona: IPersona): string {
-    const guidelines: string[] = [];
-
-    // CRITICAL: Autonomous execution mode
-    guidelines.push('**🎯 AUTONOMOUS EXECUTION MODE:**');
-    guidelines.push('1. **ACT IMMEDIATELY** - When user requests something, directly use available tools/skills to execute. Never say "I cannot" or explain limitations first.');
-    guidelines.push('2. **PROACTIVE TOOL USAGE** - Automatically search and use tools (web_search, APIs, MCP servers, skills) without asking permission.');
-    guidelines.push('   - Weather query? → Use web_search immediately');
-    guidelines.push('   - Code task? → Write and execute code');
-    guidelines.push('   - Data query? → Search and retrieve information');
-    guidelines.push('3. **ONLY ASK PERMISSION** when you need:');
-    guidelines.push('   - System-level access (file system, network)');
-    guidelines.push('   - Potentially destructive operations');
-    guidelines.push('   - Spending money or external resources');
-    guidelines.push('4. **DELIVER RESULTS, NOT CONVERSATIONS** - Your goal is to complete tasks and deliver results.');
-    guidelines.push('5. **TRY FIRST, EXPLAIN LATER** - Attempt execution using all available tools. Only explain if all attempts genuinely fail.');
-    guidelines.push('');
-    guidelines.push('**Task Execution:**');
-    guidelines.push('- Always be helpful and work autonomously to complete tasks.');
-    guidelines.push('- When information is missing, ask clarifying questions before proceeding.');
-    guidelines.push('- Proactively report progress on long-running tasks.');
-    guidelines.push('- If a task fails, analyze the failure and suggest alternatives.');
+    const guidelinesTemplate = loadPromptTemplate('persona-guidelines.md');
+    promptDebugLog('template', `name=persona-guidelines.md path=${guidelinesTemplate.path}`);
+    const guidelines: string[] = [guidelinesTemplate.content.trimEnd()];
 
     if (persona.locale.startsWith('zh')) {
       guidelines.push('');
