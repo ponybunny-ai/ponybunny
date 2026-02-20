@@ -189,7 +189,7 @@ export class ReActIntegration {
               emptyResponseRetries++;
               messages.push({
                 role: 'user',
-                content: 'Your previous response was empty. Output exactly one of: (1) a concrete tool call to continue execution, or (2) complete_task with a concise summary if the task is finished.',
+                content: this.buildImmediateActionDirective(tools, true),
               });
               await this.observation(context, 'Empty model response without tool call; forced explicit next action prompt.');
               maxIterations--;
@@ -206,7 +206,7 @@ export class ReActIntegration {
 
             messages.push({
               role: 'user',
-              content: 'Continue executing autonomously. Use tools for concrete actions. If all requirements are satisfied, call complete_task with a summary.',
+              content: this.buildImmediateActionDirective(tools, false),
             });
             await this.observation(context, 'No actionable tool call emitted; requested next concrete action.');
           }
@@ -398,7 +398,25 @@ ${JSON.stringify(workItem.context, null, 2)}
 
 ${skillSuggestions}
 
-Begin by analyzing the task and forming a plan.`;
+Execution contract:
+- Your tools run on the local machine and current workspace.
+- Prefer existing local tools first (MCP, skills, built-in tools).
+- If needed capability is missing, use find_skills or web_search to locate an existing solution.
+- If still unavailable, implement an ad-hoc local solution with available tools.
+
+Respond with at most 2 short planning lines, then immediately issue the first concrete tool call.`;
+  }
+
+  private buildImmediateActionDirective(
+    tools: import('../infra/llm/llm-provider.js').ToolDefinition[],
+    fromEmptyResponse: boolean
+  ): string {
+    const toolNames = tools.map((tool) => tool.name).join(', ');
+    const firstLine = fromEmptyResponse
+      ? 'Your previous response was empty.'
+      : 'Do not provide another planning update.';
+
+    return `${firstLine} Call exactly one concrete tool now using only available tools: ${toolNames}. If and only if the task is fully complete, call complete_task with a concise summary.`;
   }
 
   private buildSkillSuggestions(workItem: WorkItem): string {
