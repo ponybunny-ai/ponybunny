@@ -20,6 +20,7 @@ import {
   type HeaderStyle,
 } from './antigravity-constants.js';
 import { getConfigDir } from '../../infra/config/config-paths.js';
+import { isAntigravityDebugEnabled } from '../../infra/config/debug-flags.js';
 
 type AccountsConfigV2 = AccountsConfig & {
   version?: number;
@@ -45,7 +46,7 @@ type AntigravitySession = {
 };
 
 function logDebug(message: string, extra?: Record<string, unknown>): void {
-  if (process.env.PB_ANTIGRAVITY_DEBUG === '1' || process.env.PB_DEBUG === '1') {
+  if (isAntigravityDebugEnabled()) {
     const suffix = extra ? ` ${JSON.stringify(extra)}` : '';
     console.log(`[AuthManagerV2] ${message}${suffix}`);
   }

@@ -12,6 +12,7 @@ import {
   GEMINI_CLI_CLIENT_METADATA,
   getRandomizedHeaders,
 } from './antigravity-constants.js';
+import { isAntigravityDebugEnabled } from '../../infra/config/debug-flags.js';
 
 interface PkcePair {
   verifier: string;
@@ -62,7 +63,7 @@ export type AntigravityTokenExchangeResult =
 const FETCH_TIMEOUT_MS = 10000;
 
 function logDebug(message: string, extra?: Record<string, unknown>): void {
-  if (process.env.PB_ANTIGRAVITY_DEBUG === '1' || process.env.PB_DEBUG === '1') {
+  if (isAntigravityDebugEnabled()) {
     const suffix = extra ? ` ${JSON.stringify(extra)}` : '';
     console.log(`[Antigravity OAuth] ${message}${suffix}`);
   }

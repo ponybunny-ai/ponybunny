@@ -23,6 +23,7 @@ import { spawn, execSync } from 'child_process';
 import { GatewayServer, type Permission } from '../../gateway/index.js';
 import { WorkOrderDatabase } from '../../work-order/database/manager.js';
 import { startGatewayTui } from '../ui/gateway-tui.js';
+import { isDebugLoggingEnabled } from '../../infra/config/debug-flags.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -205,7 +206,7 @@ gatewayCommand
     const absoluteDbPath = resolve(dbPath);
 
     // Check for debug mode from environment or CLI option
-    const debugEnabled = process.env.DEBUG_MODE === 'true' || debug;
+    const debugEnabled = Boolean(debug) || isDebugLoggingEnabled();
 
     if (daemon) {
       // Start daemon supervisor

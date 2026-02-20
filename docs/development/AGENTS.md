@@ -94,6 +94,23 @@ import { Goal } from './types';
 - Mark optional fields with `?`
 - Never use empty catch blocks
 
+### Debug Console Output (CRITICAL)
+- **All debug-only `console` output MUST be gated by `PONY_BUNNY_DEBUG=1`.**
+- Use shared helpers from `src/infra/config/debug-flags.ts` instead of direct env checks:
+  - `isPonyBunnyDebugEnabled()` for strict global debug switch checks
+  - `isDebugLoggingEnabled()` only when legacy compatibility is required
+  - `isAntigravityDebugEnabled()` for Antigravity-specific debug traces
+- **Do not** read `process.env.PONY_BUNNY_DEBUG`, `process.env.PB_DEBUG`, or `process.env.DEBUG_MODE` directly inside feature modules.
+- **Do not** hide operational logs/errors behind debug gates (`console.error`, critical lifecycle logs must remain visible).
+
+```typescript
+import { isPonyBunnyDebugEnabled } from '../infra/config/debug-flags.js';
+
+if (isPonyBunnyDebugEnabled()) {
+  console.log('[ModuleDebug] ...');
+}
+```
+
 ### Dependency Injection
 **Always inject via constructor:**
 ```typescript
@@ -194,4 +211,4 @@ All in `~/.ponybunny/`:
 
 ---
 
-**Last Updated:** 2026-02-10 - For AI coding agents working in PonyBunny codebase.
+**Last Updated:** 2026-02-20 - For AI coding agents working in PonyBunny codebase.

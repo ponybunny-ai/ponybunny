@@ -1,22 +1,49 @@
 # PonyBunny - Autonomous AI Employee System
 
-**Production-ready autonomous AI agent framework with Gateway + Scheduler architecture.**
+English | [简体中文](./README_ZH.md)
 
-Durable like a pony. Fast like a bunny. Local-first, security-first, and trim-to-fit — know your AI agent like you know your staff.
+**Production-ready autonomous AI employee system with Gateway + Scheduler architecture.**
 
-## Key Features
+Durable like a pony. Fast like a bunny. Local-first, security-first, and trim-to-fit — know your AI agent like you know your staff.  
+一句话：PonyBunny 是一个“AI 员工系统”，你只设定目标，它负责拆解、执行、验证与交付。
 
-✅ **Multi-Provider LLM Support** - Anthropic Claude, OpenAI GPT, Google Gemini with automatic failover
-✅ **Claude-First Strategy** - Optimized for Claude Opus/Sonnet/Haiku 4.5 with GPT-5.2 fallback
-✅ **8-Phase Autonomous Lifecycle** - Intake → Elaboration → Planning → Execution → Verification → Evaluation → Publish → Monitor
-✅ **Gateway + Scheduler Architecture** - WebSocket-based communication with durable task orchestration
-✅ **Service Management** - Unified CLI for starting/stopping/monitoring all services
-✅ **Background Mode** - Services run as daemons with PID tracking and log management
-✅ **Debug Dashboard** - Web UI and Terminal UI for real-time system monitoring
-✅ **JSON Configuration System** - Separate credentials and LLM config files with schema validation
-✅ **Local-First SQLite Persistence** - Durable work order tracking with DAG structure
-✅ **Comprehensive Test Coverage** - 779 tests across 40 suites, all passing
-✅ **CLI & TUI Interface** - Commander.js CLI with Ink-based terminal UI
+## What PonyBunny Does
+
+- **Goal → Result**: you submit a goal, the system plans, executes, verifies, and returns artifacts.
+- **Autonomous by default** with human-in-the-loop for risky operations.
+- **Local-first** persistence with SQLite for durable work tracking.
+- **Multi-provider LLM routing** with tiered model selection and failover.
+
+## Design Philosophy (AI Employee Paradigm)
+
+- **Autonomy over assistance**: takes ownership end‑to‑end, not just suggestions.
+- **Transparency over opacity**: logs decisions, explains escalations, never hides failures.
+- **Safety over speed**: risky actions require explicit approval and audit trails.
+- **Escalation is a feature**: when blocked, it escalates with context and options.
+
+## Implementation Status (2026-02-20)
+
+### Implemented Modules
+
+✅ **Gateway**: WebSocket JSON‑RPC server, auth, routing, and `system.status` endpoint  
+✅ **Scheduler (8‑phase lifecycle)**: clarify → decompose → verify → execute → evaluate → retry  
+✅ **Work Order System**: goal/work item DAG, runs, artifacts, escalation tracking (SQLite)  
+✅ **LLM Provider Manager**: Claude‑first routing, OpenAI/Gemini support, OpenAI‑compatible endpoints  
+✅ **MCP Integration**: multi‑server MCP client, tool adapter, full CLI (`pb mcp ...`)  
+✅ **Service Management CLI**: start/stop/status/logs/ps for Gateway + Scheduler  
+✅ **Debug Server**: Web UI + TUI with live system/connection monitoring  
+✅ **Web UI (Next.js)**: `/status` dashboard (system, process, scheduler, network)  
+✅ **Configuration System**: JSON schema‑validated configs + separate credentials
+
+### Planned / In Design
+
+🟨 **Debug server event replay & time‑travel** (design doc in `docs/plans/2026-02-09-debug-server-replay-design.md`)
+
+## Ports & UIs
+
+- **Gateway WS**: `ws://localhost:18789`
+- **Main Web UI (Next.js)**: `http://localhost:3000` (includes `/status`)
+- **Debug Server UI**: `http://localhost:3001` (via `pb debug web`)
 
 ## Quick Start
 
@@ -103,6 +130,25 @@ pb service logs scheduler -f
 pb service stop all
 ```
 
+### Optional UIs
+
+```bash
+# Debug server UI (observability)
+pb debug web
+
+# Main Web UI (Next.js, includes /status page)
+cd web
+npm install
+npm run dev
+# open http://localhost:3000/status
+```
+
+### Submit Work
+
+```bash
+pb work "Build a feature and include tests"
+```
+
 Or start services individually:
 
 ```bash
@@ -155,11 +201,15 @@ src/
 ├── scheduler/            # Task orchestration, model selection
 │   └── agent/            # 8-phase lifecycle agents
 ├── domain/               # Pure business logic
-│   ├── work-order/       # Goal, WorkItem, Run, Artifact types
-│   ├── skill/            # Skill definitions
-│   └── state-machine/    # Status transition rules
+│   ├── work-order/       # Goal, WorkItem, Run, Artifact + state machine
+│   ├── conversation/     # Persona + session state rules
+│   ├── permission/       # Permission boundaries for OS services
+│   ├── escalation/       # Escalation packet types
+│   ├── audit/            # Audit trail types
+│   └── skill/            # Skill definitions
 ├── infra/                # Infrastructure adapters
 │   ├── config/           # Configuration & onboarding
+│   ├── mcp/              # MCP client + tool integration
 │   ├── persistence/      # SQLite repository
 │   ├── llm/              # LLM providers & routing
 │   │   ├── provider-manager/  # JSON config-driven provider management

@@ -1,5 +1,7 @@
+import { isPonyBunnyDebugEnabled } from '../config/debug-flags.js';
+
 export function isPromptDebugEnabled(): boolean {
-  return process.env.PONY_BUNNY_DEBUG === '1';
+  return isPonyBunnyDebugEnabled();
 }
 
 export function promptDebugLog(step: string, details: string): void {

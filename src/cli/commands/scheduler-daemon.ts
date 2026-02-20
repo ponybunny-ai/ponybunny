@@ -19,6 +19,7 @@ import { getLLMService } from '../../infra/llm/index.js';
 import { LLMRouter, MockLLMProvider } from '../../infra/llm/llm-provider.js';
 import { SchedulerDaemon } from '../../scheduler-daemon/daemon.js';
 import { getGlobalSkillRegistry } from '../../infra/skills/skill-registry.js';
+import { isDebugLoggingEnabled } from '../../infra/config/debug-flags.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -306,7 +307,7 @@ export const schedulerCommand = new Command('scheduler')
       .action(async (options) => {
         const dbPath = options.db;
         const socketPath = options.socket;
-        const debugMode = options.debug ?? false;
+        const debugMode = Boolean(options.debug) || isDebugLoggingEnabled();
         const foreground = options.foreground ?? false;
         const force = options.force ?? false;
         const agentsEnabled = options.agents ?? false;

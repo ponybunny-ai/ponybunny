@@ -9,6 +9,7 @@ import {
 } from './antigravity-constants.js';
 import { accountManagerV2 } from './auth-manager-v2.js';
 import { parseRateLimitInfo } from './rate-limit.js';
+import { isAntigravityDebugEnabled } from '../../infra/config/debug-flags.js';
 
 export interface GeminiContentPart {
   text?: string;
@@ -52,7 +53,7 @@ type RequestContext = {
 };
 
 function logDebug(message: string, extra?: Record<string, unknown>): void {
-  if (process.env.PB_ANTIGRAVITY_DEBUG === '1' || process.env.PB_DEBUG === '1') {
+  if (isAntigravityDebugEnabled()) {
     const suffix = extra ? ` ${JSON.stringify(extra)}` : '';
     console.log(`[AntigravityClient] ${message}${suffix}`);
   }
