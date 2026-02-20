@@ -9,15 +9,15 @@
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import { randomBytes } from 'crypto';
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
+import { getConfigDir } from '../../infra/config/config-paths.js';
 
 // Configure ed25519 to use sha512
 ed.etc.sha512Sync = (...m) => sha512(ed.etc.concatBytes(...m));
 
-const PONY_DIR = join(homedir(), '.ponybunny');
+const PONY_DIR = getConfigDir();
 const PRIVATE_KEY_PATH = join(PONY_DIR, 'client.key');
 const PUBLIC_KEY_PATH = join(PONY_DIR, 'client.pub');
 

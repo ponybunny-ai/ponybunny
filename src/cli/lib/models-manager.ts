@@ -1,9 +1,9 @@
-import { homedir } from 'os';
 import { join } from 'path';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import type { ModelsCache, ModelInfo } from './models-cache.js';
 import { openaiClient } from './openai-client.js';
 import { antigravityClient } from './antigravity-client.js';
+import { getConfigDir } from '../../infra/config/config-paths.js';
 
 const CACHE_VERSION = 1;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -13,7 +13,7 @@ export class ModelsManager {
   private cache: ModelsCache | null = null;
 
   constructor() {
-    const configDir = join(homedir(), '.ponybunny');
+    const configDir = getConfigDir();
     this.configPath = join(configDir, 'models.json');
   }
 

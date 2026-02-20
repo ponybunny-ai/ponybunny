@@ -1,8 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
+import { getConfigDir } from './config-paths.js';
+
+export { getConfigDir } from './config-paths.js';
 
 /**
  * Credentials validation error
@@ -34,17 +36,10 @@ export interface EndpointCredential {
 }
 
 /**
- * Structure of ~/.ponybunny/credentials.json
+ * Structure of ~/.config/ponybunny/credentials.json
  */
 export interface CredentialsFile {
   endpoints?: Record<string, EndpointCredential>;
-}
-
-/**
- * Get the PonyBunny config directory path
- */
-export function getConfigDir(): string {
-  return process.env.PONYBUNNY_CONFIG_DIR || path.join(os.homedir(), '.ponybunny');
 }
 
 /**
@@ -149,7 +144,7 @@ export function validateCredentials(credentials: unknown): CredentialsFile {
 }
 
 /**
- * Load credentials from ~/.ponybunny/credentials.json
+ * Load credentials from ~/.config/ponybunny/credentials.json
  * Returns null if file doesn't exist
  * Throws CredentialsValidationError if file is invalid
  */
@@ -188,7 +183,7 @@ export function getEndpointCredential(endpointId: string): EndpointCredential | 
 }
 
 /**
- * Save credentials to ~/.ponybunny/credentials.json
+ * Save credentials to ~/.config/ponybunny/credentials.json
  * Creates the directory if it doesn't exist
  * Validates credentials before saving
  */

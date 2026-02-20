@@ -1,4 +1,3 @@
-import { homedir } from 'os';
 import { join } from 'path';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import type {
@@ -20,6 +19,7 @@ import {
   ANTIGRAVITY_TOKEN_URL,
   type HeaderStyle,
 } from './antigravity-constants.js';
+import { getConfigDir } from '../../infra/config/config-paths.js';
 
 type AccountsConfigV2 = AccountsConfig & {
   version?: number;
@@ -83,7 +83,7 @@ export class AccountManagerV2 {
   private codexRateLimitResets = new Map<string, number>();
 
   constructor() {
-    this.configDir = asString(process.env.PONYBUNNY_CONFIG_DIR) ?? join(homedir(), '.ponybunny');
+    this.configDir = asString(process.env.PONYBUNNY_CONFIG_DIR) ?? getConfigDir();
     this.configPath = join(this.configDir, 'accounts.json');
 
     if (!existsSync(this.configDir)) {

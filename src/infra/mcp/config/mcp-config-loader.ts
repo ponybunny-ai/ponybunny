@@ -1,6 +1,6 @@
 /**
  * MCP Configuration Loader
- * Loads and validates MCP server configurations from ~/.ponybunny/mcp-config.json
+ * Loads and validates MCP server configurations from ~/.config/ponybunny/mcp-config.json
  */
 
 import * as fs from 'fs';
@@ -153,7 +153,7 @@ function expandServerConfigEnvVars(config: MCPServerConfig): MCPServerConfig {
 }
 
 /**
- * Load MCP config from ~/.ponybunny/mcp-config.json
+ * Load MCP config from ~/.config/ponybunny/mcp-config.json
  * Returns null if file doesn't exist
  * Throws MCPConfigError if file is invalid
  */
@@ -204,7 +204,7 @@ export function getMCPServerConfig(serverName: string): MCPServerConfig | null {
 }
 
 /**
- * Save MCP config to ~/.ponybunny/mcp-config.json
+ * Save MCP config to ~/.config/ponybunny/mcp-config.json
  * Creates the directory if it doesn't exist
  * Validates config before saving
  */

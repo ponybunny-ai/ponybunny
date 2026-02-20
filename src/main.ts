@@ -8,6 +8,7 @@ import { getLLMService } from './infra/llm/index.js';
 import type { ILLMProvider } from './infra/llm/llm-provider.js';
 import { MockLLMProvider, LLMRouter } from './infra/llm/llm-provider.js';
 import { getGlobalSkillRegistry } from './infra/skills/skill-registry.js';
+import { getConfigDir } from './infra/config/config-paths.js';
 
 const DB_PATH = process.env.PONY_DB_PATH || './pony-work-orders.db';
 
@@ -61,7 +62,7 @@ async function main() {
 
   if (availableProviders.length === 0) {
     console.warn('[PonyBunny] ⚠️  No API keys found. Using Mock LLM Provider.');
-    console.warn('[PonyBunny] To use real LLMs, configure ~/.ponybunny/credentials.json');
+    console.warn(`[PonyBunny] To use real LLMs, configure ${getConfigDir()}/credentials.json`);
     llmProvider = new LLMRouter([new MockLLMProvider('mock-provider')]);
   } else {
     console.log(`[PonyBunny] ✅ Active LLM Providers: ${availableProviders.join(', ')}`);

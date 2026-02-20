@@ -1,12 +1,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { fileURLToPath } from 'url';
+import { getPromptSeedRelativePaths } from '../prompts/template-loader.js';
+import { getConfigDir as getGlobalConfigDir, getInstallDir } from './config-paths.js';
 
 /**
  * Get the PonyBunny config directory path
  */
 export function getConfigDir(): string {
-  return path.join(os.homedir(), '.ponybunny');
+  return getGlobalConfigDir();
 }
 
 /**
@@ -527,6 +529,17 @@ export interface OnboardingFile {
  */
 export function getOnboardingFiles(): OnboardingFile[] {
   const configDir = getConfigDir();
+  const installDir = getInstallDir();
+  const promptDefaultsDir = getPromptDefaultsSourceDir();
+
+  const promptTemplateFiles: OnboardingFile[] = getPromptSeedRelativePaths().map((relativePath) => ({
+    name: path.join('prompts', relativePath),
+    path: path.join(configDir, 'prompts', relativePath),
+    template: readPromptDefaultTemplate(promptDefaultsDir, relativePath),
+    format: 'raw',
+    mode: relativePath === 'README.md' ? 0o644 : 0o600,
+    description: `Prompt template: ${relativePath}`,
+  }));
 
   return [
     {
@@ -579,13 +592,39 @@ export function getOnboardingFiles(): OnboardingFile[] {
     },
     {
       name: 'resources/docker-compose.common.yml',
-      path: path.join(configDir, 'resources', 'docker-compose.common.yml'),
+      path: path.join(installDir, 'resources', 'docker-compose.common.yml'),
       template: COMMON_RESOURCES_COMPOSE_TEMPLATE,
       format: 'raw',
       mode: 0o644,
       description: 'Common services (Postgres + Playwright MCP)',
     },
+    ...promptTemplateFiles,
   ];
+}
+
+function getPromptDefaultsSourceDir(): string {
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.join(moduleDir, '..', 'prompts', 'defaults'),
+    path.join(process.cwd(), 'src', 'infra', 'prompts', 'defaults'),
+    path.join(process.cwd(), 'dist', 'infra', 'prompts', 'defaults'),
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return candidates[0];
+}
+
+function readPromptDefaultTemplate(baseDir: string, relativePath: string): string {
+  const filePath = path.join(baseDir, relativePath);
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Default prompt template missing: ${filePath}`);
+  }
+  return fs.readFileSync(filePath, 'utf-8');
 }
 
 /**

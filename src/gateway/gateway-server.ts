@@ -37,6 +37,7 @@ import { setupDebugBroadcaster } from './debug-broadcaster.js';
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
 import { AuditLogRepository } from '../infra/persistence/audit-repository.js';
 import { AuditService } from '../infra/audit/audit-service.js';
+import { getConfigDir } from '../infra/config/config-paths.js';
 
 // Conversation imports
 import { SessionManager, type ISessionManager } from '../app/conversation/session-manager.js';
@@ -261,7 +262,7 @@ export class GatewayServer {
   }
 
   private initializeConfigWatcher(): void {
-    const configDir = join(homedir(), '.ponybunny');
+    const configDir = getConfigDir();
     this.configWatcher = createConfigWatcher(configDir);
 
     this.configWatcher.on('change', (event: { path: string; timestamp: number }) => {

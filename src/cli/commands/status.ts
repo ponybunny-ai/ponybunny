@@ -180,7 +180,7 @@ export async function statusCommand(): Promise<void> {
 
   const credentials = getCachedCredentials();
   if (!credentials?.endpoints || Object.keys(credentials.endpoints).length === 0) {
-    console.log(chalk.yellow('\nTip: configure endpoints in ~/.ponybunny/credentials.json (set `enabled: true`)'));
+    console.log(chalk.yellow('\nTip: configure endpoints in ~/.config/ponybunny/credentials.json (set `enabled: true`)'));
   }
   
   console.log();

@@ -6,6 +6,7 @@ import {
   getOnboardingFiles,
   getConfigDir,
 } from '../../infra/config/onboarding.js';
+import { getInstallDir } from '../../infra/config/config-paths.js';
 
 /**
  * Init command - Initialize PonyBunny configuration files
@@ -17,11 +18,13 @@ export const initCommand = new Command('init')
   .option('-l, --list', 'List all config files and their status')
   .action(async (options) => {
     const configDir = getConfigDir();
+    const installDir = getInstallDir();
 
     // List mode
     if (options.list) {
       console.log(chalk.bold('\nPonyBunny Configuration Files'));
-      console.log(chalk.gray(`Directory: ${configDir}\n`));
+      console.log(chalk.gray(`Config directory: ${configDir}`));
+      console.log(chalk.gray(`Install directory: ${installDir}\n`));
 
       const files = getOnboardingFiles();
       const missing = checkMissingConfigFiles();
@@ -45,7 +48,8 @@ export const initCommand = new Command('init')
 
     // Init mode
     console.log(chalk.bold('\nInitializing PonyBunny configuration...'));
-    console.log(chalk.gray(`Directory: ${configDir}\n`));
+    console.log(chalk.gray(`Config directory: ${configDir}`));
+    console.log(chalk.gray(`Install directory: ${installDir}\n`));
 
     if (options.dryRun) {
       console.log(chalk.yellow('Dry run mode - no files will be created\n'));
@@ -119,8 +123,8 @@ export const initCommand = new Command('init')
     // Show next steps
     if (created > 0 || options.dryRun) {
       console.log(chalk.bold('\nNext steps:'));
-      console.log(`  1. Edit ${chalk.cyan('~/.ponybunny/credentials.json')} to add your API keys`);
-      console.log(`  2. Edit ${chalk.cyan('~/.ponybunny/llm-config.json')} to customize endpoints`);
+      console.log(`  1. Edit ${chalk.cyan('~/.config/ponybunny/credentials.json')} to add your API keys`);
+      console.log(`  2. Edit ${chalk.cyan('~/.config/ponybunny/llm-config.json')} to customize endpoints`);
       console.log(`  3. Run ${chalk.cyan('pb status')} to verify configuration`);
     }
   });

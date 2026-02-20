@@ -1,21 +1,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import type { LLMConfig, LLMEndpointConfig, LLMModelConfig, LLMTierConfig, LLMAgentConfig, LLMDefaultsConfig, ModelTier } from './types.js';
 import { ConfigValidationError } from './types.js';
+import { getConfigDir as getGlobalConfigDir } from '../../config/config-paths.js';
 
 /**
  * Get the PonyBunny config directory path
  */
 export function getConfigDir(): string {
-  const override = process.env.PONYBUNNY_CONFIG_DIR;
-  if (typeof override === 'string' && override.trim()) {
-    return override;
-  }
-
-  return path.join(os.homedir(), '.ponybunny');
+  return getGlobalConfigDir();
 }
 
 /**
