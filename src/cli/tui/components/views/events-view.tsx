@@ -9,6 +9,7 @@ import { useAppContext } from '../../context/app-context.js';
 import { EventItem } from '../widgets/event-item.js';
 
 type EventFilter = 'all' | 'goal' | 'workitem' | 'escalation' | 'system';
+const FILTER_OPTIONS: EventFilter[] = ['all', 'goal', 'workitem', 'escalation', 'system'];
 
 export const EventsView: React.FC = () => {
   const { state, clearEvents } = useAppContext();
@@ -24,6 +25,16 @@ export const EventsView: React.FC = () => {
 
   // Handle keyboard input
   useInput((input, key) => {
+    if (key.leftArrow || key.rightArrow) {
+      const direction = key.rightArrow ? 1 : -1;
+      setFilter(current => {
+        const currentIndex = FILTER_OPTIONS.indexOf(current);
+        const nextIndex = (currentIndex + direction + FILTER_OPTIONS.length) % FILTER_OPTIONS.length;
+        return FILTER_OPTIONS[nextIndex];
+      });
+      return;
+    }
+
     // Filter shortcuts
     if (input === 'a') setFilter('all');
     if (input === 'g') setFilter('goal');
@@ -47,7 +58,7 @@ export const EventsView: React.FC = () => {
       {/* Filter bar */}
       <Box marginBottom={1}>
         <Text dimColor>Filter: </Text>
-        {(['all', 'goal', 'workitem', 'escalation', 'system'] as EventFilter[]).map((f, i) => (
+        {FILTER_OPTIONS.map((f, i) => (
           <React.Fragment key={f}>
             {i > 0 && <Text dimColor> │ </Text>}
             <Text
@@ -60,7 +71,7 @@ export const EventsView: React.FC = () => {
           </React.Fragment>
         ))}
         <Box flexGrow={1} />
-        <Text dimColor>v: toggle view │ Ctrl+L: clear</Text>
+        <Text dimColor>←/→: filter │ v: toggle view │ Ctrl+L: clear</Text>
       </Box>
 
       {/* Events list */}

@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getPromptSeedRelativePaths } from '../prompts/template-loader.js';
 import { getConfigDir as getGlobalConfigDir, getInstallDir } from './config-paths.js';
+import { resolveRuntimeConfigFromEnvironment } from './runtime-config.js';
 
 /**
  * Get the PonyBunny config directory path
@@ -485,6 +486,60 @@ export const MCP_CONFIG_TEMPLATE = {
   },
 };
 
+export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  $id: 'https://ponybunny.dev/schemas/ponybunny.schema.json',
+  title: 'PonyBunny Runtime Configuration',
+  type: 'object',
+  required: ['paths', 'gateway', 'scheduler', 'debug'],
+  properties: {
+    $schema: { type: 'string' },
+    paths: {
+      type: 'object',
+      required: ['database', 'schedulerSocket'],
+      properties: {
+        database: { type: 'string' },
+        schedulerSocket: { type: 'string' },
+      },
+      additionalProperties: false,
+    },
+    gateway: {
+      type: 'object',
+      required: ['host', 'port'],
+      properties: {
+        host: { type: 'string' },
+        port: { type: 'integer', minimum: 1 },
+      },
+      additionalProperties: false,
+    },
+    scheduler: {
+      type: 'object',
+      required: ['tickIntervalMs', 'maxConcurrentGoals', 'agentsEnabled'],
+      properties: {
+        tickIntervalMs: { type: 'integer', minimum: 1 },
+        maxConcurrentGoals: { type: 'integer', minimum: 1 },
+        agentsEnabled: { type: 'boolean' },
+      },
+      additionalProperties: false,
+    },
+    debug: {
+      type: 'object',
+      required: ['serverPort', 'loggingEnabled', 'antigravityDebug'],
+      properties: {
+        serverPort: { type: 'integer', minimum: 1 },
+        loggingEnabled: { type: 'boolean' },
+        antigravityDebug: { type: 'boolean' },
+      },
+      additionalProperties: false,
+    },
+  },
+  additionalProperties: false,
+};
+
+export function getPonyBunnyConfigTemplate() {
+  return resolveRuntimeConfigFromEnvironment();
+}
+
 const COMMON_RESOURCES_COMPOSE_TEMPLATE = `services:
   postgres:
     image: postgres:latest
@@ -543,6 +598,22 @@ export function getOnboardingFiles(): OnboardingFile[] {
   }));
 
   return [
+    {
+      name: 'ponybunny.schema.json',
+      path: path.join(configDir, 'ponybunny.schema.json'),
+      template: PONYBUNNY_CONFIG_SCHEMA_TEMPLATE,
+      format: 'json',
+      mode: 0o644,
+      description: 'JSON Schema for runtime configuration',
+    },
+    {
+      name: 'ponybunny.json',
+      path: path.join(configDir, 'ponybunny.json'),
+      template: getPonyBunnyConfigTemplate(),
+      format: 'json',
+      mode: 0o600,
+      description: 'Runtime configuration (paths, gateway, scheduler, debug)',
+    },
     {
       name: 'credentials.schema.json',
       path: path.join(configDir, 'credentials.schema.json'),

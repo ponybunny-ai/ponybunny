@@ -24,18 +24,23 @@ import { GatewayServer, type Permission } from '../../gateway/index.js';
 import { WorkOrderDatabase } from '../../work-order/database/manager.js';
 import { startGatewayTui } from '../ui/gateway-tui.js';
 import { isDebugLoggingEnabled } from '../../infra/config/debug-flags.js';
+import { getPublicKey } from '../lib/key-manager.js';
+import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const DEFAULT_DB_PATH = process.env.PONY_DB_PATH || './pony.db';
-const DEFAULT_HOST = process.env.PONY_GATEWAY_HOST || '127.0.0.1';
-const DEFAULT_PORT = parseInt(process.env.PONY_GATEWAY_PORT || '18789', 10);
+const runtimeConfig = loadRuntimeConfig();
+const DEFAULT_DB_PATH = runtimeConfig.paths.database;
+const DEFAULT_HOST = runtimeConfig.gateway.host;
+const DEFAULT_PORT = runtimeConfig.gateway.port;
 
 // PID and log file locations
 const PONY_DIR = join(homedir(), '.ponybunny');
 const PID_FILE = join(PONY_DIR, 'gateway.pid');
 const LOG_FILE = join(PONY_DIR, 'gateway.log');
 const DAEMON_PID_FILE = join(PONY_DIR, 'gateway-daemon.pid');
+
+const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 
 interface PidInfo {
   pid: number;
@@ -103,6 +108,45 @@ function removeDaemonPidFile(): void {
     }
   } catch {
     // Ignore errors
+  }
+}
+
+function ensureGatewaySchema(db: Database.Database): void {
+  try {
+    const schemaPath = join(__dirname, '../../infra/persistence/schema.sql');
+    const schema = readFileSync(schemaPath, 'utf-8');
+    db.exec(schema);
+  } catch {
+    try {
+      const distSchemaPath = join(__dirname, '../../../dist/infra/persistence/schema.sql');
+      const schema = readFileSync(distSchemaPath, 'utf-8');
+      db.exec(schema);
+    } catch {
+      // Schema might already exist
+    }
+  }
+}
+
+async function getOrCreateLocalPairingToken(dbPath: string, permissions: Permission[]): Promise<string | null> {
+  try {
+    const publicKey = getPublicKey();
+    const db = new Database(dbPath);
+    ensureGatewaySchema(db);
+
+    const { PairingTokenStore } = await import('../../gateway/auth/pairing-token-store.js');
+    const tokenStore = new PairingTokenStore(db);
+
+    const existing = tokenStore.getByPublicKey(publicKey);
+    if (existing) {
+      db.close();
+      return null;
+    }
+
+    const { token } = tokenStore.createToken(permissions);
+    db.close();
+    return token;
+  } catch (error) {
+    return null;
   }
 }
 
@@ -250,6 +294,7 @@ function startBackground(host: string, port: string, dbPath: string, debugEnable
       console.log(chalk.green(`\n✓ Gateway started in background`));
       console.log(chalk.gray(`  PID: ${pidInfo.pid}`));
       console.log(chalk.gray(`  Address: ws://${host}:${port}`));
+      console.log(chalk.gray(`  Database: ${dbPath}`));
       console.log(chalk.gray(`  Log: ${LOG_FILE}`));
       console.log(chalk.gray('\nUse `pb gateway stop` to stop the server'));
     } else {
@@ -410,7 +455,7 @@ async function runGateway(host: string, port: number, dbPath: string, _mode: 'fo
     console.log(chalk.gray(`  Address: ws://${host}:${port}`));
   }
 
-  log(`Gateway starting on ws://${host}:${port}`);
+  log(`Gateway starting on ws://${host}:${port} (db=${dbPath})`);
 
   try {
     // Initialize database
@@ -433,7 +478,7 @@ async function runGateway(host: string, port: number, dbPath: string, _mode: 'fo
 
     // Create and start gateway (no scheduler - runs independently)
     const gateway = new GatewayServer(
-      { db, repository, debugMode: debugEnabled },
+      { db, dbPath, repository, debugMode: debugEnabled },
       { host, port }
     );
 
@@ -924,14 +969,19 @@ gatewayCommand
   .description('Start the Gateway TUI (Terminal User Interface)')
   .option('-h, --host <host>', 'Gateway host', DEFAULT_HOST)
   .option('-p, --port <port>', 'Gateway port', String(DEFAULT_PORT))
+  .option('-d, --db <path>', 'Database path', DEFAULT_DB_PATH)
   .option('-t, --token <token>', 'Authentication token')
   .action(async (options) => {
-    const { host, port, token } = options;
+    const { host, port, token: providedToken, db: dbPath } = options;
     const url = `ws://${host}:${port}`;
 
     console.log(chalk.blue(`Connecting to Gateway at ${url}...`));
 
     try {
+      let token = providedToken;
+      if (!token && LOCAL_HOSTS.has(host)) {
+        token = await getOrCreateLocalPairingToken(dbPath, ['read', 'write']);
+      }
       await startGatewayTui({ url, token });
     } catch (error) {
       console.error(chalk.red('TUI error:'), error);

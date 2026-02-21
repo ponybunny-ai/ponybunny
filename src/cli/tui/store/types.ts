@@ -8,8 +8,6 @@ export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'er
 
 export type ViewType = 'dashboard' | 'goals' | 'events' | 'help';
 
-export type DisplayMode = 'simple' | 'expert';
-
 export type SimpleMessageStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
 export interface SimpleMessage {
@@ -30,10 +28,7 @@ export interface GatewayEvent {
 }
 
 export interface AppState {
-  // Display mode
-  displayMode: DisplayMode;
-
-  // Simple mode messages
+  // Message stream
   simpleMessages: SimpleMessage[];
 
   // Connection
@@ -98,7 +93,6 @@ export interface ModalData {
 }
 
 export const initialState: AppState = {
-  displayMode: 'simple',
   simpleMessages: [],
   connectionStatus: 'connecting',
   gatewayUrl: 'ws://127.0.0.1:18789',

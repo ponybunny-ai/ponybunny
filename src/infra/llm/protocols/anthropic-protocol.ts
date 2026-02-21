@@ -98,7 +98,9 @@ export class AnthropicProtocolAdapter extends BaseProtocolAdapter {
 
     // Add tool_choice if specified
     if (config.tool_choice) {
-      if (config.tool_choice === 'auto' || config.tool_choice === 'none') {
+      if (config.tool_choice === 'required') {
+        requestBody.tool_choice = { type: 'any' };
+      } else if (config.tool_choice === 'auto' || config.tool_choice === 'none') {
         requestBody.tool_choice = { type: config.tool_choice };
       } else {
         requestBody.tool_choice = {

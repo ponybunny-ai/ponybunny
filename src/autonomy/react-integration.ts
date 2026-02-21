@@ -7,7 +7,6 @@ import type { WorkItem, Run, Goal } from '../work-order/types/index.js';
 import type { ILLMProvider, LLMMessage, LLMResponse, ToolCall } from '../infra/llm/llm-provider.js';
 import type { ToolEnforcer } from '../infra/tools/tool-registry.js';
 import { getGlobalPromptProvider } from '../infra/prompts/prompt-provider.js';
-import { getGlobalSkillRegistry } from '../infra/skills/skill-registry.js';
 import { ToolProvider, getGlobalToolProvider } from '../infra/tools/tool-provider.js';
 import { routeContextFromWorkItemContext } from '../infra/routing/route-context.js';
 
@@ -46,9 +45,15 @@ export interface ReActContext {
   systemPrompt: string;
 }
 
+type ExecutionIntentKind = 'simple_qa' | 'tool_task';
+
+interface ExecutionIntent {
+  kind: ExecutionIntentKind;
+  rationale: string;
+}
+
 export class ReActIntegration {
   private promptProvider = getGlobalPromptProvider();
-  private skillRegistry = getGlobalSkillRegistry();
   private toolProvider = getGlobalToolProvider();
 
   constructor(
@@ -90,12 +95,43 @@ export class ReActIntegration {
         { role: 'user', content: this.buildInitialObservation(params.workItem) },
       ];
 
+      const allTools = activeToolProvider.getToolDefinitions('execution');
+      const intent = await this.classifyIntent(params.workItem, params.model);
+      await this.observation(
+        context,
+        `Intent classified: ${intent.kind} (${intent.rationale || 'no rationale'})`
+      );
+
+      if (intent.kind === 'simple_qa') {
+        const directAnswer = await this.synthesizeSimpleAnswer(params.workItem, params.model);
+        context.totalTokens += directAnswer.tokensUsed;
+        context.totalCost += this.llmProvider?.estimateCost(directAnswer.tokensUsed) || 0;
+
+        const content = typeof directAnswer.content === 'string' ? directAnswer.content.trim() : '';
+        if (content.length > 0) {
+          await this.thought(context, content);
+          return {
+            success: true,
+            tokensUsed: context.totalTokens,
+            costUsd: context.totalCost,
+            artifactIds: await this.collectArtifacts(context),
+            log: this.buildExecutionLog(context),
+          };
+        }
+      }
+
+      await this.observation(
+        context,
+        `Tool strategy: llm_native_first -> local_fallback (tools available: ${allTools.length})`
+      );
+
       let maxIterations = 20;
       const maxNoActionIterations = 3;
       const maxEmptyResponseRetries = 1;
       let completed = false;
       let noActionIterations = 0;
       let emptyResponseRetries = 0;
+      let requireToolCallNext = false;
       let incompleteExitReason: string | undefined;
       let emittedRuntimeEnvelope = false;
 
@@ -113,7 +149,7 @@ export class ReActIntegration {
         }
 
         // Call LLM with tools
-        const response = await this.callLLMWithTools(messages, tools, params.model);
+        const response = await this.callLLMWithTools(messages, tools, params.model, requireToolCallNext);
 
         context.totalTokens += response.tokensUsed;
         context.totalCost += this.llmProvider?.estimateCost(response.tokensUsed) || 0;
@@ -142,6 +178,7 @@ export class ReActIntegration {
         if (response.toolCalls && response.toolCalls.length > 0) {
           noActionIterations = 0;
           emptyResponseRetries = 0;
+          requireToolCallNext = false;
 
           // Add assistant message with tool calls
           messages.push({
@@ -189,11 +226,31 @@ export class ReActIntegration {
 
             if (!hasVisibleContent) {
               if (emptyResponseRetries >= maxEmptyResponseRetries) {
+                const fallbackResult = await this.executeLocalFallback(
+                  context,
+                  params.workItem,
+                  tools,
+                  activeToolEnforcer,
+                  messages
+                );
+                if (fallbackResult) {
+                  context.totalTokens += fallbackResult.tokensUsed;
+                  context.totalCost += this.llmProvider?.estimateCost(fallbackResult.tokensUsed) || 0;
+
+                  const synthesis = typeof fallbackResult.content === 'string' ? fallbackResult.content.trim() : '';
+                  if (synthesis.length > 0) {
+                    await this.thought(context, synthesis);
+                    completed = true;
+                    break;
+                  }
+                }
+
                 incompleteExitReason = 'Execution stopped: repeated empty model responses without tool calls';
                 break;
               }
 
               emptyResponseRetries++;
+              requireToolCallNext = true;
               messages.push({
                 role: 'user',
                 content: this.buildImmediateActionDirective(tools, true),
@@ -205,6 +262,7 @@ export class ReActIntegration {
 
             noActionIterations++;
             emptyResponseRetries = 0;
+            requireToolCallNext = true;
 
             if (noActionIterations >= maxNoActionIterations) {
               incompleteExitReason = `Execution stopped: no actionable tool calls after ${maxNoActionIterations} attempts`;
@@ -446,12 +504,15 @@ Respond with at most 2 short planning lines, then immediately issue the first co
     tools: import('../infra/llm/llm-provider.js').ToolDefinition[],
     fromEmptyResponse: boolean
   ): string {
-    const toolNames = tools.map((tool) => tool.name).join(', ');
+    const previewCount = 12;
+    const toolNames = tools.slice(0, previewCount).map((tool) => tool.name);
+    const remaining = tools.length - toolNames.length;
+    const toolLabel = remaining > 0 ? `${toolNames.join(', ')} (+${remaining} more)` : toolNames.join(', ');
     const firstLine = fromEmptyResponse
       ? 'Your previous response was empty.'
       : 'Do not provide another planning update.';
 
-    return `${firstLine} Call exactly one concrete tool now using only available tools: ${toolNames}. If and only if the task is fully complete, call complete_task with a concise summary.`;
+    return `${firstLine} Call exactly one concrete tool now using only available tools. Preferred candidates: ${toolLabel}. If and only if the task is fully complete, call complete_task with a concise summary.`;
   }
 
   private buildSkillSuggestions(workItem: WorkItem): string {
@@ -494,6 +555,275 @@ Respond with at most 2 short planning lines, then immediately issue the first co
     // Get unique words and limit to top 5
     const uniqueWords = [...new Set(words)];
     return uniqueWords.slice(0, 5);
+  }
+
+  private async classifyIntent(workItem: WorkItem, model?: string): Promise<ExecutionIntent> {
+    if (!this.llmProvider) {
+      return {
+        kind: 'tool_task',
+        rationale: 'No LLM provider configured; defaulting to tool task',
+      };
+    }
+
+    const classifierPrompt = [
+      'Classify the task intent and output strict JSON only.',
+      'Schema: {"kind":"simple_qa"|"tool_task","rationale":"short reason"}',
+      'Use simple_qa only when no external tools are needed.',
+      `Task title: ${workItem.title}`,
+      `Task description: ${workItem.description}`,
+    ].join('\n');
+
+    try {
+      const response = await this.llmProvider.complete(
+        [{ role: 'user', content: classifierPrompt }],
+        {
+          model,
+          tool_choice: 'none',
+          thinking: false,
+          temperature: 0,
+        }
+      );
+
+      const raw = typeof response.content === 'string' ? response.content : '';
+      const parsed = this.parseFirstJsonObject(raw) as { kind?: unknown; rationale?: unknown } | null;
+      if (parsed && (parsed.kind === 'simple_qa' || parsed.kind === 'tool_task')) {
+        return {
+          kind: parsed.kind,
+          rationale: typeof parsed.rationale === 'string' ? parsed.rationale : 'classified by intent pass',
+        };
+      }
+    } catch {
+      // Fall through to heuristic classification
+    }
+
+    const lowered = `${workItem.title} ${workItem.description}`.toLowerCase().trim();
+    const likelyToolTask =
+      workItem.item_type !== 'analysis' ||
+      ['search', 'find', 'lookup', 'company', 'query', 'database', 'api', 'fetch', 'get ', 'execute', 'implement'].some(
+        (token) => lowered.includes(token)
+      );
+
+    return {
+      kind: likelyToolTask ? 'tool_task' : 'simple_qa',
+      rationale: 'heuristic fallback classification',
+    };
+  }
+
+  private async synthesizeSimpleAnswer(workItem: WorkItem, model?: string): Promise<LLMResponse> {
+    if (!this.llmProvider) {
+      return {
+        content: '',
+        tokensUsed: 0,
+        model: model || 'unknown',
+        finishReason: 'error',
+      };
+    }
+
+    const prompt = [
+      'Answer the task directly and concisely without using tools.',
+      `Task title: ${workItem.title}`,
+      `Task description: ${workItem.description}`,
+    ].join('\n');
+
+    return this.llmProvider.complete([{ role: 'user', content: prompt }], {
+      model,
+      tool_choice: 'none',
+      thinking: false,
+    });
+  }
+
+  private async executeLocalFallback(
+    context: ReActContext,
+    workItem: WorkItem,
+    tools: import('../infra/llm/llm-provider.js').ToolDefinition[],
+    toolEnforcer: ToolEnforcer | undefined,
+    messages: LLMMessage[]
+  ): Promise<LLMResponse | null> {
+    if (!toolEnforcer || !this.llmProvider) {
+      return null;
+    }
+
+    const fallbackToolCalls: ToolCall[] = [];
+    const query = this.extractCompanyQuery(workItem.description) || workItem.description;
+
+    const searchTools = tools.filter((tool) => this.isFallbackSearchTool(tool));
+    for (const tool of searchTools) {
+      for (const args of this.buildSearchArgsFromSchema(query, tool)) {
+        fallbackToolCalls.push(this.createSyntheticToolCall(tool.name, args));
+      }
+    }
+
+    let successfulResult: string | null = null;
+
+    for (const toolCall of fallbackToolCalls) {
+      const result = await this.executeToolCall(context, toolCall, toolEnforcer);
+      await this.observation(context, `Fallback tool ${toolCall.function.name}: ${result}`);
+
+      if (this.isSuccessfulToolResult(result)) {
+        successfulResult = result;
+        messages.push({ role: 'assistant', content: null, tool_calls: [toolCall] });
+        messages.push({ role: 'tool', content: result, tool_call_id: toolCall.id });
+
+        break;
+      }
+    }
+
+    if (!successfulResult) {
+      return null;
+    }
+
+    return this.llmProvider.complete(
+      [
+        ...messages,
+        {
+          role: 'user',
+          content:
+            'Use the tool output above to answer the original task fully. If information is missing, say what is missing explicitly.',
+        },
+      ],
+      {
+        model: context.model,
+        tool_choice: 'none',
+      }
+    );
+  }
+
+  private createSyntheticToolCall(name: string, args: Record<string, unknown>): ToolCall {
+    return {
+      id: `fallback_${name}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'function',
+      function: {
+        name,
+        arguments: JSON.stringify(args),
+      },
+    };
+  }
+
+  private isSuccessfulToolResult(result: string): boolean {
+    if (!result || result.trim().length === 0) {
+      return false;
+    }
+
+    const lowered = result.toLowerCase();
+    if (
+      lowered.startsWith('error:') ||
+      lowered.startsWith('action denied:') ||
+      lowered.startsWith('tool execution failed:')
+    ) {
+      return false;
+    }
+
+    const parsed = this.parseFirstJsonObject(result);
+    if (parsed) {
+      const statusCode = parsed.statusCode;
+      if (typeof statusCode === 'number' && statusCode >= 400) {
+        return false;
+      }
+
+      const error = parsed.error;
+      const code = parsed.code;
+      if (typeof error === 'string' && error.trim().length > 0) {
+        return false;
+      }
+      if (typeof code === 'string' && code.trim().length > 0 && code !== '0') {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private buildSearchArgsFromSchema(
+    query: string,
+    toolDef: import('../infra/llm/llm-provider.js').ToolDefinition
+  ): Array<Record<string, unknown>> {
+    const required = toolDef.parameters.required ?? [];
+    const properties = toolDef.parameters.properties ?? {};
+    const candidates: Array<Record<string, unknown>> = [];
+    const knownQueryKeys = ['q', 'query', 'company_name', 'name', 'search', 'term', 'keyword'];
+
+    const requiredQueryKeys = required.filter((key) => knownQueryKeys.includes(key));
+    const propertyQueryKeys = Object.keys(properties).filter((key) => knownQueryKeys.includes(key));
+
+    const prioritizedKeys = [...new Set([...requiredQueryKeys, ...propertyQueryKeys, ...knownQueryKeys])];
+
+    for (const key of prioritizedKeys) {
+      if (required.length > 0 && !required.every((requiredKey) => requiredKey === key || !knownQueryKeys.includes(requiredKey))) {
+        continue;
+      }
+
+      const args: Record<string, unknown> = { [key]: query };
+      const unresolvedRequired = required.filter((requiredKey) => !(requiredKey in args));
+      if (unresolvedRequired.length === 0 || unresolvedRequired.every((requiredKey) => !knownQueryKeys.includes(requiredKey))) {
+        candidates.push(args);
+      }
+    }
+
+    if (candidates.length === 0 && required.length === 1) {
+      candidates.push({ [required[0]]: query });
+    }
+
+    if (candidates.length === 0) {
+      candidates.push({ query });
+    }
+
+    const seen = new Set<string>();
+    const deduped: Array<Record<string, unknown>> = [];
+    for (const item of candidates) {
+      const key = JSON.stringify(item);
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduped.push(item);
+      }
+    }
+
+    return deduped;
+  }
+
+  private isFallbackSearchTool(tool: import('../infra/llm/llm-provider.js').ToolDefinition): boolean {
+    if (tool.name === 'complete_task') {
+      return false;
+    }
+
+    const lowered = tool.name.toLowerCase();
+    if (lowered.includes('search') || lowered.includes('query') || lowered.includes('lookup')) {
+      return true;
+    }
+
+    const keys = Object.keys(tool.parameters.properties ?? {});
+    return keys.some((key) => ['q', 'query', 'name', 'company_name', 'keyword', 'term'].includes(key));
+  }
+
+  private extractCompanyQuery(description: string): string | null {
+    const match = description.match(/company information of\s+(.+)$/i);
+    if (!match) {
+      return null;
+    }
+    return match[1].trim();
+  }
+
+  private parseFirstJsonObject(text: string): Record<string, unknown> | null {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null;
+    } catch {
+      const start = trimmed.indexOf('{');
+      const end = trimmed.lastIndexOf('}');
+      if (start >= 0 && end > start) {
+        try {
+          const parsed = JSON.parse(trimmed.slice(start, end + 1));
+          return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null;
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    }
   }
 
 
@@ -554,7 +884,8 @@ Respond with at most 2 short planning lines, then immediately issue the first co
   private async callLLMWithTools(
     messages: LLMMessage[],
     tools: import('../infra/llm/llm-provider.js').ToolDefinition[],
-    model?: string
+    model?: string,
+    requireToolCall: boolean = false
   ): Promise<LLMResponse> {
     if (!this.llmProvider) {
       throw new Error('No LLM provider configured');
@@ -562,7 +893,7 @@ Respond with at most 2 short planning lines, then immediately issue the first co
 
     const options: any = {
       tools,
-      tool_choice: 'auto',
+      tool_choice: requireToolCall && tools.length > 0 ? 'required' : 'auto',
       thinking: true, // Enable thinking mode if supported
     };
 
@@ -574,7 +905,7 @@ Respond with at most 2 short planning lines, then immediately issue the first co
   }
 
   private async executeToolCall(
-    context: ReActContext,
+    _context: ReActContext,
     toolCall: ToolCall,
     toolEnforcer?: ToolEnforcer
   ): Promise<string> {

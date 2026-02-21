@@ -123,8 +123,9 @@ export const initCommand = new Command('init')
     // Show next steps
     if (created > 0 || options.dryRun) {
       console.log(chalk.bold('\nNext steps:'));
-      console.log(`  1. Edit ${chalk.cyan('~/.config/ponybunny/credentials.json')} to add your API keys`);
-      console.log(`  2. Edit ${chalk.cyan('~/.config/ponybunny/llm-config.json')} to customize endpoints`);
-      console.log(`  3. Run ${chalk.cyan('pb status')} to verify configuration`);
+      console.log(`  1. Review ${chalk.cyan('~/.config/ponybunny/ponybunny.json')} for runtime settings`);
+      console.log(`  2. Edit ${chalk.cyan('~/.config/ponybunny/credentials.json')} to add your API keys`);
+      console.log(`  3. Edit ${chalk.cyan('~/.config/ponybunny/llm-config.json')} to customize endpoints`);
+      console.log(`  4. Run ${chalk.cyan('pb status')} to verify configuration`);
     }
   });

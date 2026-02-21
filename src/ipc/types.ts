@@ -14,7 +14,15 @@ import type { DebugEvent } from '../debug/types.js';
  */
 export interface IPCMessage {
   /** Message type identifier */
-  type: 'scheduler_event' | 'debug_event' | 'ping' | 'pong' | 'connect' | 'disconnect';
+  type:
+    | 'scheduler_event'
+    | 'debug_event'
+    | 'scheduler_command'
+    | 'scheduler_command_result'
+    | 'ping'
+    | 'pong'
+    | 'connect'
+    | 'disconnect';
   /** Message timestamp in milliseconds */
   timestamp: number;
   /** Message-specific payload */
@@ -37,6 +45,31 @@ export interface IPCSchedulerEventMessage extends IPCMessage {
 export interface IPCDebugEventMessage extends IPCMessage {
   type: 'debug_event';
   data: DebugEvent;
+}
+
+export type SchedulerCommandType = 'submit_goal' | 'cancel_goal';
+
+export interface SchedulerCommandRequest {
+  requestId: string;
+  command: SchedulerCommandType;
+  goalId: string;
+  reason?: string;
+}
+
+export interface SchedulerCommandResponse {
+  requestId: string;
+  success: boolean;
+  error?: string;
+}
+
+export interface IPCSchedulerCommandMessage extends IPCMessage {
+  type: 'scheduler_command';
+  data: SchedulerCommandRequest;
+}
+
+export interface IPCSchedulerCommandResultMessage extends IPCMessage {
+  type: 'scheduler_command_result';
+  data: SchedulerCommandResponse;
 }
 
 /**
@@ -87,6 +120,8 @@ export interface IPCDisconnectMessage extends IPCMessage {
 export type AnyIPCMessage =
   | IPCSchedulerEventMessage
   | IPCDebugEventMessage
+  | IPCSchedulerCommandMessage
+  | IPCSchedulerCommandResultMessage
   | IPCPingMessage
   | IPCPongMessage
   | IPCConnectMessage

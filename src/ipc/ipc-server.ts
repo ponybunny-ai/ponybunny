@@ -158,6 +158,15 @@ export class IPCServer {
     }));
   }
 
+  sendToClient(clientId: string, message: AnyIPCMessage): void {
+    const client = this.clients.get(clientId);
+    if (!client) {
+      throw new IPCError(IPCErrorType.SEND_FAILED, `IPC client not found: ${clientId}`);
+    }
+
+    client.socket.write(JSON.stringify(message) + '\n');
+  }
+
   /**
    * Handle new client connection.
    */

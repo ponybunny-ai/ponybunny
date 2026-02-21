@@ -7,13 +7,24 @@
 
 import type { EventBus } from '../events/event-bus.js';
 import type { IPCServer, IPCMessageHandler } from '../../ipc/ipc-server.js';
-import type { AnyIPCMessage } from '../../ipc/types.js';
+import type {
+  AnyIPCMessage,
+  SchedulerCommandRequest,
+  SchedulerCommandType,
+} from '../../ipc/types.js';
 import { debugEmitter } from '../../debug/emitter.js';
+
+interface PendingCommand {
+  resolve: () => void;
+  reject: (error: Error) => void;
+  timeout: NodeJS.Timeout;
+}
 
 export class IPCBridge {
   private eventBus: EventBus;
   private ipcServer: IPCServer | null = null;
   private messageHandler: IPCMessageHandler | null = null;
+  private pendingCommands = new Map<string, PendingCommand>();
 
   constructor(eventBus: EventBus) {
     this.eventBus = eventBus;
@@ -49,6 +60,7 @@ export class IPCBridge {
       this.ipcServer.offMessage(this.messageHandler);
       this.ipcServer = null;
       this.messageHandler = null;
+      this.clearPendingCommands('IPC bridge disconnected');
       console.log('[IPCBridge] Disconnected from IPC server');
     }
   }
@@ -58,6 +70,18 @@ export class IPCBridge {
    */
   isConnected(): boolean {
     return this.ipcServer !== null;
+  }
+
+  isSchedulerDaemonConnected(): boolean {
+    return this.findSchedulerDaemonClientId() !== null;
+  }
+
+  async submitGoal(goalId: string): Promise<void> {
+    await this.sendSchedulerCommand('submit_goal', { goalId });
+  }
+
+  async cancelGoal(goalId: string, reason?: string): Promise<void> {
+    await this.sendSchedulerCommand('cancel_goal', { goalId, reason });
   }
 
   /**
@@ -73,6 +97,10 @@ export class IPCBridge {
         this.handleDebugEvent(message, clientId);
         break;
 
+      case 'scheduler_command_result':
+        this.handleSchedulerCommandResult(message);
+        break;
+
       default:
         // Ignore ping/pong/connect/disconnect messages
         break;
@@ -83,7 +111,7 @@ export class IPCBridge {
    * Handle scheduler event from Daemon.
    * Routes to EventBus using the same pattern as SchedulerBridge.
    */
-  private handleSchedulerEvent(message: AnyIPCMessage, clientId: string): void {
+  private handleSchedulerEvent(message: AnyIPCMessage, _clientId: string): void {
     if (message.type !== 'scheduler_event' || !message.data) {
       return;
     }
@@ -225,7 +253,7 @@ export class IPCBridge {
    * Handle debug event from Daemon.
    * Routes to debugEmitter for broadcasting to debug clients.
    */
-  private handleDebugEvent(message: AnyIPCMessage, clientId: string): void {
+  private handleDebugEvent(message: AnyIPCMessage, _clientId: string): void {
     if (message.type !== 'debug_event' || !message.data) {
       return;
     }
@@ -236,6 +264,96 @@ export class IPCBridge {
     // This allows DebugBroadcaster to pick it up and send to clients
     if (debugEmitter.isEnabled()) {
       debugEmitter.emitDebug(event.type, event.source, event.data);
+    }
+  }
+
+  private async sendSchedulerCommand(
+    command: SchedulerCommandType,
+    params: Omit<SchedulerCommandRequest, 'requestId' | 'command'>
+  ): Promise<void> {
+    const ipcServer = this.ipcServer;
+    if (!ipcServer) {
+      throw new Error('IPC server is not connected');
+    }
+
+    const schedulerClientId = this.findSchedulerDaemonClientId();
+    if (!schedulerClientId) {
+      throw new Error('Scheduler daemon is not connected');
+    }
+
+    const requestId = `ipc-cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingCommands.delete(requestId);
+        reject(new Error(`Scheduler command timed out: ${command}`));
+      }, 5000);
+
+      this.pendingCommands.set(requestId, { resolve, reject, timeout });
+
+      try {
+        ipcServer.sendToClient(schedulerClientId, {
+          type: 'scheduler_command',
+          timestamp: Date.now(),
+          data: {
+            requestId,
+            command,
+            ...params,
+          },
+        });
+      } catch (error) {
+        clearTimeout(timeout);
+        this.pendingCommands.delete(requestId);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  private handleSchedulerCommandResult(message: AnyIPCMessage): void {
+    if (message.type !== 'scheduler_command_result' || !message.data) {
+      return;
+    }
+
+    const requestId = typeof message.data.requestId === 'string' ? message.data.requestId : null;
+    if (!requestId) {
+      return;
+    }
+
+    const pending = this.pendingCommands.get(requestId);
+    if (!pending) {
+      return;
+    }
+
+    clearTimeout(pending.timeout);
+    this.pendingCommands.delete(requestId);
+
+    if (message.data.success) {
+      pending.resolve();
+      return;
+    }
+
+    const errorMessage =
+      typeof message.data.error === 'string' && message.data.error.length > 0
+        ? message.data.error
+        : 'Scheduler command failed';
+    pending.reject(new Error(errorMessage));
+  }
+
+  private findSchedulerDaemonClientId(): string | null {
+    if (!this.ipcServer) {
+      return null;
+    }
+
+    const clients = this.ipcServer.getClients();
+    const schedulerClient = clients.find((client) => client.clientInfo?.clientType === 'scheduler-daemon');
+    return schedulerClient?.id ?? null;
+  }
+
+  private clearPendingCommands(reason: string): void {
+    for (const [requestId, pending] of this.pendingCommands) {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error(reason));
+      this.pendingCommands.delete(requestId);
     }
   }
 }

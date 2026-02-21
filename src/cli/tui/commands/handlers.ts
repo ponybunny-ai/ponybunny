@@ -24,17 +24,6 @@ type CommandHandler = (
 ) => Promise<CommandResult> | CommandResult;
 
 const handlers: Record<string, CommandHandler> = {
-  // Display mode commands
-  expert: (_cmd, ctx) => {
-    ctx.app.setDisplayMode('expert');
-    return { success: true, message: 'Switched to expert mode' };
-  },
-
-  simple: (_cmd, ctx) => {
-    ctx.app.setDisplayMode('simple');
-    return { success: true, message: 'Switched to simple mode' };
-  },
-
   // Help command
   help: (_cmd, ctx) => {
     ctx.app.setView('help');
@@ -299,28 +288,22 @@ export async function handleNaturalInput(
     return { success: false, error: 'Not connected to gateway' };
   }
 
-  const isSimpleMode = ctx.app.state.displayMode === 'simple';
   const messageId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
-  // In simple mode, add a message to track progress
-  if (isSimpleMode) {
-    ctx.app.addSimpleMessage({
-      id: messageId,
-      input,
-      status: 'pending',
-      timestamp: Date.now(),
-    });
-  }
+  ctx.app.addSimpleMessage({
+    id: messageId,
+    input,
+    status: 'pending',
+    timestamp: Date.now(),
+  });
 
   try {
     ctx.app.setActivityStatus('Creating goal...');
 
-    if (isSimpleMode) {
-      ctx.app.updateSimpleMessage(messageId, {
-        status: 'processing',
-        statusText: 'Creating task...',
-      });
-    }
+    ctx.app.updateSimpleMessage(messageId, {
+      status: 'processing',
+      statusText: 'Creating task...',
+    });
 
     // Create goal directly from natural language input
     const goal = await client.submitGoal({
@@ -339,12 +322,22 @@ export async function handleNaturalInput(
     ctx.app.addEvent('goal.created', { goalId: goal.id, title: goal.title });
     ctx.app.setActivityStatus('idle');
 
-    if (isSimpleMode) {
-      ctx.app.updateSimpleMessage(messageId, {
-        status: 'processing',
-        statusText: 'Executing...',
-        goalId: goal.id,
-      });
+    ctx.app.updateSimpleMessage(messageId, {
+      status: 'processing',
+      statusText: 'Queued...',
+      goalId: goal.id,
+    });
+
+    try {
+      const stats = await client.getStats();
+      if (stats && typeof stats.schedulerConnected === 'boolean' && !stats.schedulerConnected) {
+        ctx.app.updateSimpleMessage(messageId, {
+          statusText: 'Queued (scheduler not connected)',
+        });
+        ctx.app.addEvent('scheduler.disconnected', { message: 'Scheduler not connected to gateway' });
+      }
+    } catch {
+      // Ignore stats failures
     }
 
     return { success: true, message: `Goal created: ${goal.title}` };
@@ -352,12 +345,10 @@ export async function handleNaturalInput(
     ctx.app.setActivityStatus('idle');
     const errorMessage = (err as Error).message;
 
-    if (isSimpleMode) {
-      ctx.app.updateSimpleMessage(messageId, {
-        status: 'failed',
-        error: errorMessage,
-      });
-    }
+    ctx.app.updateSimpleMessage(messageId, {
+      status: 'failed',
+      error: errorMessage,
+    });
 
     return { success: false, error: `Failed to create goal: ${errorMessage}` };
   }

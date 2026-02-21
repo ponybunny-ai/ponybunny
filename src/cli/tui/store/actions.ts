@@ -3,13 +3,7 @@
  */
 
 import type { Goal, WorkItem, Escalation } from '../../../work-order/types/index.js';
-import type { ConnectionStatus, ViewType, ModalType, GatewayEvent, DisplayMode, SimpleMessage } from './types.js';
-
-// Display mode actions
-export interface SetDisplayModeAction {
-  type: 'SET_DISPLAY_MODE';
-  payload: DisplayMode;
-}
+import type { ConnectionStatus, ViewType, ModalType, GatewayEvent, SimpleMessage } from './types.js';
 
 // Simple message actions
 export interface AddSimpleMessageAction {
@@ -172,7 +166,6 @@ export interface ResetStateAction {
 }
 
 export type AppAction =
-  | SetDisplayModeAction
   | AddSimpleMessageAction
   | UpdateSimpleMessageAction
   | SetConnectionStatusAction
@@ -205,11 +198,6 @@ export type AppAction =
 
 // Action creators
 export const actions = {
-  setDisplayMode: (mode: DisplayMode): SetDisplayModeAction => ({
-    type: 'SET_DISPLAY_MODE',
-    payload: mode,
-  }),
-
   addSimpleMessage: (message: SimpleMessage): AddSimpleMessageAction => ({
     type: 'ADD_SIMPLE_MESSAGE',
     payload: message,

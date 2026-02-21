@@ -26,7 +26,7 @@ export interface ProtocolRequestConfig {
   temperature?: number;
   timeout?: number;
   tools?: ToolDefinition[];
-  tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } };
+  tool_choice?: 'auto' | 'none' | 'required' | { type: 'function'; function: { name: string } };
   thinking?: boolean;
   stream?: boolean;
 }

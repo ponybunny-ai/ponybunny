@@ -20,12 +20,15 @@ import { LLMRouter, MockLLMProvider } from '../../infra/llm/llm-provider.js';
 import { SchedulerDaemon } from '../../scheduler-daemon/daemon.js';
 import { getGlobalSkillRegistry } from '../../infra/skills/skill-registry.js';
 import { isDebugLoggingEnabled } from '../../infra/config/debug-flags.js';
+import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
+import { getAsciiArtBanner } from '../../infra/ui/ascii-art-banner.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PONY_DIR = join(homedir(), '.ponybunny');
 const PID_FILE = join(PONY_DIR, 'scheduler.pid');
 const LOG_FILE = join(PONY_DIR, 'scheduler.log');
+const runtimeConfig = loadRuntimeConfig();
 
 interface PidInfo {
   pid: number;
@@ -119,14 +122,6 @@ async function runScheduler(
 ): Promise<void> {
   const isBackground = process.env.PONY_SCHEDULER_BACKGROUND === '1';
 
-  if (!isBackground) {
-    console.log(chalk.blue('Starting Scheduler Daemon...'));
-    console.log(chalk.gray(`  Database: ${dbPath}`));
-    console.log(chalk.gray(`  IPC Socket: ${socketPath}`));
-    console.log(chalk.gray(`  Debug Mode: ${debugMode ? 'enabled' : 'disabled'}`));
-    console.log(chalk.gray(`  Agent Scheduler: ${agentsEnabled ? 'enabled' : 'disabled'}`));
-  }
-
   log(`Scheduler starting with db=${dbPath}, socket=${socketPath}, agentsEnabled=${agentsEnabled}`);
 
   try {
@@ -181,6 +176,9 @@ async function runScheduler(
     await executionService.initializeMCP();
 
     // Create scheduler daemon
+    const tickIntervalMs = 1000;
+    const maxConcurrentGoals = 5;
+
     const daemon = new SchedulerDaemon(
       repository,
       executionService,
@@ -189,8 +187,8 @@ async function runScheduler(
         ipcSocketPath: socketPath,
         dbPath,
         debug: debugMode,
-        tickIntervalMs: 1000,
-        maxConcurrentGoals: 5,
+        tickIntervalMs,
+        maxConcurrentGoals,
         agentsEnabled,
         agentAService: AgentAService.create(llmService),
       }
@@ -223,11 +221,30 @@ async function runScheduler(
       mode,
     });
 
+    console.log('═══════════════════════════════════════════════════════');
+    const asciiArt = getAsciiArtBanner();
+    if (asciiArt) {
+      console.log(asciiArt);
+    }
+    console.log('⚙️  PonyBunny Scheduler Daemon Started');
+    console.log('═══════════════════════════════════════════════════════');
+    console.log(`  PID: ${process.pid}`);
+    console.log(`  Database: ${dbPath}`);
+    console.log(`  IPC Socket: ${socketPath}`);
+    console.log(`  Tick Interval: ${tickIntervalMs}ms`);
+    console.log(`  Max Concurrent Goals: ${maxConcurrentGoals}`);
+    console.log(`  Debug Mode: ${debugMode ? 'Enabled' : 'Disabled'}`);
+    console.log(`  Agent Scheduler: ${agentsEnabled ? 'Enabled' : 'Disabled'}`);
+    console.log(
+      `  LLM Providers: ${availableProviders.length > 0 ? availableProviders.join(', ') : 'mock-provider'}`
+    );
+    console.log(`  Skills Loaded: ${loadedSkills.length}`);
+    console.log('═══════════════════════════════════════════════════════\n');
+
     log(`Scheduler started successfully (PID: ${process.pid})`);
 
     if (!isBackground) {
       console.log(chalk.green('\n✓ Scheduler Daemon started successfully'));
-      console.log(chalk.gray(`  PID: ${process.pid}`));
       console.log(chalk.gray('  Press Ctrl+C to stop\n'));
     }
 
@@ -298,8 +315,8 @@ export const schedulerCommand = new Command('scheduler')
     new Command('start')
       .description('Start the Scheduler Daemon')
       .option('--foreground', 'Run in foreground (default: background)')
-      .option('--db <path>', 'Database path', join(homedir(), '.ponybunny', 'pony.db'))
-      .option('--socket <path>', 'IPC socket path', join(homedir(), '.ponybunny', 'gateway.sock'))
+      .option('--db <path>', 'Database path', runtimeConfig.paths.database)
+      .option('--socket <path>', 'IPC socket path', runtimeConfig.paths.schedulerSocket)
       .option('--debug', 'Enable debug mode')
       .option('-f, --force', 'Force start even if already running')
       .option('--agents', 'Enable config-driven agent scheduler loop')

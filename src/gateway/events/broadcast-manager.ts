@@ -22,12 +22,15 @@ export class BroadcastManager {
   start(): void {
     // Goal events
     this.subscribeAndBroadcast('goal.created', 'goal.created');
+    this.subscribeAndBroadcast('goal.started', 'goal.started');
     this.subscribeAndBroadcast('goal.updated', 'goal.updated');
     this.subscribeAndBroadcast('goal.completed', 'goal.completed');
+    this.subscribeAndBroadcast('goal.failed', 'goal.failed');
     this.subscribeAndBroadcast('goal.cancelled', 'goal.cancelled');
 
     // Work item events
     this.subscribeAndBroadcast('workitem.created', 'workitem.created');
+    this.subscribeAndBroadcast('workitem.started', 'workitem.started');
     this.subscribeAndBroadcast('workitem.updated', 'workitem.updated');
     this.subscribeAndBroadcast('workitem.completed', 'workitem.completed');
     this.subscribeAndBroadcast('workitem.failed', 'workitem.failed');

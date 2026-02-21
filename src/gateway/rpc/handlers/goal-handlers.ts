@@ -10,6 +10,12 @@ import type { EventBus } from '../../events/event-bus.js';
 import type { ISchedulerCore } from '../../../scheduler/core/index.js';
 import type { AuditService } from '../../../infra/audit/audit-service.js';
 
+export interface IRemoteSchedulerClient {
+  isSchedulerDaemonConnected(): boolean;
+  submitGoal(goalId: string): Promise<void>;
+  cancelGoal(goalId: string, reason?: string): Promise<void>;
+}
+
 export interface GoalSubmitParams {
   title: string;
   description: string;
@@ -44,7 +50,8 @@ export function registerGoalHandlers(
   repository: IWorkOrderRepository,
   eventBus: EventBus,
   getScheduler?: () => ISchedulerCore | null,
-  auditService?: AuditService
+  auditService?: AuditService,
+  remoteSchedulerClient?: IRemoteSchedulerClient
 ): void {
   // goal.submit - Create a new goal
   rpcHandler.register<GoalSubmitParams, Goal>(
@@ -66,6 +73,15 @@ export function registerGoalHandlers(
       };
 
       const goal = repository.createGoal(createParams);
+
+      repository.createWorkItem({
+        goal_id: goal.id,
+        title: goal.title,
+        description: goal.description,
+        item_type: 'analysis',
+        priority: goal.priority,
+        dependencies: [],
+      });
 
       // Audit log: goal created
       auditService?.logGoalCreated(goal.id, session.publicKey, 'user', {
@@ -90,6 +106,8 @@ export function registerGoalHandlers(
       const scheduler = getScheduler?.();
       if (scheduler) {
         await scheduler.submitGoal(goal);
+      } else if (remoteSchedulerClient?.isSchedulerDaemonConnected()) {
+        await remoteSchedulerClient.submitGoal(goal.id);
       }
 
       return goal;
@@ -155,6 +173,8 @@ export function registerGoalHandlers(
       const scheduler = getScheduler?.();
       if (scheduler) {
         await scheduler.cancelGoal(params.goalId);
+      } else if (remoteSchedulerClient?.isSchedulerDaemonConnected()) {
+        await remoteSchedulerClient.cancelGoal(params.goalId, params.reason);
       }
 
       eventBus.emit('goal.cancelled', {

@@ -12,13 +12,17 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { spawn, execSync } from 'child_process';
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, resolve } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
+import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PONY_DIR = join(homedir(), '.ponybunny');
 const SERVICES_STATE_FILE = join(PONY_DIR, 'services.json');
+function resolveServiceDbPath(): string {
+  return resolve(loadRuntimeConfig().paths.database);
+}
 
 interface ServiceInfo {
   name: string;
@@ -209,14 +213,16 @@ serviceCommand
   });
 
 async function startService(serviceName: string, foreground: boolean = false): Promise<void> {
+  const dbPath = resolveServiceDbPath();
+
   switch (serviceName) {
     case 'gateway':
       console.log(chalk.blue('Starting Gateway...'));
       try {
         if (foreground) {
-          spawn('pb', ['gateway', 'start', '--foreground'], { stdio: 'inherit' });
+          spawn('pb', ['gateway', 'start', '--foreground', '--db', dbPath], { stdio: 'inherit' });
         } else {
-          execSync('pb gateway start', { stdio: 'inherit' });
+          execSync(`pb gateway start --db "${dbPath}"`, { stdio: 'inherit' });
         }
       } catch (error: any) {
         // Gateway command handles its own error messages
@@ -233,9 +239,9 @@ async function startService(serviceName: string, foreground: boolean = false): P
       console.log(chalk.blue('Starting Scheduler...'));
       try {
         if (foreground) {
-          spawn('pb', ['scheduler', 'start', '--foreground'], { stdio: 'inherit' });
+          spawn('pb', ['scheduler', 'start', '--foreground', '--db', dbPath], { stdio: 'inherit' });
         } else {
-          execSync('pb scheduler start', { stdio: 'inherit' });
+          execSync(`pb scheduler start --db "${dbPath}"`, { stdio: 'inherit' });
         }
       } catch (error: any) {
         if (error.status === 1) {

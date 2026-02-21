@@ -15,7 +15,7 @@ import { SchedulerCore } from '../scheduler/core/index.js';
 import { createScheduler } from '../gateway/integration/scheduler-factory.js';
 import { IPCClient } from '../ipc/ipc-client.js';
 import { debugEmitter } from '../debug/emitter.js';
-import type { AnyIPCMessage } from '../ipc/types.js';
+import type { AnyIPCMessage, SchedulerCommandRequest } from '../ipc/types.js';
 import { getGlobalAgentRegistry } from '../infra/agents/agent-registry.js';
 import { getGlobalRunnerRegistry } from '../infra/agents/runner-registry.js';
 import { reconcileCronJobsFromRegistry } from '../infra/scheduler/cron-job-reconciler.js';
@@ -71,6 +71,10 @@ export class SchedulerDaemon {
         version: '1.0.0',
         pid: process.pid,
       },
+    });
+
+    this.ipcClient.onMessage((message) => {
+      this.handleIPCMessage(message);
     });
   }
 
@@ -135,6 +139,9 @@ export class SchedulerDaemon {
       if (this.config.debug) {
         debugEmitter.enable();
         debugEmitter.onDebug((event: DebugEvent) => {
+          console.log(
+            `[SchedulerDebug] ${event.type} source=${event.source} goal=${event.goalId ?? '-'} workItem=${event.workItemId ?? '-'} run=${event.runId ?? '-'} data=${JSON.stringify(event.data)}`
+          );
           this.handleDebugEvent(event);
         });
         console.log('[SchedulerDaemon] Debug mode enabled');
@@ -142,6 +149,9 @@ export class SchedulerDaemon {
 
       // Start scheduler
       await this.scheduler.start();
+
+      await this.recoverQueuedGoals();
+
       this.isRunning = true;
 
       if (this.config.agentAService) {
@@ -292,5 +302,93 @@ export class SchedulerDaemon {
     this.ipcClient.send(message).catch((error) => {
       console.error('[SchedulerDaemon] Failed to send debug event:', error);
     });
+  }
+
+  private handleIPCMessage(message: AnyIPCMessage): void {
+    if (message.type !== 'scheduler_command' || !message.data) {
+      return;
+    }
+
+    void this.handleSchedulerCommand(message.data as SchedulerCommandRequest);
+  }
+
+  private async handleSchedulerCommand(command: SchedulerCommandRequest): Promise<void> {
+    const scheduler = this.scheduler;
+
+    if (!scheduler) {
+      await this.sendSchedulerCommandResult(command.requestId, false, 'Scheduler is not initialized');
+      return;
+    }
+
+    try {
+      if (command.command === 'submit_goal') {
+        const goal = this.repository.getGoal(command.goalId);
+        if (!goal) {
+          await this.sendSchedulerCommandResult(command.requestId, false, `Goal not found: ${command.goalId}`);
+          return;
+        }
+
+        await scheduler.submitGoal(goal);
+        await this.sendSchedulerCommandResult(command.requestId, true);
+        return;
+      }
+
+      if (command.command === 'cancel_goal') {
+        await scheduler.cancelGoal(command.goalId);
+        await this.sendSchedulerCommandResult(command.requestId, true);
+        return;
+      }
+
+      await this.sendSchedulerCommandResult(command.requestId, false, `Unknown scheduler command: ${command.command}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.sendSchedulerCommandResult(command.requestId, false, message);
+    }
+  }
+
+  private async sendSchedulerCommandResult(
+    requestId: string,
+    success: boolean,
+    error?: string
+  ): Promise<void> {
+    const message: AnyIPCMessage = {
+      type: 'scheduler_command_result',
+      timestamp: Date.now(),
+      data: {
+        requestId,
+        success,
+        error,
+      },
+    };
+
+    try {
+      await this.ipcClient.send(message);
+    } catch (sendError) {
+      console.error('[SchedulerDaemon] Failed to send scheduler command result:', sendError);
+    }
+  }
+
+  private async recoverQueuedGoals(): Promise<void> {
+    const scheduler = this.scheduler;
+    if (!scheduler) {
+      return;
+    }
+
+    const queuedGoals = this.repository.listGoals({ status: 'queued' });
+    if (queuedGoals.length === 0) {
+      return;
+    }
+
+    let recovered = 0;
+    for (const goal of queuedGoals) {
+      try {
+        await scheduler.submitGoal(goal);
+        recovered += 1;
+      } catch (error) {
+        console.error(`[SchedulerDaemon] Failed to recover queued goal ${goal.id}:`, error);
+      }
+    }
+
+    console.log(`[SchedulerDaemon] Recovered ${recovered}/${queuedGoals.length} queued goals`);
   }
 }

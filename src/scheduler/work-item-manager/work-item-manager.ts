@@ -28,7 +28,7 @@ export interface IWorkItemRepository {
 const VALID_TRANSITIONS: Record<WorkItemStatus, WorkItemStatus[]> = {
   queued: ['ready', 'blocked', 'failed'],
   ready: ['in_progress', 'blocked', 'failed'],
-  in_progress: ['verify', 'done', 'failed', 'blocked'],
+  in_progress: ['queued', 'verify', 'done', 'failed', 'blocked'],
   verify: ['done', 'failed', 'in_progress'],
   done: [], // Terminal state
   failed: ['queued', 'ready'], // Can retry

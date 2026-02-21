@@ -6,15 +6,13 @@ import * as React from 'react';
 import { createContext, useContext, useReducer, useCallback, useMemo } from 'react';
 import { appReducer } from '../store/reducer.js';
 import { actions, type AppAction } from '../store/actions.js';
-import { initialState, type AppState, type ViewType, type ModalType, type DisplayMode, type SimpleMessage } from '../store/types.js';
+import { initialState, type AppState, type ViewType, type ModalType, type SimpleMessage } from '../store/types.js';
 import type { Goal, WorkItem, Escalation } from '../../../work-order/types/index.js';
 
 export interface AppContextValue {
   state: AppState;
   dispatch: React.Dispatch<AppAction>;
 
-  // Display mode methods
-  setDisplayMode: (mode: DisplayMode) => void;
   addSimpleMessage: (message: SimpleMessage) => void;
   updateSimpleMessage: (id: string, updates: Partial<Omit<SimpleMessage, 'id'>>) => void;
 
@@ -59,11 +57,6 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     ...initialState,
     gatewayUrl: initialUrl || initialState.gatewayUrl,
   });
-
-  // Display mode methods
-  const setDisplayMode = useCallback((mode: DisplayMode) => {
-    dispatch(actions.setDisplayMode(mode));
-  }, []);
 
   const addSimpleMessage = useCallback((message: SimpleMessage) => {
     dispatch(actions.addSimpleMessage(message));
@@ -161,7 +154,6 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
   const value = useMemo<AppContextValue>(() => ({
     state,
     dispatch,
-    setDisplayMode,
     addSimpleMessage,
     updateSimpleMessage,
     setView,
@@ -184,7 +176,6 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     addToInputHistory,
   }), [
     state,
-    setDisplayMode,
     addSimpleMessage,
     updateSimpleMessage,
     setView,

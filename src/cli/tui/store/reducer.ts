@@ -8,9 +8,6 @@ import { initialState } from './types.js';
 
 export function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
-    case 'SET_DISPLAY_MODE':
-      return { ...state, displayMode: action.payload };
-
     case 'ADD_SIMPLE_MESSAGE':
       return { ...state, simpleMessages: [...state.simpleMessages, action.payload] };
 
@@ -57,6 +54,9 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       };
 
     case 'SET_SELECTED_GOAL_ID':
+      if (state.selectedGoalId === action.payload) {
+        return state;
+      }
       return { ...state, selectedGoalId: action.payload };
 
     case 'SET_GOALS_LOADING':

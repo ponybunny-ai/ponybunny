@@ -21,18 +21,6 @@ export interface ParsedCommand {
 }
 
 export const commands: CommandDefinition[] = [
-  // Display mode commands
-  {
-    name: 'expert',
-    description: 'Switch to expert mode (full UI)',
-    usage: '/expert',
-  },
-  {
-    name: 'simple',
-    description: 'Switch to simple mode (chat UI)',
-    usage: '/simple',
-  },
-
   // Help
   {
     name: 'help',
@@ -201,9 +189,6 @@ export function isCommand(input: string): boolean {
  */
 export function getCommandsByCategory(): Record<string, CommandDefinition[]> {
   return {
-    'Display Mode': commands.filter(c =>
-      ['expert', 'simple'].includes(c.name)
-    ),
     'Goal Management': commands.filter(c =>
       ['new', 'goals', 'goal', 'cancel'].includes(c.name)
     ),

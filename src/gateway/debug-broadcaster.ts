@@ -42,6 +42,10 @@ export function setupDebugBroadcaster(
 
   // Handler for debug events
   const handleDebugEvent = (event: DebugEvent): void => {
+    console.log(
+      `[GatewayDebug] ${event.type} source=${event.source} goal=${event.goalId ?? '-'} workItem=${event.workItemId ?? '-'} run=${event.runId ?? '-'} data=${JSON.stringify(event.data)}`
+    );
+
     const frame: DebugEventFrame = {
       type: 'event',
       event: 'debug',

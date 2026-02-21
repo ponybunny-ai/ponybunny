@@ -6,7 +6,7 @@
  */
 
 import { connect, Socket } from 'net';
-import type { AnyIPCMessage, IPCMessage, IPCConnectionState } from './types.js';
+import type { AnyIPCMessage, IPCConnectionState } from './types.js';
 import { IPCError, IPCErrorType } from './types.js';
 
 export interface IPCClientConfig {
@@ -29,6 +29,7 @@ export interface IPCClientConfig {
 }
 
 export type IPCConnectionStateHandler = (state: IPCConnectionState) => void;
+export type IPCMessageHandler = (message: AnyIPCMessage) => void;
 
 export class IPCClient {
   private socket: Socket | null = null;
@@ -38,6 +39,7 @@ export class IPCClient {
   private currentReconnectDelay: number;
   private messageBuffer: AnyIPCMessage[] = [];
   private stateHandlers: Set<IPCConnectionStateHandler> = new Set();
+  private messageHandlers: Set<IPCMessageHandler> = new Set();
   private socketBuffer = '';
 
   constructor(config: IPCClientConfig) {
@@ -205,6 +207,14 @@ export class IPCClient {
     this.stateHandlers.delete(handler);
   }
 
+  onMessage(handler: IPCMessageHandler): void {
+    this.messageHandlers.add(handler);
+  }
+
+  offMessage(handler: IPCMessageHandler): void {
+    this.messageHandlers.delete(handler);
+  }
+
   /**
    * Set connection state and notify handlers.
    */
@@ -268,7 +278,7 @@ export class IPCClient {
    */
   private handleMessage(line: string): void {
     try {
-      const message = JSON.parse(line) as IPCMessage;
+      const message = JSON.parse(line) as AnyIPCMessage;
 
       // Handle ping messages (respond with pong)
       if (message.type === 'ping') {
@@ -279,6 +289,15 @@ export class IPCClient {
         this.send(pongMessage).catch((error) => {
           console.error('[IPCClient] Failed to send pong:', error);
         });
+        return;
+      }
+
+      for (const handler of this.messageHandlers) {
+        try {
+          handler(message);
+        } catch (error) {
+          console.error('[IPCClient] Message handler error:', error);
+        }
       }
     } catch (error) {
       console.error('[IPCClient] Failed to parse message:', error);

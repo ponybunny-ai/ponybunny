@@ -9,14 +9,20 @@ import type {
 } from './types.js';
 import { ComplexityScorer } from './complexity-scorer.js';
 import { loadModelTierConfig } from './model-tier-config.js';
+import { getCachedConfig, getTierConfig as getLLMTierConfig } from '../../infra/llm/provider-manager/config-loader.js';
+import { getModelRouter } from '../../infra/llm/routing/model-router.js';
 
 export class ModelSelector implements IModelSelector {
   private config: ModelTierConfig;
   private scorer: IComplexityScorer;
+  private isModelAvailable: (model: string) => boolean;
+  private hasCustomConfig: boolean;
 
-  constructor(config?: ModelTierConfig, scorer?: IComplexityScorer) {
+  constructor(config?: ModelTierConfig, scorer?: IComplexityScorer, isModelAvailable?: (model: string) => boolean) {
+    this.hasCustomConfig = config !== undefined;
     this.config = config ?? loadModelTierConfig();
     this.scorer = scorer ?? new ComplexityScorer();
+    this.isModelAvailable = isModelAvailable ?? ((model: string) => getModelRouter().isModelSupported(model));
   }
 
   selectModel(workItem: WorkItem): ModelSelectionResult {
@@ -104,7 +110,34 @@ export class ModelSelector implements IModelSelector {
   }
 
   private getModelForTier(tier: ModelTier): string {
-    return this.config[tier].primary;
+    const llmTierConfig = getLLMTierConfig(tier);
+    const primaryCandidates = this.hasCustomConfig
+      ? [this.config[tier].primary, this.config[tier].fallback]
+      : [llmTierConfig.primary, ...(llmTierConfig.fallback ?? [])];
+    const secondaryCandidates = this.hasCustomConfig
+      ? [llmTierConfig.primary, ...(llmTierConfig.fallback ?? [])]
+      : [this.config[tier].primary, this.config[tier].fallback];
+
+    const candidates = [...primaryCandidates, ...secondaryCandidates].filter(
+      (model): model is string => typeof model === 'string' && model.trim().length > 0
+    );
+
+    const uniqueCandidates = [...new Set(candidates)];
+
+    for (const model of uniqueCandidates) {
+      if (this.isModelAvailable(model)) {
+        return model;
+      }
+    }
+
+    const anyAvailableModel = Object.keys(getCachedConfig().models).find((model) =>
+      this.isModelAvailable(model)
+    );
+    if (anyAvailableModel) {
+      return anyAvailableModel;
+    }
+
+    return uniqueCandidates[0] ?? this.config[tier].primary;
   }
 
   private buildReasoning(title: string, score: ComplexityScore): string {

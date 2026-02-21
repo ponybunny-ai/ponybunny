@@ -131,10 +131,13 @@ export interface RpcMethodDefinition {
 
 export type GatewayEventType =
   | 'goal.created'
+  | 'goal.started'
   | 'goal.updated'
   | 'goal.completed'
+  | 'goal.failed'
   | 'goal.cancelled'
   | 'workitem.created'
+  | 'workitem.started'
   | 'workitem.updated'
   | 'workitem.completed'
   | 'workitem.failed'

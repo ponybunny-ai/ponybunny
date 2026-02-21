@@ -1,4 +1,4 @@
-import type { LLMMessage, LLMResponse, ToolCall, ToolDefinition, StreamChunk } from '../llm-provider.js';
+import type { LLMMessage, LLMResponse, ToolCall, StreamChunk } from '../llm-provider.js';
 import type {
   EndpointCredentials,
   ProtocolRequestConfig,
@@ -97,6 +97,12 @@ export class GeminiProtocolAdapter extends BaseProtocolAdapter {
         requestBody.tool_config = {
           function_calling_config: {
             mode: 'AUTO',
+          },
+        };
+      } else if (config.tool_choice === 'required') {
+        requestBody.tool_config = {
+          function_calling_config: {
+            mode: 'ANY',
           },
         };
       } else if (config.tool_choice === 'none') {

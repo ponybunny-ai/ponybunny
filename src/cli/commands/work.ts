@@ -4,6 +4,7 @@ import ora from 'ora';
 import { WorkOrderDatabase } from '../../work-order/database/manager.js';
 import { ExecutionService } from '../../app/lifecycle/execution/execution-service.js';
 import { getLLMService, MockLLMProvider } from '../../infra/llm/index.js';
+import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
 
 function buildWorkModelCandidates(fallbackChain: string[]): string[] {
   const candidates = fallbackChain.flatMap((modelId) => {
@@ -17,12 +18,13 @@ function buildWorkModelCandidates(fallbackChain: string[]): string[] {
 }
 
 export function registerWorkCommand(program: Command) {
+  const runtimeConfig = loadRuntimeConfig();
 
   program
     .command('work')
     .description('Assign a task to the autonomous agent')
     .argument('<task>', 'The task description')
-    .option('--db <path>', 'Path to SQLite database', './pony-work-orders.db')
+    .option('--db <path>', 'Path to SQLite database', runtimeConfig.paths.database)
     .option('--model <model>', 'Specific LLM model to use')
     .action(async (task, options) => {
       console.log(chalk.bold.cyan('\n🐴 PonyBunny Autonomous Agent\n'));
@@ -30,7 +32,7 @@ export function registerWorkCommand(program: Command) {
       const spinner = ora('Initializing system...').start();
 
       // 1. Initialize Database
-      const dbPath = process.env.PONY_DB_PATH || options.db;
+      const dbPath = options.db || runtimeConfig.paths.database;
       const repository = new WorkOrderDatabase(dbPath);
 
       try {

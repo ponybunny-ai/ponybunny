@@ -90,6 +90,18 @@ describe('CLI Integration Tests', () => {
     });
   });
 
+  describe('pb reset', () => {
+    test('reset --help shows reset command options', () => {
+      const output = execSync(`${pbCommand} reset --help`, {
+        encoding: 'utf-8',
+      });
+
+      expect(output).toContain('Reset PonyBunny database (pony.db)');
+      expect(output).toContain('--db <path>');
+      expect(output).toContain('--yes');
+    });
+  });
+
   describe('pb status', () => {
     test('shows authentication status', () => {
       const output = execSync(`${pbCommand} status`, {

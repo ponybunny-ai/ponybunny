@@ -456,6 +456,7 @@ describe('WorkItemManager', () => {
       ['ready', 'blocked'],
       ['ready', 'failed'],
       ['in_progress', 'verify'],
+      ['in_progress', 'queued'],
       ['in_progress', 'done'],
       ['in_progress', 'failed'],
       ['in_progress', 'blocked'],

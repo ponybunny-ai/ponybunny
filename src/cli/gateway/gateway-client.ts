@@ -156,6 +156,14 @@ export class GatewayClient {
         this.handleMessage(data.toString());
       });
 
+      this.ws.on('ping', () => {
+        try {
+          this.ws?.pong();
+        } catch {
+          // Ignore pong failures
+        }
+      });
+
       this.ws.on('close', (code, reason) => {
         const reasonStr = reason.toString() || `code ${code}`;
         this.ws = null;

@@ -43,7 +43,7 @@ export class ExecutionEngineAdapter implements IExecutionEngineAdapter {
 
   constructor(private executionService: IExecutionService) {}
 
-  async execute(workItem: WorkItem, _context: ExecutionContext): Promise<ExecutionResult> {
+  async execute(workItem: WorkItem, context: ExecutionContext): Promise<ExecutionResult> {
     const agentTick = getAgentTickContext(workItem);
     if (agentTick) {
       const registry = getGlobalAgentRegistry();
@@ -153,8 +153,17 @@ export class ExecutionEngineAdapter implements IExecutionEngineAdapter {
     });
 
     try {
+      const executionWorkItem: WorkItem = {
+        ...workItem,
+        context: {
+          ...(workItem.context ?? {}),
+          model: workItem.context?.model ?? context.model,
+          laneId: workItem.context?.laneId ?? context.laneId,
+        },
+      };
+
       // Execute using the existing service
-      const result = await this.executionService.executeWorkItem(workItem);
+      const result = await this.executionService.executeWorkItem(executionWorkItem);
 
       // Update tracking with real run ID
       this.activeExecutions.delete(tempRunId);

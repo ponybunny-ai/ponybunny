@@ -11,11 +11,13 @@ import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import Database from 'better-sqlite3';
 import { startDebugTui } from '../debug-tui/index.js';
+import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
 
-const DEFAULT_HOST = process.env.PONY_GATEWAY_HOST || '127.0.0.1';
-const DEFAULT_PORT = parseInt(process.env.PONY_GATEWAY_PORT || '18789', 10);
-const DEFAULT_DB_PATH = process.env.PONY_DB_PATH || './pony.db';
-const DEFAULT_DEBUG_SERVER_PORT = parseInt(process.env.DEBUG_SERVER_PORT || '3001', 10);
+const runtimeConfig = loadRuntimeConfig();
+const DEFAULT_HOST = runtimeConfig.gateway.host;
+const DEFAULT_PORT = runtimeConfig.gateway.port;
+const DEFAULT_DB_PATH = runtimeConfig.paths.database;
+const DEFAULT_DEBUG_SERVER_PORT = runtimeConfig.debug.serverPort;
 
 const PONY_DIR = join(homedir(), '.ponybunny');
 const DEBUG_CONFIG_FILE = join(PONY_DIR, 'debug-config.json');

@@ -14,11 +14,12 @@ import { formatDateTime, truncate } from '../../utils/formatters.js';
 import type { Goal, GoalStatus } from '../../../../work-order/types/index.js';
 
 type FilterStatus = GoalStatus | 'all';
+const FILTER_OPTIONS: FilterStatus[] = ['all', 'active', 'queued', 'blocked', 'completed'];
 
 export const GoalsView: React.FC = () => {
   const { openModal } = useAppContext();
   const { refreshGoals, isConnected } = useGateway();
-  const { goals, selectedGoalId, selectGoal } = useGoals();
+  const { goals, selectGoal } = useGoals();
 
   const [filter, setFilter] = useState<FilterStatus>('all');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -44,14 +45,13 @@ export const GoalsView: React.FC = () => {
   }, [filteredGoals.length, selectedIndex]);
 
   // Update selected goal
-  useEffect(() => {
-    const goal = filteredGoals[selectedIndex];
-    if (goal) {
-      selectGoal(goal.id);
-    }
-  }, [selectedIndex, filteredGoals, selectGoal]);
-
   const selectedGoal = filteredGoals[selectedIndex];
+
+  useEffect(() => {
+    if (selectedGoal?.id) {
+      selectGoal(selectedGoal.id);
+    }
+  }, [selectedGoal?.id, selectGoal]);
 
   // Handle keyboard input
   useInput((input, key) => {
@@ -67,6 +67,13 @@ export const GoalsView: React.FC = () => {
       setSelectedIndex(i => Math.max(0, i - 1));
     } else if (key.downArrow || input === 'j') {
       setSelectedIndex(i => Math.min(filteredGoals.length - 1, i + 1));
+    } else if (key.leftArrow || key.rightArrow) {
+      const direction = key.rightArrow ? 1 : -1;
+      setFilter(current => {
+        const currentIndex = FILTER_OPTIONS.indexOf(current);
+        const nextIndex = (currentIndex + direction + FILTER_OPTIONS.length) % FILTER_OPTIONS.length;
+        return FILTER_OPTIONS[nextIndex];
+      });
     }
 
     // Actions
@@ -97,7 +104,7 @@ export const GoalsView: React.FC = () => {
       {/* Filter bar */}
       <Box marginBottom={1}>
         <Text dimColor>Filter: </Text>
-        {(['all', 'active', 'queued', 'blocked', 'completed'] as FilterStatus[]).map((f, i) => (
+        {FILTER_OPTIONS.map((f, i) => (
           <React.Fragment key={f}>
             {i > 0 && <Text dimColor> │ </Text>}
             <Text
@@ -110,7 +117,7 @@ export const GoalsView: React.FC = () => {
           </React.Fragment>
         ))}
         <Box flexGrow={1} />
-        <Text dimColor>n: new │ Enter: detail │ j/k: navigate</Text>
+        <Text dimColor>←/→: filter │ n: new │ Enter: detail │ j/k: navigate</Text>
       </Box>
 
       {/* Goals list */}

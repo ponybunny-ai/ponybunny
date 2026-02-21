@@ -638,6 +638,7 @@ export class SchedulerCore implements ISchedulerCore {
         goalState.status = 'failed';
         goalState.error = error.message;
         goalState.completedAt = Date.now();
+        this.deps.repository.updateGoalStatus(goal.id, 'blocked');
 
         this.emitEvent({
           type: 'goal_failed',

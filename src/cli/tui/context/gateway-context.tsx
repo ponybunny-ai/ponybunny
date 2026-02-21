@@ -21,6 +21,7 @@ export interface GatewayProviderProps {
   url?: string;
   token?: string;
   children: React.ReactNode;
+  onClientReady?: (client: TuiGatewayClient) => void;
   onConnected?: () => void;
   onDisconnected?: (reason: string) => void;
   onEvent?: (event: ClientGatewayEvent) => void;
@@ -31,6 +32,7 @@ export const GatewayProvider: React.FC<GatewayProviderProps> = ({
   url = 'ws://127.0.0.1:18789',
   token,
   children,
+  onClientReady,
   onConnected,
   onDisconnected,
   onEvent,
@@ -40,8 +42,8 @@ export const GatewayProvider: React.FC<GatewayProviderProps> = ({
   const [connectionStatus, setConnectionStatus] = React.useState<ConnectionStatus>('connecting');
 
   // Store callbacks in refs to avoid recreating connect/disconnect
-  const callbacksRef = useRef({ onConnected, onDisconnected, onEvent, onError });
-  callbacksRef.current = { onConnected, onDisconnected, onEvent, onError };
+  const callbacksRef = useRef({ onClientReady, onConnected, onDisconnected, onEvent, onError });
+  callbacksRef.current = { onClientReady, onConnected, onDisconnected, onEvent, onError };
 
   const connect = useCallback(() => {
     if (clientRef.current) {
@@ -50,6 +52,7 @@ export const GatewayProvider: React.FC<GatewayProviderProps> = ({
 
     const client = new TuiGatewayClient({ url, token });
     clientRef.current = client;
+    callbacksRef.current.onClientReady?.(client);
 
     client.onConnected = () => {
       setConnectionStatus('connected');

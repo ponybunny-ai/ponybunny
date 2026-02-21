@@ -100,6 +100,38 @@ describe('ModelSelector', () => {
       expect(result.reasoning).toContain('scored');
       expect(result.reasoning).toContain('tier');
     });
+
+    test('should pick first available model when primary is unavailable', () => {
+      const isModelAvailable = (model: string): boolean => model === 'gpt-5.2';
+      const selector = new ModelSelector(undefined, undefined, isModelAvailable);
+      const workItem = createWorkItem({
+        item_type: 'code',
+        estimated_effort: 'M',
+        dependencies: ['dep-1'],
+        description: 'A medium complexity task',
+        priority: 50,
+      });
+
+      const result = selector.selectModel(workItem);
+
+      expect(result.model).toBe('gpt-5.2');
+    });
+
+    test('should fall back to any globally available model when tier chain has no available models', () => {
+      const isModelAvailable = (model: string): boolean => model === 'gpt-5.2-codex';
+      const selector = new ModelSelector(undefined, undefined, isModelAvailable);
+      const workItem = createWorkItem({
+        item_type: 'analysis',
+        estimated_effort: 'XL',
+        dependencies: ['a', 'b', 'c'],
+        description: 'A'.repeat(1200),
+        priority: 90,
+      });
+
+      const result = selector.selectModel(workItem);
+
+      expect(result.model).toBe('gpt-5.2-codex');
+    });
   });
 
   describe('selectModelForPlanning', () => {

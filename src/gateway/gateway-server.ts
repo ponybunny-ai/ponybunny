@@ -60,9 +60,11 @@ import { SearchCodeTool } from '../infra/tools/implementations/search-code-tool.
 import { WebSearchTool } from '../infra/tools/implementations/web-search-tool.js';
 import { findSkillsTool } from '../infra/tools/implementations/find-skills-tool.js';
 import { ConfigWatcher, createConfigWatcher } from './config/config-watcher.js';
+import { getAsciiArtBanner } from '../infra/ui/ascii-art-banner.js';
 
 export interface GatewayServerDependencies {
   db: Database.Database;
+  dbPath?: string;
   repository: IWorkOrderRepository;
   debugMode?: boolean;
   personasDir?: string;
@@ -73,6 +75,7 @@ export class GatewayServer {
   private wss?: WebSocketServer;
   private config: GatewayConfig;
   private db: Database.Database;
+  private dbPath?: string;
   private repository: IWorkOrderRepository;
   private debugMode: boolean;
 
@@ -116,6 +119,7 @@ export class GatewayServer {
   ) {
     this.config = { ...DEFAULT_GATEWAY_CONFIG, ...config };
     this.db = dependencies.db;
+    this.dbPath = dependencies.dbPath;
     this.repository = dependencies.repository;
     this.debugMode = dependencies.debugMode ?? false;
     this.enableConfigWatch = dependencies.enableConfigWatch ?? false;
@@ -282,7 +286,14 @@ export class GatewayServer {
   }
 
   private registerHandlers(): void {
-    registerGoalHandlers(this.rpcHandler, this.repository, this.eventBus, () => this.scheduler, this.auditService);
+    registerGoalHandlers(
+      this.rpcHandler,
+      this.repository,
+      this.eventBus,
+      () => this.scheduler,
+      this.auditService,
+      this.ipcBridge
+    );
     registerWorkItemHandlers(this.rpcHandler, this.repository);
     registerEscalationHandlers(this.rpcHandler, this.repository as any, this.eventBus);
     registerApprovalHandlers(this.rpcHandler, this.eventBus);
@@ -370,9 +381,16 @@ export class GatewayServer {
 
           // Display startup configuration
           console.log('═══════════════════════════════════════════════════════');
+          const asciiArt = getAsciiArtBanner();
+          if (asciiArt) {
+            console.log(asciiArt);
+          }
           console.log('🌐 PonyBunny Gateway Server Started');
           console.log('═══════════════════════════════════════════════════════');
           console.log(`  Address: ws://${this.config.host}:${this.config.port}`);
+          if (this.dbPath) {
+            console.log(`  Database: ${this.dbPath}`);
+          }
           console.log(`  Connection Limits:`);
           console.log(`    • Local (127.0.0.1):  ${this.config.maxLocalConnections ?? 512} connections`);
           console.log(`    • Remote:             ${this.config.maxConnectionsPerIp} connections per IP`);

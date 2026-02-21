@@ -1,3 +1,5 @@
+import { loadRuntimeConfig } from './runtime-config.js';
+
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
 
 function isTruthy(value: string | undefined): boolean {
@@ -5,7 +7,11 @@ function isTruthy(value: string | undefined): boolean {
 }
 
 export function isPonyBunnyDebugEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.PONY_BUNNY_DEBUG === '1';
+  if (env.PONY_BUNNY_DEBUG !== undefined) {
+    return env.PONY_BUNNY_DEBUG === '1';
+  }
+
+  return loadRuntimeConfig().debug.loggingEnabled;
 }
 
 export function isLegacyDebugEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -17,5 +23,9 @@ export function isDebugLoggingEnabled(env: NodeJS.ProcessEnv = process.env): boo
 }
 
 export function isAntigravityDebugEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.PB_ANTIGRAVITY_DEBUG === '1' || isDebugLoggingEnabled(env);
+  if (env.PB_ANTIGRAVITY_DEBUG !== undefined) {
+    return env.PB_ANTIGRAVITY_DEBUG === '1' || isDebugLoggingEnabled(env);
+  }
+
+  return loadRuntimeConfig().debug.antigravityDebug || isDebugLoggingEnabled(env);
 }

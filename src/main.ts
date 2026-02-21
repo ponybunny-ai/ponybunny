@@ -9,8 +9,9 @@ import type { ILLMProvider } from './infra/llm/llm-provider.js';
 import { MockLLMProvider, LLMRouter } from './infra/llm/llm-provider.js';
 import { getGlobalSkillRegistry } from './infra/skills/skill-registry.js';
 import { getConfigDir } from './infra/config/config-paths.js';
+import { loadRuntimeConfig } from './infra/config/runtime-config.js';
 
-const DB_PATH = process.env.PONY_DB_PATH || './pony-work-orders.db';
+const DB_PATH = loadRuntimeConfig().paths.database;
 
 async function initializeEnhancedSystem() {
   console.log('[PonyBunny] 🚀 Initializing Enhanced System...\n');

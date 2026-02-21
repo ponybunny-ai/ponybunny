@@ -8,11 +8,11 @@ import { Box, useApp, useInput } from 'ink';
 import { GatewayProvider } from './context/gateway-context.js';
 import { AppProvider, useAppContext } from './context/app-context.js';
 import { useGatewayContext } from './context/gateway-context.js';
-import { MainLayout, SimpleLayout } from './components/layout/index.js';
-import { DashboardView, GoalsView, EventsView, HelpView, SimpleView } from './components/views/index.js';
+import { MainLayout } from './components/layout/index.js';
+import { DashboardView, GoalsView, EventsView, HelpView } from './components/views/index.js';
 import { GoalCreateModal, EscalationModal, ConfirmModal } from './components/modals/index.js';
 import { executeCommand, handleNaturalInput, isCommand, type CommandContext } from './commands/index.js';
-import type { GatewayEvent as ClientGatewayEvent } from '../gateway/index.js';
+import type { GatewayEvent as ClientGatewayEvent, TuiGatewayClient } from '../gateway/index.js';
 
 interface AppContentProps {
   onExit: () => void;
@@ -22,7 +22,7 @@ interface AppContentProps {
 const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
   const app = useAppContext();
   const gateway = useGatewayContext();
-  const { state, setView, addEvent } = app;
+  const { state, setView, addEvent, setInputValue } = app;
 
   // Input focus state - default to focused for better UX
   const [inputFocused, setInputFocused] = useState(true);
@@ -63,43 +63,25 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
     // Focus input with / or i
     if (input === '/' || input === 'i') {
       setInputFocused(true);
+      if (input === '/') {
+        setInputValue('/');
+      }
       return;
     }
 
-    // Expert mode only shortcuts
-    if (state.displayMode === 'expert') {
-      // Tab to cycle views
-      if (key.tab) {
-        const views = ['dashboard', 'goals', 'events', 'help'] as const;
-        const currentIndex = views.indexOf(state.currentView);
-        const nextIndex = (currentIndex + 1) % views.length;
-        setView(views[nextIndex]);
-        return;
-      }
+    // Tab to cycle views
+    if (key.tab) {
+      const views = ['dashboard', 'goals', 'events', 'help'] as const;
+      const currentIndex = views.indexOf(state.currentView);
+      const nextIndex = (currentIndex + 1) % views.length;
+      setView(views[nextIndex]);
+      return;
+    }
 
-      // Number keys for direct view navigation
-      if (input === '1') {
-        setView('dashboard');
-        return;
-      }
-      if (input === '2') {
-        setView('goals');
-        return;
-      }
-      if (input === '3') {
-        setView('events');
-        return;
-      }
-      if (input === '4') {
-        setView('help');
-        return;
-      }
-
-      // Ctrl+N for new goal
-      if (key.ctrl && input === 'n') {
-        app.openModal('goal-create');
-        return;
-      }
+    // Ctrl+N for new goal
+    if (key.ctrl && input === 'n') {
+      app.openModal('goal-create');
+      return;
     }
 
     // Ctrl+E for escalations (both modes)
@@ -157,11 +139,18 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
       }).catch(err => {
         appRef.current.addEvent('error', { message: `Failed to load escalations: ${err.message}` });
       });
+
+      // Load work items
+      client.listWorkItems().then(result => {
+        appRef.current.setWorkItems(result.workItems);
+      }).catch(err => {
+        appRef.current.addEvent('error', { message: `Failed to load work items: ${err.message}` });
+      });
     }
   }, [gateway.connectionStatus]);
 
-  // Render current view (expert mode)
-  const renderExpertView = () => {
+  // Render current view
+  const renderCurrentView = () => {
     switch (state.currentView) {
       case 'dashboard':
         return <DashboardView />;
@@ -195,21 +184,11 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
   };
 
   // Render based on display mode
-  const renderContent = () => {
-    if (state.displayMode === 'simple') {
-      return (
-        <SimpleLayout onInputSubmit={handleInputSubmit} inputFocus={inputFocused}>
-          <SimpleView />
-        </SimpleLayout>
-      );
-    }
-
-    return (
-      <MainLayout onInputSubmit={handleInputSubmit} inputFocus={inputFocused}>
-        {renderExpertView()}
-      </MainLayout>
-    );
-  };
+  const renderContent = () => (
+    <MainLayout onInputSubmit={handleInputSubmit} inputFocus={inputFocused}>
+      {renderCurrentView()}
+    </MainLayout>
+  );
 
   return (
     <Box flexDirection="column" height="100%">
@@ -242,6 +221,7 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
 }) => {
   const app = useAppContext();
   const { addEvent, addGoal, updateGoal, addEscalation } = app;
+  const clientRef = useRef<TuiGatewayClient | null>(null);
 
   // Store handlers in ref to avoid recreating GatewayProvider
   const handlersRef = useRef({ addEvent, addGoal, updateGoal, addEscalation, app });
@@ -255,12 +235,13 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
     // Connection lost
   }, []);
 
-  const handleEvent = useCallback((event: ClientGatewayEvent) => {
+  const handleEvent = useCallback(async (event: ClientGatewayEvent) => {
     const { addEvent, addGoal, updateGoal, addEscalation, app } = handlersRef.current;
     const data = event.data as Record<string, unknown> | undefined;
+    const client = clientRef.current;
     addEvent(event.event, data);
 
-    // Helper to find and update simple message by goalId
+    // Helper to find and update message by goalId
     const updateSimpleMessageByGoalId = (goalId: string, updates: Parameters<typeof app.updateSimpleMessage>[1]) => {
       const message = app.state.simpleMessages.find(m => m.goalId === goalId);
       if (message) {
@@ -268,14 +249,80 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
       }
     };
 
+    const upsertGoalById = async (goalId: string) => {
+      if (!client) {
+        return;
+      }
+      try {
+        const goal = await client.getGoalStatus(goalId);
+        if (app.state.goals.some(g => g.id === goal.id)) {
+          updateGoal(goal);
+        } else {
+          addGoal(goal);
+        }
+      } catch (error) {
+        app.addEvent('error', { message: `Failed to load goal ${goalId}: ${(error as Error).message}` });
+      }
+    };
+
+    const upsertWorkItemById = async (workItemId: string) => {
+      if (!client) {
+        return null;
+      }
+      try {
+        const workItem = await client.getWorkItem(workItemId);
+        if (workItem) {
+          app.updateWorkItem(workItem);
+          return workItem;
+        }
+      } catch (error) {
+        app.addEvent('error', { message: `Failed to load work item ${workItemId}: ${(error as Error).message}` });
+      }
+      return null;
+    };
+
+    const refreshEscalations = async () => {
+      if (!client) {
+        return;
+      }
+      try {
+        const result = await client.listEscalations();
+        app.setEscalations(result.escalations as Parameters<typeof app.setEscalations>[0]);
+      } catch (error) {
+        app.addEvent('error', { message: `Failed to load escalations: ${(error as Error).message}` });
+      }
+    };
+
     // Update state based on event type
     switch (event.event) {
       case 'goal.created':
-      case 'goal.started':
         if (data?.goal) {
           addGoal(data.goal as Parameters<typeof addGoal>[0]);
           const goal = data.goal as { id: string };
           updateSimpleMessageByGoalId(goal.id, {
+            status: 'processing',
+            statusText: 'Queued...',
+          });
+        } else if (typeof data?.goalId === 'string') {
+          void upsertGoalById(data.goalId);
+          updateSimpleMessageByGoalId(data.goalId, {
+            status: 'processing',
+            statusText: 'Queued...',
+          });
+        }
+        break;
+
+      case 'goal.started':
+        if (data?.goal) {
+          updateGoal(data.goal as Parameters<typeof updateGoal>[0]);
+          const goal = data.goal as { id: string };
+          updateSimpleMessageByGoalId(goal.id, {
+            status: 'processing',
+            statusText: 'Executing...',
+          });
+        } else if (typeof data?.goalId === 'string') {
+          void upsertGoalById(data.goalId);
+          updateSimpleMessageByGoalId(data.goalId, {
             status: 'processing',
             statusText: 'Executing...',
           });
@@ -285,6 +332,8 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
       case 'goal.updated':
         if (data?.goal) {
           updateGoal(data.goal as Parameters<typeof updateGoal>[0]);
+        } else if (typeof data?.goalId === 'string') {
+          void upsertGoalById(data.goalId);
         }
         break;
 
@@ -293,6 +342,11 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
           updateGoal(data.goal as Parameters<typeof updateGoal>[0]);
           const goal = data.goal as { id: string };
           updateSimpleMessageByGoalId(goal.id, {
+            status: 'completed',
+          });
+        } else if (typeof data?.goalId === 'string') {
+          void upsertGoalById(data.goalId);
+          updateSimpleMessageByGoalId(data.goalId, {
             status: 'completed',
           });
         }
@@ -306,6 +360,12 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
             status: 'failed',
             error: goal.error || 'Execution failed',
           });
+        } else if (typeof data?.goalId === 'string') {
+          void upsertGoalById(data.goalId);
+          updateSimpleMessageByGoalId(data.goalId, {
+            status: 'failed',
+            error: typeof data?.error === 'string' ? data.error : 'Execution failed',
+          });
         }
         break;
 
@@ -314,6 +374,8 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
       case 'workitem.failed':
         if (data?.workItem) {
           app.updateWorkItem(data.workItem as Parameters<typeof app.updateWorkItem>[0]);
+        } else if (typeof data?.workItemId === 'string') {
+          void upsertWorkItemById(data.workItemId);
         }
         break;
 
@@ -325,16 +387,38 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
             status: 'processing',
             statusText: `Processing: ${workItem.title}...`,
           });
+        } else if (typeof data?.workItemId === 'string') {
+          void upsertWorkItemById(data.workItemId).then((workItem) => {
+            if (workItem) {
+              updateSimpleMessageByGoalId(workItem.goal_id, {
+                status: 'processing',
+                statusText: `Processing: ${workItem.title}...`,
+              });
+            } else if (typeof data?.goalId === 'string') {
+              updateSimpleMessageByGoalId(data.goalId, {
+                status: 'processing',
+                statusText: 'Processing work item...',
+              });
+            }
+          });
         }
         break;
 
       case 'escalation.created':
         if (data?.escalation) {
           addEscalation(data.escalation as Parameters<typeof addEscalation>[0]);
-          // In simple mode, show escalation warning for the related goal
+          // Show escalation warning for the related goal
           const escalation = data.escalation as { goal_id?: string };
           if (escalation.goal_id) {
             updateSimpleMessageByGoalId(escalation.goal_id, {
+              status: 'processing',
+              statusText: '⚠ Needs confirmation',
+            });
+          }
+        } else {
+          void refreshEscalations();
+          if (typeof data?.goalId === 'string') {
+            updateSimpleMessageByGoalId(data.goalId, {
               status: 'processing',
               statusText: '⚠ Needs confirmation',
             });
@@ -345,6 +429,8 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
       case 'escalation.resolved':
         if (data?.escalationId) {
           app.removeEscalation(data.escalationId as string);
+        } else {
+          void refreshEscalations();
         }
         break;
     }
@@ -358,6 +444,9 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
     <GatewayProvider
       url={url}
       token={token}
+      onClientReady={(client) => {
+        clientRef.current = client;
+      }}
       onConnected={handleConnected}
       onDisconnected={handleDisconnected}
       onEvent={handleEvent}
