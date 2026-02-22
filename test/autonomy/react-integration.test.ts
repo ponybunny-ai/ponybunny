@@ -315,11 +315,11 @@ describe('ReActIntegration', () => {
     expect(result.log).toContain('channel:telegram');
   });
 
-  it('fallback MCP invocation prefers q and ignores JSON validation errors', async () => {
+  it('fallback MCP invocation extracts concise query from mixed-language request', async () => {
     mockToolDefinitions = [
       {
-        name: 'mcp__companies_house_mcp__search_company',
-        description: 'Search Companies House records',
+        name: 'mcp__records_mcp__search_entity',
+        description: 'Search entity records',
         parameters: {
           type: 'object',
           properties: {
@@ -349,7 +349,7 @@ describe('ReActIntegration', () => {
       checkToolInvocation: jest.fn(() => ({ allowed: true, requiresApproval: false })),
       registry: {
         getTool: jest.fn((name: string) => {
-          if (name === 'mcp__companies_house_mcp__search_company') {
+          if (name === 'mcp__records_mcp__search_entity') {
             return {
               execute: toolExecute,
             };
@@ -383,7 +383,7 @@ describe('ReActIntegration', () => {
 
     const integration = new ReActIntegration(provider);
     const result = await integration.executeWorkCycle({
-      workItem: createWorkItem({ description: 'get company information of Darkhorseone Limited' }),
+      workItem: createWorkItem({ description: '我需要darkhorseone limited公司注册信息' }),
       run: createRun(),
       signal: new AbortController().signal,
       model: 'gpt-5.3',
@@ -392,6 +392,345 @@ describe('ReActIntegration', () => {
 
     expect(result.success).toBe(true);
     expect(toolExecute).toHaveBeenCalled();
-    expect((toolExecute.mock.calls[0]?.[0] as Record<string, unknown>)?.q).toBe('Darkhorseone Limited');
+    expect((toolExecute.mock.calls[0]?.[0] as Record<string, unknown>)?.q).toBe('darkhorseone limited');
+  });
+
+  it('prioritizes MCP search tools before web_search for lookup intents', async () => {
+    mockToolDefinitions = [
+      {
+        name: 'web_search',
+        description: 'Search the web',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+          },
+          required: ['query'],
+        },
+      },
+      {
+        name: 'mcp__records_mcp__search_entity',
+        description: 'Search entity records',
+        parameters: {
+          type: 'object',
+          properties: {
+            q: { type: 'string' },
+          },
+          required: ['q'],
+        },
+      },
+    ];
+
+    const callOrder: string[] = [];
+
+    const fakeToolEnforcer = {
+      checkToolInvocation: jest.fn(() => ({ allowed: true, requiresApproval: false })),
+      registry: {
+        getTool: jest.fn((name: string) => {
+          if (name === 'mcp__records_mcp__search_entity') {
+            return {
+              execute: jest.fn(async (args: Record<string, unknown>) => {
+                callOrder.push('mcp');
+                return JSON.stringify({ items: [{ id: '15002342', title: 'DARKHORSEONE LIMITED' }], args });
+              }),
+            };
+          }
+
+          if (name === 'web_search') {
+            return {
+              execute: jest.fn(async () => {
+                callOrder.push('web');
+                return JSON.stringify({ results: [] });
+              }),
+            };
+          }
+
+          return undefined;
+        }),
+      },
+      allowlist: {},
+    } as unknown as ToolEnforcer;
+
+    const provider = createMockProvider([
+      {
+        content: '',
+        tokensUsed: 5,
+        model: 'gpt-test',
+        finishReason: 'stop',
+      },
+      {
+        content: '',
+        tokensUsed: 5,
+        model: 'gpt-test',
+        finishReason: 'stop',
+      },
+      {
+        content: 'Company number found: 15002342',
+        tokensUsed: 5,
+        model: 'gpt-test',
+        finishReason: 'stop',
+      },
+    ]);
+
+    const integration = new ReActIntegration(provider);
+    const result = await integration.executeWorkCycle({
+      workItem: createWorkItem({ description: 'find details for Darkhorseone Limited' }),
+      run: createRun(),
+      signal: new AbortController().signal,
+      model: 'gpt-5.3',
+      toolEnforcer: fakeToolEnforcer,
+    });
+
+    expect(result.success).toBe(true);
+    expect(callOrder[0]).toBe('mcp');
+    expect(callOrder).not.toContain('web');
+  });
+
+  it('returns successful tool output when synthesis LLM call fails', async () => {
+    mockToolDefinitions = [
+      {
+        name: 'mcp__records_mcp__search_entity',
+        description: 'Search entity records',
+        parameters: {
+          type: 'object',
+          properties: {
+            q: { type: 'string' },
+          },
+          required: ['q'],
+        },
+      },
+    ];
+
+    const fakeToolEnforcer = {
+      checkToolInvocation: jest.fn(() => ({ allowed: true, requiresApproval: false })),
+      registry: {
+        getTool: jest.fn((name: string) => {
+          if (name === 'mcp__records_mcp__search_entity') {
+            return {
+              execute: jest.fn(async () => JSON.stringify({ items: [{ id: '15002342', title: 'Darkhorseone Limited' }] })),
+            };
+          }
+          return undefined;
+        }),
+      },
+      allowlist: {},
+    } as unknown as ToolEnforcer;
+
+    let llmCallCount = 0;
+    const provider: ILLMProvider = {
+      complete: jest.fn(async (messages: LLMMessage[], options?: Partial<LLMProviderConfig>) => {
+        const isIntentClassification =
+          options?.tool_choice === 'none' &&
+          messages.length === 1 &&
+          messages[0].role === 'user' &&
+          typeof messages[0].content === 'string' &&
+          messages[0].content.includes('Classify the task intent');
+
+        if (isIntentClassification) {
+          return {
+            content: JSON.stringify({ kind: 'tool_task', rationale: 'test classification' }),
+            tokensUsed: 1,
+            model: 'gpt-test',
+            finishReason: 'stop' as const,
+          };
+        }
+
+        llmCallCount += 1;
+
+        if (llmCallCount <= 2) {
+          return {
+            content: '',
+            tokensUsed: 5,
+            model: 'gpt-test',
+            finishReason: 'stop' as const,
+          };
+        }
+
+        throw new Error('Bad Gateway');
+      }),
+      getName: () => 'mock-provider',
+      isAvailable: async () => true,
+      estimateCost: (tokens: number) => tokens * 0.000001,
+    };
+
+    const integration = new ReActIntegration(provider);
+    const result = await integration.executeWorkCycle({
+      workItem: createWorkItem({ description: 'find details for Darkhorseone Limited' }),
+      run: createRun(),
+      signal: new AbortController().signal,
+      model: 'gpt-5.3',
+      toolEnforcer: fakeToolEnforcer,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.log).toContain('15002342');
+  });
+
+  it('returns explicit no-match message without synthesis call when lookup tools return empty results', async () => {
+    mockToolDefinitions = [
+      {
+        name: 'mcp__records_mcp__search_entity',
+        description: 'Search entity records',
+        parameters: {
+          type: 'object',
+          properties: {
+            q: { type: 'string' },
+          },
+          required: ['q'],
+        },
+      },
+    ];
+
+    const fakeToolEnforcer = {
+      checkToolInvocation: jest.fn(() => ({ allowed: true, requiresApproval: false })),
+      registry: {
+        getTool: jest.fn((name: string) => {
+          if (name === 'mcp__records_mcp__search_entity') {
+            return {
+              execute: jest.fn(async () => JSON.stringify({ items: [], total_results: 0 })),
+            };
+          }
+          return undefined;
+        }),
+      },
+      allowlist: {},
+    } as unknown as ToolEnforcer;
+
+    const provider = createMockProvider([
+      {
+        content: '',
+        tokensUsed: 5,
+        model: 'gpt-test',
+        finishReason: 'stop',
+      },
+      {
+        content: '',
+        tokensUsed: 5,
+        model: 'gpt-test',
+        finishReason: 'stop',
+      },
+    ]);
+
+    const integration = new ReActIntegration(provider);
+    const result = await integration.executeWorkCycle({
+      workItem: createWorkItem({ description: '我需要darkhorseone limited公司注册信息' }),
+      run: createRun(),
+      signal: new AbortController().signal,
+      model: 'gpt-5.3',
+      toolEnforcer: fakeToolEnforcer,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.log).toContain('returned no matching records');
+    expect((provider.complete as jest.Mock).mock.calls.length).toBe(3);
+  });
+
+  it('includes stronger local-tool routing hints in initial observation', async () => {
+    mockToolDefinitions = [
+      {
+        name: 'mcp__records_mcp__search_entity',
+        description: 'Search entity records',
+        parameters: {
+          type: 'object',
+          properties: { q: { type: 'string' } },
+        },
+      },
+      {
+        name: 'web_search',
+        description: 'Search web',
+        parameters: {
+          type: 'object',
+          properties: { query: { type: 'string' } },
+        },
+      },
+    ];
+
+    const provider = createMockProvider([
+      {
+        content: 'Task is complete. All requirements met.',
+        tokensUsed: 8,
+        model: 'gpt-test',
+        finishReason: 'stop',
+      },
+    ]);
+
+    const integration = new ReActIntegration(provider);
+    const result = await integration.executeWorkCycle({
+      workItem: createWorkItem(),
+      run: createRun(),
+      signal: new AbortController().signal,
+      model: 'gpt-5.2',
+    });
+
+    expect(result.success).toBe(true);
+
+    const firstExecutionCallMessages = (provider.complete as jest.Mock).mock.calls[1][0] as LLMMessage[];
+    const initialUserMessage = firstExecutionCallMessages.find((message) => message.role === 'user')?.content;
+
+    expect(typeof initialUserMessage).toBe('string');
+    expect(initialUserMessage).toContain('Priority: MCP/domain tools -> built-in local tools -> web_search.');
+    expect(initialUserMessage).toContain('web_search is fallback only');
+    expect(initialUserMessage).toContain('Tools execute in the local runtime (not by the model itself).');
+  });
+
+  it('prioritizes MCP tools in immediate action directive after non-actionable reply', async () => {
+    mockToolDefinitions = [
+      {
+        name: 'web_search',
+        description: 'Search web',
+        parameters: {
+          type: 'object',
+          properties: { query: { type: 'string' } },
+        },
+      },
+      {
+        name: 'search_code',
+        description: 'Search local code',
+        parameters: {
+          type: 'object',
+          properties: { pattern: { type: 'string' } },
+        },
+      },
+      {
+        name: 'mcp__records_mcp__search_entity',
+        description: 'Search entity records',
+        parameters: {
+          type: 'object',
+          properties: { q: { type: 'string' } },
+        },
+      },
+    ];
+
+    const provider = createMockProvider([
+      {
+        content: 'I am still planning.',
+        tokensUsed: 6,
+        model: 'gpt-test',
+        finishReason: 'stop',
+      },
+      {
+        content: 'Task is complete. All requirements met.',
+        tokensUsed: 6,
+        model: 'gpt-test',
+        finishReason: 'stop',
+      },
+    ]);
+
+    const integration = new ReActIntegration(provider);
+    const result = await integration.executeWorkCycle({
+      workItem: createWorkItem(),
+      run: createRun(),
+      signal: new AbortController().signal,
+      model: 'gpt-5.2',
+    });
+
+    expect(result.success).toBe(true);
+
+    const thirdCallMessages = (provider.complete as jest.Mock).mock.calls[2][0] as LLMMessage[];
+    const directive = thirdCallMessages[thirdCallMessages.length - 1].content;
+
+    expect(typeof directive).toBe('string');
+    expect(directive).toContain('Prefer MCP/domain tools first; use web_search only as fallback.');
+    expect(directive).toContain('Preferred candidates: mcp__records_mcp__search_entity, search_code, web_search');
   });
 });

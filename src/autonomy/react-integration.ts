@@ -75,6 +75,7 @@ export class ReActIntegration {
       budgetTokens: params.goal?.budget_tokens,
       spentTokens: params.goal?.spent_tokens,
       modelName: params.model,
+      promptMode: 'minimal',
     });
 
     const context: ReActContext = {
@@ -90,12 +91,14 @@ export class ReActIntegration {
 
     try {
       // Build conversation with native tool calling
+      const initialTools = activeToolProvider.getToolDefinitions('execution');
+
       const messages: LLMMessage[] = [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: this.buildInitialObservation(params.workItem) },
+        { role: 'user', content: this.buildInitialObservation(params.workItem, initialTools) },
       ];
 
-      const allTools = activeToolProvider.getToolDefinitions('execution');
+      const allTools = initialTools;
       const intent = await this.classifyIntent(params.workItem, params.model);
       await this.observation(
         context,
@@ -331,6 +334,7 @@ export class ReActIntegration {
       budgetTokens: params.goal?.budget_tokens,
       spentTokens: params.goal?.spent_tokens,
       modelName: params.model,
+      promptMode: 'minimal',
     });
 
     const context: ReActContext = {
@@ -344,13 +348,16 @@ export class ReActIntegration {
       systemPrompt,
     };
 
+    // Get tool definitions
+    const tools = activeToolProvider.getToolDefinitions('execution');
+
     // Build messages from history
     const messages: LLMMessage[] = [
       { role: 'system', content: systemPrompt },
     ];
 
     if (context.conversationHistory.length === 0) {
-      messages.push({ role: 'user', content: this.buildInitialObservation(params.workItem) });
+      messages.push({ role: 'user', content: this.buildInitialObservation(params.workItem, tools) });
     }
 
     // Add user input
@@ -359,9 +366,6 @@ export class ReActIntegration {
 
     let maxIterations = 5;
     let reply = '';
-
-    // Get tool definitions
-    const tools = activeToolProvider.getToolDefinitions('execution');
 
     while (maxIterations > 0) {
       if (params.signal.aborted) throw new Error('Aborted');
@@ -440,8 +444,13 @@ export class ReActIntegration {
     };
   }
 
-  private buildInitialObservation(workItem: WorkItem): string {
+  private buildInitialObservation(
+    workItem: WorkItem,
+    tools: import('../infra/llm/llm-provider.js').ToolDefinition[]
+  ): string {
     const routeContext = routeContextFromWorkItemContext(workItem.context);
+
+    const compactContext = this.buildCompactWorkItemContext(workItem.context);
 
     const baseObservation = `Task: ${workItem.title}
 
@@ -454,8 +463,8 @@ ${workItem.verification_plan ? `Verification Requirements:
 ${workItem.verification_plan.quality_gates.map(g => `- ${g.name}: ${g.command || g.review_prompt}`).join('\n')}
 ` : ''}
 
-${workItem.context ? `Context:
-${JSON.stringify(workItem.context, null, 2)}
+${compactContext ? `Context:
+${compactContext}
 ` : ''}`;
 
     const routeContextHint = routeContext
@@ -471,19 +480,66 @@ ${JSON.stringify(workItem.context, null, 2)}
     // Add skill suggestions if available (from pre-search)
     const skillSuggestions = this.buildSkillSuggestions(workItem);
     
+    const localToolHints = this.buildLocalToolHints(tools);
+
     return `${baseObservation}
 
 ${routeContextHint}
 
 ${skillSuggestions}
 
+${localToolHints}
+
 Execution contract:
-- Your tools run on the local machine and current workspace.
-- Prefer existing local tools first (MCP, skills, built-in tools).
-- If needed capability is missing, use find_skills or web_search to locate an existing solution.
-- If still unavailable, implement an ad-hoc local solution with available tools.
+- Tools execute in the local runtime (not by the model itself).
+- Start with the most specific local tool that can answer the task.
+- Use web_search only after local tools return empty/insufficient results.
+- If fully complete, call complete_task with a short summary.
 
 Respond with at most 2 short planning lines, then immediately issue the first concrete tool call.`;
+  }
+
+  private buildCompactWorkItemContext(context: WorkItem['context']): string {
+    if (!context) {
+      return '';
+    }
+
+    const allowedKeys = ['model', 'laneId', 'routeContext', 'tool_allowlist', 'suggestedSkills'];
+    const compact: Record<string, unknown> = {};
+
+    for (const key of allowedKeys) {
+      if (key in context) {
+        compact[key] = context[key as keyof typeof context];
+      }
+    }
+
+    const raw = JSON.stringify(compact, null, 2);
+    return raw.length <= 1200 ? raw : `${raw.slice(0, 1200)}\n... (truncated)`;
+  }
+
+  private buildLocalToolHints(tools: import('../infra/llm/llm-provider.js').ToolDefinition[]): string {
+    const mcpTools = tools.filter((tool) => tool.name.startsWith('mcp__')).map((tool) => tool.name);
+    const builtinTools = tools
+      .filter((tool) => !tool.name.startsWith('mcp__') && tool.name !== 'complete_task')
+      .map((tool) => tool.name);
+
+    const mcpPreview = mcpTools.slice(0, 6).join(', ');
+    const builtinPreview = builtinTools.slice(0, 6).join(', ');
+    const hasWebSearch = builtinTools.includes('web_search');
+
+    const lines = [
+      'Local tool routing hints:',
+      '- Priority: MCP/domain tools -> built-in local tools -> web_search.',
+      `- MCP tools (${mcpTools.length}): ${mcpPreview || 'none'}`,
+      `- Built-in tools (${builtinTools.length}): ${builtinPreview || 'none'}`,
+      '- If a tool returns empty results, try one alternate local tool before escalation.',
+    ];
+
+    if (hasWebSearch) {
+      lines.push('- web_search is fallback only; do not use it as first action when local tools can satisfy the task.');
+    }
+
+    return lines.join('\n');
   }
 
   private buildRuntimeEnvelopeAudit(
@@ -504,15 +560,26 @@ Respond with at most 2 short planning lines, then immediately issue the first co
     tools: import('../infra/llm/llm-provider.js').ToolDefinition[],
     fromEmptyResponse: boolean
   ): string {
-    const previewCount = 12;
-    const toolNames = tools.slice(0, previewCount).map((tool) => tool.name);
+    const prioritized = [...tools].sort((a, b) => {
+      const rank = (toolName: string): number => {
+        if (toolName.startsWith('mcp__')) return 3;
+        if (toolName !== 'web_search') return 2;
+        if (toolName === 'web_search') return 1;
+        return 0;
+      };
+
+      return rank(b.name) - rank(a.name);
+    });
+
+    const previewCount = 10;
+    const toolNames = prioritized.slice(0, previewCount).map((tool) => tool.name);
     const remaining = tools.length - toolNames.length;
     const toolLabel = remaining > 0 ? `${toolNames.join(', ')} (+${remaining} more)` : toolNames.join(', ');
     const firstLine = fromEmptyResponse
       ? 'Your previous response was empty.'
       : 'Do not provide another planning update.';
 
-    return `${firstLine} Call exactly one concrete tool now using only available tools. Preferred candidates: ${toolLabel}. If and only if the task is fully complete, call complete_task with a concise summary.`;
+    return `${firstLine} Call exactly one concrete tool now using only available tools. Prefer MCP/domain tools first; use web_search only as fallback. Preferred candidates: ${toolLabel}. If and only if the task is fully complete, call complete_task with a concise summary.`;
   }
 
   private buildSkillSuggestions(workItem: WorkItem): string {
@@ -522,21 +589,16 @@ Respond with at most 2 short planning lines, then immediately issue the first co
     if (workItem.context?.suggestedSkills && Array.isArray(workItem.context.suggestedSkills)) {
       const skills = workItem.context.suggestedSkills;
       if (skills.length > 0) {
-        suggestions.push('**Suggested Skills** (pre-searched from skills.sh):');
-        for (const skill of skills) {
-          suggestions.push(`- ${skill.name}: ${skill.description}`);
-          suggestions.push(`  Install: find_skills({"query": "${skill.name}", "install": true})`);
-        }
-        suggestions.push('');
+        const topSkills = skills.slice(0, 4).map((skill) => skill.name).join(', ');
+        suggestions.push(`Suggested skills: ${topSkills}`);
+        suggestions.push('Use find_skills only if local tools cannot solve the task directly.');
       }
     }
     
     // Extract keywords for skill search
     const keywords = this.extractKeywords(workItem.description);
     if (keywords.length > 0 && process.env.PONY_SKILL_SUGGESTIONS !== 'false') {
-      suggestions.push('**Skill Search Suggestions**:');
-      suggestions.push(`Consider searching for skills related to: ${keywords.join(', ')}`);
-      suggestions.push(`Example: find_skills({"query": "${keywords[0]}", "install": true})`);
+      suggestions.push(`Optional skill search keywords: ${keywords.join(', ')}`);
     }
     
     return suggestions.join('\n');
@@ -644,48 +706,76 @@ Respond with at most 2 short planning lines, then immediately issue the first co
     }
 
     const fallbackToolCalls: ToolCall[] = [];
-    const query = this.extractCompanyQuery(workItem.description) || workItem.description;
+    const queryCandidates = this.extractFallbackQueryCandidates(workItem);
 
-    const searchTools = tools.filter((tool) => this.isFallbackSearchTool(tool));
+    const searchTools = tools
+      .filter((tool) => this.isFallbackSearchTool(tool))
+      .sort((a, b) => this.rankFallbackSearchTool(b) - this.rankFallbackSearchTool(a));
+
     for (const tool of searchTools) {
-      for (const args of this.buildSearchArgsFromSchema(query, tool)) {
-        fallbackToolCalls.push(this.createSyntheticToolCall(tool.name, args));
+      for (const query of queryCandidates) {
+        for (const args of this.buildSearchArgsFromSchema(query, tool)) {
+          fallbackToolCalls.push(this.createSyntheticToolCall(tool.name, args));
+        }
       }
     }
 
     let successfulResult: string | null = null;
+    let successfulButEmptyResultSeen = false;
 
     for (const toolCall of fallbackToolCalls) {
       const result = await this.executeToolCall(context, toolCall, toolEnforcer);
       await this.observation(context, `Fallback tool ${toolCall.function.name}: ${result}`);
 
       if (this.isSuccessfulToolResult(result)) {
-        successfulResult = result;
-        messages.push({ role: 'assistant', content: null, tool_calls: [toolCall] });
-        messages.push({ role: 'tool', content: result, tool_call_id: toolCall.id });
+        if (this.isUsefulToolResult(result)) {
+          successfulResult = result;
+          messages.push({ role: 'assistant', content: null, tool_calls: [toolCall] });
+          messages.push({ role: 'tool', content: result, tool_call_id: toolCall.id });
+          break;
+        }
 
-        break;
+        successfulButEmptyResultSeen = true;
       }
     }
 
     if (!successfulResult) {
+      if (successfulButEmptyResultSeen) {
+        return {
+          content:
+            'I executed available lookup tools successfully, but they returned no matching records for the current query. Please provide a more specific identifier.',
+          tokensUsed: 0,
+          model: context.model || 'fallback',
+          finishReason: 'stop',
+        };
+      }
+
       return null;
     }
 
-    return this.llmProvider.complete(
-      [
-        ...messages,
+    try {
+      return await this.llmProvider.complete(
+        [
+          ...messages,
+          {
+            role: 'user',
+            content:
+              'Use the tool output above to answer the original task fully. If information is missing, say what is missing explicitly.',
+          },
+        ],
         {
-          role: 'user',
-          content:
-            'Use the tool output above to answer the original task fully. If information is missing, say what is missing explicitly.',
-        },
-      ],
-      {
-        model: context.model,
-        tool_choice: 'none',
-      }
-    );
+          model: context.model,
+          tool_choice: 'none',
+        }
+      );
+    } catch {
+      return {
+        content: successfulResult,
+        tokensUsed: 0,
+        model: context.model || 'fallback',
+        finishReason: 'stop',
+      };
+    }
   }
 
   private createSyntheticToolCall(name: string, args: Record<string, unknown>): ToolCall {
@@ -731,6 +821,32 @@ Respond with at most 2 short planning lines, then immediately issue the first co
     }
 
     return true;
+  }
+
+  private isUsefulToolResult(result: string): boolean {
+    if (!result || result.trim().length === 0) {
+      return false;
+    }
+
+    const parsed = this.parseFirstJsonObject(result);
+    if (!parsed) {
+      return true;
+    }
+
+    const emptyArrays = ['items', 'results', 'data'] as const;
+    for (const key of emptyArrays) {
+      const value = parsed[key];
+      if (Array.isArray(value) && value.length > 0) {
+        return true;
+      }
+    }
+
+    const totalResults = parsed.total_results;
+    if (typeof totalResults === 'number') {
+      return totalResults > 0;
+    }
+
+    return Object.keys(parsed).length > 0;
   }
 
   private buildSearchArgsFromSchema(
@@ -794,12 +910,92 @@ Respond with at most 2 short planning lines, then immediately issue the first co
     return keys.some((key) => ['q', 'query', 'name', 'company_name', 'keyword', 'term'].includes(key));
   }
 
-  private extractCompanyQuery(description: string): string | null {
-    const match = description.match(/company information of\s+(.+)$/i);
-    if (!match) {
-      return null;
+  private rankFallbackSearchTool(
+    tool: import('../infra/llm/llm-provider.js').ToolDefinition
+  ): number {
+    const name = tool.name.toLowerCase();
+    const keys = Object.keys(tool.parameters.properties ?? {});
+    const hasStructuredSearchKey = keys.some((key) => ['q', 'query', 'name', 'keyword', 'term', 'id'].includes(key));
+
+    let score = 0;
+
+    if (name.startsWith('mcp__')) {
+      score += 70;
     }
-    return match[1].trim();
+
+    if (name.includes('search') || name.includes('query') || name.includes('lookup')) {
+      score += 15;
+    }
+
+    if (hasStructuredSearchKey) {
+      score += 10;
+    }
+
+    if (name === 'web_search') {
+      score -= 20;
+    }
+
+    return score;
+  }
+
+  private extractFallbackQueryCandidates(workItem: WorkItem): string[] {
+    const candidates: string[] = [];
+
+    const addCandidate = (value: string | null | undefined): void => {
+      if (!value) {
+        return;
+      }
+
+      const normalized = value.trim().replace(/\s+/g, ' ');
+      if (normalized.length === 0) {
+        return;
+      }
+
+      candidates.push(normalized);
+    };
+
+    const rawInputs = [workItem.description ?? '', workItem.title ?? ''];
+
+    for (const raw of rawInputs) {
+      if (!raw || raw.trim().length === 0) {
+        continue;
+      }
+
+      const strippedLabel = raw
+        .replace(/^\s*(task|description|任务|描述)\s*:\s*/i, '')
+        .replace(/^\s*(我需要|请帮我|帮我|请|需要|查询|查找|获取)\s*/i, '');
+
+      const quoted = strippedLabel.match(/["“”'']([^"“”'']{2,120})["“”'']/g) ?? [];
+      for (const item of quoted) {
+        addCandidate(item.replace(/["“”'']/g, ''));
+      }
+
+      const hasCjk = /[\u3400-\u9FBF]/.test(strippedLabel);
+      if (hasCjk) {
+        const latinPhrases = strippedLabel.match(/[A-Za-z0-9][A-Za-z0-9\s.&,'-]{2,80}/g) ?? [];
+        for (const phrase of latinPhrases) {
+          addCandidate(phrase);
+        }
+      }
+
+      addCandidate(strippedLabel);
+    }
+
+    const deduped: string[] = [];
+    const seen = new Set<string>();
+    for (const candidate of candidates) {
+      const key = candidate.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduped.push(candidate);
+      }
+    }
+
+    if (deduped.length === 0) {
+      deduped.push((workItem.description || workItem.title || '').trim());
+    }
+
+    return deduped.slice(0, 4);
   }
 
   private parseFirstJsonObject(text: string): Record<string, unknown> | null {

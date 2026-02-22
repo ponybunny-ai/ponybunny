@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import { modelsManager } from '../lib/models-manager.js';
+import { probeAndPersistAvailability } from '../../infra/llm/provider-manager/availability-prober.js';
 
 export const modelsCommand = new Command('models');
 
@@ -13,6 +14,7 @@ Examples:
   $ pb models refresh      Refresh models from APIs
   $ pb models clear        Clear cache and reset to defaults
   $ pb models info         Show cache information
+  $ pb models probe        Probe enabled endpoints/models and persist health
 `);
 
 modelsCommand
@@ -58,6 +60,52 @@ modelsCommand
       console.log(chalk.green(`✓ Cached ${cache.models.antigravity.length} Antigravity models\n`));
     } catch (error) {
       spinner.fail('Failed to refresh models');
+      console.error(chalk.red(`Error: ${(error as Error).message}`));
+      process.exit(1);
+    }
+  });
+
+modelsCommand
+  .command('probe')
+  .description('Probe enabled provider endpoints/models and write availability back to llm-config.json')
+  .option('--timeout <ms>', 'Probe timeout per request in milliseconds', '10000')
+  .option('--max-models <n>', 'Maximum models to probe per endpoint', '20')
+  .action(async (options) => {
+    const timeoutMs = Number.parseInt(options.timeout, 10);
+    const maxModelsPerEndpoint = Number.parseInt(options.maxModels, 10);
+
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      console.error(chalk.red('Invalid --timeout value; must be a positive integer.'));
+      process.exit(1);
+    }
+
+    if (!Number.isFinite(maxModelsPerEndpoint) || maxModelsPerEndpoint <= 0) {
+      console.error(chalk.red('Invalid --max-models value; must be a positive integer.'));
+      process.exit(1);
+    }
+
+    const spinner = ora('Probing enabled endpoints/models...').start();
+    try {
+      const summary = await probeAndPersistAvailability({ timeoutMs, maxModelsPerEndpoint });
+      spinner.succeed('LLM availability probe completed');
+
+      console.log(chalk.cyan('\nProbe Summary:'));
+      console.log(chalk.white(`  Checked at: ${summary.checkedAt}`));
+      console.log(chalk.white(`  Enabled endpoints: ${summary.endpointCount}`));
+      console.log(chalk.white(`  Endpoint checks passed: ${summary.endpointAvailable}`));
+      console.log(chalk.white(`  Model-endpoint checks: ${summary.modelEndpointChecks}`));
+      console.log(chalk.white(`  Model-endpoint available: ${summary.modelEndpointAvailable}`));
+
+      if (summary.failures.length > 0) {
+        console.log(chalk.yellow('\nRecent failures (first 10):'));
+        for (const failure of summary.failures.slice(0, 10)) {
+          console.log(chalk.gray(`  - ${failure.endpointId} / ${failure.modelId}: ${failure.error}`));
+        }
+      }
+
+      console.log(chalk.green('\n✓ Probe results written to ~/.config/ponybunny/llm-config.json\n'));
+    } catch (error) {
+      spinner.fail('LLM availability probe failed');
       console.error(chalk.red(`Error: ${(error as Error).message}`));
       process.exit(1);
     }

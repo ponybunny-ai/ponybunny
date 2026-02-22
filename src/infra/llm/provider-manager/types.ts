@@ -39,6 +39,13 @@ export interface LLMEndpointConfig {
   region?: string;
   /** Cost multiplier relative to direct API */
   costMultiplier?: number;
+  health?: {
+    available: boolean;
+    lastCheckedAt: string;
+    lastError?: string;
+    successfulModels?: string[];
+    failedModels?: string[];
+  };
 }
 
 /**
@@ -63,6 +70,16 @@ export interface LLMModelConfig {
   maxContextTokens?: number;
   /** Model capabilities */
   capabilities?: ModelCapability[];
+  health?: {
+    lastCheckedAt: string;
+    endpoints: Record<
+      string,
+      {
+        available: boolean;
+        lastError?: string;
+      }
+    >;
+  };
 }
 
 /**

@@ -85,6 +85,16 @@ export class ModelRouter {
           return null;
         }
 
+        if (llmEndpointConfig?.health?.available === false) {
+          console.log(`⚠️ [ModelRouter] Endpoint ${endpointId} marked unavailable by probe health`);
+          return null;
+        }
+
+        if (llmModelConfig?.health?.endpoints?.[endpointId]?.available === false) {
+          console.log(`⚠️ [ModelRouter] Endpoint ${endpointId} marked unavailable for model ${modelId} by probe health`);
+          return null;
+        }
+
         const baseUrlOverride = llmEndpointConfig?.baseUrl;
         return baseUrlOverride ? { ...endpoint, baseUrl: baseUrlOverride } : endpoint;
       })
@@ -116,12 +126,23 @@ export class ModelRouter {
    * Check if an endpoint is available (has required credentials)
    */
   isEndpointAvailable(endpointId: EndpointId): boolean {
-    // Check cache first
-    if (this.availabilityCache.has(endpointId)) {
-      return this.availabilityCache.get(endpointId)!;
-    }
-
     try {
+      const llmEndpointConfig = getLLMEndpointConfig(endpointId);
+
+      if (llmEndpointConfig?.enabled === false) {
+        this.availabilityCache.set(endpointId, false);
+        return false;
+      }
+
+      if (llmEndpointConfig?.health?.available === false) {
+        this.availabilityCache.set(endpointId, false);
+        return false;
+      }
+
+      if (this.availabilityCache.has(endpointId)) {
+        return this.availabilityCache.get(endpointId)!;
+      }
+
       const config = getEndpointConfig(endpointId);
 
       const hasCreds = hasRequiredCredentials(config);

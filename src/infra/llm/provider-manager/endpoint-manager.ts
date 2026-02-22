@@ -126,10 +126,12 @@ export class EndpointManager {
     const config = this.getEndpointConfig(endpointId);
     const enabled = config?.enabled ?? false;
     const hasCredentials = this.hasCredentials(endpointId);
+    const probeHealth = config?.health;
+    const probeUnavailable = probeHealth?.available === false;
 
     const health: EndpointHealth = {
       endpointId,
-      available: enabled && hasCredentials,
+      available: enabled && hasCredentials && !probeUnavailable,
       hasCredentials,
       enabled,
       lastChecked: now,
@@ -139,6 +141,8 @@ export class EndpointManager {
       health.lastError = 'Endpoint is disabled in configuration';
     } else if (!hasCredentials) {
       health.lastError = 'Missing required credentials';
+    } else if (probeUnavailable) {
+      health.lastError = probeHealth.lastError || 'Endpoint marked unavailable by recent probe';
     }
 
     this.healthCache.set(endpointId, health);
@@ -169,6 +173,16 @@ export class EndpointManager {
     const availableEndpoints: string[] = [];
 
     for (const endpointId of modelConfig.endpoints) {
+      const endpointProbeHealth = config.endpoints[endpointId]?.health;
+      if (endpointProbeHealth?.available === false) {
+        continue;
+      }
+
+      const modelEndpointProbeHealth = modelConfig.health?.endpoints?.[endpointId];
+      if (modelEndpointProbeHealth?.available === false) {
+        continue;
+      }
+
       const isAvailable = await this.isEndpointAvailable(endpointId);
       if (isAvailable) {
         availableEndpoints.push(endpointId);

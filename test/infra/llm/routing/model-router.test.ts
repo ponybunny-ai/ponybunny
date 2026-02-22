@@ -4,6 +4,7 @@ import {
   resetModelRouter,
 } from '../../../../src/infra/llm/routing/model-router.js';
 import type { ModelRoutingConfig } from '../../../../src/infra/llm/routing/routing-config.js';
+import { getCachedConfig, clearConfigCache } from '../../../../src/infra/llm/provider-manager/config-loader.js';
 
 // Mock the credentials loader to prevent loading from ~/.ponybunny/credentials.json
 jest.mock('../../../../src/infra/config/credentials-loader.js', () => ({
@@ -16,11 +17,13 @@ describe('ModelRouter', () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv };
+    clearConfigCache();
     resetModelRouter();
   });
 
   afterEach(() => {
     process.env = originalEnv;
+    clearConfigCache();
     resetModelRouter();
   });
 
@@ -97,6 +100,46 @@ describe('ModelRouter', () => {
       expect(endpoints.length).toBe(0);
     });
 
+    it('should skip endpoint marked unavailable by persisted endpoint probe health', () => {
+      process.env.OPENAI_API_KEY = 'test-openai-key';
+      const config = getCachedConfig();
+      config.endpoints['openai-direct'].enabled = true;
+      config.endpoints['openai-direct'].health = {
+        available: false,
+        lastCheckedAt: new Date().toISOString(),
+        lastError: '502 Bad Gateway',
+      };
+
+      const router = new ModelRouter();
+      const endpoints = router.getEndpointsForModel('gpt-5.2');
+
+      expect(endpoints.find((endpoint) => endpoint.id === 'openai-direct')).toBeUndefined();
+    });
+
+    it('should skip model-endpoint pair marked unavailable by persisted model probe health', () => {
+      process.env.OPENAI_API_KEY = 'test-openai-key';
+      const config = getCachedConfig();
+      config.endpoints['openai-direct'].enabled = true;
+      config.endpoints['openai-direct'].health = {
+        available: true,
+        lastCheckedAt: new Date().toISOString(),
+      };
+      config.models['gpt-5.2'].health = {
+        lastCheckedAt: new Date().toISOString(),
+        endpoints: {
+          'openai-direct': {
+            available: false,
+            lastError: 'Model unavailable on endpoint',
+          },
+        },
+      };
+
+      const router = new ModelRouter();
+      const endpoints = router.getEndpointsForModel('gpt-5.2');
+
+      expect(endpoints.find((endpoint) => endpoint.id === 'openai-direct')).toBeUndefined();
+    });
+
     it('should return empty array for unknown models', () => {
       const router = new ModelRouter();
       const endpoints = router.getEndpointsForModel('unknown-model');
@@ -142,6 +185,28 @@ describe('ModelRouter', () => {
 
       // Now should return false
       expect(router.isEndpointAvailable('anthropic-direct')).toBe(false);
+    });
+
+    it('should let persisted probe health override cached available status', () => {
+      process.env.OPENAI_API_KEY = 'test-openai-key';
+      const config = getCachedConfig();
+      config.endpoints['openai-direct'].enabled = true;
+      config.endpoints['openai-direct'].health = {
+        available: true,
+        lastCheckedAt: new Date().toISOString(),
+      };
+
+      const router = new ModelRouter();
+
+      expect(router.isEndpointAvailable('openai-direct')).toBe(true);
+
+      config.endpoints['openai-direct'].health = {
+        available: false,
+        lastCheckedAt: new Date().toISOString(),
+        lastError: '502 Bad Gateway',
+      };
+
+      expect(router.isEndpointAvailable('openai-direct')).toBe(false);
     });
   });
 

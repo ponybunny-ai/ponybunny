@@ -274,6 +274,48 @@ describe('LLM Provider Manager', () => {
       expect(Array.isArray(endpoints)).toBe(true);
     });
 
+    it('should skip endpoints marked unavailable by persisted endpoint probe health', async () => {
+      process.env.OPENAI_API_KEY = 'test-openai-key';
+
+      const config = getCachedConfig();
+      config.endpoints['openai-direct'].enabled = true;
+      config.endpoints['openai-direct'].health = {
+        available: false,
+        lastCheckedAt: new Date().toISOString(),
+        lastError: '502 Bad Gateway',
+      };
+
+      const manager = new EndpointManager();
+      const endpoints = await manager.getAvailableEndpointsForModel('gpt-5.2');
+
+      expect(endpoints).not.toContain('openai-direct');
+    });
+
+    it('should skip model-endpoint pairs marked unavailable by persisted model probe health', async () => {
+      process.env.OPENAI_API_KEY = 'test-openai-key';
+
+      const config = getCachedConfig();
+      config.endpoints['openai-direct'].enabled = true;
+      config.endpoints['openai-direct'].health = {
+        available: true,
+        lastCheckedAt: new Date().toISOString(),
+      };
+      config.models['gpt-5.2'].health = {
+        lastCheckedAt: new Date().toISOString(),
+        endpoints: {
+          'openai-direct': {
+            available: false,
+            lastError: 'Model unavailable on endpoint',
+          },
+        },
+      };
+
+      const manager = new EndpointManager();
+      const endpoints = await manager.getAvailableEndpointsForModel('gpt-5.2');
+
+      expect(endpoints).not.toContain('openai-direct');
+    });
+
     it('should resolve credentials', () => {
       process.env.ANTHROPIC_API_KEY = 'test-api-key';
       const manager = new EndpointManager();
