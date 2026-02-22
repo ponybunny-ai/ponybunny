@@ -1,0 +1,810 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://ponybunny.dev/schemas/agent.schema.json",
+    "title": "PonyBunny Compatible Agent Definition Schema",
+    "description": "Generic schema for all PonyBunny-compatible agent definitions (Lead, Scout, Forge, Guard, Keeper, and future agents).",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "$schema",
+        "schemaVersion",
+        "id",
+        "name",
+        "description",
+        "enabled",
+        "type",
+        "subAgents",
+        "schedule",
+        "policy",
+        "runner"
+    ],
+    "properties": {
+        "$schema": {
+            "type": "string",
+            "format": "uri"
+        },
+        "schemaVersion": {
+            "type": "integer",
+            "minimum": 1
+        },
+        "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{1,63}$",
+            "description": "Agent ID, e.g. lead, scout, forge"
+        },
+        "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+        },
+        "description": {
+            "type": "string",
+            "pattern": "^\\S+(?:\\s+\\S+){0,4}$",
+            "maxLength": 80,
+            "description": "Short UI description, max 5 words"
+        },
+        "enabled": {
+            "type": "boolean"
+        },
+        "type": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_:-]{1,63}$",
+            "description": "Agent capability type, e.g. mission_lead, growth, delivery, compliance, support_ops"
+        },
+        "subAgents": {
+            "type": "array",
+            "description": "Agent IDs this agent is allowed to dispatch/trigger",
+            "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]{1,63}$"
+            },
+            "uniqueItems": true
+        },
+        "schedule": {
+            "$ref": "#/$defs/schedule"
+        },
+        "policy": {
+            "$ref": "#/$defs/policy"
+        },
+        "runner": {
+            "$ref": "#/$defs/runner"
+        },
+        "ui": {
+            "$ref": "#/$defs/ui"
+        },
+        "tags": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]{0,31}$"
+            },
+            "uniqueItems": true,
+            "maxItems": 20
+        },
+        "meta": {
+            "type": "object",
+            "description": "Free-form metadata for UI/runtime indexing",
+            "additionalProperties": true
+        }
+    },
+    "allOf": [
+        {
+            "$ref": "#/$defs/typeSpecificValidation"
+        }
+    ],
+    "$defs": {
+        "schedule": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "everyMs",
+                "catchUp"
+            ],
+            "properties": {
+                "everyMs": {
+                    "type": "integer",
+                    "minimum": 1000,
+                    "description": "Polling / tick interval in milliseconds"
+                },
+                "jitterMs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Optional jitter to avoid thundering herd"
+                },
+                "timezone": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Optional IANA timezone for scheduled briefing behaviour"
+                },
+                "catchUp": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "mode"
+                    ],
+                    "properties": {
+                        "mode": {
+                            "type": "string",
+                            "enum": [
+                                "coalesce",
+                                "replay",
+                                "skip"
+                            ]
+                        },
+                        "maxReplayTicks": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                },
+                "windows": {
+                    "type": "array",
+                    "description": "Optional allowed run windows in local agent timezone",
+                    "items": {
+                        "$ref": "#/$defs/scheduleWindow"
+                    },
+                    "maxItems": 20
+                }
+            }
+        },
+        "scheduleWindow": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "days",
+                "start",
+                "end"
+            ],
+            "properties": {
+                "days": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "mon",
+                            "tue",
+                            "wed",
+                            "thu",
+                            "fri",
+                            "sat",
+                            "sun"
+                        ]
+                    },
+                    "uniqueItems": true,
+                    "minItems": 1,
+                    "maxItems": 7
+                },
+                "start": {
+                    "type": "string",
+                    "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+                },
+                "end": {
+                    "type": "string",
+                    "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+                }
+            }
+        },
+        "policy": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "toolAllowlist",
+                "forbiddenPatterns",
+                "prompts",
+                "limits"
+            ],
+            "properties": {
+                "toolAllowlist": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^[a-zA-Z0-9_.:-]+$"
+                    },
+                    "uniqueItems": true
+                },
+                "toolDenylist": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^[a-zA-Z0-9_.:-]+$"
+                    },
+                    "uniqueItems": true
+                },
+                "forbiddenPatterns": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/forbiddenPattern"
+                    }
+                },
+                "prompts": {
+                    "$ref": "#/$defs/prompts"
+                },
+                "limits": {
+                    "$ref": "#/$defs/limits"
+                },
+                "approval": {
+                    "$ref": "#/$defs/approvalPolicy"
+                },
+                "privacy": {
+                    "$ref": "#/$defs/privacyPolicy"
+                }
+            }
+        },
+        "forbiddenPattern": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "pattern",
+                "description",
+                "severity"
+            ],
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "description": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                },
+                "severity": {
+                    "type": "string",
+                    "enum": [
+                        "low",
+                        "medium",
+                        "high",
+                        "critical"
+                    ]
+                }
+            }
+        },
+        "prompts": {
+            "type": "object",
+            "description": "System prompts by stage. Generic map to support current and future agent stages.",
+            "propertyNames": {
+                "pattern": "^[a-z][a-z0-9_]{1,63}$"
+            },
+            "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+            },
+            "minProperties": 1
+        },
+        "limits": {
+            "type": "object",
+            "description": "Generic numeric/boolean/string limits for this agent. Known keys validated in type-specific branches.",
+            "propertyNames": {
+                "pattern": "^[a-z][a-z0-9_]{1,63}$"
+            },
+            "additionalProperties": {
+                "oneOf": [
+                    {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    {
+                        "type": "number",
+                        "minimum": 0
+                    },
+                    {
+                        "type": "boolean"
+                    },
+                    {
+                        "type": "string",
+                        "maxLength": 200
+                    }
+                ]
+            }
+        },
+        "approvalPolicy": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "required": {
+                    "type": "boolean"
+                },
+                "actions": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_.:-]{1,63}$"
+                    },
+                    "uniqueItems": true
+                },
+                "thresholds": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "number",
+                        "minimum": 0
+                    }
+                }
+            }
+        },
+        "privacyPolicy": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "redactPiiByDefault": {
+                    "type": "boolean"
+                },
+                "allowedDataClasses": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "public",
+                            "internal",
+                            "customer",
+                            "financial",
+                            "hr",
+                            "compliance",
+                            "sensitive"
+                        ]
+                    },
+                    "uniqueItems": true
+                }
+            }
+        },
+        "runner": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "engine",
+                "config"
+            ],
+            "properties": {
+                "engine": {
+                    "type": "string",
+                    "default": "default",
+                    "pattern": "^[a-z][a-z0-9_-]{1,63}$"
+                },
+                "entrypoint": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+                },
+                "config": {
+                    "type": "object",
+                    "description": "Agent-specific runtime config. Validated by type-specific branches when known.",
+                    "additionalProperties": true
+                }
+            }
+        },
+        "ui": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "icon": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_-]{1,63}$"
+                },
+                "accent": {
+                    "type": "string",
+                    "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
+                },
+                "order": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "group": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_-]{1,63}$"
+                }
+            }
+        },
+        "runnerConfigBase": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "tick_defaults",
+                "circuit_breaker"
+            ],
+            "properties": {
+                "tick_defaults": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "max_events_per_tick",
+                        "default_lookback_window"
+                    ],
+                    "properties": {
+                        "max_events_per_tick": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "max_brief_items": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "max_tasks_per_tick": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "default_lookback_window": {
+                            "type": "string",
+                            "pattern": "^[0-9]+[smhd]$",
+                            "description": "e.g. 30m, 24h, 7d"
+                        }
+                    }
+                },
+                "thresholds": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "oneOf": [
+                            {
+                                "type": "number",
+                                "minimum": 0
+                            },
+                            {
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 100
+                            }
+                        ]
+                    }
+                },
+                "conflict_rules": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "boolean"
+                    }
+                },
+                "circuit_breaker": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "failure_threshold",
+                        "backoff_minutes"
+                    ],
+                    "properties": {
+                        "failure_threshold": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "backoff_minutes": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                }
+            }
+        },
+        "leadRunnerConfig": {
+            "allOf": [
+                {
+                    "$ref": "#/$defs/runnerConfigBase"
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "tick_defaults": {
+                            "type": "object",
+                            "required": [
+                                "max_brief_items"
+                            ]
+                        },
+                        "thresholds": {
+                            "type": "object",
+                            "required": [
+                                "quote_founder_approval_gbp",
+                                "payment_founder_approval_gbp",
+                                "deadline_critical_days",
+                                "deadline_high_days"
+                            ],
+                            "additionalProperties": true,
+                            "properties": {
+                                "quote_founder_approval_gbp": {
+                                    "type": "number",
+                                    "minimum": 0
+                                },
+                                "payment_founder_approval_gbp": {
+                                    "type": "number",
+                                    "minimum": 0
+                                },
+                                "deadline_critical_days": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                },
+                                "deadline_high_days": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                }
+                            }
+                        },
+                        "conflict_rules": {
+                            "type": "object",
+                            "required": [
+                                "hold_on_scope_mismatch",
+                                "hold_on_missing_invoice_evidence",
+                                "hold_on_filing_without_required_docs"
+                            ],
+                            "additionalProperties": true,
+                            "properties": {
+                                "hold_on_scope_mismatch": {
+                                    "type": "boolean"
+                                },
+                                "hold_on_missing_invoice_evidence": {
+                                    "type": "boolean"
+                                },
+                                "hold_on_filing_without_required_docs": {
+                                    "type": "boolean"
+                                }
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "scoutRunnerConfig": {
+            "allOf": [
+                {
+                    "$ref": "#/$defs/runnerConfigBase"
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "thresholds": {
+                            "type": "object",
+                            "properties": {
+                                "hot_lead_score": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 100
+                                },
+                                "follow_up_overdue_days": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                },
+                                "quote_founder_approval_gbp": {
+                                    "type": "number",
+                                    "minimum": 0
+                                }
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "forgeRunnerConfig": {
+            "allOf": [
+                {
+                    "$ref": "#/$defs/runnerConfigBase"
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "thresholds": {
+                            "type": "object",
+                            "properties": {
+                                "milestone_slip_days": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                },
+                                "scope_risk_score": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 100
+                                }
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "guardRunnerConfig": {
+            "allOf": [
+                {
+                    "$ref": "#/$defs/runnerConfigBase"
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "thresholds": {
+                            "type": "object",
+                            "properties": {
+                                "deadline_critical_days": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                },
+                                "deadline_high_days": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                },
+                                "payment_term_max_days": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                }
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "keeperRunnerConfig": {
+            "allOf": [
+                {
+                    "$ref": "#/$defs/runnerConfigBase"
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "thresholds": {
+                            "type": "object",
+                            "properties": {
+                                "renewal_notice_days": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                },
+                                "missing_doc_alert_hours": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                }
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "genericRunnerConfig": {
+            "$ref": "#/$defs/runnerConfigBase"
+        },
+        "typeSpecificValidation": {
+            "oneOf": [
+                {
+                    "description": "Lead / mission orchestrator agent",
+                    "properties": {
+                        "type": {
+                            "const": "mission_lead"
+                        },
+                        "runner": {
+                            "type": "object",
+                            "properties": {
+                                "config": {
+                                    "$ref": "#/$defs/leadRunnerConfig"
+                                }
+                            },
+                            "required": [
+                                "config"
+                            ]
+                        },
+                        "policy": {
+                            "type": "object",
+                            "properties": {
+                                "prompts": {
+                                    "type": "object",
+                                    "required": [
+                                        "classify_system",
+                                        "route_system",
+                                        "conflict_system",
+                                        "brief_system"
+                                    ]
+                                },
+                                "limits": {
+                                    "type": "object",
+                                    "required": [
+                                        "event_summary_max_chars",
+                                        "evidence_excerpt_max_chars",
+                                        "approval_pack_max_chars",
+                                        "brief_section_max_items",
+                                        "conflict_markers_max_items"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "description": "Scout / growth agent",
+                    "properties": {
+                        "type": {
+                            "const": "growth"
+                        },
+                        "runner": {
+                            "type": "object",
+                            "properties": {
+                                "config": {
+                                    "$ref": "#/$defs/scoutRunnerConfig"
+                                }
+                            },
+                            "required": [
+                                "config"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "description": "Forge / delivery agent",
+                    "properties": {
+                        "type": {
+                            "const": "delivery"
+                        },
+                        "runner": {
+                            "type": "object",
+                            "properties": {
+                                "config": {
+                                    "$ref": "#/$defs/forgeRunnerConfig"
+                                }
+                            },
+                            "required": [
+                                "config"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "description": "Guard / compliance agent",
+                    "properties": {
+                        "type": {
+                            "const": "compliance"
+                        },
+                        "runner": {
+                            "type": "object",
+                            "properties": {
+                                "config": {
+                                    "$ref": "#/$defs/guardRunnerConfig"
+                                }
+                            },
+                            "required": [
+                                "config"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "description": "Keeper / support ops agent",
+                    "properties": {
+                        "type": {
+                            "const": "support_ops"
+                        },
+                        "runner": {
+                            "type": "object",
+                            "properties": {
+                                "config": {
+                                    "$ref": "#/$defs/keeperRunnerConfig"
+                                }
+                            },
+                            "required": [
+                                "config"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "description": "Fallback for future PonyBunny-compatible agent types",
+                    "properties": {
+                        "type": {
+                            "not": {
+                                "enum": [
+                                    "mission_lead",
+                                    "growth",
+                                    "delivery",
+                                    "compliance",
+                                    "support_ops"
+                                ]
+                            }
+                        },
+                        "runner": {
+                            "type": "object",
+                            "properties": {
+                                "config": {
+                                    "$ref": "#/$defs/genericRunnerConfig"
+                                }
+                            },
+                            "required": [
+                                "config"
+                            ]
+                        }
+                    }
+                }
+            ]
+        }
+    }
+}

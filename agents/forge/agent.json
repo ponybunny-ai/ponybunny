@@ -1,0 +1,139 @@
+{
+    "$schema": "https://ponybunny.dev/schemas/agent.schema.json",
+    "schemaVersion": 1,
+    "id": "forge",
+    "name": "Forge",
+    "description": "Delivery and milestones agent",
+    "enabled": true,
+    "type": "delivery",
+    "subAgents": [],
+    "schedule": {
+        "everyMs": 45000,
+        "jitterMs": 4000,
+        "timezone": "Europe/London",
+        "catchUp": {
+            "mode": "coalesce",
+            "maxReplayTicks": 15
+        },
+        "windows": [
+            {
+                "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri"
+                ],
+                "start": "07:00",
+                "end": "22:00"
+            }
+        ]
+    },
+    "policy": {
+        "toolAllowlist": [
+            "llm.extract_json",
+            "llm.classify",
+            "llm.summarize",
+            "pg.select",
+            "pg.insert",
+            "pg.execute"
+        ],
+        "toolDenylist": [
+            "contracts.sign",
+            "payments.pay",
+            "hmrc.submit"
+        ],
+        "forbiddenPatterns": [
+            {
+                "pattern": ".sign",
+                "description": "Disallow signing actions",
+                "severity": "high"
+            },
+            {
+                "pattern": ".pay",
+                "description": "Disallow payment execution",
+                "severity": "high"
+            },
+            {
+                "pattern": ".submit",
+                "description": "Disallow external submissions",
+                "severity": "high"
+            },
+            {
+                "pattern": "delete_",
+                "description": "Disallow destructive tool prefixes",
+                "severity": "high"
+            }
+        ],
+        "prompts": {
+            "plan_system": "You are Forge, the PonyBunny delivery agent. Break won work into milestones and tasks. Do not change scope or commercial terms. Return ONLY valid JSON.",
+            "status_system": "You are Forge. Evaluate delivery progress and blockers from evidence. Do not guess completion. Return ONLY valid JSON.",
+            "risk_system": "You are Forge. Flag scope risks, delivery slips, and dependency issues conservatively. Return ONLY valid JSON.",
+            "handover_system": "You are Forge. Produce milestone completion and handover records with evidence references. Return ONLY valid JSON."
+        },
+        "limits": {
+            "project_summary_max_chars": 2500,
+            "blocker_note_max_chars": 1500,
+            "handover_record_max_chars": 3000,
+            "milestone_markers_max_items": 30
+        },
+        "approval": {
+            "required": true,
+            "actions": [
+                "scope.change_request",
+                "deadline.revise_external",
+                "delivery.accept_exception"
+            ],
+            "thresholds": {
+                "scope_risk_score": 70
+            }
+        },
+        "privacy": {
+            "redactPiiByDefault": true,
+            "allowedDataClasses": [
+                "internal",
+                "customer"
+            ]
+        }
+    },
+    "runner": {
+        "engine": "default",
+        "entrypoint": "agents.forge.run",
+        "config": {
+            "tick_defaults": {
+                "max_events_per_tick": 150,
+                "max_tasks_per_tick": 100,
+                "default_lookback_window": "24h"
+            },
+            "thresholds": {
+                "milestone_slip_days": 2,
+                "scope_risk_score": 70
+            },
+            "conflict_rules": {
+                "hold_on_missing_acceptance_evidence": true,
+                "hold_on_scope_mismatch": true
+            },
+            "circuit_breaker": {
+                "failure_threshold": 5,
+                "backoff_minutes": 20
+            }
+        }
+    },
+    "ui": {
+        "icon": "forge",
+        "accent": "#7C3AED",
+        "order": 4,
+        "group": "core"
+    },
+    "tags": [
+        "delivery",
+        "projects",
+        "milestones",
+        "handover"
+    ],
+    "meta": {
+        "region": "UK",
+        "auditable": true,
+        "founderFacing": false
+    }
+}

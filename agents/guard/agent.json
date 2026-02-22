@@ -1,0 +1,156 @@
+{
+    "$schema": "https://ponybunny.dev/schemas/agent.schema.json",
+    "schemaVersion": 1,
+    "id": "guard",
+    "name": "Guard",
+    "description": "Compliance and risk control",
+    "enabled": true,
+    "type": "compliance",
+    "subAgents": [],
+    "schedule": {
+        "everyMs": 60000,
+        "jitterMs": 5000,
+        "timezone": "Europe/London",
+        "catchUp": {
+            "mode": "coalesce",
+            "maxReplayTicks": 20
+        },
+        "windows": [
+            {
+                "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri"
+                ],
+                "start": "06:30",
+                "end": "22:00"
+            },
+            {
+                "days": [
+                    "sat",
+                    "sun"
+                ],
+                "start": "08:00",
+                "end": "18:00"
+            }
+        ]
+    },
+    "policy": {
+        "toolAllowlist": [
+            "llm.extract_json",
+            "llm.classify",
+            "llm.summarize",
+            "pg.select",
+            "pg.insert",
+            "pg.execute"
+        ],
+        "toolDenylist": [
+            "hmrc.submit",
+            "companies_house.submit",
+            "payments.pay",
+            "contracts.sign"
+        ],
+        "forbiddenPatterns": [
+            {
+                "pattern": ".submit",
+                "description": "Disallow final filing submissions",
+                "severity": "high"
+            },
+            {
+                "pattern": ".sign",
+                "description": "Disallow signing actions",
+                "severity": "high"
+            },
+            {
+                "pattern": ".pay",
+                "description": "Disallow payment execution",
+                "severity": "high"
+            },
+            {
+                "pattern": "delete_",
+                "description": "Disallow destructive tool prefixes",
+                "severity": "high"
+            }
+        ],
+        "prompts": {
+            "classify_system": "You are Guard, the PonyBunny compliance agent. Classify compliance events, deadlines, and document gaps. You do not provide legal or tax advice. Return ONLY valid JSON.",
+            "precheck_system": "You are Guard. Pre-check compliance packs for completeness and evidence. Do not invent missing documents. Return ONLY valid JSON.",
+            "risk_system": "You are Guard. Assess compliance and contract risks conservatively. If uncertain, mark needs_review. Return ONLY valid JSON.",
+            "pack_system": "You are Guard. Build filing/accountant/compliance packs with checklists and evidence references. Return ONLY valid JSON."
+        },
+        "limits": {
+            "event_summary_max_chars": 2000,
+            "risk_summary_max_chars": 2500,
+            "evidence_excerpt_max_chars": 3000,
+            "checklist_max_items": 50,
+            "contract_clause_markers_max_items": 20
+        },
+        "approval": {
+            "required": true,
+            "actions": [
+                "filing.submit",
+                "contract.issue",
+                "contract.sign",
+                "invoice.issue_final",
+                "policy.change"
+            ],
+            "thresholds": {
+                "invoice_gbp": 1000
+            }
+        },
+        "privacy": {
+            "redactPiiByDefault": true,
+            "allowedDataClasses": [
+                "internal",
+                "customer",
+                "financial",
+                "compliance",
+                "sensitive"
+            ]
+        }
+    },
+    "runner": {
+        "engine": "default",
+        "entrypoint": "agents.guard.run",
+        "config": {
+            "tick_defaults": {
+                "max_events_per_tick": 120,
+                "max_tasks_per_tick": 60,
+                "default_lookback_window": "48h"
+            },
+            "thresholds": {
+                "deadline_critical_days": 7,
+                "deadline_high_days": 14,
+                "payment_term_max_days": 30
+            },
+            "conflict_rules": {
+                "hold_on_missing_required_docs": true,
+                "hold_on_unverified_invoice_evidence": true,
+                "hold_on_contract_term_override": true
+            },
+            "circuit_breaker": {
+                "failure_threshold": 5,
+                "backoff_minutes": 30
+            }
+        }
+    },
+    "ui": {
+        "icon": "guard",
+        "accent": "#D97706",
+        "order": 2,
+        "group": "core"
+    },
+    "tags": [
+        "compliance",
+        "tax",
+        "legal",
+        "uk"
+    ],
+    "meta": {
+        "region": "UK",
+        "auditable": true,
+        "founderFacing": false
+    }
+}

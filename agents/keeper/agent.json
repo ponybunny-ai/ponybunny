@@ -1,0 +1,148 @@
+{
+    "$schema": "https://ponybunny.dev/schemas/agent.schema.json",
+    "schemaVersion": 1,
+    "id": "keeper",
+    "name": "Keeper",
+    "description": "Support ops and filing",
+    "enabled": true,
+    "type": "support_ops",
+    "subAgents": [],
+    "schedule": {
+        "everyMs": 60000,
+        "jitterMs": 5000,
+        "timezone": "Europe/London",
+        "catchUp": {
+            "mode": "coalesce",
+            "maxReplayTicks": 20
+        },
+        "windows": [
+            {
+                "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri"
+                ],
+                "start": "07:00",
+                "end": "21:00"
+            },
+            {
+                "days": [
+                    "sat"
+                ],
+                "start": "09:00",
+                "end": "15:00"
+            }
+        ]
+    },
+    "policy": {
+        "toolAllowlist": [
+            "llm.extract_json",
+            "llm.classify",
+            "llm.summarize",
+            "pg.select",
+            "pg.insert",
+            "pg.execute"
+        ],
+        "toolDenylist": [
+            "payments.pay",
+            "contracts.sign",
+            "hmrc.submit"
+        ],
+        "forbiddenPatterns": [
+            {
+                "pattern": ".pay",
+                "description": "Disallow payment execution",
+                "severity": "high"
+            },
+            {
+                "pattern": ".sign",
+                "description": "Disallow signing actions",
+                "severity": "high"
+            },
+            {
+                "pattern": "delete_",
+                "description": "Disallow destructive tool prefixes",
+                "severity": "high"
+            },
+            {
+                "pattern": ".submit",
+                "description": "Disallow external submissions",
+                "severity": "high"
+            }
+        ],
+        "prompts": {
+            "filing_system": "You are Keeper, the PonyBunny support operations agent. Classify and file documents with evidence references. Do not alter source documents. Return ONLY valid JSON.",
+            "detect_system": "You are Keeper. Detect renewals, vendor bills, and missing documents from records. Do not invent files. Return ONLY valid JSON.",
+            "summary_system": "You are Keeper. Summarise admin items, payment lists, and meeting notes clearly and concisely. Return ONLY valid JSON.",
+            "reminder_system": "You are Keeper. Generate non-binding reminders for missing documents and renewals. Return ONLY valid JSON."
+        },
+        "limits": {
+            "filing_summary_max_chars": 2000,
+            "meeting_note_max_chars": 3000,
+            "payment_list_max_items": 50,
+            "missing_doc_markers_max_items": 20
+        },
+        "approval": {
+            "required": true,
+            "actions": [
+                "record.delete",
+                "payment.execute",
+                "vendor.contract_accept"
+            ],
+            "thresholds": {
+                "payment_gbp": 500
+            }
+        },
+        "privacy": {
+            "redactPiiByDefault": true,
+            "allowedDataClasses": [
+                "internal",
+                "customer",
+                "financial",
+                "compliance"
+            ]
+        }
+    },
+    "runner": {
+        "engine": "default",
+        "entrypoint": "agents.keeper.run",
+        "config": {
+            "tick_defaults": {
+                "max_events_per_tick": 120,
+                "max_tasks_per_tick": 80,
+                "default_lookback_window": "72h"
+            },
+            "thresholds": {
+                "renewal_notice_days": 21,
+                "missing_doc_alert_hours": 24
+            },
+            "conflict_rules": {
+                "hold_on_duplicate_filing": true,
+                "hold_on_missing_source_file": true
+            },
+            "circuit_breaker": {
+                "failure_threshold": 5,
+                "backoff_minutes": 20
+            }
+        }
+    },
+    "ui": {
+        "icon": "keeper",
+        "accent": "#059669",
+        "order": 5,
+        "group": "core"
+    },
+    "tags": [
+        "ops",
+        "filing",
+        "admin",
+        "renewals"
+    ],
+    "meta": {
+        "region": "UK",
+        "auditable": true,
+        "founderFacing": false
+    }
+}

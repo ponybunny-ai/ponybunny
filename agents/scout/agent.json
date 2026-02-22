@@ -1,0 +1,140 @@
+{
+    "$schema": "https://ponybunny.dev/schemas/agent.schema.json",
+    "schemaVersion": 1,
+    "id": "scout",
+    "name": "Scout",
+    "description": "Growth and pipeline agent",
+    "enabled": true,
+    "type": "growth",
+    "subAgents": [],
+    "schedule": {
+        "everyMs": 45000,
+        "jitterMs": 4000,
+        "timezone": "Europe/London",
+        "catchUp": {
+            "mode": "coalesce",
+            "maxReplayTicks": 15
+        },
+        "windows": [
+            {
+                "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri"
+                ],
+                "start": "07:30",
+                "end": "20:00"
+            }
+        ]
+    },
+    "policy": {
+        "toolAllowlist": [
+            "llm.extract_json",
+            "llm.classify",
+            "llm.summarize",
+            "pg.select",
+            "pg.insert",
+            "pg.execute"
+        ],
+        "toolDenylist": [
+            "contracts.sign",
+            "payments.pay"
+        ],
+        "forbiddenPatterns": [
+            {
+                "pattern": ".sign",
+                "description": "Disallow signing actions",
+                "severity": "high"
+            },
+            {
+                "pattern": ".pay",
+                "description": "Disallow payment execution",
+                "severity": "high"
+            },
+            {
+                "pattern": ".submit_contract",
+                "description": "Disallow final contract submission",
+                "severity": "high"
+            },
+            {
+                "pattern": "delete_",
+                "description": "Disallow destructive tool prefixes",
+                "severity": "high"
+            }
+        ],
+        "prompts": {
+            "detect_system": "You are Scout, the PonyBunny growth agent. Detect and classify lead, pipeline, and renewal events. Do not invent facts. Return ONLY valid JSON.",
+            "score_system": "You are Scout. Score leads conservatively based on available evidence. If unknown, mark unknown. Return ONLY valid JSON.",
+            "draft_system": "You are Scout. Draft follow-ups and proposal summaries without making binding commitments. Return ONLY valid JSON.",
+            "renewal_system": "You are Scout. Identify renewal or upsell opportunities from existing customer records. Return ONLY valid JSON."
+        },
+        "limits": {
+            "lead_summary_max_chars": 1800,
+            "proposal_draft_max_chars": 5000,
+            "followup_draft_max_chars": 1200,
+            "signal_markers_max_items": 10
+        },
+        "approval": {
+            "required": true,
+            "actions": [
+                "quote.approve_final",
+                "proposal.send_final",
+                "discount.override"
+            ],
+            "thresholds": {
+                "quote_gbp": 1000,
+                "discount_percent": 10
+            }
+        },
+        "privacy": {
+            "redactPiiByDefault": true,
+            "allowedDataClasses": [
+                "internal",
+                "customer"
+            ]
+        }
+    },
+    "runner": {
+        "engine": "default",
+        "entrypoint": "agents.scout.run",
+        "config": {
+            "tick_defaults": {
+                "max_events_per_tick": 150,
+                "max_tasks_per_tick": 80,
+                "default_lookback_window": "24h"
+            },
+            "thresholds": {
+                "hot_lead_score": 75,
+                "follow_up_overdue_days": 3,
+                "quote_founder_approval_gbp": 1000
+            },
+            "conflict_rules": {
+                "hold_on_missing_scope_definition": true,
+                "hold_on_unapproved_discount": true
+            },
+            "circuit_breaker": {
+                "failure_threshold": 5,
+                "backoff_minutes": 20
+            }
+        }
+    },
+    "ui": {
+        "icon": "scout",
+        "accent": "#2563EB",
+        "order": 3,
+        "group": "core"
+    },
+    "tags": [
+        "growth",
+        "sales",
+        "pipeline",
+        "renewals"
+    ],
+    "meta": {
+        "region": "UK",
+        "auditable": true,
+        "founderFacing": false
+    }
+}

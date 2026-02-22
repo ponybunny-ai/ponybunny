@@ -1,0 +1,168 @@
+{
+  "$schema": "https://ponybunny.dev/schemas/agent.schema.json",
+  "schemaVersion": 1,
+  "id": "lead",
+  "name": "Lead",
+  "description": "Founder command and control",
+  "enabled": true,
+  "type": "mission_lead",
+  "subAgents": [
+    "scout",
+    "forge",
+    "guard",
+    "keeper"
+  ],
+  "schedule": {
+    "everyMs": 30000,
+    "jitterMs": 3000,
+    "timezone": "Europe/London",
+    "catchUp": {
+      "mode": "coalesce",
+      "maxReplayTicks": 10
+    },
+    "windows": [
+      {
+        "days": [
+          "mon",
+          "tue",
+          "wed",
+          "thu",
+          "fri"
+        ],
+        "start": "07:00",
+        "end": "21:00"
+      },
+      {
+        "days": [
+          "sat",
+          "sun"
+        ],
+        "start": "09:00",
+        "end": "18:00"
+      }
+    ]
+  },
+  "policy": {
+    "toolAllowlist": [
+      "llm.extract_json",
+      "llm.classify",
+      "llm.summarize",
+      "pg.select",
+      "pg.insert",
+      "pg.execute"
+    ],
+    "toolDenylist": [
+      "hmrc.submit",
+      "companies_house.submit",
+      "payments.pay",
+      "contracts.sign"
+    ],
+    "forbiddenPatterns": [
+      {
+        "pattern": ".submit",
+        "description": "Disallow final submissions without founder approval",
+        "severity": "high"
+      },
+      {
+        "pattern": ".sign",
+        "description": "Disallow contract signing actions",
+        "severity": "high"
+      },
+      {
+        "pattern": ".pay",
+        "description": "Disallow payment execution actions",
+        "severity": "high"
+      },
+      {
+        "pattern": ".send_contract",
+        "description": "Disallow sending final contracts directly",
+        "severity": "high"
+      },
+      {
+        "pattern": "delete_",
+        "description": "Disallow destructive tool prefixes",
+        "severity": "high"
+      }
+    ],
+    "prompts": {
+      "classify_system": "You are Lead, the mission lead agent for PonyBunny. You coordinate agent outputs, prioritise work, detect conflicts, and prepare founder decisions. You do not make legal, tax, filing, contract, or payment decisions. Return ONLY valid JSON.",
+      "route_system": "You are Lead, the mission lead agent. Route incoming events to the correct handling mode: auto_run, founder_approval, route_to_agent, escalate_risk, or hold_wait_dependency. Preserve evidence and return ONLY valid JSON.",
+      "conflict_system": "You are Lead, the mission lead agent. Detect conflicts across Scout, Forge, Guard, and Keeper outputs. Do not invent facts. If evidence is insufficient, mark as needs_review. Return ONLY valid JSON.",
+      "brief_system": "You are Lead, the mission lead agent. Produce a concise founder briefing with sections for decisions, revenue/delivery, compliance/deadlines, cash/payments, and blocked items. Return ONLY valid JSON."
+    },
+    "limits": {
+      "event_summary_max_chars": 2000,
+      "evidence_excerpt_max_chars": 3000,
+      "approval_pack_max_chars": 6000,
+      "brief_section_max_items": 10,
+      "conflict_markers_max_items": 10
+    },
+    "approval": {
+      "required": true,
+      "actions": [
+        "quote.approve_final",
+        "contract.issue",
+        "contract.sign",
+        "filing.submit",
+        "payment.execute",
+        "policy.change"
+      ],
+      "thresholds": {
+        "quote_gbp": 1000,
+        "payment_gbp": 500
+      }
+    },
+    "privacy": {
+      "redactPiiByDefault": true,
+      "allowedDataClasses": [
+        "internal",
+        "customer",
+        "financial",
+        "compliance"
+      ]
+    }
+  },
+  "runner": {
+    "engine": "default",
+    "entrypoint": "agents.lead.run",
+    "config": {
+      "tick_defaults": {
+        "max_events_per_tick": 100,
+        "max_brief_items": 25,
+        "default_lookback_window": "24h"
+      },
+      "thresholds": {
+        "quote_founder_approval_gbp": 1000,
+        "payment_founder_approval_gbp": 500,
+        "deadline_critical_days": 7,
+        "deadline_high_days": 14
+      },
+      "conflict_rules": {
+        "hold_on_scope_mismatch": true,
+        "hold_on_missing_invoice_evidence": true,
+        "hold_on_filing_without_required_docs": true
+      },
+      "circuit_breaker": {
+        "failure_threshold": 5,
+        "backoff_minutes": 30
+      }
+    }
+  },
+  "ui": {
+    "icon": "lead",
+    "accent": "#1F6FEB",
+    "order": 1,
+    "group": "core"
+  },
+  "tags": [
+    "core",
+    "orchestration",
+    "approvals",
+    "briefing"
+  ],
+  "meta": {
+    "region": "UK",
+    "auditable": true,
+    "founderFacing": true
+  }
+}
