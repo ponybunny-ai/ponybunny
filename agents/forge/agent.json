@@ -43,6 +43,28 @@
             "payments.pay",
             "hmrc.submit"
         ],
+        "skills": {
+            "available": [
+                "backend-developer",
+                "brainstorming",
+                "writing"
+            ],
+            "denied": [
+                "playwright",
+                "dev-browser"
+            ]
+        },
+        "mcp": {
+            "available": [
+                "pg.*",
+                "filesystem.read_file",
+                "filesystem.list_directory"
+            ],
+            "denied": [
+                "playwright.*",
+                "filesystem.write_file"
+            ]
+        },
         "forbiddenPatterns": [
             {
                 "pattern": ".sign",

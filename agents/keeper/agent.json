@@ -50,6 +50,28 @@
             "contracts.sign",
             "hmrc.submit"
         ],
+        "skills": {
+            "available": [
+                "backend-developer",
+                "writing",
+                "brainstorming"
+            ],
+            "denied": [
+                "playwright",
+                "dev-browser"
+            ]
+        },
+        "mcp": {
+            "available": [
+                "pg.*",
+                "filesystem.read_file",
+                "filesystem.list_directory"
+            ],
+            "denied": [
+                "playwright.*",
+                "filesystem.write_file"
+            ]
+        },
         "forbiddenPatterns": [
             {
                 "pattern": ".pay",

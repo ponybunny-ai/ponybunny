@@ -52,6 +52,28 @@
             "payments.pay",
             "contracts.sign"
         ],
+        "skills": {
+            "available": [
+                "backend-developer",
+                "writing",
+                "brainstorming"
+            ],
+            "denied": [
+                "playwright",
+                "dev-browser"
+            ]
+        },
+        "mcp": {
+            "available": [
+                "companies_house_mcp.*",
+                "ico_mcp.*",
+                "pg.*"
+            ],
+            "denied": [
+                "playwright.*",
+                "filesystem.write_file"
+            ]
+        },
         "forbiddenPatterns": [
             {
                 "pattern": ".submit",
