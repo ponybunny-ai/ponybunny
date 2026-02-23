@@ -61,7 +61,7 @@ export const CREDENTIALS_SCHEMA_TEMPLATE = {
  * Template for credentials.json (no sensitive data)
  */
 export const CREDENTIALS_TEMPLATE = {
-  $schema: './credentials.schema.json',
+  $schema: 'https://ponybunny.dho.ai/schemas/credentials.schema.json',
   endpoints: {
     'anthropic-direct': {
       enabled: false,
@@ -205,7 +205,7 @@ export const LLM_CONFIG_SCHEMA_TEMPLATE = {
  * Template for llm-config.json
  */
 export const LLM_CONFIG_TEMPLATE = {
-  $schema: './llm-config.schema.json',
+  $schema: 'https://ponybunny.dho.ai/schemas/llm-config.schema.json',
 
   endpoints: {
     'anthropic-direct': {
@@ -455,7 +455,7 @@ export const MCP_CONFIG_SCHEMA_TEMPLATE = {
  * Template for mcp-config.json
  */
 export const MCP_CONFIG_TEMPLATE = {
-  $schema: './mcp-config.schema.json',
+  $schema: 'https://ponybunny.dho.ai/schemas/mcp-config.schema.json',
   mcpServers: {
     filesystem: {
       enabled: false,
@@ -599,28 +599,12 @@ export function getOnboardingFiles(): OnboardingFile[] {
 
   return [
     {
-      name: 'ponybunny.schema.json',
-      path: path.join(configDir, 'ponybunny.schema.json'),
-      template: PONYBUNNY_CONFIG_SCHEMA_TEMPLATE,
-      format: 'json',
-      mode: 0o644,
-      description: 'JSON Schema for runtime configuration',
-    },
-    {
       name: 'ponybunny.json',
       path: path.join(configDir, 'ponybunny.json'),
       template: getPonyBunnyConfigTemplate(),
       format: 'json',
       mode: 0o600,
       description: 'Runtime configuration (paths, gateway, scheduler, debug)',
-    },
-    {
-      name: 'credentials.schema.json',
-      path: path.join(configDir, 'credentials.schema.json'),
-      template: CREDENTIALS_SCHEMA_TEMPLATE,
-      format: 'json',
-      mode: 0o644,
-      description: 'JSON Schema for credentials validation',
     },
     {
       name: 'credentials.json',
@@ -631,28 +615,12 @@ export function getOnboardingFiles(): OnboardingFile[] {
       description: 'API keys and endpoint credentials',
     },
     {
-      name: 'llm-config.schema.json',
-      path: path.join(configDir, 'llm-config.schema.json'),
-      template: LLM_CONFIG_SCHEMA_TEMPLATE,
-      format: 'json',
-      mode: 0o644,
-      description: 'JSON Schema for LLM configuration validation',
-    },
-    {
       name: 'llm-config.json',
       path: path.join(configDir, 'llm-config.json'),
       template: LLM_CONFIG_TEMPLATE,
       format: 'json',
       mode: 0o644,
       description: 'LLM endpoints, models, tiers, and agent configuration',
-    },
-    {
-      name: 'mcp-config.schema.json',
-      path: path.join(configDir, 'mcp-config.schema.json'),
-      template: MCP_CONFIG_SCHEMA_TEMPLATE,
-      format: 'json',
-      mode: 0o644,
-      description: 'JSON Schema for MCP configuration validation',
     },
     {
       name: 'mcp-config.json',
@@ -680,10 +648,10 @@ function getPromptDefaultsSourceDir(): string {
 
   const entryCandidates = entryDir
     ? [
-        path.join(entryDir, '..', 'prompts', 'defaults'),
-        path.join(entryDir, 'infra', 'prompts', 'defaults'),
-        path.join(entryDir, '..', 'infra', 'prompts', 'defaults'),
-      ]
+      path.join(entryDir, '..', 'prompts', 'defaults'),
+      path.join(entryDir, 'infra', 'prompts', 'defaults'),
+      path.join(entryDir, '..', 'infra', 'prompts', 'defaults'),
+    ]
     : [];
 
   const envCandidate = process.env.PONYBUNNY_PROMPT_DEFAULTS_DIR;

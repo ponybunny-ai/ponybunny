@@ -22,7 +22,7 @@ Edit `~/.ponybunny/credentials.json`:
 
 ```json
 {
-  "$schema": "./credentials.schema.json",
+  "$schema": "https://ponybunny.dho.ai/schemas/credentials.schema.json",
   "endpoints": {
     "openai-compatible": {
       "enabled": true,
@@ -44,7 +44,7 @@ Edit `~/.ponybunny/llm-config.json`:
 
 ```json
 {
-  "$schema": "./llm-config.schema.json",
+  "$schema": "https://ponybunny.dho.ai/schemas/llm-config.schema.json",
   "endpoints": {
     "openai-compatible": {
       "enabled": true,

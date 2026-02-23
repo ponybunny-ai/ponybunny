@@ -1,5 +1,5 @@
 {
-  "$schema": "../../llm-config.schema.json",
+  "$schema": "../.https://ponybunny.dho.ai/schemas/llm-config.schema.json",
   "endpoints": {
     "anthropic-direct": {
       "enabled": true,
@@ -55,97 +55,152 @@
   "models": {
     "claude-haiku-4-5": {
       "displayName": "Claude Haiku 4.5",
-      "endpoints": ["anthropic-direct", "aws-bedrock"],
+      "endpoints": [
+        "anthropic-direct",
+        "aws-bedrock"
+      ],
       "costPer1kTokens": {
         "input": 0.001,
         "output": 0.005
       },
       "maxContextTokens": 200000,
-      "capabilities": ["text", "vision"],
+      "capabilities": [
+        "text",
+        "vision"
+      ],
       "thinking": false,
       "streaming": true
     },
     "claude-sonnet-4-5": {
       "displayName": "Claude Sonnet 4.5",
-      "endpoints": ["anthropic-direct", "aws-bedrock"],
+      "endpoints": [
+        "anthropic-direct",
+        "aws-bedrock"
+      ],
       "costPer1kTokens": {
         "input": 0.003,
         "output": 0.015
       },
       "maxContextTokens": 200000,
-      "capabilities": ["text", "vision", "function-calling"],
+      "capabilities": [
+        "text",
+        "vision",
+        "function-calling"
+      ],
       "thinking": true,
       "streaming": true
     },
     "claude-opus-4-5": {
       "displayName": "Claude Opus 4.5",
-      "endpoints": ["anthropic-direct", "aws-bedrock"],
+      "endpoints": [
+        "anthropic-direct",
+        "aws-bedrock"
+      ],
       "costPer1kTokens": {
         "input": 0.015,
         "output": 0.075
       },
       "maxContextTokens": 200000,
-      "capabilities": ["text", "vision", "function-calling"],
+      "capabilities": [
+        "text",
+        "vision",
+        "function-calling"
+      ],
       "thinking": true,
       "streaming": true
     },
     "gpt-4o": {
       "displayName": "GPT-4o",
-      "endpoints": ["openai-direct", "azure-openai"],
+      "endpoints": [
+        "openai-direct",
+        "azure-openai"
+      ],
       "costPer1kTokens": {
         "input": 0.005,
         "output": 0.015
       },
       "maxContextTokens": 128000,
-      "capabilities": ["text", "vision", "function-calling", "json-mode"],
+      "capabilities": [
+        "text",
+        "vision",
+        "function-calling",
+        "json-mode"
+      ],
       "thinking": false,
       "streaming": true
     },
     "gpt-4o-mini": {
       "displayName": "GPT-4o Mini",
-      "endpoints": ["openai-direct", "azure-openai"],
+      "endpoints": [
+        "openai-direct",
+        "azure-openai"
+      ],
       "costPer1kTokens": {
         "input": 0.00015,
         "output": 0.0006
       },
       "maxContextTokens": 128000,
-      "capabilities": ["text", "vision", "function-calling", "json-mode"],
+      "capabilities": [
+        "text",
+        "vision",
+        "function-calling",
+        "json-mode"
+      ],
       "thinking": false,
       "streaming": true
     },
     "gemini-2.0-flash": {
       "displayName": "Gemini 2.0 Flash",
-      "endpoints": ["google-ai-studio", "google-vertex-ai"],
+      "endpoints": [
+        "google-ai-studio",
+        "google-vertex-ai"
+      ],
       "costPer1kTokens": {
         "input": 0.00035,
         "output": 0.0014
       },
       "maxContextTokens": 1000000,
-      "capabilities": ["text", "vision", "function-calling"],
+      "capabilities": [
+        "text",
+        "vision",
+        "function-calling"
+      ],
       "thinking": false,
       "streaming": true
     },
     "gemini-2.0-pro": {
       "displayName": "Gemini 2.0 Pro",
-      "endpoints": ["google-ai-studio", "google-vertex-ai"],
+      "endpoints": [
+        "google-ai-studio",
+        "google-vertex-ai"
+      ],
       "costPer1kTokens": {
         "input": 0.00125,
         "output": 0.005
       },
       "maxContextTokens": 2000000,
-      "capabilities": ["text", "vision", "function-calling"],
+      "capabilities": [
+        "text",
+        "vision",
+        "function-calling"
+      ],
       "thinking": false,
       "streaming": true
     },
     "llama-3-70b-local": {
       "displayName": "Llama 3 70B (Local)",
-      "endpoints": ["openai-compatible"],
+      "endpoints": [
+        "openai-compatible"
+      ],
       "costPer1kTokens": {
         "input": 0.0,
         "output": 0.0
       },
       "maxContextTokens": 8192,
-      "capabilities": ["text", "function-calling"],
+      "capabilities": [
+        "text",
+        "function-calling"
+      ],
       "thinking": false,
       "streaming": true
     }
@@ -153,15 +208,24 @@
   "tiers": {
     "simple": {
       "primary": "claude-haiku-4-5",
-      "fallback": ["gpt-4o-mini", "gemini-2.0-flash"]
+      "fallback": [
+        "gpt-4o-mini",
+        "gemini-2.0-flash"
+      ]
     },
     "medium": {
       "primary": "claude-sonnet-4-5",
-      "fallback": ["gpt-4o", "gemini-2.0-pro"]
+      "fallback": [
+        "gpt-4o",
+        "gemini-2.0-pro"
+      ]
     },
     "complex": {
       "primary": "claude-opus-4-5",
-      "fallback": ["gpt-4o", "claude-sonnet-4-5"]
+      "fallback": [
+        "gpt-4o",
+        "claude-sonnet-4-5"
+      ]
     }
   },
   "agents": {

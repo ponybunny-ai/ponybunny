@@ -222,7 +222,7 @@ export function saveMCPConfig(config: MCPConfig): void {
 
   // Add schema reference
   const configWithSchema = {
-    $schema: './mcp-config.schema.json',
+    $schema: 'https://ponybunny.dho.ai/schemas/mcp-config.schema.json',
     ...config,
   };
 

@@ -28,7 +28,7 @@ export interface PonyBunnyRuntimeConfig {
 const PONY_DIR = path.join(homedir(), '.ponybunny');
 
 export const DEFAULT_RUNTIME_CONFIG: PonyBunnyRuntimeConfig = {
-  $schema: './ponybunny.schema.json',
+  $schema: 'https://ponybunny.dho.ai/schemas/ponybunny.schema.json',
   paths: {
     database: path.join(PONY_DIR, 'pony.db'),
     schedulerSocket: path.join(PONY_DIR, 'gateway.sock'),
@@ -150,7 +150,7 @@ function deepMerge<T extends Record<string, unknown>>(base: T, value: unknown): 
 
 function normalizeConfig(raw: PonyBunnyRuntimeConfig): PonyBunnyRuntimeConfig {
   return {
-    $schema: './ponybunny.schema.json',
+    $schema: 'https://ponybunny.dho.ai/schemas/ponybunny.schema.json',
     paths: {
       database: path.resolve(toStringValue(raw.paths?.database, DEFAULT_RUNTIME_CONFIG.paths.database)),
       schedulerSocket: path.resolve(

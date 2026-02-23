@@ -159,7 +159,7 @@ PonyBunny uses multiple JSON config files in `~/.ponybunny/`:
 ### 1. `credentials.json` - API Keys (Sensitive)
 ```json
 {
-  "$schema": "./credentials.schema.json",
+  "$schema": "https://ponybunny.dho.ai/schemas/credentials.schema.json",
   "endpoints": {
     "anthropic-direct": {
       "enabled": true,

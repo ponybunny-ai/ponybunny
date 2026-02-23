@@ -42,7 +42,7 @@ npx tsx test/mcp-integration.test.ts
 # 1. 配置 filesystem 服务器
 cat > ~/.ponybunny/mcp-config.json << 'EOF'
 {
-  "$schema": "./mcp-config.schema.json",
+  "$schema": "https://ponybunny.dho.ai/schemas/mcp-config.schema.json",
   "mcpServers": {
     "filesystem": {
       "enabled": true,

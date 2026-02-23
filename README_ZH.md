@@ -81,7 +81,7 @@ pb init --list
 
 ```json
 {
-  "$schema": "./credentials.schema.json",
+  "$schema": "https://ponybunny.dho.ai/schemas/credentials.schema.json",
   "endpoints": {
     "anthropic-direct": {
       "enabled": true,
@@ -230,7 +230,7 @@ src/
 
 ```json
 {
-  "$schema": "./llm-config.schema.json",
+  "$schema": "https://ponybunny.dho.ai/schemas/llm-config.schema.json",
 
   "endpoints": {
     "anthropic-direct": {
@@ -316,7 +316,7 @@ API Key 独立存放：
 
 ```json
 {
-  "$schema": "./credentials.schema.json",
+  "$schema": "https://ponybunny.dho.ai/schemas/credentials.schema.json",
   "endpoints": {
     "anthropic-direct": {
       "enabled": true,

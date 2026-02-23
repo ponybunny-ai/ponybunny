@@ -60,7 +60,7 @@ vim ~/.ponybunny/credentials.json
 
 ```json
 {
-  "$schema": "./credentials.schema.json",
+  "$schema": "https://ponybunny.dho.ai/schemas/credentials.schema.json",
   "endpoints": {
     "anthropic-direct": {
       "enabled": true,

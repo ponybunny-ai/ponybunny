@@ -436,7 +436,7 @@ export function saveLLMConfig(config: LLMConfig, configPath?: string): void {
 
   // Add schema reference
   const configWithSchema = {
-    $schema: './llm-config.schema.json',
+    $schema: 'https://ponybunny.dho.ai/schemas/llm-config.schema.json',
     ...config,
   };
 

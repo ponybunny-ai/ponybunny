@@ -150,7 +150,7 @@ docs/
 
 ```json
 {
-  "$schema": "./mcp-config.schema.json",
+  "$schema": "https://ponybunny.dho.ai/schemas/mcp-config.schema.json",
   "mcpServers": {
     "filesystem": {
       "enabled": true,

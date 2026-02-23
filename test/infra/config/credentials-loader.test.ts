@@ -182,7 +182,7 @@ describe('CredentialsLoader', () => {
       const content = fs.readFileSync(credentialsPath, 'utf-8');
       const parsed = JSON.parse(content);
       expect(parsed).toEqual({
-        $schema: './credentials.schema.json',
+        $schema: 'https://ponybunny.dho.ai/schemas/credentials.schema.json',
         ...testCreds,
       });
     });

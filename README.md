@@ -81,7 +81,7 @@ Edit `~/.ponybunny/credentials.json`:
 
 ```json
 {
-  "$schema": "./credentials.schema.json",
+  "$schema": "https://ponybunny.dho.ai/schemas/credentials.schema.json",
   "endpoints": {
     "anthropic-direct": {
       "enabled": true,
@@ -230,7 +230,7 @@ Controls which endpoints, models, and agents are available:
 
 ```json
 {
-  "$schema": "./llm-config.schema.json",
+  "$schema": "https://ponybunny.dho.ai/schemas/llm-config.schema.json",
 
   "endpoints": {
     "anthropic-direct": {
@@ -316,7 +316,7 @@ Stores API keys separately from configuration:
 
 ```json
 {
-  "$schema": "./credentials.schema.json",
+  "$schema": "https://ponybunny.dho.ai/schemas/credentials.schema.json",
   "endpoints": {
     "anthropic-direct": {
       "enabled": true,

@@ -201,7 +201,7 @@ export function saveCredentialsFile(credentials: CredentialsFile): void {
 
   // Add schema reference
   const credentialsWithSchema = {
-    $schema: './credentials.schema.json',
+    $schema: 'https://ponybunny.dho.ai/schemas/credentials.schema.json',
     ...credentials,
   };
 

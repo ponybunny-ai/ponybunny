@@ -163,7 +163,7 @@ describe('MCP Config Loader', () => {
 
     it('should accept $schema property', () => {
       const config = {
-        $schema: './mcp-config.schema.json',
+        $schema: 'https://ponybunny.dho.ai/schemas/mcp-config.schema.json',
         mcpServers: {},
       };
 
@@ -472,7 +472,7 @@ describe('MCP Config Loader', () => {
         (mockedFs.writeFileSync.mock.calls[0] as any[])[1] as string
       );
       expect(writtenContent.mcpServers.test.transport).toBe('stdio');
-      expect(writtenContent.$schema).toBe('./mcp-config.schema.json');
+      expect(writtenContent.$schema).toBe('https://ponybunny.dho.ai/schemas/mcp-config.schema.json');
     });
 
     it('should create directory if it does not exist', () => {
