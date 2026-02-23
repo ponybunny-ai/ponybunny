@@ -24,7 +24,52 @@ const createTempDbPath = (): string => {
 const writeAgent = (workspaceDir: string, id: string, config: Record<string, unknown>): void => {
   const agentDir = path.join(workspaceDir, 'agents', id);
   fs.mkdirSync(agentDir, { recursive: true });
-  fs.writeFileSync(path.join(agentDir, 'agent.json'), JSON.stringify(config, null, 2));
+  const baseConfig = {
+    $schema: 'https://ponybunny.dho.ai/schemas/agent.schema.json',
+    schemaVersion: 1,
+    id,
+    name: `Agent ${id}`,
+    description: 'Growth and pipeline agent',
+    enabled: true,
+    type: 'growth',
+    subAgents: [],
+    schedule: {
+      everyMs: 60000,
+      catchUp: { mode: 'coalesce' },
+    },
+    policy: {
+      toolAllowlist: ['llm.classify', 'pg.select'],
+      forbiddenPatterns: [
+        {
+          pattern: '.pay',
+          description: 'Disallow payment execution',
+          severity: 'high',
+        },
+      ],
+      prompts: {
+        detect_system: 'Return ONLY valid JSON.',
+      },
+      limits: {
+        lead_summary_max_chars: 1800,
+      },
+    },
+    runner: {
+      engine: 'default',
+      config: {
+        tick_defaults: {
+          max_events_per_tick: 150,
+          max_tasks_per_tick: 80,
+          default_lookback_window: '24h',
+        },
+        circuit_breaker: {
+          failure_threshold: 5,
+          backoff_minutes: 20,
+        },
+      },
+    },
+  };
+
+  fs.writeFileSync(path.join(agentDir, 'agent.json'), JSON.stringify({ ...baseConfig, ...config }, null, 2));
   fs.writeFileSync(path.join(agentDir, 'AGENT.md'), `# ${id}\n`);
 };
 
@@ -73,14 +118,7 @@ describe('AgentScheduler', () => {
     const dbPath = createTempDbPath();
 
     writeAgent(workspaceDir, 'agent-1', {
-      schemaVersion: 1,
-      id: 'agent-1',
       name: 'Agent One',
-      enabled: true,
-      type: 'test',
-      schedule: { everyMs: 60000 },
-      policy: {},
-      runner: {},
     });
 
     const registry = new AgentRegistry();
@@ -135,14 +173,7 @@ describe('AgentScheduler', () => {
     const dbPath = createTempDbPath();
 
     writeAgent(workspaceDir, 'agent-2', {
-      schemaVersion: 1,
-      id: 'agent-2',
       name: 'Agent Two',
-      enabled: true,
-      type: 'test',
-      schedule: { everyMs: 60000 },
-      policy: {},
-      runner: {},
     });
 
     const registry = new AgentRegistry();
@@ -216,30 +247,26 @@ describe('AgentScheduler', () => {
     repository.close();
   });
 
-  it('dispatches react_goal agents with execution context and mapped goal budget', async () => {
+  it('dispatches schema-driven agents as agent_tick work items', async () => {
     const now = 1_700_000_200_000;
     const workspaceDir = createTempDir();
     const dbPath = createTempDbPath();
 
-    writeAgent(workspaceDir, 'agent-react-goal', {
-      schemaVersion: 1,
-      id: 'agent-react-goal',
-      name: 'React Goal Agent',
-      enabled: true,
-      type: 'react_goal',
-      schedule: { everyMs: 60000 },
-      policy: {},
+    writeAgent(workspaceDir, 'agent-growth', {
+      name: 'Growth Agent',
+      type: 'growth',
       runner: {
+        engine: 'default',
         config: {
-          goal_title_template: 'Daily Validation Goal',
-          goal_description_template: 'Run daily validation workflow.',
-          budget: {
-            tokens: 3210,
-            time_minutes: 25,
-            cost_usd: 4.5,
+          tick_defaults: {
+            max_events_per_tick: 120,
+            max_tasks_per_tick: 60,
+            default_lookback_window: '24h',
           },
-          model_hint: 'gpt-5.3-codex',
-          tool_allowlist: ['Bash', 'Read', 'Grep'],
+          circuit_breaker: {
+            failure_threshold: 5,
+            backoff_minutes: 20,
+          },
         },
       },
     });
@@ -252,7 +279,7 @@ describe('AgentScheduler', () => {
     await reconcileCronJobsFromRegistry({ repository, registry });
 
     const db = new Database(dbPath);
-    db.prepare('UPDATE cron_jobs SET next_run_at_ms = ? WHERE agent_id = ?').run(now - 1000, 'agent-react-goal');
+    db.prepare('UPDATE cron_jobs SET next_run_at_ms = ? WHERE agent_id = ?').run(now - 1000, 'agent-growth');
     db.close();
 
     const scheduler = new StubScheduler();
@@ -267,25 +294,20 @@ describe('AgentScheduler', () => {
 
     const goals = repository.listGoals();
     expect(goals).toHaveLength(1);
-    expect(goals[0].budget_tokens).toBe(3210);
-    expect(goals[0].budget_time_minutes).toBe(25);
-    expect(goals[0].budget_cost_usd).toBe(4.5);
+    expect(goals[0].budget_tokens).toBeUndefined();
+    expect(goals[0].budget_time_minutes).toBeUndefined();
+    expect(goals[0].budget_cost_usd).toBeUndefined();
 
     const workItems = repository.getWorkItemsByGoal(goals[0].id);
     expect(workItems).toHaveLength(1);
-    expect((workItems[0].context as Record<string, unknown>).kind).toBeUndefined();
-    expect((workItems[0].context as Record<string, unknown>).tool_allowlist).toEqual([
-      'Bash',
-      'Read',
-      'Grep',
-    ]);
-    expect((workItems[0].context as Record<string, unknown>).model).toBe('gpt-5.3-codex');
+    expect((workItems[0].context as Record<string, unknown>).kind).toBe('agent_tick');
+    expect((workItems[0].context as Record<string, unknown>).agent_id).toBe('agent-growth');
+    expect((workItems[0].context as Record<string, unknown>).run_key).toEqual(expect.any(String));
     expect((workItems[0].context as Record<string, unknown>).routeContext).toEqual(
       expect.objectContaining({
         source: 'scheduler.cron',
-        providerId: 'gpt-5.3-codex',
         channel: 'internal',
-        agentId: 'agent-react-goal',
+        agentId: 'agent-growth',
       })
     );
 

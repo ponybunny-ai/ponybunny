@@ -13,10 +13,18 @@ export class RunnerRegistry {
   }
 
   resolve(agentId: string, config: CompiledAgentConfig): AgentRunner | null {
-    const runner = this.runners.get(config.type);
+    const engine = config.runner?.engine?.trim();
+    const runner =
+      (engine ? this.runners.get(engine) : undefined)
+      ?? this.runners.get(config.type)
+      ?? this.runners.get('default');
+
     if (!runner) {
       if (config.enabled) {
-        throw new Error(`Unknown runner type '${config.type}' for enabled agent '${agentId}'`);
+        throw new Error(
+          `Unknown runner for enabled agent '${agentId}' ` +
+          `(engine='${engine ?? 'n/a'}', type='${config.type}')`
+        );
       }
       return null;
     }

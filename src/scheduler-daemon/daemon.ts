@@ -22,6 +22,7 @@ import { reconcileCronJobsFromRegistry } from '../infra/scheduler/cron-job-recon
 import { acquireSchedulerDaemonLock, releaseSchedulerDaemonLock } from './pid-lock.js';
 import { AgentScheduler } from './agent-scheduler.js';
 import { MarketListenerRunner } from '../infra/agents/market-listener-runner.js';
+import { createSchemaDrivenAgentRunner } from '../infra/agents/schema-driven-agent-runner.js';
 
 export interface SchedulerDaemonConfig {
   /** Path to Gateway IPC socket */
@@ -154,8 +155,11 @@ export class SchedulerDaemon {
 
       this.isRunning = true;
 
+      const runnerRegistry = getGlobalRunnerRegistry();
+      runnerRegistry.register('default', createSchemaDrivenAgentRunner());
+      console.log('[SchedulerDaemon] Registered default schema-driven runner');
+
       if (this.config.agentAService) {
-        const runnerRegistry = getGlobalRunnerRegistry();
         runnerRegistry.register('market_listener', new MarketListenerRunner(this.config.agentAService));
         console.log('[SchedulerDaemon] Registered market_listener runner');
       }

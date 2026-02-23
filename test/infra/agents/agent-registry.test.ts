@@ -15,14 +15,47 @@ function writeAgentDir(baseDir: string, id: string, configOverride: Record<strin
 `, 'utf-8');
 
   const config = {
+    $schema: 'https://ponybunny.dho.ai/schemas/agent.schema.json',
     schemaVersion: 1,
     id,
     name: `${id} agent`,
+    description: 'Growth and pipeline agent',
     enabled: true,
-    type: 'market_listener',
-    schedule: { everyMs: 60000 },
-    policy: {},
-    runner: {},
+    type: 'growth',
+    subAgents: [],
+    schedule: {
+      everyMs: 60000,
+      catchUp: { mode: 'coalesce' },
+    },
+    policy: {
+      toolAllowlist: ['llm.classify', 'pg.select'],
+      forbiddenPatterns: [
+        {
+          pattern: '.pay',
+          description: 'Disallow payment execution',
+          severity: 'high',
+        },
+      ],
+      prompts: {
+        detect_system: 'Return ONLY valid JSON.',
+      },
+      limits: {
+        lead_summary_max_chars: 1800,
+      },
+    },
+    runner: {
+      engine: 'default',
+      config: {
+        tick_defaults: {
+          max_events_per_tick: 150,
+          default_lookback_window: '24h',
+        },
+        circuit_breaker: {
+          failure_threshold: 5,
+          backoff_minutes: 20,
+        },
+      },
+    },
     ...configOverride,
   };
 
@@ -76,14 +109,44 @@ describe('AgentRegistry', () => {
     expect(agent?.markdown).toBe('# alpha\n');
 
     const config = {
+      $schema: 'https://ponybunny.dho.ai/schemas/agent.schema.json',
       schemaVersion: 1,
       id: 'alpha',
       name: 'alpha agent',
+      description: 'Growth and pipeline agent',
       enabled: true,
-      type: 'market_listener',
-      schedule: { everyMs: 60000 },
-      policy: {},
-      runner: {},
+      type: 'growth',
+      subAgents: [],
+      schedule: { everyMs: 60000, catchUp: { mode: 'coalesce' } },
+      policy: {
+        toolAllowlist: ['llm.classify', 'pg.select'],
+        forbiddenPatterns: [
+          {
+            pattern: '.pay',
+            description: 'Disallow payment execution',
+            severity: 'high',
+          },
+        ],
+        prompts: {
+          detect_system: 'Return ONLY valid JSON.',
+        },
+        limits: {
+          lead_summary_max_chars: 1800,
+        },
+      },
+      runner: {
+        engine: 'default',
+        config: {
+          tick_defaults: {
+            max_events_per_tick: 150,
+            default_lookback_window: '24h',
+          },
+          circuit_breaker: {
+            failure_threshold: 5,
+            backoff_minutes: 20,
+          },
+        },
+      },
     };
     const expectedHash = createHash('sha256').update(canonicalize(config)).digest('hex');
     expect(agent?.definitionHash).toBe(expectedHash);
@@ -110,13 +173,20 @@ describe('AgentRegistry', () => {
     const firstHash = first?.definitionHash;
 
     const invalidConfig = {
+      $schema: 'https://ponybunny.dho.ai/schemas/agent.schema.json',
       schemaVersion: 1,
       id: 'beta',
       enabled: true,
-      type: 'market_listener',
-      schedule: { everyMs: 60000 },
-      policy: {},
-      runner: {},
+      type: 'growth',
+      subAgents: [],
+      schedule: { everyMs: 60000, catchUp: { mode: 'coalesce' } },
+      policy: {
+        toolAllowlist: ['llm.classify'],
+        forbiddenPatterns: [],
+        prompts: { detect_system: 'Return ONLY valid JSON.' },
+        limits: { lead_summary_max_chars: 1800 },
+      },
+      runner: { engine: 'default', config: { tick_defaults: { max_events_per_tick: 100, default_lookback_window: '24h' }, circuit_breaker: { failure_threshold: 5, backoff_minutes: 20 } } },
     };
     fs.writeFileSync(
       path.join(agentDir, 'agent.json'),
@@ -161,7 +231,7 @@ describe('AgentRegistry', () => {
     fs.writeFileSync(path.join(agentDir, 'AGENT.md'), '# gamma\n', 'utf-8');
     fs.writeFileSync(
       path.join(agentDir, 'agent.json'),
-      JSON.stringify({ schemaVersion: 1, id: 'gamma' }, null, 2),
+      JSON.stringify({ $schema: 'https://ponybunny.dho.ai/schemas/agent.schema.json', schemaVersion: 1, id: 'gamma' }, null, 2),
       'utf-8'
     );
 
@@ -192,15 +262,15 @@ describe('AgentRegistry', () => {
     });
   });
 
-  it('loads the workspace agent-a definition with defaults', async () => {
+  it('loads the workspace lead definition with defaults', async () => {
     const registry = new AgentRegistry();
     await registry.loadAgents({ workspaceDir: process.cwd(), userDir: createTempDir() });
 
-    const agent = registry.getAgent('agent-a');
+    const agent = registry.getAgent('lead');
     expect(agent).toBeDefined();
     expect(agent?.status).toBe('valid');
     expect(agent?.config.enabled).toBe(true);
     expect(agent?.config.schedule.kind).toBe('interval');
-    expect(agent?.config.schedule.everyMs).toBe(60000);
+    expect(agent?.config.schedule.everyMs).toBe(30000);
   });
 });

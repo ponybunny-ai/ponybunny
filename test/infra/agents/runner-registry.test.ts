@@ -49,7 +49,7 @@ describe('RunnerRegistry', () => {
     });
 
     expect(() => registry.resolve(config.id, config)).toThrow(
-      "Unknown runner type 'unknown_type' for enabled agent 'unknown-agent'"
+      "Unknown runner for enabled agent 'unknown-agent' (engine='n/a', type='unknown_type')"
     );
   });
 });

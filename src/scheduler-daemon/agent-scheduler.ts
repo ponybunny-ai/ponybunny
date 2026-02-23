@@ -6,7 +6,6 @@ import type {
 } from '../infra/persistence/repository-interface.js';
 import type { SchedulerEvent, IScheduler } from '../scheduler/types.js';
 import { computeScheduleOutcome } from '../infra/scheduler/schedule-computation.js';
-import type { ReactGoalRunnerConfig } from '../infra/agents/config/agent-config-types.js';
 import { buildCronRouteContext } from '../infra/routing/route-context.js';
 
 export interface AgentSchedulerConfig {
@@ -147,29 +146,16 @@ export class AgentScheduler {
         continue;
       }
 
-      const isReactGoal = agent.config.type === 'react_goal';
-      const reactGoalRunnerConfig = (agent.config.runner.config ?? {}) as unknown as ReactGoalRunnerConfig;
-
       const goal = this.deps.repository.createGoal(
-        isReactGoal
-          ? {
-              title: reactGoalRunnerConfig.goal_title_template,
-              description: reactGoalRunnerConfig.goal_description_template,
-              success_criteria: DEFAULT_SUCCESS_CRITERIA,
-              priority: 50,
-              budget_tokens: reactGoalRunnerConfig.budget?.tokens,
-              budget_time_minutes: reactGoalRunnerConfig.budget?.time_minutes,
-              budget_cost_usd: reactGoalRunnerConfig.budget?.cost_usd,
-            }
-          : {
-              title: `Cron: ${agent.config.name}`,
-              description:
-                `Scheduled run for agent ${agent.id} ` +
-                `(scheduled_for_ms=${scheduleOutcome.scheduled_for_ms}, ` +
-                `coalesced_count=${scheduleOutcome.coalesced_count})`,
-              success_criteria: DEFAULT_SUCCESS_CRITERIA,
-              priority: 50,
-            }
+        {
+          title: `Cron: ${agent.config.name}`,
+          description:
+            `Scheduled run for agent ${agent.id} ` +
+            `(scheduled_for_ms=${scheduleOutcome.scheduled_for_ms}, ` +
+            `coalesced_count=${scheduleOutcome.coalesced_count})`,
+          success_criteria: DEFAULT_SUCCESS_CRITERIA,
+          priority: 50,
+        }
       );
 
       const workItem = this.deps.repository.createWorkItem({
@@ -181,30 +167,18 @@ export class AgentScheduler {
           `run_key=${run.run_key})`,
         item_type: 'analysis',
         priority: 50,
-        context: isReactGoal
-          ? {
-              tool_allowlist: reactGoalRunnerConfig.tool_allowlist ?? [],
-              routeContext: buildCronRouteContext({
-                agentId: agent.id,
-                runKey: run.run_key,
-                providerId: reactGoalRunnerConfig.model_hint,
-              }),
-              ...(reactGoalRunnerConfig.model_hint
-                ? { model: reactGoalRunnerConfig.model_hint }
-                : {}),
-            }
-          : {
-              kind: 'agent_tick',
-              agent_id: agent.id,
-              definition_hash: agent.definitionHash,
-              run_key: run.run_key,
-              scheduled_for_ms: scheduleOutcome.scheduled_for_ms,
-              policy_snapshot: agent.config.policy ?? null,
-              routeContext: buildCronRouteContext({
-                agentId: agent.id,
-                runKey: run.run_key,
-              }),
-            },
+        context: {
+          kind: 'agent_tick',
+          agent_id: agent.id,
+          definition_hash: agent.definitionHash,
+          run_key: run.run_key,
+          scheduled_for_ms: scheduleOutcome.scheduled_for_ms,
+          policy_snapshot: agent.config.policy ?? null,
+          routeContext: buildCronRouteContext({
+            agentId: agent.id,
+            runKey: run.run_key,
+          }),
+        },
       } as unknown as Parameters<IWorkOrderRepository['createWorkItem']>[0]);
 
       this.deps.repository.updateWorkItemStatus(workItem.id, 'ready');

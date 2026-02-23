@@ -4,6 +4,14 @@ export type AgentSchemaVersion = 1;
 
 export type AgentSchedule = AgentCronSchedule | AgentIntervalSchedule;
 
+export type AgentScheduleWindowDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+
+export interface AgentScheduleWindow {
+  days: AgentScheduleWindowDay[];
+  start: string;
+  end: string;
+}
+
 export interface AgentCronSchedule {
   cron: string;
   tz?: string;
@@ -12,33 +20,57 @@ export interface AgentCronSchedule {
 
 export interface AgentIntervalSchedule {
   everyMs: number;
+  jitterMs?: number;
+  timezone?: string;
   tz?: string;
+  windows?: AgentScheduleWindow[];
   catchUp?: AgentCatchUpPolicy;
 }
 
 export interface AgentCatchUpPolicy {
-  mode?: 'coalesce' | 'catch_up';
+  mode?: 'coalesce' | 'catch_up' | 'replay' | 'skip';
   maxCatchUpWindowMs?: number;
   maxRunsPerTick?: number;
+  maxReplayTicks?: number;
 }
+
+export type AgentLimitValue = number | boolean | string;
 
 export interface AgentPolicy {
   toolAllowlist?: string[];
+  toolDenylist?: string[];
   forbiddenPatterns?: AgentForbiddenPatternConfig[];
   prompts?: Record<string, string>;
-  limits?: Record<string, number>;
+  limits?: Record<string, AgentLimitValue>;
+  approval?: AgentApprovalPolicy;
+  privacy?: AgentPrivacyPolicy;
+}
+
+export interface AgentApprovalPolicy {
+  required?: boolean;
+  actions?: string[];
+  thresholds?: Record<string, number>;
+}
+
+export interface AgentPrivacyPolicy {
+  redactPiiByDefault?: boolean;
+  allowedDataClasses?: Array<
+    'public' | 'internal' | 'customer' | 'financial' | 'hr' | 'compliance' | 'sensitive'
+  >;
 }
 
 export interface AgentForbiddenPatternConfig {
   pattern: string;
   category?: ToolCategory;
   description?: string;
-  severity?: 'high' | 'critical';
+  severity?: 'low' | 'medium' | 'high' | 'critical';
   id?: string;
   examples?: string[];
 }
 
 export interface AgentRunnerConfig {
+  engine?: string;
+  entrypoint?: string;
   config?: Record<string, unknown>;
 }
 
@@ -61,18 +93,30 @@ export interface AgentConfig {
   schemaVersion: AgentSchemaVersion;
   id: string;
   name: string;
+  description?: string;
   enabled: boolean;
   type: string;
+  subAgents?: string[];
   schedule: AgentSchedule;
   policy: AgentPolicy;
   runner: AgentRunnerConfig;
+  ui?: {
+    icon?: string;
+    accent?: string;
+    order?: number;
+    group?: string;
+  };
+  tags?: string[];
+  meta?: Record<string, unknown>;
 }
 
 export interface CompiledAgentSchedule {
   kind: 'cron' | 'interval';
   cron?: string;
   everyMs?: number;
+  jitterMs?: number;
   tz?: string;
+  windows?: AgentScheduleWindow[];
   catchUp: AgentCatchUpPolicy;
 }
 
@@ -87,6 +131,7 @@ export const DEFAULT_CATCH_UP_POLICY: AgentCatchUpPolicy = {
 export function compileAgentConfig(config: AgentConfig): CompiledAgentConfig {
   const schedule = config.schedule;
   const catchUp = { ...DEFAULT_CATCH_UP_POLICY, ...(schedule.catchUp ?? {}) };
+  const tz = schedule.tz ?? ('timezone' in schedule ? schedule.timezone : undefined);
 
   if ('cron' in schedule) {
     return {
@@ -94,7 +139,7 @@ export function compileAgentConfig(config: AgentConfig): CompiledAgentConfig {
       schedule: {
         kind: 'cron',
         cron: schedule.cron,
-        tz: schedule.tz,
+        tz,
         catchUp,
       },
     };
@@ -105,7 +150,9 @@ export function compileAgentConfig(config: AgentConfig): CompiledAgentConfig {
     schedule: {
       kind: 'interval',
       everyMs: schedule.everyMs,
-      tz: schedule.tz,
+      jitterMs: schedule.jitterMs,
+      tz,
+      windows: schedule.windows,
       catchUp,
     },
   };

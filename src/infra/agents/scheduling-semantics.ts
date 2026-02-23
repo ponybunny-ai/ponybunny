@@ -15,7 +15,7 @@ export interface IntervalScheduleDefinition extends BaseScheduleDefinition {
   cron?: never;
 }
 
-export type CatchUpMode = 'coalesce' | 'catch_up';
+export type CatchUpMode = 'coalesce' | 'catch_up' | 'replay' | 'skip';
 
 export interface CatchUpPolicy {
   mode?: CatchUpMode;

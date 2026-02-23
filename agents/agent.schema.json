@@ -1,6 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://ponybunny.dev/schemas/agent.schema.json",
+    "$id": "https://ponybunny.dho.ai/schemas/agent.schema.json",
     "title": "PonyBunny Compatible Agent Definition Schema",
     "description": "Generic schema for all PonyBunny-compatible agent definitions (Lead, Scout, Forge, Guard, Keeper, and future agents).",
     "type": "object",
