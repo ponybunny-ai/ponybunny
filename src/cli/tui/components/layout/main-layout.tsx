@@ -6,6 +6,7 @@ import * as React from 'react';
 import { Box, Text } from 'ink';
 import { InputBar } from './input-bar.js';
 import { useGatewayContext } from '../../context/gateway-context.js';
+import { useAppContext } from '../../context/app-context.js';
 
 export interface MainLayoutProps {
   children: React.ReactNode;
@@ -19,6 +20,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   inputFocus = true,
 }) => {
   const { connectionStatus } = useGatewayContext();
+  const { state } = useAppContext();
 
   const renderConnectionStatus = () => {
     switch (connectionStatus) {
@@ -37,8 +39,11 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   return (
     <Box flexDirection="column" height="100%">
       {/* Minimal header */}
-      <Box paddingX={1} justifyContent="space-between">
+      <Box paddingX={1} alignItems="center">
         <Text bold color="cyan">PonyBunny</Text>
+        <Box flexGrow={1} justifyContent="center">
+          <Text dimColor>{state.activityStatus === 'idle' ? 'Idle' : state.activityStatus}</Text>
+        </Box>
         <Box>
           {renderConnectionStatus()}
           <Text dimColor> {connectionStatus}</Text>

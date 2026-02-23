@@ -13,6 +13,7 @@ import { DashboardView, GoalsView, EventsView, HelpView } from './components/vie
 import { GoalCreateModal, EscalationModal, ConfirmModal } from './components/modals/index.js';
 import { executeCommand, handleNaturalInput, isCommand, type CommandContext } from './commands/index.js';
 import type { GatewayEvent as ClientGatewayEvent, TuiGatewayClient } from '../gateway/index.js';
+import { useTerminalSize } from './hooks/use-terminal-size.js';
 
 interface AppContentProps {
   onExit: () => void;
@@ -190,8 +191,10 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
     </MainLayout>
   );
 
+  const { columns, rows } = useTerminalSize();
+
   return (
-    <Box flexDirection="column" height="100%">
+    <Box flexDirection="column" height={rows} width={columns}>
       {renderContent()}
 
       {/* Modal overlay */}
@@ -201,8 +204,8 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
           flexDirection="column"
           justifyContent="center"
           alignItems="center"
-          width="100%"
-          height="100%"
+          width={columns}
+          height={rows}
         >
           {renderModal()}
         </Box>

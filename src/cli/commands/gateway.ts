@@ -22,7 +22,6 @@ import { spawn, execSync } from 'child_process';
 
 import { GatewayServer, type Permission } from '../../gateway/index.js';
 import { WorkOrderDatabase } from '../../work-order/database/manager.js';
-import { startGatewayTui } from '../ui/gateway-tui.js';
 import { isDebugLoggingEnabled } from '../../infra/config/debug-flags.js';
 import { getPublicKey } from '../lib/key-manager.js';
 import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
@@ -960,31 +959,6 @@ gatewayCommand
       db.close();
     } catch (error) {
       console.error(chalk.red('Failed to revoke token:'), error);
-      process.exit(1);
-    }
-  });
-
-gatewayCommand
-  .command('tui')
-  .description('Start the Gateway TUI (Terminal User Interface)')
-  .option('-h, --host <host>', 'Gateway host', DEFAULT_HOST)
-  .option('-p, --port <port>', 'Gateway port', String(DEFAULT_PORT))
-  .option('-d, --db <path>', 'Database path', DEFAULT_DB_PATH)
-  .option('-t, --token <token>', 'Authentication token')
-  .action(async (options) => {
-    const { host, port, token: providedToken, db: dbPath } = options;
-    const url = `ws://${host}:${port}`;
-
-    console.log(chalk.blue(`Connecting to Gateway at ${url}...`));
-
-    try {
-      let token = providedToken;
-      if (!token && LOCAL_HOSTS.has(host)) {
-        token = await getOrCreateLocalPairingToken(dbPath, ['read', 'write']);
-      }
-      await startGatewayTui({ url, token });
-    } catch (error) {
-      console.error(chalk.red('TUI error:'), error);
       process.exit(1);
     }
   });
