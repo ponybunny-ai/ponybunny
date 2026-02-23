@@ -24,7 +24,51 @@ const createTempDbPath = (): string => {
 const writeAgent = (workspaceDir: string, id: string, config: Record<string, unknown>): void => {
   const agentDir = path.join(workspaceDir, 'agents', id);
   fs.mkdirSync(agentDir, { recursive: true });
-  fs.writeFileSync(path.join(agentDir, 'agent.json'), JSON.stringify(config, null, 2));
+  const baseConfig = {
+    $schema: 'https://ponybunny.dho.ai/schemas/agent.schema.json',
+    schemaVersion: 1,
+    id,
+    name: `Agent ${id}`,
+    description: 'Growth and pipeline agent',
+    enabled: true,
+    type: 'growth',
+    subAgents: [],
+    schedule: {
+      everyMs: 60000,
+      catchUp: { mode: 'coalesce' },
+    },
+    policy: {
+      toolAllowlist: ['llm.classify'],
+      forbiddenPatterns: [
+        {
+          pattern: '.pay',
+          description: 'Disallow payment execution',
+          severity: 'high',
+        },
+      ],
+      prompts: {
+        detect_system: 'Return ONLY valid JSON.',
+      },
+      limits: {
+        lead_summary_max_chars: 1800,
+      },
+    },
+    runner: {
+      engine: 'default',
+      config: {
+        tick_defaults: {
+          max_events_per_tick: 150,
+          max_tasks_per_tick: 80,
+          default_lookback_window: '24h',
+        },
+        circuit_breaker: {
+          failure_threshold: 5,
+          backoff_minutes: 20,
+        },
+      },
+    },
+  };
+  fs.writeFileSync(path.join(agentDir, 'agent.json'), JSON.stringify({ ...baseConfig, ...config }, null, 2));
   fs.writeFileSync(path.join(agentDir, 'AGENT.md'), `# ${id}\n`);
 };
 
@@ -119,14 +163,8 @@ describe('durable agent scheduling integration', () => {
     const dbPath = createTempDbPath();
 
     writeAgent(workspaceDir, 'agent-idempotent', {
-      schemaVersion: 1,
-      id: 'agent-idempotent',
       name: 'Agent Idempotent',
-      enabled: true,
-      type: 'test',
-      schedule: { everyMs: 60000 },
-      policy: {},
-      runner: {},
+      schedule: { everyMs: 60000, catchUp: { mode: 'coalesce' } },
     });
 
     const registry = new AgentRegistry();
@@ -198,14 +236,8 @@ describe('durable agent scheduling integration', () => {
     const dbPath = createTempDbPath();
 
     writeAgent(workspaceDir, 'agent-coalesce', {
-      schemaVersion: 1,
-      id: 'agent-coalesce',
       name: 'Agent Coalesce',
-      enabled: true,
-      type: 'test',
-      schedule: { everyMs: intervalMs },
-      policy: {},
-      runner: {},
+      schedule: { everyMs: intervalMs, catchUp: { mode: 'coalesce' } },
     });
 
     const registry = new AgentRegistry();
@@ -268,14 +300,8 @@ describe('durable agent scheduling integration', () => {
     const dbPath = createTempDbPath();
 
     writeAgent(workspaceDir, 'agent-contention', {
-      schemaVersion: 1,
-      id: 'agent-contention',
       name: 'Agent Contention',
-      enabled: true,
-      type: 'test',
-      schedule: { everyMs: 60000 },
-      policy: {},
-      runner: {},
+      schedule: { everyMs: 60000, catchUp: { mode: 'coalesce' } },
     });
 
     const registry = new AgentRegistry();

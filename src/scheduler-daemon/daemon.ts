@@ -36,7 +36,21 @@ export interface SchedulerDaemonConfig {
   /** Maximum concurrent goals */
   maxConcurrentGoals?: number;
   agentsEnabled?: boolean;
+  mainAgentId?: string;
+  personaEnabled?: boolean;
   agentAService?: AgentAService;
+}
+
+function resolveMainAgentId(configuredId: string | undefined, availableIds: string[]): string | null {
+  if (configuredId && availableIds.includes(configuredId)) {
+    return configuredId;
+  }
+
+  if (availableIds.includes('lead')) {
+    return 'lead';
+  }
+
+  return availableIds.length > 0 ? availableIds[0] : null;
 }
 
 export class SchedulerDaemon {
@@ -99,14 +113,30 @@ export class SchedulerDaemon {
       const registry = getGlobalAgentRegistry();
       try {
         await registry.loadAgents({ workspaceDir: process.cwd() });
+        const availableAgentIds = registry.getAgents().map((agent) => agent.id);
+        const mainAgentId = resolveMainAgentId(this.config.mainAgentId, availableAgentIds);
+
+        if (!mainAgentId) {
+          console.warn('[SchedulerDaemon] No valid agents available; skipping cron job reconciliation');
+        }
+
         const summary = await reconcileCronJobsFromRegistry({
           repository: this.repository,
           registry,
+          ...(mainAgentId ? { mainAgentId } : {}),
         });
+
+        if (mainAgentId) {
+          console.log(`[SchedulerDaemon] Main agent selected: ${mainAgentId}`);
+        }
         console.log(
           `[SchedulerDaemon] Cron job reconciliation complete: ` +
           `upserted=${summary.upserted}, disabled=${summary.disabled}, skipped=${summary.skipped}`
         );
+
+        if (this.config.personaEnabled) {
+          console.log('[SchedulerDaemon] Persona loading is enabled via runtime config');
+        }
       } catch (error) {
         console.warn('[SchedulerDaemon] Cron job reconciliation failed:', error);
       }

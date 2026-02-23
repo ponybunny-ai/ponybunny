@@ -154,6 +154,9 @@ describe('AgentScheduler', () => {
         matchedBy: 'cron_schedule',
       })
     );
+    const defaultWorkdir = (workItems[0].context as Record<string, unknown>).agent_workdir;
+    expect(typeof defaultWorkdir).toBe('string');
+    expect(fs.existsSync(defaultWorkdir as string)).toBe(true);
 
     const verifyDb = new Database(dbPath);
     const run = verifyDb
@@ -310,6 +313,48 @@ describe('AgentScheduler', () => {
         agentId: 'agent-growth',
       })
     );
+
+    repository.close();
+  });
+
+  it('uses configured per-agent workdir when provided', async () => {
+    const now = 1_700_000_300_000;
+    const workspaceDir = createTempDir();
+    const dbPath = createTempDbPath();
+
+    writeAgent(workspaceDir, 'agent-custom-dir', {
+      name: 'Agent Custom Dir',
+      workdir: './my-agent-workdir',
+    });
+
+    const registry = new AgentRegistry();
+    await registry.loadAgents({ workspaceDir });
+
+    const repository = new WorkOrderDatabase(dbPath);
+    await repository.initialize();
+    await reconcileCronJobsFromRegistry({ repository, registry });
+
+    const db = new Database(dbPath);
+    db.prepare('UPDATE cron_jobs SET next_run_at_ms = ? WHERE agent_id = ?').run(now - 1000, 'agent-custom-dir');
+    db.close();
+
+    const scheduler = new StubScheduler();
+    const agentScheduler = new AgentScheduler(
+      { repository, scheduler, registry },
+      { claimTtlMs: 60000, instanceId: 'test-instance' }
+    );
+
+    const summary = await agentScheduler.dispatchOnce(now);
+    expect(summary.claimed).toBe(1);
+    expect(summary.dispatched).toBe(1);
+
+    const goals = repository.listGoals();
+    const workItems = repository.getWorkItemsByGoal(goals[0].id);
+    const context = workItems[0].context as Record<string, unknown>;
+    const configuredWorkdir = context.agent_workdir as string;
+
+    expect(configuredWorkdir).toContain(path.join('agents', 'agent-custom-dir', 'my-agent-workdir'));
+    expect(fs.existsSync(configuredWorkdir)).toBe(true);
 
     repository.close();
   });

@@ -90,3 +90,25 @@ export function buildCronRouteContext(params: {
     isSubagent: false,
   };
 }
+
+export function buildGatewayMessageRouteContext(params: {
+  agentId: string;
+  runKey: string;
+  providerId?: string;
+  channel?: string;
+  senderId?: string;
+  senderIsOwner?: boolean;
+}): RouteContext {
+  return {
+    source: 'gateway.message',
+    providerId: params.providerId,
+    channel: params.channel ?? 'rpc',
+    agentId: params.agentId,
+    runKey: params.runKey,
+    senderId: params.senderId,
+    matchedBy: 'user_command',
+    senderIsOwner: params.senderIsOwner,
+    sandboxed: false,
+    isSubagent: false,
+  };
+}

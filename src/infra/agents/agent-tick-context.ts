@@ -8,6 +8,7 @@ export interface AgentTickWorkItemContext {
   definition_hash: string;
   run_key: string;
   scheduled_for_ms: number;
+  agent_workdir?: string;
   policy_snapshot: Record<string, unknown> | null;
   routeContext?: RouteContext;
 }
@@ -43,6 +44,10 @@ export const isAgentTickContext = (context: unknown): context is AgentTickWorkIt
   }
 
   if (!hasNumber(context, 'scheduled_for_ms')) {
+    return false;
+  }
+
+  if (context.agent_workdir !== undefined && typeof context.agent_workdir !== 'string') {
     return false;
   }
 

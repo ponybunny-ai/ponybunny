@@ -18,6 +18,10 @@ export interface PonyBunnyRuntimeConfig {
     maxConcurrentGoals: number;
     agentsEnabled: boolean;
   };
+  agent: {
+    mainAgentId: string;
+    personaEnabled: boolean;
+  };
   debug: {
     serverPort: number;
     loggingEnabled: boolean;
@@ -40,7 +44,11 @@ export const DEFAULT_RUNTIME_CONFIG: PonyBunnyRuntimeConfig = {
   scheduler: {
     tickIntervalMs: 1000,
     maxConcurrentGoals: 5,
-    agentsEnabled: false,
+    agentsEnabled: true,
+  },
+  agent: {
+    mainAgentId: 'lead',
+    personaEnabled: false,
   },
   debug: {
     serverPort: 3001,
@@ -111,6 +119,10 @@ export function resolveRuntimeConfigFromEnvironment(
       ),
       agentsEnabled: toBoolean(env.PONY_SCHEDULER_AGENTS_ENABLED, DEFAULT_RUNTIME_CONFIG.scheduler.agentsEnabled),
     },
+    agent: {
+      mainAgentId: toStringValue(env.PONY_MAIN_AGENT_ID, DEFAULT_RUNTIME_CONFIG.agent.mainAgentId),
+      personaEnabled: toBoolean(env.PONY_AGENT_PERSONA_ENABLED, DEFAULT_RUNTIME_CONFIG.agent.personaEnabled),
+    },
     debug: {
       serverPort: toPositiveInt(env.DEBUG_SERVER_PORT, DEFAULT_RUNTIME_CONFIG.debug.serverPort),
       loggingEnabled: env.PONY_BUNNY_DEBUG === '1',
@@ -168,6 +180,10 @@ function normalizeConfig(raw: PonyBunnyRuntimeConfig): PonyBunnyRuntimeConfig {
         DEFAULT_RUNTIME_CONFIG.scheduler.maxConcurrentGoals
       ),
       agentsEnabled: toBoolean(raw.scheduler?.agentsEnabled, DEFAULT_RUNTIME_CONFIG.scheduler.agentsEnabled),
+    },
+    agent: {
+      mainAgentId: toStringValue(raw.agent?.mainAgentId, DEFAULT_RUNTIME_CONFIG.agent.mainAgentId),
+      personaEnabled: toBoolean(raw.agent?.personaEnabled, DEFAULT_RUNTIME_CONFIG.agent.personaEnabled),
     },
     debug: {
       serverPort: toPositiveInt(raw.debug?.serverPort, DEFAULT_RUNTIME_CONFIG.debug.serverPort),

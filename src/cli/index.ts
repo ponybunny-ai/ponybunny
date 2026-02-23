@@ -16,6 +16,7 @@ import { registerWorkCommand } from './commands/work.js';
 import { registerSkillsCommand } from './commands/skills.js';
 import { createMCPCommand } from './commands/mcp.js';
 import { createPromptsCommand } from './commands/prompts.js';
+import { agentCommand } from './commands/agent.js';
 import { startTui } from './tui/start.js';
 
 const program = new Command();
@@ -42,6 +43,7 @@ program.addCommand(serviceCommand);
 program.addCommand(resetCommand);
 program.addCommand(createMCPCommand());
 program.addCommand(createPromptsCommand());
+program.addCommand(agentCommand);
 registerWorkCommand(program);
 registerSkillsCommand(program);
 

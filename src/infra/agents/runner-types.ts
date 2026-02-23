@@ -10,6 +10,8 @@ export interface AgentTickBudget {
 export interface AgentTickContext {
   readonly now: Date;
   readonly runKey: string;
+  readonly goalId?: string;
+  readonly workDir?: string;
   readonly budget?: AgentTickBudget;
   readonly routeContext?: RouteContext;
 }

@@ -118,7 +118,9 @@ async function runScheduler(
   socketPath: string,
   debugMode: boolean,
   mode: 'foreground' | 'background',
-  agentsEnabled: boolean
+  agentsEnabled: boolean,
+  mainAgentId: string,
+  personaEnabled: boolean
 ): Promise<void> {
   const isBackground = process.env.PONY_SCHEDULER_BACKGROUND === '1';
 
@@ -176,8 +178,8 @@ async function runScheduler(
     await executionService.initializeMCP();
 
     // Create scheduler daemon
-    const tickIntervalMs = 1000;
-    const maxConcurrentGoals = 5;
+    const tickIntervalMs = runtimeConfig.scheduler.tickIntervalMs;
+    const maxConcurrentGoals = runtimeConfig.scheduler.maxConcurrentGoals;
 
     const daemon = new SchedulerDaemon(
       repository,
@@ -190,6 +192,8 @@ async function runScheduler(
         tickIntervalMs,
         maxConcurrentGoals,
         agentsEnabled,
+        mainAgentId,
+        personaEnabled,
         agentAService: AgentAService.create(llmService),
       }
     );
@@ -235,6 +239,8 @@ async function runScheduler(
     console.log(`  Max Concurrent Goals: ${maxConcurrentGoals}`);
     console.log(`  Debug Mode: ${debugMode ? 'Enabled' : 'Disabled'}`);
     console.log(`  Agent Scheduler: ${agentsEnabled ? 'Enabled' : 'Disabled'}`);
+    console.log(`  Main Agent: ${mainAgentId}`);
+    console.log(`  Persona: ${personaEnabled ? 'Enabled' : 'Disabled'}`);
     console.log(
       `  LLM Providers: ${availableProviders.length > 0 ? availableProviders.join(', ') : 'mock-provider'}`
     );
@@ -264,7 +270,9 @@ function startBackground(
   dbPath: string,
   socketPath: string,
   debugMode: boolean,
-  agentsEnabled: boolean
+  agentsEnabled: boolean,
+  mainAgentId: string,
+  personaEnabled: boolean
 ): void {
   console.log(chalk.blue('Starting Scheduler Daemon in background...'));
 
@@ -280,6 +288,12 @@ function startBackground(
   }
   if (agentsEnabled) {
     args.push('--agents');
+  }
+  if (mainAgentId) {
+    args.push('--main-agent', mainAgentId);
+  }
+  if (personaEnabled) {
+    args.push('--persona');
   }
 
   const child = spawn(process.execPath, args, {
@@ -319,7 +333,9 @@ export const schedulerCommand = new Command('scheduler')
       .option('--socket <path>', 'IPC socket path', runtimeConfig.paths.schedulerSocket)
       .option('--debug', 'Enable debug mode')
       .option('-f, --force', 'Force start even if already running')
-      .option('--agents', 'Enable config-driven agent scheduler loop')
+      .option('--agents', 'Enable config-driven agent scheduler loop', runtimeConfig.scheduler.agentsEnabled)
+      .option('--main-agent <id>', 'Main agent to load and run', runtimeConfig.agent.mainAgentId)
+      .option('--persona', 'Enable persona prompt loading', runtimeConfig.agent.personaEnabled)
       .option('--agent-a', 'Enable Agent A background listener loop (deprecated)')
       .action(async (options) => {
         const dbPath = options.db;
@@ -327,7 +343,9 @@ export const schedulerCommand = new Command('scheduler')
         const debugMode = Boolean(options.debug) || isDebugLoggingEnabled();
         const foreground = options.foreground ?? false;
         const force = options.force ?? false;
-        const agentsEnabled = options.agents ?? false;
+        const agentsEnabled = options.agents ?? runtimeConfig.scheduler.agentsEnabled;
+        const mainAgentId = options.mainAgent ?? runtimeConfig.agent.mainAgentId;
+        const personaEnabled = options.persona ?? runtimeConfig.agent.personaEnabled;
         const agentAEnabled = options.agentA ?? false;
 
         if (agentAEnabled) {
@@ -356,10 +374,18 @@ export const schedulerCommand = new Command('scheduler')
 
         if (foreground) {
           // Run in foreground
-          await runScheduler(dbPath, socketPath, debugMode, 'foreground', agentsEnabled);
+          await runScheduler(
+            dbPath,
+            socketPath,
+            debugMode,
+            'foreground',
+            agentsEnabled,
+            mainAgentId,
+            personaEnabled
+          );
         } else {
           // Run in background (default)
-          startBackground(dbPath, socketPath, debugMode, agentsEnabled);
+          startBackground(dbPath, socketPath, debugMode, agentsEnabled, mainAgentId, personaEnabled);
         }
       })
   )

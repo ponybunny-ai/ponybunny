@@ -791,6 +791,7 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     const schedule = params.schedule;
     const scheduleCron = schedule.kind === 'cron' ? schedule.cron ?? null : null;
     const scheduleIntervalMs = schedule.kind === 'interval' ? schedule.every_ms ?? null : null;
+    const nowMs = params.now_ms ?? Date.now();
 
     const stmt = this.db.prepare(`
       INSERT INTO cron_jobs (
@@ -799,13 +800,15 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
         schedule_cron,
         schedule_timezone,
         schedule_interval_ms,
+        next_run_at_ms,
         definition_hash
-      ) VALUES (?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(agent_id) DO UPDATE SET
         enabled = excluded.enabled,
         schedule_cron = excluded.schedule_cron,
         schedule_timezone = excluded.schedule_timezone,
         schedule_interval_ms = excluded.schedule_interval_ms,
+        next_run_at_ms = COALESCE(cron_jobs.next_run_at_ms, excluded.next_run_at_ms),
         definition_hash = excluded.definition_hash
     `);
 
@@ -815,6 +818,7 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
       scheduleCron,
       schedule.tz ?? null,
       scheduleIntervalMs,
+      nowMs,
       params.definition_hash
     );
 

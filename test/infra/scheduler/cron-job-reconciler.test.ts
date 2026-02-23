@@ -20,7 +20,51 @@ const writeAgent = (
 ): void => {
   const agentDir = path.join(workspaceDir, 'agents', id);
   fs.mkdirSync(agentDir, { recursive: true });
-  fs.writeFileSync(path.join(agentDir, 'agent.json'), JSON.stringify(config, null, 2));
+  const baseConfig = {
+    $schema: 'https://ponybunny.dho.ai/schemas/agent.schema.json',
+    schemaVersion: 1,
+    id,
+    name: `Agent ${id}`,
+    description: 'Growth and pipeline agent',
+    enabled: true,
+    type: 'growth',
+    subAgents: [],
+    schedule: {
+      everyMs: 60000,
+      catchUp: { mode: 'coalesce' },
+    },
+    policy: {
+      toolAllowlist: ['llm.classify'],
+      forbiddenPatterns: [
+        {
+          pattern: '.pay',
+          description: 'Disallow payment execution',
+          severity: 'high',
+        },
+      ],
+      prompts: {
+        detect_system: 'Return ONLY valid JSON.',
+      },
+      limits: {
+        lead_summary_max_chars: 1800,
+      },
+    },
+    runner: {
+      engine: 'default',
+      config: {
+        tick_defaults: {
+          max_events_per_tick: 150,
+          max_tasks_per_tick: 80,
+          default_lookback_window: '24h',
+        },
+        circuit_breaker: {
+          failure_threshold: 5,
+          backoff_minutes: 20,
+        },
+      },
+    },
+  };
+  fs.writeFileSync(path.join(agentDir, 'agent.json'), JSON.stringify({ ...baseConfig, ...config }, null, 2));
   fs.writeFileSync(path.join(agentDir, 'AGENT.md'), `# ${id}\n`);
 };
 
@@ -30,25 +74,14 @@ describe('cron job reconciliation', () => {
     const dbPath = createTempDbPath();
 
     writeAgent(workspaceDir, 'agent-enabled', {
-      schemaVersion: 1,
-      id: 'agent-enabled',
       name: 'Agent Enabled',
-      enabled: true,
-      type: 'test',
-      schedule: { cron: '0 * * * *' },
-      policy: {},
-      runner: {},
+      schedule: { everyMs: 60000, catchUp: { mode: 'coalesce' } },
     });
 
     writeAgent(workspaceDir, 'agent-disabled', {
-      schemaVersion: 1,
-      id: 'agent-disabled',
       name: 'Agent Disabled',
       enabled: false,
-      type: 'test',
-      schedule: { everyMs: 60000 },
-      policy: {},
-      runner: {},
+      schedule: { everyMs: 60000, catchUp: { mode: 'coalesce' } },
     });
 
     const registry = new AgentRegistry();
@@ -66,13 +99,15 @@ describe('cron job reconciliation', () => {
 
     expect(enabled).toBeDefined();
     expect(enabled?.enabled).toBe(true);
-    expect(enabled?.schedule_cron).toBe('0 * * * *');
+    expect(enabled?.schedule_interval_ms).toBe(60000);
     expect(enabled?.definition_hash).toBe(enabledDefinition?.definitionHash);
+    expect(enabled?.next_run_at_ms).toEqual(expect.any(Number));
 
     expect(disabled).toBeDefined();
     expect(disabled?.enabled).toBe(false);
     expect(disabled?.schedule_interval_ms).toBe(60000);
     expect(disabled?.definition_hash).toBe(disabledDefinition?.definitionHash);
+    expect(disabled?.next_run_at_ms).toEqual(expect.any(Number));
 
     repository.close();
   });
@@ -82,14 +117,8 @@ describe('cron job reconciliation', () => {
     const dbPath = createTempDbPath();
 
     writeAgent(workspaceDir, 'agent-present', {
-      schemaVersion: 1,
-      id: 'agent-present',
       name: 'Agent Present',
-      enabled: true,
-      type: 'test',
-      schedule: { everyMs: 120000 },
-      policy: {},
-      runner: {},
+      schedule: { everyMs: 120000, catchUp: { mode: 'coalesce' } },
     });
 
     const registry = new AgentRegistry();
@@ -110,6 +139,38 @@ describe('cron job reconciliation', () => {
     const missing = repository.getCronJob('agent-missing');
     expect(missing).toBeDefined();
     expect(missing?.enabled).toBe(false);
+
+    repository.close();
+  });
+
+  it('reconciles only the selected main agent when provided', async () => {
+    const workspaceDir = createTempDir();
+    const dbPath = createTempDbPath();
+
+    writeAgent(workspaceDir, 'lead', {
+      name: 'Lead',
+      schedule: { everyMs: 60000, catchUp: { mode: 'coalesce' } },
+    });
+
+    writeAgent(workspaceDir, 'scout', {
+      name: 'Scout',
+      schedule: { everyMs: 60000, catchUp: { mode: 'coalesce' } },
+    });
+
+    const registry = new AgentRegistry();
+    await registry.loadAgents({ workspaceDir });
+
+    const repository = new WorkOrderDatabase(dbPath);
+    await repository.initialize();
+
+    await reconcileCronJobsFromRegistry({ repository, registry, mainAgentId: 'lead' });
+
+    const lead = repository.getCronJob('lead');
+    const scout = repository.getCronJob('scout');
+
+    expect(lead).toBeDefined();
+    expect(lead?.enabled).toBe(true);
+    expect(scout).toBeUndefined();
 
     repository.close();
   });

@@ -7,6 +7,7 @@ import type {
 import type { SchedulerEvent, IScheduler } from '../scheduler/types.js';
 import { computeScheduleOutcome } from '../infra/scheduler/schedule-computation.js';
 import { buildCronRouteContext } from '../infra/routing/route-context.js';
+import { ensureAgentWorkdir } from '../infra/agents/agent-workdir.js';
 
 export interface AgentSchedulerConfig {
   claimTtlMs: number;
@@ -42,6 +43,27 @@ const DEFAULT_SUCCESS_CRITERIA = [
     required: true,
   },
 ];
+
+const toStringArray = (value: unknown): string[] =>
+  Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
+
+const computeEffectiveTools = (allowlist: string[], denylist: string[], forbiddenPatterns: string[]): string[] => {
+  const deny = new Set(denylist);
+  const matchers = forbiddenPatterns.flatMap((pattern) => {
+    if (pattern.length === 0) {
+      return [];
+    }
+    try {
+      return [new RegExp(pattern, 'i')];
+    } catch {
+      return [];
+    }
+  });
+
+  return allowlist.filter((tool) => !deny.has(tool) && !matchers.some((matcher) => matcher.test(tool)));
+};
 
 export class AgentScheduler {
   private inFlightByGoalId = new Map<string, AgentSchedulerInFlight>();
@@ -158,6 +180,12 @@ export class AgentScheduler {
         }
       );
 
+      const agentWorkdir = ensureAgentWorkdir({
+        agentId: agent.id,
+        configuredWorkdir: agent.config.workdir,
+        configPath: agent.configPath,
+      });
+
       const workItem = this.deps.repository.createWorkItem({
         goal_id: goal.id,
         title: `Run ${agent.config.name}`,
@@ -173,6 +201,22 @@ export class AgentScheduler {
           definition_hash: agent.definitionHash,
           run_key: run.run_key,
           scheduled_for_ms: scheduleOutcome.scheduled_for_ms,
+          agent_workdir: agentWorkdir,
+          tool_allowlist: computeEffectiveTools(
+            toStringArray(agent.config.policy?.toolAllowlist),
+            toStringArray(agent.config.policy?.toolDenylist),
+            Array.isArray(agent.config.policy?.forbiddenPatterns)
+              ? agent.config.policy.forbiddenPatterns.map((item) => item.pattern)
+              : []
+          ),
+          approval_required: agent.config.policy?.approval?.required === true,
+          approval_actions: toStringArray(agent.config.policy?.approval?.actions),
+          tool_policy_context: {
+            agentId: agent.id,
+            isSubagent: false,
+            sandboxed: false,
+            isOwner: true,
+          },
           policy_snapshot: agent.config.policy ?? null,
           routeContext: buildCronRouteContext({
             agentId: agent.id,

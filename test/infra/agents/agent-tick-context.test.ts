@@ -28,6 +28,7 @@ describe('agent-tick-context', () => {
       definition_hash: 'hash-1',
       run_key: 'run-1',
       scheduled_for_ms: 1700000000000,
+      agent_workdir: '/tmp/pony-agent-1',
       policy_snapshot: null,
     };
 
@@ -42,6 +43,18 @@ describe('agent-tick-context', () => {
         definition_hash: 'hash-1',
         run_key: 'run-1',
         scheduled_for_ms: '1700000000000',
+        policy_snapshot: {},
+      })
+    ).toBe(false);
+
+    expect(
+      isAgentTickContext({
+        kind: 'agent_tick',
+        agent_id: 'agent-1',
+        definition_hash: 'hash-1',
+        run_key: 'run-1',
+        scheduled_for_ms: 1700000000000,
+        agent_workdir: 42,
         policy_snapshot: {},
       })
     ).toBe(false);

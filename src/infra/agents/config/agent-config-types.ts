@@ -39,11 +39,18 @@ export type AgentLimitValue = number | boolean | string;
 export interface AgentPolicy {
   toolAllowlist?: string[];
   toolDenylist?: string[];
+  skills?: AgentResourcePolicy;
+  mcp?: AgentResourcePolicy;
   forbiddenPatterns?: AgentForbiddenPatternConfig[];
   prompts?: Record<string, string>;
   limits?: Record<string, AgentLimitValue>;
   approval?: AgentApprovalPolicy;
   privacy?: AgentPrivacyPolicy;
+}
+
+export interface AgentResourcePolicy {
+  available?: string[];
+  denied?: string[];
 }
 
 export interface AgentApprovalPolicy {
@@ -96,6 +103,7 @@ export interface AgentConfig {
   description?: string;
   enabled: boolean;
   type: string;
+  workdir?: string;
   subAgents?: string[];
   schedule: AgentSchedule;
   policy: AgentPolicy;

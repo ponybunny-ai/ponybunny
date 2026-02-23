@@ -51,6 +51,12 @@
             "pattern": "^[a-z][a-z0-9_:-]{1,63}$",
             "description": "Agent capability type, e.g. mission_lead, growth, delivery, compliance, support_ops"
         },
+        "workdir": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "Optional working directory for this agent. Relative paths resolve from the agent config directory."
+        },
         "subAgents": {
             "type": "array",
             "description": "Agent IDs this agent is allowed to dispatch/trigger",
@@ -212,6 +218,12 @@
                     },
                     "uniqueItems": true
                 },
+                "skills": {
+                    "$ref": "#/$defs/skillResourcePolicy"
+                },
+                "mcp": {
+                    "$ref": "#/$defs/mcpResourcePolicy"
+                },
                 "forbiddenPatterns": {
                     "type": "array",
                     "items": {
@@ -258,6 +270,58 @@
                         "high",
                         "critical"
                     ]
+                }
+            }
+        },
+        "skillResourcePolicy": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "available": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[a-zA-Z0-9_-][a-zA-Z0-9_*-]*$"
+                    },
+                    "uniqueItems": true
+                },
+                "denied": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[a-zA-Z0-9_-][a-zA-Z0-9_*-]*$"
+                    },
+                    "uniqueItems": true
+                }
+            }
+        },
+        "mcpResourcePolicy": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "available": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "minLength": 3,
+                        "maxLength": 256,
+                        "pattern": "^[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_*-]+$"
+                    },
+                    "uniqueItems": true
+                },
+                "denied": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "minLength": 3,
+                        "maxLength": 256,
+                        "pattern": "^[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_*-]+$"
+                    },
+                    "uniqueItems": true
                 }
             }
         },

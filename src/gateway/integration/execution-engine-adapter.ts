@@ -71,6 +71,40 @@ export class ExecutionEngineAdapter implements IExecutionEngineAdapter {
       }
 
       const runnerRegistry = getGlobalRunnerRegistry();
+      const configuredEngine = definition.config.runner?.engine?.trim();
+      const hasTypeRunner = runnerRegistry.hasRunner(definition.config.type);
+      const hasExplicitEngineRunner =
+        !!configuredEngine && configuredEngine.length > 0 && runnerRegistry.hasRunner(configuredEngine);
+      const shouldUseRunnerPath = hasTypeRunner || (configuredEngine !== undefined && configuredEngine !== 'default' && hasExplicitEngineRunner);
+
+      if (!shouldUseRunnerPath) {
+        const executionWorkItem: WorkItem = {
+          ...workItem,
+          context: {
+            ...(workItem.context ?? {}),
+            model: workItem.context?.model ?? context.model,
+            laneId: workItem.context?.laneId ?? context.laneId,
+            routeContext: agentTick.routeContext,
+          },
+        };
+
+        const result = await this.executionService.executeWorkItem(executionWorkItem);
+        return {
+          success: result.success,
+          tokensUsed: result.run.tokens_used ?? 0,
+          timeSeconds: result.run.time_seconds ?? 0,
+          costUsd: result.run.cost_usd ?? 0,
+          artifacts: result.run.artifacts,
+          error: result.success
+            ? undefined
+            : {
+                code: result.errorSignature || 'EXECUTION_ERROR',
+                message: result.run.error_message || 'Unknown error',
+                recoverable: result.needsRetry,
+              },
+        };
+      }
+
       let runner;
       try {
         runner = runnerRegistry.resolve(definition.id, definition.config);
@@ -111,6 +145,8 @@ export class ExecutionEngineAdapter implements IExecutionEngineAdapter {
           tick: {
             now: new Date(agentTick.scheduled_for_ms),
             runKey: agentTick.run_key,
+            goalId: workItem.goal_id,
+            workDir: agentTick.agent_workdir,
             routeContext: agentTick.routeContext,
           },
         });

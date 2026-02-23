@@ -20,6 +20,14 @@ describe('Agent config validator', () => {
     },
     policy: {
       toolAllowlist: ['llm.classify', 'pg.select'],
+      skills: {
+        available: ['postgres-*', 'repo-*'],
+        denied: ['unsafe-*'],
+      },
+      mcp: {
+        available: ['github.search_repositories', 'postgres.query'],
+        denied: ['browser.open_url'],
+      },
       forbiddenPatterns: [
         {
           pattern: '.pay',
@@ -120,6 +128,27 @@ describe('Agent config validator', () => {
       expect(error).toBeInstanceOf(AgentConfigValidationError);
       const validationError = error as AgentConfigValidationError;
       expect(validationError.errors.some((entry) => entry.path.includes('/schedule/catchUp/mode'))).toBe(true);
+    }
+  });
+
+  it('rejects invalid skills/mcp resource policy shape', () => {
+    const invalidResourcePolicyConfig = {
+      ...validConfig,
+      policy: {
+        ...validConfig.policy,
+        skills: {
+          available: 'postgres-*',
+        },
+      },
+    };
+
+    try {
+      validateAgentConfig(invalidResourcePolicyConfig);
+      throw new Error('Expected validation to fail');
+    } catch (error) {
+      expect(error).toBeInstanceOf(AgentConfigValidationError);
+      const validationError = error as AgentConfigValidationError;
+      expect(validationError.errors.some((entry) => entry.path.includes('/policy/skills/available'))).toBe(true);
     }
   });
 });

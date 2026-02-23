@@ -295,7 +295,13 @@ export class GatewayServer {
       this.ipcBridge
     );
     registerWorkItemHandlers(this.rpcHandler, this.repository);
-    registerEscalationHandlers(this.rpcHandler, this.repository as any, this.eventBus);
+    registerEscalationHandlers(
+      this.rpcHandler,
+      this.repository as any,
+      this.eventBus,
+      () => this.scheduler,
+      this.ipcBridge
+    );
     registerApprovalHandlers(this.rpcHandler, this.eventBus);
     registerDebugHandlers(
       this.rpcHandler,

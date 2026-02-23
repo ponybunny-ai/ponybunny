@@ -491,7 +491,7 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
   $id: 'https://ponybunny.dev/schemas/ponybunny.schema.json',
   title: 'PonyBunny Runtime Configuration',
   type: 'object',
-  required: ['paths', 'gateway', 'scheduler', 'debug'],
+  required: ['paths', 'gateway', 'scheduler', 'agent', 'debug'],
   properties: {
     $schema: { type: 'string' },
     paths: {
@@ -519,6 +519,15 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
         tickIntervalMs: { type: 'integer', minimum: 1 },
         maxConcurrentGoals: { type: 'integer', minimum: 1 },
         agentsEnabled: { type: 'boolean' },
+      },
+      additionalProperties: false,
+    },
+    agent: {
+      type: 'object',
+      required: ['mainAgentId', 'personaEnabled'],
+      properties: {
+        mainAgentId: { type: 'string', minLength: 1 },
+        personaEnabled: { type: 'boolean' },
       },
       additionalProperties: false,
     },
@@ -604,7 +613,7 @@ export function getOnboardingFiles(): OnboardingFile[] {
       template: getPonyBunnyConfigTemplate(),
       format: 'json',
       mode: 0o600,
-      description: 'Runtime configuration (paths, gateway, scheduler, debug)',
+      description: 'Runtime configuration (paths, gateway, scheduler, agent, debug)',
     },
     {
       name: 'credentials.json',

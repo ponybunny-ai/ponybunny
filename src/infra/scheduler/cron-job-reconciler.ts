@@ -15,6 +15,7 @@ export interface CronJobReconcileSummary {
 interface ReconcileParams {
   repository: IWorkOrderRepository;
   registry: AgentRegistry;
+  mainAgentId?: string;
   logger?: Pick<Console, 'warn' | 'info' | 'error'>;
 }
 
@@ -64,13 +65,18 @@ function mapCronJobSchedule(job: CronJob): CronJobScheduleInput | null {
 export async function reconcileCronJobsFromRegistry(
   params: ReconcileParams
 ): Promise<CronJobReconcileSummary> {
-  const { repository, registry, logger = console } = params;
+  const { repository, registry, logger = console, mainAgentId } = params;
   const summary: CronJobReconcileSummary = { upserted: 0, disabled: 0, skipped: 0 };
+  const nowMs = Date.now();
 
   const agents = registry.getAgents();
   const agentIds = new Set<string>();
 
   for (const agent of agents) {
+    if (mainAgentId && agent.id !== mainAgentId) {
+      continue;
+    }
+
     agentIds.add(agent.id);
 
     try {
@@ -80,6 +86,7 @@ export async function reconcileCronJobsFromRegistry(
         enabled: agent.config.enabled,
         schedule,
         definition_hash: agent.definitionHash,
+        now_ms: nowMs,
       });
       summary.upserted += 1;
     } catch (error) {

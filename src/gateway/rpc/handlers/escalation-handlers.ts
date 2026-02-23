@@ -7,6 +7,12 @@ import type { Escalation, EscalationStatus, ResolutionAction } from '../../../wo
 import type { RpcHandler } from '../rpc-handler.js';
 import { GatewayError, ErrorCodes } from '../../errors.js';
 import type { EventBus } from '../../events/event-bus.js';
+import type { ISchedulerCore } from '../../../scheduler/core/index.js';
+
+export interface IRemoteSchedulerClient {
+  isSchedulerDaemonConnected(): boolean;
+  submitGoal(goalId: string): Promise<void>;
+}
 
 export interface EscalationListParams {
   goalId?: string;
@@ -40,7 +46,9 @@ interface EscalationRepository extends IWorkOrderRepository {
 export function registerEscalationHandlers(
   rpcHandler: RpcHandler,
   repository: EscalationRepository,
-  eventBus: EventBus
+  eventBus: EventBus,
+  getScheduler?: () => ISchedulerCore | null,
+  remoteSchedulerClient?: IRemoteSchedulerClient
 ): void {
   // escalation.list - List escalations with optional filters
   rpcHandler.register<EscalationListParams, { escalations: Escalation[]; total: number }>(
@@ -130,6 +138,58 @@ export function registerEscalationHandlers(
         params.data || {},
         session.publicKey
       );
+
+      const shouldResume = params.action === 'retry' || params.data?.resume_execution === true;
+      if (shouldResume) {
+        const workItem = repository.getWorkItem(escalation.work_item_id);
+        const goal = repository.getGoal(escalation.goal_id);
+
+        if (workItem && goal) {
+          const resumedContext = {
+            ...(workItem.context ?? {}),
+            approval_granted: true,
+            approval_resolved_by: session.publicKey,
+            approval_resolved_at: Date.now(),
+            approval_resolution_action: params.action,
+            ...(typeof params.data?.selected_skill_override === 'string'
+              ? { selected_skill_override: params.data.selected_skill_override }
+              : {}),
+            ...(typeof params.data?.selected_mcp_tool_override === 'string'
+              ? { selected_mcp_tool_override: params.data.selected_mcp_tool_override }
+              : {}),
+          };
+
+          const resumedWorkItem = repository.createWorkItem({
+            goal_id: workItem.goal_id,
+            title: workItem.title,
+            description: typeof params.data?.command_override === 'string'
+              ? params.data.command_override
+              : workItem.description,
+            item_type: workItem.item_type,
+            priority: workItem.priority,
+            dependencies: [],
+            context: resumedContext,
+          } as unknown as Parameters<IWorkOrderRepository['createWorkItem']>[0]);
+
+          repository.updateWorkItemStatus(resumedWorkItem.id, 'ready');
+          repository.updateGoalStatus(goal.id, 'queued');
+
+          const scheduler = getScheduler?.();
+          if (scheduler) {
+            await scheduler.submitGoal(repository.getGoal(goal.id)!);
+          } else if (remoteSchedulerClient?.isSchedulerDaemonConnected()) {
+            await remoteSchedulerClient.submitGoal(goal.id);
+          }
+
+          eventBus.emit('escalation.retry_scheduled', {
+            escalationId: params.escalationId,
+            goalId: goal.id,
+            previousWorkItemId: workItem.id,
+            resumedWorkItemId: resumedWorkItem.id,
+            resumedBy: session.publicKey,
+          });
+        }
+      }
 
       eventBus.emit('escalation.resolved', {
         escalationId: params.escalationId,

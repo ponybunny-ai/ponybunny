@@ -170,6 +170,7 @@ export interface UpsertCronJobParams {
   enabled: boolean;
   schedule: CronJobScheduleInput;
   definition_hash: string;
+  now_ms?: number;
 }
 
 export interface ClaimDueCronJobsParams {

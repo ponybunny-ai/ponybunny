@@ -6,6 +6,7 @@ export type {
   AgentLimitValue,
   AgentPolicy,
   AgentPrivacyPolicy,
+  AgentResourcePolicy,
   AgentRunnerConfig,
   AgentSchedule,
   AgentScheduleWindow,
