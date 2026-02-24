@@ -75,7 +75,7 @@ describe('probeAndPersistAvailability', () => {
         medium: { primary: 'gpt-5.2' },
         complex: { primary: 'gpt-5.2' },
       },
-      agents: {
+      workloads: {
         execution: { tier: 'medium' },
       },
       defaults: { timeout: 120000, maxTokens: 4096 },
@@ -119,7 +119,7 @@ describe('probeAndPersistAvailability', () => {
         medium: { primary: 'gpt-5.2' },
         complex: { primary: 'gpt-5.2' },
       },
-      agents: {
+      workloads: {
         execution: { tier: 'medium' },
       },
       defaults: { timeout: 120000, maxTokens: 4096 },

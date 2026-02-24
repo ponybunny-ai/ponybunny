@@ -31,7 +31,7 @@ async function main() {
   ];
 
   try {
-    const response1 = await llmService.completeForAgent('conversation', messages1, {
+    const response1 = await llmService.completeForWorkload('conversation', messages1, {
       maxTokens: 500,
     });
 
@@ -60,7 +60,7 @@ async function main() {
       tool_choice: 'auto',
     }, null, 2));
 
-    const response2 = await llmService.completeForAgent('conversation', messages2, {
+    const response2 = await llmService.completeForWorkload('conversation', messages2, {
       maxTokens: 500,
       tools: conversationTools,
       tool_choice: 'auto',
@@ -93,7 +93,7 @@ async function main() {
 
   try {
     // First call - should request tool use
-    const response3a = await llmService.completeForAgent('conversation', messages3, {
+    const response3a = await llmService.completeForWorkload('conversation', messages3, {
       maxTokens: 500,
       tools: conversationTools,
       tool_choice: 'auto',
@@ -128,7 +128,7 @@ async function main() {
 
       // Second call - with tool results
       console.log('\n📥 Sending tool results back to LLM...');
-      const response3b = await llmService.completeForAgent('conversation', messages3, {
+      const response3b = await llmService.completeForWorkload('conversation', messages3, {
         maxTokens: 500,
         tools: conversationTools,
         tool_choice: 'auto',
@@ -151,7 +151,7 @@ async function main() {
   ];
 
   try {
-    const response4 = await llmService.completeForAgent('conversation', messages4, {
+    const response4 = await llmService.completeForWorkload('conversation', messages4, {
       maxTokens: 1000,
       thinking: true,
     });

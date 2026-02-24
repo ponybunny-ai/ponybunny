@@ -7,7 +7,7 @@
     "endpoints",
     "models",
     "tiers",
-    "agents",
+    "workloads",
     "defaults"
   ],
   "properties": {
@@ -140,7 +140,7 @@
         }
       }
     },
-    "agents": {
+    "workloads": {
       "type": "object",
       "additionalProperties": {
         "type": "object",

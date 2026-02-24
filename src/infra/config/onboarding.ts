@@ -80,6 +80,11 @@ export const CREDENTIALS_TEMPLATE = {
       apiKey: '',
       baseUrl: '',
     },
+    'openai-compatible': {
+      enabled: false,
+      apiKey: '',
+      baseUrl: '',
+    },
     'azure-openai': {
       enabled: false,
       apiKey: '',
@@ -108,7 +113,7 @@ export const LLM_CONFIG_SCHEMA_TEMPLATE = {
   $id: 'https://ponybunny.dev/schemas/llm-config.schema.json',
   title: 'PonyBunny LLM Configuration',
   type: 'object',
-  required: ['endpoints', 'models', 'tiers', 'agents', 'defaults'],
+  required: ['endpoints', 'models', 'tiers', 'workloads', 'defaults'],
   properties: {
     $schema: { type: 'string' },
     endpoints: {
@@ -166,7 +171,7 @@ export const LLM_CONFIG_SCHEMA_TEMPLATE = {
         complex: { $ref: '#/$defs/TierConfig' },
       },
     },
-    agents: {
+    workloads: {
       type: 'object',
       additionalProperties: {
         type: 'object',
@@ -229,6 +234,13 @@ export const LLM_CONFIG_TEMPLATE = {
       priority: 1,
       rateLimit: { requestsPerMinute: 60 },
     },
+    'openai-compatible': {
+      enabled: false,
+      protocol: 'openai',
+      baseUrl: '',
+      priority: 3,
+      rateLimit: { requestsPerMinute: 60 },
+    },
     'azure-openai': {
       enabled: false,
       protocol: 'openai',
@@ -271,7 +283,7 @@ export const LLM_CONFIG_TEMPLATE = {
     },
     'gpt-5.2': {
       displayName: 'GPT-5.2',
-      endpoints: ['openai-direct'],
+      endpoints: ['openai-direct', 'openai-compatible'],
       costPer1kTokens: { input: 0.01, output: 0.03 },
       maxContextTokens: 128000,
       capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
@@ -307,7 +319,7 @@ export const LLM_CONFIG_TEMPLATE = {
     },
   },
 
-  agents: {
+  workloads: {
     'input-analysis': {
       tier: 'simple',
       description: 'Intent and emotion analysis',
@@ -491,7 +503,7 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
   $id: 'https://ponybunny.dev/schemas/ponybunny.schema.json',
   title: 'PonyBunny Runtime Configuration',
   type: 'object',
-  required: ['paths', 'gateway', 'scheduler', 'agent', 'debug'],
+  required: ['paths', 'gateway', 'scheduler', 'agent', 'persona', 'debug', 'memory'],
   properties: {
     $schema: { type: 'string' },
     paths: {
@@ -531,6 +543,33 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
       },
       additionalProperties: false,
     },
+    persona: {
+      type: 'object',
+      required: ['directory', 'defaultPersonaId', 'promptOverrides'],
+      properties: {
+        directory: { type: 'string' },
+        defaultPersonaId: { type: 'string', minLength: 1 },
+        promptOverrides: {
+          type: 'object',
+          required: [
+            'personalityDescription',
+            'communicationStyleDescription',
+            'expertiseDescription',
+            'guidelines',
+            'backstory',
+          ],
+          properties: {
+            personalityDescription: { type: 'string' },
+            communicationStyleDescription: { type: 'string' },
+            expertiseDescription: { type: 'string' },
+            guidelines: { type: 'string' },
+            backstory: { type: 'string' },
+          },
+          additionalProperties: false,
+        },
+      },
+      additionalProperties: false,
+    },
     debug: {
       type: 'object',
       required: ['serverPort', 'loggingEnabled', 'antigravityDebug'],
@@ -541,12 +580,50 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
       },
       additionalProperties: false,
     },
+    memory: {
+      type: 'object',
+      required: [
+        'backend',
+        'database',
+        'userProfileId',
+        'autoSave',
+        'embeddingProvider',
+        'vectorWeight',
+        'keywordWeight',
+      ],
+      properties: {
+        backend: { type: 'string', enum: ['sqlite', 'memory'] },
+        database: { type: 'string' },
+        userProfileId: { type: 'string', minLength: 1 },
+        autoSave: { type: 'boolean' },
+        embeddingProvider: {
+          type: 'string',
+          pattern: '^(none|openai|custom:https?://.+)$',
+        },
+        vectorWeight: { type: 'number', minimum: 0, maximum: 1 },
+        keywordWeight: { type: 'number', minimum: 0, maximum: 1 },
+      },
+      additionalProperties: false,
+    },
   },
   additionalProperties: false,
 };
 
 export function getPonyBunnyConfigTemplate() {
-  return resolveRuntimeConfigFromEnvironment();
+  const config = resolveRuntimeConfigFromEnvironment();
+  return {
+    ...config,
+    persona: {
+      ...config.persona,
+      promptOverrides: {
+        personalityDescription: 'Example: Warm, pragmatic, and outcomes-focused. Balance clarity with empathy.',
+        communicationStyleDescription: 'Example: Start concise, then expand with concrete steps when user asks for depth.',
+        expertiseDescription: 'Example: Strong in TypeScript, SQLite, CLI tooling, and production incident triage.',
+        guidelines: 'Example: Prefer action over explanation, cite changed files, and surface tradeoffs explicitly.',
+        backstory: 'Example: You are a senior software assistant embedded in the PonyBunny workflow.',
+      },
+    },
+  };
 }
 
 const COMMON_RESOURCES_COMPOSE_TEMPLATE = `services:
@@ -606,6 +683,8 @@ export function getOnboardingFiles(): OnboardingFile[] {
     description: `Prompt template: ${relativePath}`,
   }));
 
+  const agentCustomizationFiles = getAgentCustomizationFiles(configDir);
+
   return [
     {
       name: 'ponybunny.json',
@@ -613,7 +692,7 @@ export function getOnboardingFiles(): OnboardingFile[] {
       template: getPonyBunnyConfigTemplate(),
       format: 'json',
       mode: 0o600,
-      description: 'Runtime configuration (paths, gateway, scheduler, agent, debug)',
+      description: 'Runtime configuration (paths, gateway, scheduler, agent, persona, debug, memory)',
     },
     {
       name: 'credentials.json',
@@ -629,7 +708,7 @@ export function getOnboardingFiles(): OnboardingFile[] {
       template: LLM_CONFIG_TEMPLATE,
       format: 'json',
       mode: 0o644,
-      description: 'LLM endpoints, models, tiers, and agent configuration',
+      description: 'LLM endpoints, models, tiers, and workload configuration',
     },
     {
       name: 'mcp-config.json',
@@ -647,8 +726,58 @@ export function getOnboardingFiles(): OnboardingFile[] {
       mode: 0o644,
       description: 'Common services (Postgres + Playwright MCP)',
     },
+    ...agentCustomizationFiles,
     ...promptTemplateFiles,
   ];
+}
+
+function getAgentCustomizationFiles(configDir: string): OnboardingFile[] {
+  const agentsRoot = path.join(process.cwd(), 'agents');
+  if (!fs.existsSync(agentsRoot)) {
+    return [];
+  }
+
+  const agentIds = fs
+    .readdirSync(agentsRoot)
+    .filter((entry) => {
+      const sourceDir = path.join(agentsRoot, entry);
+      if (!fs.statSync(sourceDir).isDirectory()) {
+        return false;
+      }
+      return (
+        fs.existsSync(path.join(sourceDir, 'agent.json'))
+        && fs.existsSync(path.join(sourceDir, 'AGENT.md'))
+      );
+    })
+    .sort((a, b) => a.localeCompare(b));
+
+  const files: OnboardingFile[] = [];
+  for (const agentId of agentIds) {
+    const sourceDir = path.join(agentsRoot, agentId);
+    const sourceJson = path.join(sourceDir, 'agent.json');
+    const sourceMarkdown = path.join(sourceDir, 'AGENT.md');
+
+    files.push(
+      {
+        name: path.join('agents', agentId, 'agent.json'),
+        path: path.join(configDir, 'agents', agentId, 'agent.json'),
+        template: fs.readFileSync(sourceJson, 'utf-8'),
+        format: 'raw',
+        mode: 0o600,
+        description: `User-customizable agent config seed for '${agentId}'`,
+      },
+      {
+        name: path.join('agents', agentId, 'AGENT.md'),
+        path: path.join(configDir, 'agents', agentId, 'AGENT.md'),
+        template: fs.readFileSync(sourceMarkdown, 'utf-8'),
+        format: 'raw',
+        mode: 0o600,
+        description: `User-customizable agent prompt seed for '${agentId}'`,
+      }
+    );
+  }
+
+  return files;
 }
 
 function getPromptDefaultsSourceDir(): string {

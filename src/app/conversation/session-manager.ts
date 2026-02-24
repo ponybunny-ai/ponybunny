@@ -15,6 +15,8 @@ import type { IPersonaEngine } from './persona-engine.js';
 import type { ITaskBridge } from './task-bridge.js';
 import type { IRetryHandler } from './retry-handler.js';
 import { debug } from '../../debug/index.js';
+import type { IConversationMemoryService, IRecalledMemory } from './memory-service.js';
+import type { IMemoryOwnerScope } from './memory-service.js';
 
 export interface ISessionRepository {
   createSession(personaId: string): IConversationSession;
@@ -41,6 +43,7 @@ export interface ISessionManager {
     message: string,
     sessionId?: string,
     personaId?: string,
+    userProfileId?: string,
     attachments?: IAttachment[]
   ): Promise<IConversationResponse>;
 
@@ -48,6 +51,7 @@ export interface ISessionManager {
     message: string,
     sessionId: string | undefined,
     personaId: string | undefined,
+    userProfileId: string | undefined,
     attachments: IAttachment[] | undefined,
     onChunk: (chunk: string) => void
   ): Promise<IConversationResponse>;
@@ -67,32 +71,47 @@ export class SessionManager implements ISessionManager {
     private inputAnalyzer: IInputAnalysisService,
     private responseGenerator: IResponseGenerator,
     private taskBridge: ITaskBridge,
-    private retryHandler: IRetryHandler
+    private retryHandler: IRetryHandler,
+    private memoryService?: IConversationMemoryService,
+    private memoryConfig: {
+      autoSave: boolean;
+      vectorWeight: number;
+      keywordWeight: number;
+      defaultUserProfileId: string;
+    } = {
+      autoSave: true,
+      vectorWeight: 0.7,
+      keywordWeight: 0.3,
+      defaultUserProfileId: 'local-default-user',
+    }
   ) {}
 
   async processMessage(
     message: string,
     sessionId?: string,
     personaId?: string,
+    userProfileId?: string,
     attachments?: IAttachment[]
   ): Promise<IConversationResponse> {
-    return this.processMessageInternal(message, sessionId, personaId, attachments, undefined);
+    return this.processMessageInternal(message, sessionId, personaId, userProfileId, attachments, undefined);
   }
 
   async processMessageWithStream(
     message: string,
     sessionId: string | undefined,
     personaId: string | undefined,
+    userProfileId: string | undefined,
     attachments: IAttachment[] | undefined,
     onChunk: (chunk: string) => void
   ): Promise<IConversationResponse> {
-    return this.processMessageInternal(message, sessionId, personaId, attachments, onChunk);
+    return this.processMessageInternal(message, sessionId, personaId, userProfileId, attachments, onChunk);
   }
 
   private async processMessageInternal(
     message: string,
     sessionId?: string,
     personaId?: string,
+    userProfileId?: string,
     attachments?: IAttachment[],
     onChunk?: (chunk: string) => void
   ): Promise<IConversationResponse> {
@@ -119,6 +138,16 @@ export class SessionManager implements ISessionManager {
       );
     }
 
+    if (userProfileId && userProfileId.trim().length > 0) {
+      const profileId = userProfileId.trim();
+      const metadata = { ...(session.metadata ?? {}) };
+      if (metadata.userProfileId !== profileId) {
+        metadata.userProfileId = profileId;
+        session.metadata = metadata;
+        this.sessionRepository.updateSession(session);
+      }
+    }
+
     // Get or create state machine for this session
     let stateMachine = this.stateMachines.get(session.id);
     if (!stateMachine) {
@@ -135,6 +164,9 @@ export class SessionManager implements ISessionManager {
       attachments,
     };
     this.sessionRepository.addTurn(session.id, userTurn);
+    if (this.memoryService && this.memoryConfig.autoSave) {
+      await this.indexTurnSafely(session, userTurn);
+    }
 
     // Get persona
     const persona = await this.personaEngine.getPersona(session.personaId);
@@ -144,7 +176,9 @@ export class SessionManager implements ISessionManager {
 
     // Analyze input
     const recentTurns = this.getHistory(session.id, 10);
-    const analysis = await this.inputAnalyzer.analyze(message, recentTurns);
+    const recalledMemories = await this.recallMemories(session, message);
+    const contextTurns = this.mergeTurnContext(recentTurns, recalledMemories, 16);
+    const analysis = await this.inputAnalyzer.analyze(message, contextTurns);
 
     debug.custom('session.analysis.complete', 'session-manager', {
       sessionId: session.id,
@@ -194,7 +228,7 @@ export class SessionManager implements ISessionManager {
           persona,
           analysis,
           conversationState: stateMachine.getCurrentState(),
-          recentTurns,
+          recentTurns: contextTurns,
           taskInfo: session.activeGoalId ? {
             goalId: session.activeGoalId,
             status: 'active',
@@ -210,6 +244,9 @@ export class SessionManager implements ISessionManager {
       timestamp: Date.now(),
     };
     this.sessionRepository.addTurn(session.id, assistantTurn);
+    if (this.memoryService && this.memoryConfig.autoSave) {
+      await this.indexTurnSafely(session, assistantTurn);
+    }
 
     // Update session state
     session.state = stateMachine.getCurrentState();
@@ -365,5 +402,101 @@ export class SessionManager implements ISessionManager {
     this.stateMachines.delete(sessionId);
     this.retryContexts.delete(sessionId);
     return this.sessionRepository.deleteSession(sessionId);
+  }
+
+  private async recallMemories(session: IConversationSession, query: string): Promise<IRecalledMemory[]> {
+    if (!this.memoryService) {
+      return [];
+    }
+
+    try {
+      return await this.memoryService.retrieveRelevantMemories(session.id, query, {
+        limit: 6,
+        vectorWeight: this.memoryConfig.vectorWeight,
+        keywordWeight: this.memoryConfig.keywordWeight,
+        coreOwnerScopes: this.getCoreOwnerScopes(session),
+      });
+    } catch (error) {
+      debug.custom('session.memory.recall.error', 'session-manager', {
+        sessionId: session.id,
+        error: (error as Error).message,
+      });
+      return [];
+    }
+  }
+
+  private async indexTurnSafely(session: IConversationSession, turn: IConversationTurn): Promise<void> {
+    if (!this.memoryService) {
+      return;
+    }
+
+    try {
+      await this.memoryService.indexTurn(session.id, turn, this.getOwnerScopeForTurn(session, turn));
+    } catch (error) {
+      debug.custom('session.memory.index.error', 'session-manager', {
+        sessionId: session.id,
+        turnId: turn.id,
+        error: (error as Error).message,
+      });
+    }
+  }
+
+  private getOwnerScopeForTurn(session: IConversationSession, turn: IConversationTurn): IMemoryOwnerScope {
+    if (turn.role === 'assistant') {
+      return {
+        ownerType: 'agent',
+        ownerId: session.personaId || 'default-agent',
+      };
+    }
+
+    return {
+      ownerType: 'user',
+      ownerId: this.getUserProfileId(session),
+    };
+  }
+
+  private getCoreOwnerScopes(session: IConversationSession): IMemoryOwnerScope[] {
+    return [
+      {
+        ownerType: 'agent',
+        ownerId: session.personaId || 'default-agent',
+      },
+      {
+        ownerType: 'user',
+        ownerId: this.getUserProfileId(session),
+      },
+    ];
+  }
+
+  private getUserProfileId(session: IConversationSession): string {
+    const value = session.metadata?.userProfileId;
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+    return this.memoryConfig.defaultUserProfileId;
+  }
+
+  private mergeTurnContext(
+    recentTurns: IConversationTurn[],
+    recalledMemories: IRecalledMemory[],
+    limit: number
+  ): IConversationTurn[] {
+    if (recalledMemories.length === 0) {
+      return recentTurns;
+    }
+
+    const memoryTurns: IConversationTurn[] = recalledMemories.map((memory) => ({
+      id: `memory-${memory.entryId}`,
+      role: memory.role,
+      content: `[Memory Recall] ${memory.content}`,
+      timestamp: memory.createdAt,
+      metadata: {
+        source: 'memory',
+        entryId: memory.entryId,
+        score: memory.score,
+      },
+    }));
+
+    return [...memoryTurns, ...recentTurns].slice(-limit);
   }
 }

@@ -63,7 +63,7 @@ ${request.raw_text}`;
       { role: 'user', content: userPrompt },
     ];
 
-    const response = await this.llmService.completeForAgent(AGENT_ID, messages, {
+  const response = await this.llmService.completeForWorkload(AGENT_ID, messages, {
       maxTokens: 400,
       temperature: 0.1,
     });
@@ -117,7 +117,7 @@ ${request.raw_text}`;
       { role: 'user', content: userPrompt },
     ];
 
-    const response = await this.llmService.completeForAgent(AGENT_ID, messages, {
+  const response = await this.llmService.completeForWorkload(AGENT_ID, messages, {
       maxTokens: 800,
       temperature: 0.1,
     });
@@ -161,7 +161,7 @@ ${rawText}`;
       { role: 'user', content: userPrompt },
     ];
 
-    const response = await this.llmService.completeForAgent(AGENT_ID, messages, {
+  const response = await this.llmService.completeForWorkload(AGENT_ID, messages, {
       maxTokens: 200,
       temperature: 0.1,
     });

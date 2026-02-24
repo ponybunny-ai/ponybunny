@@ -8,7 +8,9 @@
     "gateway",
     "scheduler",
     "agent",
-    "debug"
+    "persona",
+    "debug",
+    "memory"
   ],
   "properties": {
     "$schema": {
@@ -86,6 +88,52 @@
       },
       "additionalProperties": false
     },
+    "persona": {
+      "type": "object",
+      "required": [
+        "directory",
+        "defaultPersonaId",
+        "promptOverrides"
+      ],
+      "properties": {
+        "directory": {
+          "type": "string"
+        },
+        "defaultPersonaId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "promptOverrides": {
+          "type": "object",
+          "required": [
+            "personalityDescription",
+            "communicationStyleDescription",
+            "expertiseDescription",
+            "guidelines",
+            "backstory"
+          ],
+          "properties": {
+            "personalityDescription": {
+              "type": "string"
+            },
+            "communicationStyleDescription": {
+              "type": "string"
+            },
+            "expertiseDescription": {
+              "type": "string"
+            },
+            "guidelines": {
+              "type": "string"
+            },
+            "backstory": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "debug": {
       "type": "object",
       "required": [
@@ -103,6 +151,52 @@
         },
         "antigravityDebug": {
           "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "memory": {
+      "type": "object",
+      "required": [
+        "backend",
+        "database",
+        "userProfileId",
+        "autoSave",
+        "embeddingProvider",
+        "vectorWeight",
+        "keywordWeight"
+      ],
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": [
+            "sqlite",
+            "memory"
+          ]
+        },
+        "database": {
+          "type": "string"
+        },
+        "userProfileId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "autoSave": {
+          "type": "boolean"
+        },
+        "embeddingProvider": {
+          "type": "string",
+          "pattern": "^(none|openai|custom:https?://.+)$"
+        },
+        "vectorWeight": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "keywordWeight": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
         }
       },
       "additionalProperties": false

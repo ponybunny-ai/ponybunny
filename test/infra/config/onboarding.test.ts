@@ -27,4 +27,26 @@ describe('Onboarding config generation', () => {
     expect(names.has('llm-config.json')).toBe(true);
     expect(names.has('mcp-config.json')).toBe(true);
   });
+
+  it('includes agent customization seed files for all built-in agents', () => {
+    const names = new Set(getOnboardingFiles().map((file) => file.name));
+
+    expect(names.has('agents/forge/agent.json')).toBe(true);
+    expect(names.has('agents/guard/agent.json')).toBe(true);
+    expect(names.has('agents/keeper/agent.json')).toBe(true);
+    expect(names.has('agents/lead/agent.json')).toBe(true);
+    expect(names.has('agents/scout/agent.json')).toBe(true);
+
+    expect(names.has('agents/forge/AGENT.md')).toBe(true);
+    expect(names.has('agents/guard/AGENT.md')).toBe(true);
+    expect(names.has('agents/keeper/AGENT.md')).toBe(true);
+    expect(names.has('agents/lead/AGENT.md')).toBe(true);
+    expect(names.has('agents/scout/AGENT.md')).toBe(true);
+  });
+
+  it('generates example persona prompt override content in ponybunny template', () => {
+    const template = getPonyBunnyConfigTemplate();
+    expect(template.persona.promptOverrides.personalityDescription).toContain('Example:');
+    expect(template.persona.promptOverrides.guidelines).toContain('Example:');
+  });
 });

@@ -154,7 +154,7 @@
 证据：
 
 - workdir 解析与自动创建：`src/infra/agents/agent-workdir.ts`
-- Agent schema/config 增加 `workdir`：`agents/agent.schema.json`、`src/infra/agents/config/agent-config-types.ts`
+- Agent schema/config 增加 `workdir`：`docs/schemas/agent.schema.json`、`src/infra/agents/config/agent-config-types.ts`
 - 调度写入 `agent_workdir` 到 tick context：`src/scheduler-daemon/agent-scheduler.ts`
 - 执行链透传 `workDir`：`src/infra/agents/agent-tick-context.ts`、`src/gateway/integration/execution-engine-adapter.ts`、`src/infra/agents/schema-driven-agent-runner.ts`
 

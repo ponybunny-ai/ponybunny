@@ -116,7 +116,7 @@ export class ResponseGenerator implements IResponseGenerator {
     let accumulatedContent = '';
 
     while (maxIterations > 0) {
-      const response = await this.llmService.completeForAgent(
+      const response = await this.llmService.completeForWorkload(
         'conversation',
         messages,
         {

@@ -7,8 +7,8 @@
     "doc": "docs"
   },
   "scripts": {
-    "build": "tsc && cp src/infra/persistence/schema.sql dist/infra/persistence/ && mkdir -p dist/infra/prompts && cp -R src/infra/prompts/defaults dist/infra/prompts/",
-    "build:cli": "tsc -p tsconfig.cli.json && cp src/infra/persistence/schema.sql dist/infra/persistence/ && mkdir -p dist/infra/prompts && cp -R src/infra/prompts/defaults dist/infra/prompts/ && chmod +x dist/cli/index.js",
+    "build": "tsc && cp src/infra/persistence/schema.sql dist/infra/persistence/ && mkdir -p dist/infra/prompts && cp -R src/infra/prompts/defaults dist/infra/prompts/ && mkdir -p dist/docs/schemas && cp docs/schemas/agent.schema.json dist/docs/schemas/",
+    "build:cli": "tsc -p tsconfig.cli.json && cp src/infra/persistence/schema.sql dist/infra/persistence/ && mkdir -p dist/infra/prompts && cp -R src/infra/prompts/defaults dist/infra/prompts/ && mkdir -p dist/docs/schemas && cp docs/schemas/agent.schema.json dist/docs/schemas/ && chmod +x dist/cli/index.js",
     "prepack": "npm run build:cli",
     "release:homebrew": "node scripts/release/update-homebrew-formula.mjs",
     "release:homebrew:sync": "node scripts/release/sync-homebrew-tap-template.mjs",

@@ -1,12 +1,12 @@
 // Types
 export type {
   ModelTier,
-  AgentId,
+  WorkloadId,
   LLMEndpointConfig,
   ModelCapability,
   LLMModelConfig,
   LLMTierConfig,
-  LLMAgentConfig,
+  LLMWorkloadConfig,
   LLMDefaultsConfig,
   LLMConfig,
   LLMCompletionOptions,
@@ -31,7 +31,7 @@ export {
   getEndpointConfig,
   getModelConfig,
   getTierConfig,
-  getAgentConfig,
+  getWorkloadConfig,
   getDefaultsConfig,
 } from './config-loader.js';
 
@@ -46,9 +46,9 @@ export {
 
 // Agent Model Resolver
 export {
-  AgentModelResolver,
-  getAgentModelResolver,
-  resetAgentModelResolver,
+  WorkloadModelResolver,
+  getWorkloadModelResolver,
+  resetWorkloadModelResolver,
 } from './agent-model-resolver.js';
 
 // Provider Manager

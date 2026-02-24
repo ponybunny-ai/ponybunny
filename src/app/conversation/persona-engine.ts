@@ -26,14 +26,25 @@ export interface IPersonaEngine {
   getDefaultPersonaId(): string;
 }
 
+export interface PersonaPromptOverrides {
+  personalityDescription?: string;
+  communicationStyleDescription?: string;
+  expertiseDescription?: string;
+  guidelines?: string;
+  backstory?: string;
+}
+
 export class PersonaEngine implements IPersonaEngine {
   private defaultPersonaId: string;
+  private promptOverrides: PersonaPromptOverrides;
 
   constructor(
     private repository: IPersonaRepository,
-    defaultPersonaId: string = 'pony-default'
+    defaultPersonaId: string = 'pony-default',
+    promptOverrides: PersonaPromptOverrides = {}
   ) {
     this.defaultPersonaId = defaultPersonaId;
+    this.promptOverrides = promptOverrides;
   }
 
   async getPersona(id: string): Promise<IPersona | null> {
@@ -65,14 +76,14 @@ export class PersonaEngine implements IPersonaEngine {
     const prompt = renderPromptTemplate(template.content, {
       PERSONA_NAME: persona.name,
       PERSONA_NICKNAME: persona.nickname ? ` (${persona.nickname})` : '',
-      PERSONA_BACKSTORY: persona.backstory ?? '',
+      PERSONA_BACKSTORY: this.getPromptOverride('backstory', persona.backstory ?? ''),
       CURRENT_DATE: dateStr,
       CURRENT_TIME: timeStr,
       TIMEZONE: timezone,
-      PERSONALITY_DESCRIPTION: personalityDesc,
-      COMMUNICATION_STYLE_DESCRIPTION: styleDesc,
-      EXPERTISE_DESCRIPTION: expertiseDesc,
-      GUIDELINES: this.generateGuidelines(persona),
+      PERSONALITY_DESCRIPTION: this.getPromptOverride('personalityDescription', personalityDesc),
+      COMMUNICATION_STYLE_DESCRIPTION: this.getPromptOverride('communicationStyleDescription', styleDesc),
+      EXPERTISE_DESCRIPTION: this.getPromptOverride('expertiseDescription', expertiseDesc),
+      GUIDELINES: this.getPromptOverride('guidelines', this.generateGuidelines(persona)),
     });
 
     promptDebugDump('Final Persona Prompt', prompt);
@@ -172,5 +183,13 @@ export class PersonaEngine implements IPersonaEngine {
     }
 
     return guidelines.join('\n');
+  }
+
+  private getPromptOverride(key: keyof PersonaPromptOverrides, fallback: string): string {
+    const value = this.promptOverrides[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value;
+    }
+    return fallback;
   }
 }

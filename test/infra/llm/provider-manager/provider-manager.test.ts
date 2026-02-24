@@ -1,6 +1,6 @@
 /**
  * Jest test suite for LLM Provider Manager
- * Tests configuration loading, endpoint management, agent model resolution, and cost estimation
+ * Tests configuration loading, endpoint management, workload model resolution, and cost estimation
  */
 
 import * as fs from 'fs';
@@ -12,8 +12,8 @@ import {
   EndpointManager,
   getEndpointManager,
   resetEndpointManager,
-  getAgentModelResolver,
-  resetAgentModelResolver,
+  getWorkloadModelResolver,
+  resetWorkloadModelResolver,
   getCachedConfig,
   clearConfigCache,
   loadLLMConfig,
@@ -55,7 +55,7 @@ describe('LLM Provider Manager', () => {
     // Reset all singletons and caches
     resetLLMProviderManager();
     resetEndpointManager();
-    resetAgentModelResolver();
+    resetWorkloadModelResolver();
     clearConfigCache();
     clearCredentialsCache();
   });
@@ -73,7 +73,7 @@ describe('LLM Provider Manager', () => {
     // Reset singletons
     resetLLMProviderManager();
     resetEndpointManager();
-    resetAgentModelResolver();
+    resetWorkloadModelResolver();
     clearConfigCache();
     clearCredentialsCache();
   });
@@ -90,7 +90,7 @@ describe('LLM Provider Manager', () => {
       expect(config.endpoints).toBeDefined();
       expect(config.models).toBeDefined();
       expect(config.tiers).toBeDefined();
-      expect(config.agents).toBeDefined();
+      expect(config.workloads).toBeDefined();
       expect(config.defaults).toBeDefined();
     });
 
@@ -144,7 +144,7 @@ describe('LLM Provider Manager', () => {
           medium: { primary: 'test-model' },
           complex: { primary: 'test-model' },
         },
-        agents: {
+        workloads: {
           'test-agent': { tier: 'simple' },
         },
         defaults: {
@@ -330,17 +330,17 @@ describe('LLM Provider Manager', () => {
   // ============================================
   // Agent Model Resolver Tests
   // ============================================
-  describe('AgentModelResolver', () => {
+  describe('WorkloadModelResolver', () => {
     it('should return singleton instance', () => {
-      const resolver1 = getAgentModelResolver();
-      const resolver2 = getAgentModelResolver();
+      const resolver1 = getWorkloadModelResolver();
+      const resolver2 = getWorkloadModelResolver();
 
       expect(resolver1).toBe(resolver2);
     });
 
-    it('should get model for known agents', () => {
-      const resolver = getAgentModelResolver();
-      const knownAgents = [
+    it('should get model for known workloads', () => {
+      const resolver = getWorkloadModelResolver();
+      const knownWorkloads = [
         'input-analysis',
         'planning',
         'execution',
@@ -349,23 +349,23 @@ describe('LLM Provider Manager', () => {
         'conversation',
       ];
 
-      for (const agentId of knownAgents) {
-        const model = resolver.getModelForAgent(agentId);
+      for (const workloadId of knownWorkloads) {
+        const model = resolver.getModelForWorkload(workloadId);
         expect(model).toBeDefined();
         expect(typeof model).toBe('string');
       }
     });
 
-    it('should return medium tier model for unknown agents', () => {
-      const resolver = getAgentModelResolver();
+    it('should return medium tier model for unknown workloads', () => {
+      const resolver = getWorkloadModelResolver();
       const config = getCachedConfig();
 
-      const model = resolver.getModelForAgent('unknown-agent-xyz');
+      const model = resolver.getModelForWorkload('unknown-workload-xyz');
       expect(model).toBe(config.tiers.medium.primary);
     });
 
     it('should get model for tiers', () => {
-      const resolver = getAgentModelResolver();
+      const resolver = getWorkloadModelResolver();
       const tiers: ModelTier[] = ['simple', 'medium', 'complex'];
 
       for (const tier of tiers) {
@@ -375,19 +375,19 @@ describe('LLM Provider Manager', () => {
       }
     });
 
-    it('should get fallback chain for agents', () => {
-      const resolver = getAgentModelResolver();
+    it('should get fallback chain for workloads', () => {
+      const resolver = getWorkloadModelResolver();
 
       const chain = resolver.getFallbackChain('planning');
 
       expect(Array.isArray(chain)).toBe(true);
       expect(chain.length).toBeGreaterThan(0);
       // First item should be the primary model
-      expect(chain[0]).toBe(resolver.getModelForAgent('planning'));
+      expect(chain[0]).toBe(resolver.getModelForWorkload('planning'));
     });
 
     it('should get fallback chain for tiers', () => {
-      const resolver = getAgentModelResolver();
+      const resolver = getWorkloadModelResolver();
       const config = getCachedConfig();
 
       const chain = resolver.getFallbackChainForTier('complex');
@@ -402,32 +402,32 @@ describe('LLM Provider Manager', () => {
       }
     });
 
-    it('should get tier for agent', () => {
-      const resolver = getAgentModelResolver();
+    it('should get tier for workload', () => {
+      const resolver = getWorkloadModelResolver();
 
-      expect(resolver.getTierForAgent('input-analysis')).toBe('simple');
-      expect(resolver.getTierForAgent('planning')).toBe('complex');
-      expect(resolver.getTierForAgent('execution')).toBe('medium');
+      expect(resolver.getTierForWorkload('input-analysis')).toBe('simple');
+      expect(resolver.getTierForWorkload('planning')).toBe('complex');
+      expect(resolver.getTierForWorkload('execution')).toBe('medium');
     });
 
-    it('should check if agent is configured', () => {
-      const resolver = getAgentModelResolver();
+    it('should check if workload is configured', () => {
+      const resolver = getWorkloadModelResolver();
 
-      expect(resolver.isAgentConfigured('planning')).toBe(true);
-      expect(resolver.isAgentConfigured('non-existent-agent')).toBe(false);
+      expect(resolver.isWorkloadConfigured('planning')).toBe(true);
+      expect(resolver.isWorkloadConfigured('non-existent-workload')).toBe(false);
     });
 
-    it('should get all agent IDs', () => {
-      const resolver = getAgentModelResolver();
-      const agentIds = resolver.getAllAgentIds();
+    it('should get all workload IDs', () => {
+      const resolver = getWorkloadModelResolver();
+      const workloadIds = resolver.getAllWorkloadIds();
 
-      expect(Array.isArray(agentIds)).toBe(true);
-      expect(agentIds).toContain('planning');
-      expect(agentIds).toContain('execution');
+      expect(Array.isArray(workloadIds)).toBe(true);
+      expect(workloadIds).toContain('planning');
+      expect(workloadIds).toContain('execution');
     });
 
     it('should estimate cost correctly', () => {
-      const resolver = getAgentModelResolver();
+      const resolver = getWorkloadModelResolver();
 
       // Claude Opus 4.5: $0.015/1k input, $0.075/1k output
       const cost = resolver.estimateCost('claude-opus-4-5-20251101', 1000, 1000);
@@ -439,7 +439,7 @@ describe('LLM Provider Manager', () => {
     });
 
     it('should return default cost for unknown models', () => {
-      const resolver = getAgentModelResolver();
+      const resolver = getWorkloadModelResolver();
 
       const cost = resolver.estimateCost('unknown-model', 1000, 1000);
       expect(cost).toBeGreaterThan(0);
@@ -496,10 +496,10 @@ describe('LLM Provider Manager', () => {
       expect(endpoints).toContain('anthropic-direct');
     });
 
-    it('should get model for agent', () => {
+    it('should get model for workload', () => {
       const manager = getLLMProviderManager();
 
-      const model = manager.getModelForAgent('planning');
+      const model = manager.getModelForWorkload('planning');
       expect(model).toBeDefined();
       expect(typeof model).toBe('string');
     });
@@ -549,12 +549,12 @@ describe('LLM Provider Manager', () => {
       expect(manager.isModelSupported('non-existent-model')).toBe(false);
     });
 
-    it('should get all agent IDs', () => {
+    it('should get all workload IDs', () => {
       const manager = getLLMProviderManager();
-      const agentIds = manager.getAllAgentIds();
+      const workloadIds = manager.getAllWorkloadIds();
 
-      expect(Array.isArray(agentIds)).toBe(true);
-      expect(agentIds.length).toBeGreaterThan(0);
+      expect(Array.isArray(workloadIds)).toBe(true);
+      expect(workloadIds.length).toBeGreaterThan(0);
     });
 
     it('should reload config', async () => {
@@ -583,27 +583,27 @@ describe('LLM Provider Manager', () => {
       console.log('Loaded user config:');
       console.log(`  - Endpoints: ${Object.keys(config.endpoints).length}`);
       console.log(`  - Models: ${Object.keys(config.models).length}`);
-      console.log(`  - Agents: ${Object.keys(config.agents).length}`);
+      console.log(`  - Workloads: ${Object.keys(config.workloads).length}`);
 
       expect(config).toBeDefined();
     });
 
-    it('should resolve models for all configured agents', () => {
-      const resolver = getAgentModelResolver();
-      const agentIds = resolver.getAllAgentIds();
+    it('should resolve models for all configured workloads', () => {
+      const resolver = getWorkloadModelResolver();
+      const workloadIds = resolver.getAllWorkloadIds();
 
-      console.log('Agent model resolution:');
-      for (const agentId of agentIds) {
-        const model = resolver.getModelForAgent(agentId);
-        const tier = resolver.getTierForAgent(agentId);
-        console.log(`  - ${agentId}: tier=${tier}, model=${model}`);
+      console.log('Workload model resolution:');
+      for (const workloadId of workloadIds) {
+        const model = resolver.getModelForWorkload(workloadId);
+        const tier = resolver.getTierForWorkload(workloadId);
+        console.log(`  - ${workloadId}: tier=${tier}, model=${model}`);
 
         expect(model).toBeDefined();
       }
     });
 
     it('should have valid fallback chains for all tiers', () => {
-      const resolver = getAgentModelResolver();
+      const resolver = getWorkloadModelResolver();
       const tiers: ModelTier[] = ['simple', 'medium', 'complex'];
 
       console.log('Tier fallback chains:');
@@ -645,7 +645,7 @@ describe('LLM Provider Manager', () => {
 
     for (const tc of testCases) {
       it(`should estimate cost for ${tc.model}`, () => {
-        const resolver = getAgentModelResolver();
+        const resolver = getWorkloadModelResolver();
         const cost = resolver.estimateCost(tc.model, tc.input, tc.output);
 
         expect(cost).toBeGreaterThanOrEqual(tc.expectedMin);

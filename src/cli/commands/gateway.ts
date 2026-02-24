@@ -30,6 +30,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const runtimeConfig = loadRuntimeConfig();
 const DEFAULT_DB_PATH = runtimeConfig.paths.database;
+const DEFAULT_MEMORY_DB_PATH = runtimeConfig.memory.database;
 const DEFAULT_HOST = runtimeConfig.gateway.host;
 const DEFAULT_PORT = runtimeConfig.gateway.port;
 
@@ -48,6 +49,7 @@ interface PidInfo {
   port: number;
   startedAt: number;
   dbPath: string;
+  memoryDbPath?: string;
   mode: 'foreground' | 'background' | 'daemon';
 }
 
@@ -213,12 +215,13 @@ gatewayCommand
   .option('-h, --host <host>', 'Host to bind to', DEFAULT_HOST)
   .option('-p, --port <port>', 'Port to listen on', String(DEFAULT_PORT))
   .option('-d, --db <path>', 'Database path', DEFAULT_DB_PATH)
+  .option('--memory-db <path>', 'Memory database path', DEFAULT_MEMORY_DB_PATH)
   .option('-f, --force', 'Force start even if another instance is running')
   .option('--foreground', 'Run in foreground (default is background)')
   .option('--daemon', 'Run with daemon supervisor (auto-restart on crash)')
   .option('--debug', 'Enable debug mode for event tracing')
   .action(async (options) => {
-    const { host, port, db: dbPath, force, foreground, daemon, debug } = options;
+    const { host, port, db: dbPath, memoryDb, force, foreground, daemon, debug } = options;
 
     // Check if gateway is already running
     const existingPid = readPidFile();
@@ -247,23 +250,24 @@ gatewayCommand
 
     // Resolve absolute path for database
     const absoluteDbPath = resolve(dbPath);
+    const absoluteMemoryDbPath = resolve(memoryDb || join(dirname(absoluteDbPath), 'memory.db'));
 
     // Check for debug mode from environment or CLI option
     const debugEnabled = Boolean(debug) || isDebugLoggingEnabled();
 
     if (daemon) {
       // Start daemon supervisor
-      startDaemon(host, port, absoluteDbPath, debugEnabled);
+      startDaemon(host, port, absoluteDbPath, absoluteMemoryDbPath, debugEnabled);
     } else if (foreground) {
       // Run in foreground
-      await runGateway(host, parseInt(port, 10), absoluteDbPath, 'foreground', debugEnabled);
+      await runGateway(host, parseInt(port, 10), absoluteDbPath, absoluteMemoryDbPath, 'foreground', debugEnabled);
     } else {
       // Run in background (default)
-      startBackground(host, port, absoluteDbPath, debugEnabled);
+      startBackground(host, port, absoluteDbPath, absoluteMemoryDbPath, debugEnabled);
     }
   });
 
-function startBackground(host: string, port: string, dbPath: string, debugEnabled: boolean): void {
+function startBackground(host: string, port: string, dbPath: string, memoryDbPath: string, debugEnabled: boolean): void {
   console.log(chalk.blue('Starting PonyBunny Gateway in background...'));
 
   const cliPath = join(__dirname, '../index.js');
@@ -272,7 +276,20 @@ function startBackground(host: string, port: string, dbPath: string, debugEnable
   ensurePonyDir();
   const logFd = openSync(LOG_FILE, 'a');
 
-  const args = [cliPath, 'gateway', 'start', '--foreground', '-h', host, '-p', port, '-d', dbPath];
+  const args = [
+    cliPath,
+    'gateway',
+    'start',
+    '--foreground',
+    '-h',
+    host,
+    '-p',
+    port,
+    '-d',
+    dbPath,
+    '--memory-db',
+    memoryDbPath,
+  ];
   if (debugEnabled) {
     args.push('--debug');
   }
@@ -294,6 +311,7 @@ function startBackground(host: string, port: string, dbPath: string, debugEnable
       console.log(chalk.gray(`  PID: ${pidInfo.pid}`));
       console.log(chalk.gray(`  Address: ws://${host}:${port}`));
       console.log(chalk.gray(`  Database: ${dbPath}`));
+      console.log(chalk.gray(`  Memory DB: ${memoryDbPath}`));
       console.log(chalk.gray(`  Log: ${LOG_FILE}`));
       console.log(chalk.gray('\nUse `pb gateway stop` to stop the server'));
     } else {
@@ -304,7 +322,7 @@ function startBackground(host: string, port: string, dbPath: string, debugEnable
   }, 1500);
 }
 
-function startDaemon(host: string, port: string, dbPath: string, debugEnabled: boolean): void {
+function startDaemon(host: string, port: string, dbPath: string, memoryDbPath: string, debugEnabled: boolean): void {
   console.log(chalk.blue('Starting PonyBunny Gateway with daemon supervisor...'));
 
   const cliPath = join(__dirname, '../index.js');
@@ -312,7 +330,19 @@ function startDaemon(host: string, port: string, dbPath: string, debugEnabled: b
   ensurePonyDir();
   const logFd = openSync(LOG_FILE, 'a');
 
-  const args = [cliPath, 'gateway', 'daemon-run', '-h', host, '-p', port, '-d', dbPath];
+  const args = [
+    cliPath,
+    'gateway',
+    'daemon-run',
+    '-h',
+    host,
+    '-p',
+    port,
+    '-d',
+    dbPath,
+    '--memory-db',
+    memoryDbPath,
+  ];
   if (debugEnabled) {
     args.push('--debug');
   }
@@ -334,6 +364,8 @@ function startDaemon(host: string, port: string, dbPath: string, debugEnabled: b
       console.log(chalk.gray(`  Gateway PID: ${pidInfo.pid}`));
       console.log(chalk.gray(`  Daemon PID: ${pidInfo.daemonPid || 'N/A'}`));
       console.log(chalk.gray(`  Address: ws://${host}:${port}`));
+      console.log(chalk.gray(`  Database: ${dbPath}`));
+      console.log(chalk.gray(`  Memory DB: ${memoryDbPath}`));
       console.log(chalk.gray(`  Log: ${LOG_FILE}`));
       console.log(chalk.gray('\nThe daemon will automatically restart the gateway if it crashes.'));
       console.log(chalk.gray('Use `pb gateway stop` to stop both daemon and gateway.'));
@@ -352,9 +384,11 @@ gatewayCommand
   .option('-h, --host <host>', 'Host to bind to', DEFAULT_HOST)
   .option('-p, --port <port>', 'Port to listen on', String(DEFAULT_PORT))
   .option('-d, --db <path>', 'Database path', DEFAULT_DB_PATH)
+  .option('--memory-db <path>', 'Memory database path', DEFAULT_MEMORY_DB_PATH)
   .option('--debug', 'Enable debug mode for event tracing')
   .action(async (options) => {
-    const { host, port, db: dbPath, debug: debugEnabled } = options;
+    const { host, port, db: dbPath, memoryDb, debug: debugEnabled } = options;
+    const memoryDbPath = resolve(memoryDb || join(dirname(resolve(dbPath)), 'memory.db'));
 
     log(`Daemon supervisor starting for ws://${host}:${port}`);
     writeDaemonPidFile(process.pid);
@@ -369,7 +403,20 @@ gatewayCommand
 
       log(`Starting gateway process (restart #${restartCount})`);
 
-      const args = [cliPath, 'gateway', 'start', '--foreground', '-h', host, '-p', port, '-d', dbPath];
+      const args = [
+        cliPath,
+        'gateway',
+        'start',
+        '--foreground',
+        '-h',
+        host,
+        '-p',
+        port,
+        '-d',
+        dbPath,
+        '--memory-db',
+        memoryDbPath,
+      ];
       if (debugEnabled) {
         args.push('--debug');
       }
@@ -441,7 +488,14 @@ gatewayCommand
     await new Promise(() => {});
   });
 
-async function runGateway(host: string, port: number, dbPath: string, _mode: 'foreground' | 'background' | 'daemon', debugEnabled: boolean = false): Promise<void> {
+async function runGateway(
+  host: string,
+  port: number,
+  dbPath: string,
+  memoryDbPath: string,
+  _mode: 'foreground' | 'background' | 'daemon',
+  debugEnabled: boolean = false
+): Promise<void> {
   const isBackground = process.env.PONY_GATEWAY_BACKGROUND === '1';
   const isDaemonChild = process.env.PONY_GATEWAY_DAEMON_CHILD === '1';
 
@@ -451,24 +505,28 @@ async function runGateway(host: string, port: number, dbPath: string, _mode: 'fo
   if (!isBackground && !isDaemonChild) {
     console.log(chalk.blue('Starting PonyBunny Gateway Server...'));
     console.log(chalk.gray(`  Database: ${dbPath}`));
+    console.log(chalk.gray(`  Memory DB: ${memoryDbPath}`));
     console.log(chalk.gray(`  Address: ws://${host}:${port}`));
   }
 
-  log(`Gateway starting on ws://${host}:${port} (db=${dbPath})`);
+  log(`Gateway starting on ws://${host}:${port} (db=${dbPath}, memoryDb=${memoryDbPath})`);
 
   try {
     // Initialize database
     const db = new Database(dbPath);
+    const memoryDb = new Database(memoryDbPath);
 
     // Load and run schema
     const schemaPath = join(__dirname, '../../infra/persistence/schema.sql');
     try {
       const schema = readFileSync(schemaPath, 'utf-8');
       db.exec(schema);
+      memoryDb.exec(schema);
     } catch {
       const distSchemaPath = join(__dirname, '../../../dist/infra/persistence/schema.sql');
       const schema = readFileSync(distSchemaPath, 'utf-8');
       db.exec(schema);
+      memoryDb.exec(schema);
     }
 
     // Initialize repository
@@ -477,7 +535,7 @@ async function runGateway(host: string, port: number, dbPath: string, _mode: 'fo
 
     // Create and start gateway (no scheduler - runs independently)
     const gateway = new GatewayServer(
-      { db, dbPath, repository, debugMode: debugEnabled },
+      { db, dbPath, memoryDb, memoryDbPath, repository, debugMode: debugEnabled },
       { host, port }
     );
 
@@ -490,6 +548,7 @@ async function runGateway(host: string, port: number, dbPath: string, _mode: 'fo
       port,
       startedAt: Date.now(),
       dbPath,
+      memoryDbPath,
       mode: actualMode,
     });
 
@@ -510,6 +569,7 @@ async function runGateway(host: string, port: number, dbPath: string, _mode: 'fo
       removePidFile();
       await gateway.stop();
       db.close();
+      memoryDb.close();
       log('Gateway stopped');
       process.exit(0);
     };
@@ -546,6 +606,9 @@ gatewayCommand
         console.log(chalk.gray(`  Mode: ${pidInfo.mode || 'foreground'}`));
         console.log(chalk.gray(`  Address: ws://${pidInfo.host}:${pidInfo.port}`));
         console.log(chalk.gray(`  Database: ${pidInfo.dbPath}`));
+        if (pidInfo.memoryDbPath) {
+          console.log(chalk.gray(`  Memory DB: ${pidInfo.memoryDbPath}`));
+        }
         console.log(chalk.gray(`  Started: ${new Date(pidInfo.startedAt).toISOString()}`));
         console.log(chalk.gray(`  Uptime: ${formatUptime(Date.now() - pidInfo.startedAt)}`));
 
@@ -729,6 +792,9 @@ gatewayCommand
       console.log(chalk.white('  Mode:'), chalk.cyan(pidInfo.mode || 'foreground'));
       console.log(chalk.white('  Address:'), chalk.cyan(`ws://${pidInfo.host}:${pidInfo.port}`));
       console.log(chalk.white('  Database:'), chalk.gray(pidInfo.dbPath));
+      if (pidInfo.memoryDbPath) {
+        console.log(chalk.white('  Memory DB:'), chalk.gray(pidInfo.memoryDbPath));
+      }
       console.log(chalk.white('  Started:'), chalk.gray(new Date(pidInfo.startedAt).toISOString()));
 
       if (running) {

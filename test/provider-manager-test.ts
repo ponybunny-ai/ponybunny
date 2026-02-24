@@ -6,11 +6,11 @@
 import {
   getLLMProviderManager,
   getEndpointManager,
-  getAgentModelResolver,
+  getWorkloadModelResolver,
   getCachedConfig,
   resetLLMProviderManager,
   resetEndpointManager,
-  resetAgentModelResolver,
+  resetWorkloadModelResolver,
   clearConfigCache,
 } from '../src/infra/llm/provider-manager/index.js';
 
@@ -20,7 +20,7 @@ async function main() {
   // Reset singletons for clean test
   resetLLMProviderManager();
   resetEndpointManager();
-  resetAgentModelResolver();
+  resetWorkloadModelResolver();
   clearConfigCache();
 
   // Test 1: Load configuration
@@ -28,7 +28,7 @@ async function main() {
   const config = getCachedConfig();
   console.log(`   - Loaded ${Object.keys(config.endpoints).length} endpoints`);
   console.log(`   - Loaded ${Object.keys(config.models).length} models`);
-  console.log(`   - Loaded ${Object.keys(config.agents).length} agents`);
+  console.log(`   - Loaded ${Object.keys(config.workloads).length} workloads`);
   console.log(`   - Tiers: ${Object.keys(config.tiers).join(', ')}`);
   console.log('   ✓ Configuration loaded successfully\n');
 
@@ -44,19 +44,19 @@ async function main() {
   }
   console.log('   ✓ Endpoint Manager working\n');
 
-  // Test 3: Agent Model Resolver
-  console.log('3. Testing Agent Model Resolver...');
-  const resolver = getAgentModelResolver();
+  // Test 3: Workload Model Resolver
+  console.log('3. Testing Workload Model Resolver...');
+  const resolver = getWorkloadModelResolver();
 
-  const testAgents = ['input-analysis', 'planning', 'execution', 'verification', 'response-generation', 'conversation'];
-  for (const agentId of testAgents) {
-    const model = resolver.getModelForAgent(agentId);
-    const tier = resolver.getTierForAgent(agentId);
-    const fallbackChain = resolver.getFallbackChain(agentId);
-    console.log(`   - ${agentId}: tier=${tier}, model=${model}`);
+  const testWorkloads = ['input-analysis', 'planning', 'execution', 'verification', 'response-generation', 'conversation'];
+  for (const workloadId of testWorkloads) {
+    const model = resolver.getModelForWorkload(workloadId);
+    const tier = resolver.getTierForWorkload(workloadId);
+    const fallbackChain = resolver.getFallbackChain(workloadId);
+    console.log(`   - ${workloadId}: tier=${tier}, model=${model}`);
     console.log(`     fallback chain: ${fallbackChain.join(' → ')}`);
   }
-  console.log('   ✓ Agent Model Resolver working\n');
+  console.log('   ✓ Workload Model Resolver working\n');
 
   // Test 4: Provider Manager
   console.log('4. Testing Provider Manager...');
@@ -72,10 +72,10 @@ async function main() {
     console.log(`     ... and ${models.length - 5} more`);
   }
 
-  console.log('\n   - Agent model resolution:');
-  for (const agentId of testAgents) {
-    const model = providerManager.getModelForAgent(agentId);
-    console.log(`     ${agentId} → ${model}`);
+  console.log('\n   - Workload model resolution:');
+  for (const workloadId of testWorkloads) {
+    const model = providerManager.getModelForWorkload(workloadId);
+    console.log(`     ${workloadId} → ${model}`);
   }
 
   console.log('\n   - Tier model resolution:');

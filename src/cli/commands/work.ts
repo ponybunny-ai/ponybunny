@@ -68,8 +68,8 @@ export function registerWorkCommand(program: Command) {
       // 4. Create Goal & Work Item
       console.log(chalk.blue(`\n📝 Task: ${task}`));
 
-      const defaultModel = llmService.getModelForAgent('execution');
-      const fallbackChain = llmService.getFallbackChainForAgent('execution');
+  const defaultModel = llmService.getModelForWorkload('execution');
+  const fallbackChain = llmService.getFallbackChainForWorkload('execution');
       const modelCandidates = buildWorkModelCandidates([defaultModel, ...fallbackChain]);
 
       const model = options.model || modelCandidates.find((candidateModel) => {

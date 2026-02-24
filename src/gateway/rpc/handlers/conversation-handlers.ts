@@ -13,6 +13,7 @@ import { debug } from '../../../debug/index.js';
 export interface ConversationMessageParams {
   sessionId?: string;
   personaId?: string;
+  userProfileId?: string;
   message: string;
   attachments?: IAttachment[];
   stream?: boolean;
@@ -80,6 +81,7 @@ export function registerConversationHandlers(
             params.message,
             params.sessionId,
             params.personaId,
+            params.userProfileId,
             params.attachments,
             (chunk: string) => {
               // Emit each chunk as an event
@@ -113,6 +115,7 @@ export function registerConversationHandlers(
           params.message,
           params.sessionId,
           params.personaId,
+          params.userProfileId,
           params.attachments
         );
 

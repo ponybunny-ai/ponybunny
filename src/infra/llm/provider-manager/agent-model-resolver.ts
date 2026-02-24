@@ -1,4 +1,4 @@
-import type { AgentId, ModelTier, LLMAgentConfig, LLMTierConfig } from './types.js';
+import type { WorkloadId, ModelTier, LLMWorkloadConfig, LLMTierConfig } from './types.js';
 import { getCachedConfig } from './config-loader.js';
 import { getEndpointManager } from './endpoint-manager.js';
 
@@ -6,27 +6,27 @@ import { getEndpointManager } from './endpoint-manager.js';
  * Agent Model Resolver
  * Resolves agent IDs and tiers to specific models with fallback chains
  */
-export class AgentModelResolver {
+export class WorkloadModelResolver {
   /**
    * Get the primary model for an agent
    */
-  getModelForAgent(agentId: AgentId): string {
+  getModelForWorkload(workloadId: WorkloadId): string {
     const config = getCachedConfig();
-    const agentConfig = config.agents[agentId];
+    const workloadConfig = config.workloads[workloadId];
 
-    if (!agentConfig) {
+    if (!workloadConfig) {
       // Unknown agent, use medium tier as default
-      console.warn(`[AgentModelResolver] Unknown agent '${agentId}', using medium tier`);
+      console.warn(`[WorkloadModelResolver] Unknown workload '${workloadId}', using medium tier`);
       return config.tiers.medium.primary;
     }
 
     // Agent-specific primary model takes precedence
-    if (agentConfig.primary) {
-      return agentConfig.primary;
+    if (workloadConfig.primary) {
+      return workloadConfig.primary;
     }
 
     // Fall back to tier's primary model
-    const tier = agentConfig.tier || 'medium';
+    const tier = workloadConfig.tier || 'medium';
     return config.tiers[tier].primary;
   }
 
@@ -42,26 +42,26 @@ export class AgentModelResolver {
    * Get the complete fallback chain for an agent
    * Returns [primary, ...fallbacks] in order of preference
    */
-  getFallbackChain(agentId: AgentId): string[] {
+  getFallbackChain(workloadId: WorkloadId): string[] {
     const config = getCachedConfig();
-    const agentConfig = config.agents[agentId];
+    const workloadConfig = config.workloads[workloadId];
 
-    if (!agentConfig) {
+    if (!workloadConfig) {
       // Unknown agent, use medium tier
       const tierConfig = config.tiers.medium;
       return [tierConfig.primary, ...(tierConfig.fallback || [])];
     }
 
     // Agent-specific fallback chain takes precedence
-    if (agentConfig.fallback && agentConfig.fallback.length > 0) {
-      const primary = agentConfig.primary || this.getModelForAgent(agentId);
-      return [primary, ...agentConfig.fallback];
+    if (workloadConfig.fallback && workloadConfig.fallback.length > 0) {
+      const primary = workloadConfig.primary || this.getModelForWorkload(workloadId);
+      return [primary, ...workloadConfig.fallback];
     }
 
     // Use tier's fallback chain
-    const tier = agentConfig.tier || 'medium';
+    const tier = workloadConfig.tier || 'medium';
     const tierConfig = config.tiers[tier];
-    const primary = agentConfig.primary || tierConfig.primary;
+    const primary = workloadConfig.primary || tierConfig.primary;
 
     return [primary, ...(tierConfig.fallback || [])];
   }
@@ -79,8 +79,8 @@ export class AgentModelResolver {
    * Get the first available model from a fallback chain
    * Checks endpoint availability for each model
    */
-  async getFirstAvailableModel(agentId: AgentId): Promise<string | undefined> {
-    const chain = this.getFallbackChain(agentId);
+  async getFirstAvailableModel(workloadId: WorkloadId): Promise<string | undefined> {
+    const chain = this.getFallbackChain(workloadId);
     const endpointManager = getEndpointManager();
 
     for (const modelId of chain) {
@@ -113,9 +113,9 @@ export class AgentModelResolver {
   /**
    * Get agent configuration
    */
-  getAgentConfig(agentId: AgentId): LLMAgentConfig | undefined {
+  getWorkloadConfig(workloadId: WorkloadId): LLMWorkloadConfig | undefined {
     const config = getCachedConfig();
-    return config.agents[agentId];
+    return config.workloads[workloadId];
   }
 
   /**
@@ -129,26 +129,26 @@ export class AgentModelResolver {
   /**
    * Get all configured agent IDs
    */
-  getAllAgentIds(): string[] {
+  getAllWorkloadIds(): string[] {
     const config = getCachedConfig();
-    return Object.keys(config.agents);
+    return Object.keys(config.workloads);
   }
 
   /**
    * Check if an agent is configured
    */
-  isAgentConfigured(agentId: AgentId): boolean {
+  isWorkloadConfigured(workloadId: WorkloadId): boolean {
     const config = getCachedConfig();
-    return agentId in config.agents;
+    return workloadId in config.workloads;
   }
 
   /**
    * Get the tier for an agent
    */
-  getTierForAgent(agentId: AgentId): ModelTier {
+  getTierForWorkload(workloadId: WorkloadId): ModelTier {
     const config = getCachedConfig();
-    const agentConfig = config.agents[agentId];
-    return agentConfig?.tier || 'medium';
+    const workloadConfig = config.workloads[workloadId];
+    return workloadConfig?.tier || 'medium';
   }
 
   /**
@@ -171,14 +171,14 @@ export class AgentModelResolver {
 }
 
 // Singleton instance
-let instance: AgentModelResolver | null = null;
+let instance: WorkloadModelResolver | null = null;
 
 /**
- * Get the singleton AgentModelResolver instance
+ * Get the singleton WorkloadModelResolver instance
  */
-export function getAgentModelResolver(): AgentModelResolver {
+export function getWorkloadModelResolver(): WorkloadModelResolver {
   if (!instance) {
-    instance = new AgentModelResolver();
+    instance = new WorkloadModelResolver();
   }
   return instance;
 }
@@ -186,6 +186,6 @@ export function getAgentModelResolver(): AgentModelResolver {
 /**
  * Reset the singleton instance (useful for testing)
  */
-export function resetAgentModelResolver(): void {
+export function resetWorkloadModelResolver(): void {
   instance = null;
 }

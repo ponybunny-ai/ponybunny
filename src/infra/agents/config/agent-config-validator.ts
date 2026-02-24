@@ -69,8 +69,8 @@ function resolveSchemaPath(): string {
   }
 
   const candidates = [
-    path.resolve(process.cwd(), 'agents', 'agent.schema.json'),
-    path.resolve(process.cwd(), 'dist', 'agents', 'agent.schema.json'),
+    path.resolve(process.cwd(), 'docs', 'schemas', 'agent.schema.json'),
+    path.resolve(process.cwd(), 'dist', 'docs', 'schemas', 'agent.schema.json'),
   ];
 
   for (const candidate of candidates) {

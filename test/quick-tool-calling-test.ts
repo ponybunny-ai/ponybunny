@@ -55,7 +55,7 @@ async function quickTest() {
   try {
     log(COLORS.yellow, '📤 Sending request to LLM...');
 
-    const response = await llmService.completeForAgent('conversation', messages, {
+    const response = await llmService.completeForWorkload('conversation', messages, {
       maxTokens: 500,
       tools: conversationTools,
       tool_choice: 'auto',
@@ -123,7 +123,7 @@ async function quickTest() {
       // Get final response
       log(COLORS.yellow, '\n📤 Sending tool results back to LLM...');
 
-      const finalResponse = await llmService.completeForAgent('conversation', messages, {
+      const finalResponse = await llmService.completeForWorkload('conversation', messages, {
         maxTokens: 500,
         tools: conversationTools,
         tool_choice: 'auto',

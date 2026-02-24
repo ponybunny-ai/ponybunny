@@ -142,7 +142,7 @@ async function debugTest() {
   try {
     log(COLORS.yellow, '\n📤 Calling LLM with tools...\n');
 
-    const response = await llmService.completeForAgent('conversation', messages, {
+    const response = await llmService.completeForWorkload('conversation', messages, {
       maxTokens: 500,
       tools: conversationTools,
       tool_choice: 'auto',

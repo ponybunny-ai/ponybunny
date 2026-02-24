@@ -19,10 +19,23 @@ const outputs: Array<{ name: string; schema: object }> = [
   { name: 'mcp-config.schema.json', schema: MCP_CONFIG_SCHEMA_TEMPLATE },
 ];
 
+const passthroughSchemas = ['agent.schema.json'];
+
 fs.mkdirSync(outputDir, { recursive: true });
 
 for (const output of outputs) {
   const filePath = path.join(outputDir, output.name);
   fs.writeFileSync(filePath, `${JSON.stringify(output.schema, null, 2)}\n`, 'utf-8');
+  console.log(`synced ${path.relative(projectRoot, filePath)}`);
+}
+
+for (const schemaName of passthroughSchemas) {
+  const filePath = path.join(outputDir, schemaName);
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Missing required schema: ${path.relative(projectRoot, filePath)}`);
+  }
+
+  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as object;
+  fs.writeFileSync(filePath, `${JSON.stringify(parsed, null, 2)}\n`, 'utf-8');
   console.log(`synced ${path.relative(projectRoot, filePath)}`);
 }

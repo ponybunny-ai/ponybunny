@@ -3,7 +3,7 @@ import type {
   LLMConfig,
   LLMEndpointConfig,
   LLMModelConfig,
-  AgentId,
+  WorkloadId,
   ModelTier,
   LLMCompletionOptions,
 } from './types.js';
@@ -11,7 +11,7 @@ import type { LLMMessage, LLMResponse, StreamChunk } from '../llm-provider.js';
 import { LLMProviderError } from '../llm-provider.js';
 import { getCachedConfig, reloadConfig, clearConfigCache } from './config-loader.js';
 import { EndpointManager, getEndpointManager } from './endpoint-manager.js';
-import { AgentModelResolver, getAgentModelResolver } from './agent-model-resolver.js';
+import { WorkloadModelResolver, getWorkloadModelResolver } from './agent-model-resolver.js';
 import { getProtocolAdapter } from '../protocols/index.js';
 import type { EndpointCredentials } from '../protocols/index.js';
 import { gatewayEventBus } from '../../../gateway/events/event-bus.js';
@@ -23,14 +23,14 @@ import { randomUUID } from 'crypto';
  */
 export class LLMProviderManager implements ILLMProviderManager {
   private endpointManager: EndpointManager;
-  private agentModelResolver: AgentModelResolver;
+  private workloadModelResolver: WorkloadModelResolver;
   private defaultTimeout: number;
   private defaultMaxTokens: number;
   private defaultTemperature: number;
 
   constructor() {
     this.endpointManager = getEndpointManager();
-    this.agentModelResolver = getAgentModelResolver();
+    this.workloadModelResolver = getWorkloadModelResolver();
 
     const config = getCachedConfig();
     this.defaultTimeout = config.defaults.timeout || 120000;
@@ -92,16 +92,16 @@ export class LLMProviderManager implements ILLMProviderManager {
   // Agent Model Resolution
   // ============================================
 
-  getModelForAgent(agentId: AgentId): string {
-    return this.agentModelResolver.getModelForAgent(agentId);
+  getModelForWorkload(workloadId: WorkloadId): string {
+    return this.workloadModelResolver.getModelForWorkload(workloadId);
   }
 
   getModelForTier(tier: ModelTier): string {
-    return this.agentModelResolver.getModelForTier(tier);
+    return this.workloadModelResolver.getModelForTier(tier);
   }
 
-  getFallbackChain(agentId: AgentId): string[] {
-    return this.agentModelResolver.getFallbackChain(agentId);
+  getFallbackChain(workloadId: WorkloadId): string[] {
+    return this.workloadModelResolver.getFallbackChain(workloadId);
   }
 
   // ============================================
@@ -109,11 +109,11 @@ export class LLMProviderManager implements ILLMProviderManager {
   // ============================================
 
   async complete(
-    agentId: AgentId,
+    workloadId: WorkloadId,
     messages: LLMMessage[],
     options?: LLMCompletionOptions
   ): Promise<LLMResponse> {
-    const fallbackChain = this.agentModelResolver.getFallbackChain(agentId);
+    const fallbackChain = this.workloadModelResolver.getFallbackChain(workloadId);
     return this.completeWithFallback(fallbackChain, messages, options);
   }
 
@@ -130,7 +130,7 @@ export class LLMProviderManager implements ILLMProviderManager {
     messages: LLMMessage[],
     options?: LLMCompletionOptions
   ): Promise<LLMResponse> {
-    const fallbackChain = this.agentModelResolver.getFallbackChainForTier(tier);
+    const fallbackChain = this.workloadModelResolver.getFallbackChainForTier(tier);
     return this.completeWithFallback(fallbackChain, messages, options);
   }
 
@@ -523,7 +523,7 @@ export class LLMProviderManager implements ILLMProviderManager {
    * Estimate cost for a completion
    */
   estimateCost(modelId: string, inputTokens: number, outputTokens: number): number {
-    return this.agentModelResolver.estimateCost(modelId, inputTokens, outputTokens);
+    return this.workloadModelResolver.estimateCost(modelId, inputTokens, outputTokens);
   }
 
   /**
@@ -545,8 +545,8 @@ export class LLMProviderManager implements ILLMProviderManager {
   /**
    * Get all configured agent IDs
    */
-  getAllAgentIds(): string[] {
-    return this.agentModelResolver.getAllAgentIds();
+  getAllWorkloadIds(): string[] {
+    return this.workloadModelResolver.getAllWorkloadIds();
   }
 }
 

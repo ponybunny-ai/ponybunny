@@ -48,6 +48,11 @@ import { TaskBridge } from '../app/conversation/task-bridge.js';
 import { RetryHandler } from '../app/conversation/retry-handler.js';
 import { FilePersonaRepository, InMemoryPersonaRepository } from '../infra/conversation/persona-repository.js';
 import { InMemorySessionRepository } from '../infra/conversation/session-repository.js';
+import { SqliteSessionRepository } from '../infra/persistence/sqlite-session-repository.js';
+import { SqliteMemoryRepository } from '../infra/persistence/sqlite-memory-repository.js';
+import { ConversationMemoryService } from '../app/conversation/memory-service.js';
+import { LocalEmbeddingService } from '../app/conversation/local-embedding-service.js';
+import { CoreMemorySummaryService } from '../app/conversation/core-memory-summary-service.js';
 import { getLLMService } from '../infra/llm/llm-service.js';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -61,10 +66,13 @@ import { WebSearchTool } from '../infra/tools/implementations/web-search-tool.js
 import { findSkillsTool } from '../infra/tools/implementations/find-skills-tool.js';
 import { ConfigWatcher, createConfigWatcher } from './config/config-watcher.js';
 import { getAsciiArtBanner } from '../infra/ui/ascii-art-banner.js';
+import { loadRuntimeConfig } from '../infra/config/runtime-config.js';
 
 export interface GatewayServerDependencies {
   db: Database.Database;
   dbPath?: string;
+  memoryDb?: Database.Database;
+  memoryDbPath?: string;
   repository: IWorkOrderRepository;
   debugMode?: boolean;
   personasDir?: string;
@@ -76,6 +84,8 @@ export class GatewayServer {
   private config: GatewayConfig;
   private db: Database.Database;
   private dbPath?: string;
+  private memoryDb: Database.Database;
+  private memoryDbPath?: string;
   private repository: IWorkOrderRepository;
   private debugMode: boolean;
 
@@ -120,6 +130,8 @@ export class GatewayServer {
     this.config = { ...DEFAULT_GATEWAY_CONFIG, ...config };
     this.db = dependencies.db;
     this.dbPath = dependencies.dbPath;
+    this.memoryDb = dependencies.memoryDb ?? dependencies.db;
+    this.memoryDbPath = dependencies.memoryDbPath;
     this.repository = dependencies.repository;
     this.debugMode = dependencies.debugMode ?? false;
     this.enableConfigWatch = dependencies.enableConfigWatch ?? false;
@@ -214,9 +226,11 @@ export class GatewayServer {
     personaEngine: IPersonaEngine;
     sessionManager: ISessionManager;
   } {
+    const runtimeConfig = loadRuntimeConfig();
+
     // Determine personas directory
     const defaultPersonasDir = path.join(process.cwd(), 'config', 'personas');
-    const resolvedPersonasDir = personasDir || defaultPersonasDir;
+    const resolvedPersonasDir = personasDir || runtimeConfig.persona.directory || defaultPersonasDir;
 
     // Create persona repository (file-based if directory exists, otherwise in-memory)
     let personaRepository;
@@ -241,8 +255,29 @@ export class GatewayServer {
       });
     }
 
-    const personaEngine = new PersonaEngine(personaRepository);
-    const sessionRepository = new InMemorySessionRepository();
+    const personaEngine = new PersonaEngine(
+      personaRepository,
+      runtimeConfig.persona.defaultPersonaId,
+      runtimeConfig.persona.promptOverrides
+    );
+    const useSqliteMemoryBackend = runtimeConfig.memory.backend === 'sqlite';
+    const sessionRepository = useSqliteMemoryBackend
+      ? new SqliteSessionRepository(this.memoryDb)
+      : new InMemorySessionRepository();
+    if (sessionRepository instanceof SqliteSessionRepository) {
+      sessionRepository.initialize();
+    }
+
+    const memoryRepository = new SqliteMemoryRepository(this.memoryDb);
+    memoryRepository.initialize();
+    const embeddingService = new LocalEmbeddingService(runtimeConfig.memory.embeddingProvider);
+    const coreSummaryService = new CoreMemorySummaryService(getLLMService());
+    const memoryService = new ConversationMemoryService(
+      memoryRepository,
+      embeddingService,
+      5000,
+      coreSummaryService
+    );
     const llmService = getLLMService();
 
     const inputAnalyzer = new InputAnalysisService(llmService);
@@ -259,7 +294,14 @@ export class GatewayServer {
       inputAnalyzer,
       this.responseGenerator,
       taskBridge,
-      retryHandler
+      retryHandler,
+      memoryService,
+      {
+        autoSave: runtimeConfig.memory.autoSave,
+        vectorWeight: runtimeConfig.memory.vectorWeight,
+        keywordWeight: runtimeConfig.memory.keywordWeight,
+        defaultUserProfileId: runtimeConfig.memory.userProfileId,
+      }
     );
 
     return { personaEngine, sessionManager };
@@ -396,6 +438,9 @@ export class GatewayServer {
           console.log(`  Address: ws://${this.config.host}:${this.config.port}`);
           if (this.dbPath) {
             console.log(`  Database: ${this.dbPath}`);
+          }
+          if (this.memoryDbPath) {
+            console.log(`  Memory DB: ${this.memoryDbPath}`);
           }
           console.log(`  Connection Limits:`);
           console.log(`    • Local (127.0.0.1):  ${this.config.maxLocalConnections ?? 512} connections`);

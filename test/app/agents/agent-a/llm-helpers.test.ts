@@ -12,7 +12,7 @@ class FakeLLMService extends LLMService {
     this.responses = responses;
   }
 
-  override async completeForAgent(_agentId: string, messages: LLMMessage[]): Promise<LLMResponse> {
+  override async completeForWorkload(_workloadId: string, messages: LLMMessage[]): Promise<LLMResponse> {
     this.lastMessages = messages;
     const next = this.responses.shift();
     if (!next) {

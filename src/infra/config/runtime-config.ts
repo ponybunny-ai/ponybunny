@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 import { homedir } from 'os';
 import { getConfigDir } from './config-paths.js';
 
@@ -22,14 +23,36 @@ export interface PonyBunnyRuntimeConfig {
     mainAgentId: string;
     personaEnabled: boolean;
   };
+  persona: {
+    directory: string;
+    defaultPersonaId: string;
+    promptOverrides: {
+      personalityDescription: string;
+      communicationStyleDescription: string;
+      expertiseDescription: string;
+      guidelines: string;
+      backstory: string;
+    };
+  };
   debug: {
     serverPort: number;
     loggingEnabled: boolean;
     antigravityDebug: boolean;
   };
+  memory: {
+    backend: 'sqlite' | 'memory';
+    database: string;
+    userProfileId: string;
+    autoSave: boolean;
+    embeddingProvider: string;
+    vectorWeight: number;
+    keywordWeight: number;
+  };
 }
 
 const PONY_DIR = path.join(homedir(), '.ponybunny');
+const CONFIG_DIR = getConfigDir();
+const DEFAULT_USER_PROFILE_ID = detectCurrentOsUserProfileId();
 
 export const DEFAULT_RUNTIME_CONFIG: PonyBunnyRuntimeConfig = {
   $schema: 'https://ponybunny.dho.ai/schemas/ponybunny.schema.json',
@@ -50,10 +73,30 @@ export const DEFAULT_RUNTIME_CONFIG: PonyBunnyRuntimeConfig = {
     mainAgentId: 'lead',
     personaEnabled: false,
   },
+  persona: {
+    directory: path.join(CONFIG_DIR, 'personas'),
+    defaultPersonaId: 'pony-default',
+    promptOverrides: {
+      personalityDescription: '',
+      communicationStyleDescription: '',
+      expertiseDescription: '',
+      guidelines: '',
+      backstory: '',
+    },
+  },
   debug: {
     serverPort: 3001,
     loggingEnabled: false,
     antigravityDebug: false,
+  },
+  memory: {
+    backend: 'sqlite',
+    database: path.join(PONY_DIR, 'memory.db'),
+    userProfileId: DEFAULT_USER_PROFILE_ID,
+    autoSave: true,
+    embeddingProvider: 'none',
+    vectorWeight: 0.7,
+    keywordWeight: 0.3,
   },
 };
 
@@ -98,13 +141,62 @@ function toStringValue(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim().length > 0 ? value : fallback;
 }
 
+function toNumberInRange(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (Number.isFinite(parsed)) {
+    return Math.min(max, Math.max(min, parsed));
+  }
+  return fallback;
+}
+
+function defaultMemoryDbPath(mainDbPath: string): string {
+  return path.join(path.dirname(mainDbPath), 'memory.db');
+}
+
+function detectCurrentOsUserProfileId(): string {
+  const idUser = runUsernameCommand('id -un');
+  if (idUser) {
+    return idUser;
+  }
+
+  const whoamiUser = runUsernameCommand('whoami');
+  if (whoamiUser) {
+    return whoamiUser;
+  }
+
+  const envUser = process.env.USER || process.env.LOGNAME;
+  if (typeof envUser === 'string' && envUser.trim().length > 0) {
+    return envUser.trim();
+  }
+
+  return 'local-default-user';
+}
+
+function runUsernameCommand(command: string): string | null {
+  try {
+    const output = execSync(command, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    return output.length > 0 ? output : null;
+  } catch {
+    return null;
+  }
+}
+
 export function resolveRuntimeConfigFromEnvironment(
   env: NodeJS.ProcessEnv = process.env
 ): PonyBunnyRuntimeConfig {
+  const mainDatabase = toStringValue(env.PONY_DB_PATH, DEFAULT_RUNTIME_CONFIG.paths.database);
+  const memoryDatabase = toStringValue(
+    env.PONY_MEMORY_DB_PATH,
+    defaultMemoryDbPath(mainDatabase)
+  );
+
   return {
     ...DEFAULT_RUNTIME_CONFIG,
     paths: {
-      database: toStringValue(env.PONY_DB_PATH, DEFAULT_RUNTIME_CONFIG.paths.database),
+      database: mainDatabase,
       schedulerSocket: toStringValue(env.PONY_SCHEDULER_SOCKET, DEFAULT_RUNTIME_CONFIG.paths.schedulerSocket),
     },
     gateway: {
@@ -123,10 +215,45 @@ export function resolveRuntimeConfigFromEnvironment(
       mainAgentId: toStringValue(env.PONY_MAIN_AGENT_ID, DEFAULT_RUNTIME_CONFIG.agent.mainAgentId),
       personaEnabled: toBoolean(env.PONY_AGENT_PERSONA_ENABLED, DEFAULT_RUNTIME_CONFIG.agent.personaEnabled),
     },
+    persona: {
+      directory: toStringValue(env.PONY_PERSONA_DIR, DEFAULT_RUNTIME_CONFIG.persona.directory),
+      defaultPersonaId: toStringValue(env.PONY_DEFAULT_PERSONA_ID, DEFAULT_RUNTIME_CONFIG.persona.defaultPersonaId),
+      promptOverrides: {
+        personalityDescription: toStringValue(
+          env.PONY_PERSONA_OVERRIDE_PERSONALITY,
+          DEFAULT_RUNTIME_CONFIG.persona.promptOverrides.personalityDescription
+        ),
+        communicationStyleDescription: toStringValue(
+          env.PONY_PERSONA_OVERRIDE_COMMUNICATION_STYLE,
+          DEFAULT_RUNTIME_CONFIG.persona.promptOverrides.communicationStyleDescription
+        ),
+        expertiseDescription: toStringValue(
+          env.PONY_PERSONA_OVERRIDE_EXPERTISE,
+          DEFAULT_RUNTIME_CONFIG.persona.promptOverrides.expertiseDescription
+        ),
+        guidelines: toStringValue(
+          env.PONY_PERSONA_OVERRIDE_GUIDELINES,
+          DEFAULT_RUNTIME_CONFIG.persona.promptOverrides.guidelines
+        ),
+        backstory: toStringValue(
+          env.PONY_PERSONA_OVERRIDE_BACKSTORY,
+          DEFAULT_RUNTIME_CONFIG.persona.promptOverrides.backstory
+        ),
+      },
+    },
     debug: {
       serverPort: toPositiveInt(env.DEBUG_SERVER_PORT, DEFAULT_RUNTIME_CONFIG.debug.serverPort),
       loggingEnabled: env.PONY_BUNNY_DEBUG === '1',
       antigravityDebug: env.PB_ANTIGRAVITY_DEBUG === '1',
+    },
+    memory: {
+      backend: env.PONY_MEMORY_BACKEND === 'memory' ? 'memory' : 'sqlite',
+      database: memoryDatabase,
+      userProfileId: toStringValue(env.PONY_MEMORY_USER_PROFILE_ID, DEFAULT_RUNTIME_CONFIG.memory.userProfileId),
+      autoSave: toBoolean(env.PONY_MEMORY_AUTO_SAVE, DEFAULT_RUNTIME_CONFIG.memory.autoSave),
+      embeddingProvider: toStringValue(env.PONY_MEMORY_EMBEDDING_PROVIDER, DEFAULT_RUNTIME_CONFIG.memory.embeddingProvider),
+      vectorWeight: toNumberInRange(env.PONY_MEMORY_VECTOR_WEIGHT, DEFAULT_RUNTIME_CONFIG.memory.vectorWeight, 0, 1),
+      keywordWeight: toNumberInRange(env.PONY_MEMORY_KEYWORD_WEIGHT, DEFAULT_RUNTIME_CONFIG.memory.keywordWeight, 0, 1),
     },
   };
 }
@@ -161,10 +288,26 @@ function deepMerge<T extends Record<string, unknown>>(base: T, value: unknown): 
 }
 
 function normalizeConfig(raw: PonyBunnyRuntimeConfig): PonyBunnyRuntimeConfig {
+  const memoryInput = (raw as unknown as { memory?: Record<string, unknown> }).memory ?? {};
+  const personaInput = (raw as unknown as { persona?: Record<string, unknown> }).persona ?? {};
+  const promptOverrideInput =
+    (personaInput.promptOverrides as Record<string, unknown> | undefined)
+    ?? (personaInput.prompt_overrides as Record<string, unknown> | undefined)
+    ?? {};
+  const normalizedMainDbPath = path.resolve(
+    toStringValue(raw.paths?.database, DEFAULT_RUNTIME_CONFIG.paths.database)
+  );
+  const memoryDatabaseValue = memoryInput.database ?? memoryInput.db;
+  const userProfileIdValue = memoryInput.userProfileId ?? memoryInput.user_profile_id;
+  const autoSaveValue = memoryInput.autoSave ?? memoryInput.auto_save;
+  const embeddingProviderValue = memoryInput.embeddingProvider ?? memoryInput.embedding_provider;
+  const vectorWeightValue = memoryInput.vectorWeight ?? memoryInput.vector_weight;
+  const keywordWeightValue = memoryInput.keywordWeight ?? memoryInput.keyword_weight;
+
   return {
     $schema: 'https://ponybunny.dho.ai/schemas/ponybunny.schema.json',
     paths: {
-      database: path.resolve(toStringValue(raw.paths?.database, DEFAULT_RUNTIME_CONFIG.paths.database)),
+      database: normalizedMainDbPath,
       schedulerSocket: path.resolve(
         toStringValue(raw.paths?.schedulerSocket, DEFAULT_RUNTIME_CONFIG.paths.schedulerSocket)
       ),
@@ -185,10 +328,47 @@ function normalizeConfig(raw: PonyBunnyRuntimeConfig): PonyBunnyRuntimeConfig {
       mainAgentId: toStringValue(raw.agent?.mainAgentId, DEFAULT_RUNTIME_CONFIG.agent.mainAgentId),
       personaEnabled: toBoolean(raw.agent?.personaEnabled, DEFAULT_RUNTIME_CONFIG.agent.personaEnabled),
     },
+    persona: {
+      directory: path.resolve(toStringValue(personaInput.directory, DEFAULT_RUNTIME_CONFIG.persona.directory)),
+      defaultPersonaId: toStringValue(personaInput.defaultPersonaId, DEFAULT_RUNTIME_CONFIG.persona.defaultPersonaId),
+      promptOverrides: {
+        personalityDescription: toStringValue(
+          promptOverrideInput.personalityDescription ?? promptOverrideInput.personality_description,
+          DEFAULT_RUNTIME_CONFIG.persona.promptOverrides.personalityDescription
+        ),
+        communicationStyleDescription: toStringValue(
+          promptOverrideInput.communicationStyleDescription ?? promptOverrideInput.communication_style_description,
+          DEFAULT_RUNTIME_CONFIG.persona.promptOverrides.communicationStyleDescription
+        ),
+        expertiseDescription: toStringValue(
+          promptOverrideInput.expertiseDescription ?? promptOverrideInput.expertise_description,
+          DEFAULT_RUNTIME_CONFIG.persona.promptOverrides.expertiseDescription
+        ),
+        guidelines: toStringValue(
+          promptOverrideInput.guidelines,
+          DEFAULT_RUNTIME_CONFIG.persona.promptOverrides.guidelines
+        ),
+        backstory: toStringValue(
+          promptOverrideInput.backstory,
+          DEFAULT_RUNTIME_CONFIG.persona.promptOverrides.backstory
+        ),
+      },
+    },
     debug: {
       serverPort: toPositiveInt(raw.debug?.serverPort, DEFAULT_RUNTIME_CONFIG.debug.serverPort),
       loggingEnabled: toBoolean(raw.debug?.loggingEnabled, DEFAULT_RUNTIME_CONFIG.debug.loggingEnabled),
       antigravityDebug: toBoolean(raw.debug?.antigravityDebug, DEFAULT_RUNTIME_CONFIG.debug.antigravityDebug),
+    },
+    memory: {
+      backend: memoryInput.backend === 'memory' ? 'memory' : 'sqlite',
+      database: path.resolve(
+        toStringValue(memoryDatabaseValue, defaultMemoryDbPath(normalizedMainDbPath))
+      ),
+      userProfileId: toStringValue(userProfileIdValue, DEFAULT_RUNTIME_CONFIG.memory.userProfileId),
+      autoSave: toBoolean(autoSaveValue, DEFAULT_RUNTIME_CONFIG.memory.autoSave),
+      embeddingProvider: toStringValue(embeddingProviderValue, DEFAULT_RUNTIME_CONFIG.memory.embeddingProvider),
+      vectorWeight: toNumberInRange(vectorWeightValue, DEFAULT_RUNTIME_CONFIG.memory.vectorWeight, 0, 1),
+      keywordWeight: toNumberInRange(keywordWeightValue, DEFAULT_RUNTIME_CONFIG.memory.keywordWeight, 0, 1),
     },
   };
 }

@@ -7,7 +7,7 @@ import { getModelRouter } from './routing/index.js';
 import { getAvailableEndpoints } from './endpoints/index.js';
 import type { ModelTier } from '../../scheduler/model-selector/types.js';
 import { getLLMProviderManager } from './provider-manager/index.js';
-import type { AgentId, LLMCompletionOptions } from './provider-manager/index.js';
+import type { WorkloadId, LLMCompletionOptions } from './provider-manager/index.js';
 import { debug } from '../../debug/index.js';
 
 /**
@@ -397,29 +397,29 @@ export class LLMService implements ILLMProvider {
    * Complete a request using agent-based model selection
    * Uses the new LLMProviderManager for configuration-driven model selection
    */
-  async completeForAgent(
-    agentId: AgentId,
+  async completeForWorkload(
+    workloadId: WorkloadId,
     messages: LLMMessage[],
     options?: LLMCompletionOptions
   ): Promise<LLMResponse> {
     const providerManager = getLLMProviderManager();
-    return providerManager.complete(agentId, messages, options);
+    return providerManager.complete(workloadId, messages, options);
   }
 
   /**
    * Get the model that would be used for an agent
    */
-  getModelForAgent(agentId: AgentId): string {
+  getModelForWorkload(workloadId: WorkloadId): string {
     const providerManager = getLLMProviderManager();
-    return providerManager.getModelForAgent(agentId);
+    return providerManager.getModelForWorkload(workloadId);
   }
 
   /**
    * Get the fallback chain for an agent
    */
-  getFallbackChainForAgent(agentId: AgentId): string[] {
+  getFallbackChainForWorkload(workloadId: WorkloadId): string[] {
     const providerManager = getLLMProviderManager();
-    return providerManager.getFallbackChain(agentId);
+    return providerManager.getFallbackChain(workloadId);
   }
 }
 

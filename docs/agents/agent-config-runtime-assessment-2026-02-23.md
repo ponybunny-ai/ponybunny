@@ -63,7 +63,7 @@
    - 风险表现：Agent Scheduler 已开启但没有可 claim 的任务。
 
 3. **Schema 与运行时语义不一致**
-   - Schema 允许 `replay/skip`：`agents/agent.schema.json:126`
+- Schema 允许 `replay/skip`：`docs/schemas/agent.schema.json:126`
    - 调度计算仅接受 `coalesce`，其它模式会抛错：`src/infra/scheduler/schedule-computation.ts:63`
    - `jitterMs/windows` 目前未进入调度计算主路径（定义存在，执行缺失）。
 

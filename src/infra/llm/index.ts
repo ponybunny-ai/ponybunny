@@ -114,12 +114,12 @@ export {
 // Provider Manager types
 export type {
   ModelTier as ProviderModelTier,
-  AgentId,
+  WorkloadId,
   LLMEndpointConfig as ProviderEndpointConfig,
   ModelCapability,
   LLMModelConfig as ProviderModelConfig,
   LLMTierConfig as ProviderTierConfig,
-  LLMAgentConfig,
+  LLMWorkloadConfig,
   LLMDefaultsConfig,
   LLMConfig,
   LLMCompletionOptions,
@@ -145,7 +145,7 @@ export {
   getEndpointConfig as getProviderEndpointConfig,
   getModelConfig as getProviderModelConfig,
   getTierConfig as getProviderTierConfig,
-  getAgentConfig as getProviderAgentConfig,
+  getWorkloadConfig as getProviderWorkloadConfig,
   getDefaultsConfig,
 } from './provider-manager/index.js';
 
@@ -156,11 +156,11 @@ export {
   resetEndpointManager,
 } from './provider-manager/index.js';
 
-// Agent Model Resolver
+// Workload Model Resolver
 export {
-  AgentModelResolver,
-  getAgentModelResolver,
-  resetAgentModelResolver,
+  WorkloadModelResolver,
+  getWorkloadModelResolver,
+  resetWorkloadModelResolver,
 } from './provider-manager/index.js';
 
 // Provider Manager

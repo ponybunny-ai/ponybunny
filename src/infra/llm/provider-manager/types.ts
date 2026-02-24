@@ -7,16 +7,16 @@ import type { ProtocolId } from '../protocols/index.js';
 export type ModelTier = 'simple' | 'medium' | 'complex';
 
 /**
- * Agent identifiers for agent-specific model configuration
+ * Workload identifiers for workload-specific model configuration
  */
-export type AgentId =
+export type WorkloadId =
   | 'input-analysis'
   | 'planning'
   | 'execution'
   | 'verification'
   | 'response-generation'
   | 'conversation'
-  | string; // Allow custom agent IDs
+  | string; // Allow custom workload IDs
 
 /**
  * Endpoint configuration in llm-config.json
@@ -93,16 +93,16 @@ export interface LLMTierConfig {
 }
 
 /**
- * Agent configuration for model selection
+ * Workload configuration for model selection
  */
-export interface LLMAgentConfig {
-  /** Tier to use for this agent (uses tier's primary/fallback) */
+export interface LLMWorkloadConfig {
+  /** Tier to use for this workload (uses tier's primary/fallback) */
   tier?: ModelTier;
   /** Override primary model (takes precedence over tier) */
   primary?: string;
   /** Override fallback chain */
   fallback?: string[];
-  /** Description of the agent's purpose */
+  /** Description of the workload purpose */
   description?: string;
 }
 
@@ -134,8 +134,8 @@ export interface LLMConfig {
   models: Record<string, LLMModelConfig>;
   /** Tier configurations */
   tiers: Record<ModelTier, LLMTierConfig>;
-  /** Agent configurations */
-  agents: Record<string, LLMAgentConfig>;
+  /** Workload configurations */
+  workloads: Record<string, LLMWorkloadConfig>;
   /** Default values */
   defaults: LLMDefaultsConfig;
 }
@@ -198,18 +198,18 @@ export interface ILLMProviderManager {
   /** Get endpoints that support a specific model */
   getModelEndpoints(modelId: string): string[];
 
-  // Agent model resolution
-  /** Get the primary model for an agent */
-  getModelForAgent(agentId: AgentId): string;
+  // Workload model resolution
+  /** Get the primary model for a workload */
+  getModelForWorkload(workloadId: WorkloadId): string;
   /** Get the primary model for a tier */
   getModelForTier(tier: ModelTier): string;
-  /** Get the complete fallback chain for an agent */
-  getFallbackChain(agentId: AgentId): string[];
+  /** Get the complete fallback chain for a workload */
+  getFallbackChain(workloadId: WorkloadId): string[];
 
   // LLM completion
-  /** Complete a request using agent-based model selection */
+  /** Complete a request using workload-based model selection */
   complete(
-    agentId: AgentId,
+    workloadId: WorkloadId,
     messages: LLMMessage[],
     options?: LLMCompletionOptions
   ): Promise<LLMResponse>;

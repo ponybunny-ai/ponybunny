@@ -2,7 +2,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
-import type { LLMConfig, LLMEndpointConfig, LLMModelConfig, LLMTierConfig, LLMAgentConfig, LLMDefaultsConfig, ModelTier } from './types.js';
+import type {
+  LLMConfig,
+  LLMEndpointConfig,
+  LLMModelConfig,
+  LLMTierConfig,
+  LLMWorkloadConfig,
+  LLMDefaultsConfig,
+  ModelTier,
+} from './types.js';
 import { ConfigValidationError } from './types.js';
 import { getConfigDir as getGlobalConfigDir } from '../../config/config-paths.js';
 
@@ -105,7 +113,7 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
     },
     'gpt-5.2': {
       displayName: 'GPT-5.2',
-      endpoints: ['openai-direct'],
+      endpoints: ['openai-direct', 'openai-compatible'],
       costPer1kTokens: { input: 0.01, output: 0.03 },
       maxContextTokens: 128000,
       capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
@@ -146,7 +154,7 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
       fallback: ['gpt-5.2', 'claude-sonnet-4-5-20250929'],
     },
   },
-  agents: {
+  workloads: {
     'input-analysis': {
       tier: 'simple',
       description: 'Intent and emotion analysis',
@@ -194,7 +202,7 @@ const EMBEDDED_SCHEMA = {
   $id: 'https://ponybunny.dev/schemas/llm-config.schema.json',
   title: 'PonyBunny LLM Configuration',
   type: 'object',
-  required: ['endpoints', 'models', 'tiers', 'agents', 'defaults'],
+  required: ['endpoints', 'models', 'tiers', 'workloads', 'defaults'],
   properties: {
     $schema: { type: 'string' },
     endpoints: {
@@ -252,7 +260,7 @@ const EMBEDDED_SCHEMA = {
         complex: { $ref: '#/$defs/TierConfig' },
       },
     },
-    agents: {
+    workloads: {
       type: 'object',
       additionalProperties: {
         type: 'object',
@@ -520,11 +528,11 @@ export function getTierConfig(tier: ModelTier): LLMTierConfig {
 }
 
 /**
- * Get agent configuration by ID
+ * Get workload configuration by ID
  */
-export function getAgentConfig(agentId: string): LLMAgentConfig | undefined {
+export function getWorkloadConfig(workloadId: string): LLMWorkloadConfig | undefined {
   const config = getCachedConfig();
-  return config.agents[agentId];
+  return config.workloads[workloadId];
 }
 
 /**
