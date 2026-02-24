@@ -3,6 +3,25 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { probeAndPersistAvailability } from '../../infra/llm/provider-manager/availability-prober.js';
 import { loadLLMConfig } from '../../infra/llm/provider-manager/config-loader.js';
+import { getAllEndpointConfigs, hasRequiredCredentials } from '../../infra/llm/endpoints/index.js';
+import type { EndpointConfig } from '../../infra/llm/endpoints/index.js';
+
+export function isEndpointEffectivelyEnabled(
+  endpointId: string,
+  llmConfigEnabled: boolean,
+  endpointConfigMap: Map<string, EndpointConfig>
+): boolean {
+  if (!llmConfigEnabled) {
+    return false;
+  }
+
+  const endpoint = endpointConfigMap.get(endpointId);
+  if (!endpoint) {
+    return llmConfigEnabled;
+  }
+
+  return hasRequiredCredentials(endpoint);
+}
 
 export const modelsCommand = new Command('models');
 
@@ -20,25 +39,28 @@ modelsCommand
   .action(async () => {
     try {
       const config = loadLLMConfig();
-      const endpointIds = Object.keys(config.endpoints).sort((a, b) => a.localeCompare(b));
+      const endpointConfigMap = new Map(getAllEndpointConfigs().map((endpoint) => [endpoint.id, endpoint]));
+      const endpointIds = Object.keys(config.providers).sort((a, b) => a.localeCompare(b));
       const modelIds = Object.keys(config.models).sort((a, b) => a.localeCompare(b));
 
       console.log(chalk.cyan('\n📋 Endpoints'));
       for (const endpointId of endpointIds) {
-        const endpoint = config.endpoints[endpointId];
+        const endpoint = config.providers[endpointId];
         const healthMark = endpoint.health?.available === true
           ? chalk.green('available')
           : endpoint.health
             ? chalk.red('unavailable')
             : chalk.gray('unknown');
-        const enabledMark = endpoint.enabled ? chalk.green('enabled') : chalk.gray('disabled');
+        const enabledMark = isEndpointEffectivelyEnabled(endpointId, endpoint.enabled, endpointConfigMap)
+          ? chalk.green('enabled')
+          : chalk.gray('disabled');
         console.log(`  - ${chalk.white(endpointId)} (${enabledMark}, ${healthMark})`);
       }
 
       console.log(chalk.cyan('\n📋 Models'));
       for (const modelId of modelIds) {
         const model = config.models[modelId];
-        const availableEndpoints = Object.entries(model.health?.endpoints ?? {})
+        const availableEndpoints = Object.entries(model.health?.providers ?? {})
           .filter(([, value]) => value.available)
           .map(([id]) => id);
         const availability = availableEndpoints.length > 0
@@ -48,7 +70,7 @@ modelsCommand
             : chalk.gray('not probed');
 
         console.log(`  - ${chalk.white(modelId)} (${chalk.gray(model.displayName)})`);
-        console.log(chalk.gray(`    endpoints: ${model.endpoints.join(', ')}`));
+        console.log(chalk.gray(`    providers: ${model.providers.join(', ')}`));
         console.log(chalk.gray(`    status: ${availability}`));
       }
 

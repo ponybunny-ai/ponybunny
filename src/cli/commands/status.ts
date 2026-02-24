@@ -5,6 +5,7 @@ import { openaiClient } from '../lib/openai-client.js';
 import { getCachedCredentials, getCachedEndpointCredential } from '../../infra/config/credentials-loader.js';
 import { getAllEndpointConfigs, hasRequiredCredentials } from '../../infra/llm/endpoints/index.js';
 import type { EndpointConfig, EndpointId } from '../../infra/llm/endpoints/index.js';
+import { loadLLMConfig } from '../../infra/llm/provider-manager/config-loader.js';
 
 function providerDisplayName(provider: AccountProvider): string {
   switch (provider) {
@@ -23,21 +24,13 @@ function hasCredentialFields(endpointId: EndpointId): boolean {
     return false;
   }
 
-  return Object.entries(credential).some(([key, value]) => key !== 'enabled' && !!value);
+  return Object.values(credential).some((value) => !!value);
 }
 
 function isEndpointEnabled(endpointId: EndpointId): boolean {
-  const credential = getCachedEndpointCredential(endpointId);
-  if (credential?.enabled === false) {
+  const llmConfig = loadLLMConfig();
+  if (llmConfig.providers[endpointId]?.enabled !== true) {
     return false;
-  }
-
-  if (credential?.enabled === true) {
-    return true;
-  }
-
-  if (hasCredentialFields(endpointId)) {
-    return true;
   }
 
   const endpoint = getAllEndpointConfigs().find((item) => item.id === endpointId);
@@ -45,7 +38,7 @@ function isEndpointEnabled(endpointId: EndpointId): boolean {
     return false;
   }
 
-  return hasRequiredCredentials(endpoint);
+  return hasCredentialFields(endpointId) || hasRequiredCredentials(endpoint);
 }
 
 function listOtherEnabledProviders(): string[] {
@@ -179,8 +172,8 @@ export async function statusCommand(): Promise<void> {
   }
 
   const credentials = getCachedCredentials();
-  if (!credentials?.endpoints || Object.keys(credentials.endpoints).length === 0) {
-    console.log(chalk.yellow('\nTip: configure endpoints in ~/.config/ponybunny/credentials.json (set `enabled: true`)'));
+  if (!credentials?.providers || Object.keys(credentials.providers).length === 0) {
+    console.log(chalk.yellow('\nTip: configure providers in ~/.config/ponybunny/credentials.json'));
   }
   
   console.log();

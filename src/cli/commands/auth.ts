@@ -7,7 +7,7 @@ import { createServer } from 'http';
 import { randomBytes, createHash } from 'crypto';
 import { accountManagerV2 } from '../lib/auth-manager-v2.js';
 import type { Account, AccountProvider, AntigravityAccount, CodexAccount, OpenAICompatibleAccount } from '../lib/account-types.js';
-import { getAllEndpointConfigs } from '../../infra/llm/endpoints/index.js';
+import { getAllEndpointConfigs, hasRequiredCredentials } from '../../infra/llm/endpoints/index.js';
 import {
   clearCredentialsCache,
   getCachedCredentials,
@@ -15,6 +15,7 @@ import {
   saveCredentialsFile,
   type EndpointCredential,
 } from '../../infra/config/credentials-loader.js';
+import { clearConfigCache, loadLLMConfig, saveLLMConfig } from '../../infra/llm/provider-manager/config-loader.js';
 
 // OpenAI Codex CLI OAuth configuration
 // Using the official Codex CLI Client ID to ensure compatibility
@@ -566,7 +567,7 @@ interface EnabledCredentialProvider {
 interface ProviderFieldDefinition {
   key: keyof EndpointCredential;
   label: string;
-  kind: 'boolean' | 'text' | 'secret' | 'url';
+  kind: 'text' | 'secret' | 'url';
   optional?: boolean;
 }
 
@@ -578,40 +579,33 @@ interface ProviderConfigDefinition {
 
 const PROVIDER_FIELD_DEFINITIONS: Record<string, ProviderFieldDefinition[]> = {
   'anthropic-direct': [
-    { key: 'enabled', label: 'Enabled', kind: 'boolean' },
     { key: 'apiKey', label: 'API Key', kind: 'secret' },
     { key: 'baseUrl', label: 'Base URL', kind: 'url', optional: true },
   ],
   'aws-bedrock': [
-    { key: 'enabled', label: 'Enabled', kind: 'boolean' },
     { key: 'accessKeyId', label: 'Access Key ID', kind: 'secret' },
     { key: 'secretAccessKey', label: 'Secret Access Key', kind: 'secret' },
     { key: 'region', label: 'Region', kind: 'text' },
     { key: 'baseUrl', label: 'Base URL', kind: 'url', optional: true },
   ],
   'openai-direct': [
-    { key: 'enabled', label: 'Enabled', kind: 'boolean' },
     { key: 'apiKey', label: 'API Key', kind: 'secret' },
     { key: 'baseUrl', label: 'Base URL', kind: 'url', optional: true },
   ],
   'azure-openai': [
-    { key: 'enabled', label: 'Enabled', kind: 'boolean' },
     { key: 'apiKey', label: 'API Key', kind: 'secret' },
     { key: 'endpoint', label: 'Endpoint URL', kind: 'url' },
     { key: 'baseUrl', label: 'Base URL', kind: 'url', optional: true },
   ],
   'openai-compatible': [
-    { key: 'enabled', label: 'Enabled', kind: 'boolean' },
     { key: 'apiKey', label: 'API Key', kind: 'secret' },
     { key: 'baseUrl', label: 'Base URL', kind: 'url', optional: true },
   ],
   'google-ai-studio': [
-    { key: 'enabled', label: 'Enabled', kind: 'boolean' },
     { key: 'apiKey', label: 'API Key', kind: 'secret' },
     { key: 'baseUrl', label: 'Base URL', kind: 'url', optional: true },
   ],
   'google-vertex-ai': [
-    { key: 'enabled', label: 'Enabled', kind: 'boolean' },
     { key: 'projectId', label: 'Project ID', kind: 'text' },
     { key: 'region', label: 'Region', kind: 'text' },
     { key: 'baseUrl', label: 'Base URL', kind: 'url', optional: true },
@@ -625,22 +619,28 @@ function maskApiKey(apiKey: string): string {
 
 function listEnabledCredentialProviders(): EnabledCredentialProvider[] {
   const credentials = getCachedCredentials();
-  const endpointMap = new Map<string, string>(
-    getAllEndpointConfigs().map((endpoint) => [endpoint.id, endpoint.displayName])
-  );
+  const llmConfig = loadLLMConfig();
+  const endpoints = getAllEndpointConfigs();
   const providers: EnabledCredentialProvider[] = [];
 
-  for (const [endpointId, credential] of Object.entries(credentials?.endpoints ?? {})) {
-    if (credential?.enabled !== true) {
+  for (const endpoint of endpoints) {
+    if (endpoint.id === 'codex') {
+      continue;
+    }
+    if (llmConfig.providers[endpoint.id]?.enabled !== true) {
+      continue;
+    }
+    if (!hasRequiredCredentials(endpoint)) {
       continue;
     }
 
-    const displayName = endpointId === 'openai-compatible'
+    const credential = credentials?.providers?.[endpoint.id] ?? {};
+    const displayName = endpoint.id === 'openai-compatible'
       ? 'OpenAI-Compatible'
-      : endpointMap.get(endpointId) ?? endpointId;
+      : endpoint.displayName;
 
     providers.push({
-      id: endpointId,
+      id: endpoint.id,
       name: displayName,
       maskedApiKey: credential.apiKey ? maskApiKey(credential.apiKey) : undefined,
     });
@@ -676,27 +676,42 @@ function getProviderConfigDefinitions(): ProviderConfigDefinition[] {
       endpointId: endpoint.id,
       displayName: endpoint.displayName,
       fields: PROVIDER_FIELD_DEFINITIONS[endpoint.id] ?? [
-        { key: 'enabled', label: 'Enabled', kind: 'boolean' },
         { key: 'apiKey', label: 'API Key', kind: 'secret' },
         { key: 'baseUrl', label: 'Base URL', kind: 'url', optional: true },
       ],
     }));
 }
 
+function isEndpointEnabledInLLMConfig(endpointId: string): boolean {
+  const config = loadLLMConfig();
+  return config.providers[endpointId]?.enabled === true;
+}
+
+function setEndpointEnabledInLLMConfig(endpointId: string, enabled: boolean): void {
+  const config = loadLLMConfig();
+  if (!config.providers[endpointId]) {
+    return;
+  }
+
+  config.providers[endpointId].enabled = enabled;
+  saveLLMConfig(config);
+  clearConfigCache();
+}
+
 function getCredentialForEndpoint(endpointId: string): EndpointCredential {
   const credentials = loadCredentialsFile();
-  return credentials?.endpoints?.[endpointId] ?? {};
+  return credentials?.providers?.[endpointId] ?? {};
 }
 
 function upsertCredentialForEndpoint(endpointId: string, updates: Partial<EndpointCredential>): void {
-  const credentials = loadCredentialsFile() ?? { endpoints: {} };
+  const credentials = loadCredentialsFile() ?? { providers: {} };
 
-  if (!credentials.endpoints) {
-    credentials.endpoints = {};
+  if (!credentials.providers) {
+    credentials.providers = {};
   }
 
-  const existing = credentials.endpoints[endpointId] ?? {};
-  credentials.endpoints[endpointId] = {
+  const existing = credentials.providers[endpointId] ?? {};
+  credentials.providers[endpointId] = {
     ...existing,
     ...updates,
   };
@@ -707,10 +722,6 @@ function upsertCredentialForEndpoint(endpointId: string, updates: Partial<Endpoi
 
 function formatProviderFieldValue(field: ProviderFieldDefinition, credential: EndpointCredential): string {
   const value = credential[field.key];
-
-  if (field.kind === 'boolean') {
-    return value === true ? 'enabled' : 'disabled';
-  }
 
   if (typeof value !== 'string' || value.trim().length === 0) {
     return field.optional ? '(empty)' : '(not set)';
@@ -746,20 +757,6 @@ async function promptAndUpdateProviderField(
   field: ProviderFieldDefinition,
   credential: EndpointCredential,
 ): Promise<void> {
-  if (field.kind === 'boolean') {
-    const { value } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'value',
-        message: `Set ${provider.displayName} ${field.label.toLowerCase()}?`,
-        default: credential.enabled === true,
-      },
-    ]);
-
-    upsertCredentialForEndpoint(provider.endpointId, { [field.key]: value });
-    return;
-  }
-
   const currentValue = typeof credential[field.key] === 'string'
     ? String(credential[field.key])
     : '';
@@ -786,6 +783,7 @@ async function configureProvider(provider: ProviderConfigDefinition): Promise<vo
 
   while (keepEditing) {
     const credential = getCredentialForEndpoint(provider.endpointId);
+    const enabled = isEndpointEnabledInLLMConfig(provider.endpointId);
     const fieldChoices = provider.fields.map((field) => ({
       name: `${field.label}: ${formatProviderFieldValue(field, credential)}`,
       value: field.key,
@@ -797,11 +795,27 @@ async function configureProvider(provider: ProviderConfigDefinition): Promise<vo
         name: 'fieldKey',
         message: `Configure ${provider.displayName}:`,
         choices: [
+          { name: `Enabled: ${enabled ? 'enabled' : 'disabled'}`, value: '__enabled' },
           ...fieldChoices,
           { name: '<- Back to provider list', value: '__back' },
         ],
       },
     ]);
+
+    if (fieldKey === '__enabled') {
+      const { value } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'value',
+          message: `Set ${provider.displayName} enabled?`,
+          default: enabled,
+        },
+      ]);
+      setEndpointEnabledInLLMConfig(provider.endpointId, value);
+      console.log(chalk.green(`✓ Updated ${provider.displayName} Enabled`));
+      console.log();
+      continue;
+    }
 
     if (fieldKey === '__back') {
       keepEditing = false;
@@ -831,8 +845,9 @@ async function configureProviders(): Promise<void> {
 
   while (continueConfig) {
     const choices = providers.map((provider) => {
-      const credential = getCredentialForEndpoint(provider.endpointId);
-      const state = credential.enabled === true ? chalk.green('enabled') : chalk.gray('disabled');
+      const state = isEndpointEnabledInLLMConfig(provider.endpointId)
+        ? chalk.green('enabled')
+        : chalk.gray('disabled');
       return {
         name: `${provider.displayName} (${state})`,
         value: provider.endpointId,
@@ -886,7 +901,7 @@ export async function listAccounts(): Promise<void> {
     antigravityAccounts.length > 0;
 
   if (!hasAnyEnabledProvider && allAccounts.length === 0) {
-    console.log(chalk.yellow('\nNo enabled providers found. Run `pb auth login` or configure credentials with `enabled: true`.\n'));
+    console.log(chalk.yellow('\nNo enabled providers found. Run `pb auth login` or enable endpoints in llm-config.\n'));
     return;
   }
   

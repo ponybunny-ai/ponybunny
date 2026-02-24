@@ -51,6 +51,13 @@ jest.mock('../../src/cli/lib/auth-manager-v2.js', () => ({
 
 jest.mock('../../src/infra/llm/endpoints/index.js', () => ({
   getAllEndpointConfigs: jest.fn(),
+  hasRequiredCredentials: jest.fn(),
+}));
+
+jest.mock('../../src/infra/llm/provider-manager/config-loader.js', () => ({
+  loadLLMConfig: jest.fn(),
+  saveLLMConfig: jest.fn(),
+  clearConfigCache: jest.fn(),
 }));
 
 jest.mock('../../src/infra/config/credentials-loader.js', () => ({
@@ -69,8 +76,9 @@ describe('pb auth list', () => {
   test('shows enabled provider groups including OpenAI-Compatible and other enabled providers', async () => {
     const { listAccounts } = await import('../../src/cli/commands/auth.js');
     const { accountManagerV2 } = await import('../../src/cli/lib/auth-manager-v2.js');
-    const { getAllEndpointConfigs } = await import('../../src/infra/llm/endpoints/index.js');
+    const { getAllEndpointConfigs, hasRequiredCredentials } = await import('../../src/infra/llm/endpoints/index.js');
     const { getCachedCredentials } = await import('../../src/infra/config/credentials-loader.js');
+    const { loadLLMConfig } = await import('../../src/infra/llm/provider-manager/config-loader.js');
 
     (accountManagerV2.listAccounts as jest.Mock).mockReturnValue([]);
     (accountManagerV2.getConfig as jest.Mock).mockReturnValue({ strategy: 'round-robin', currentAccountId: undefined });
@@ -82,18 +90,31 @@ describe('pb auth list', () => {
       { id: 'anthropic-direct', displayName: 'Anthropic Direct' },
     ]);
 
+    (loadLLMConfig as jest.Mock).mockReturnValue({
+      providers: {
+        codex: { enabled: true },
+        'openai-compatible': { enabled: true },
+        'anthropic-direct': { enabled: true },
+      },
+      models: {},
+      tiers: {},
+      workloads: {},
+      defaults: {},
+    });
+
+    (hasRequiredCredentials as jest.Mock).mockImplementation((endpoint: { id: string }) => {
+      return endpoint.id === 'openai-compatible' || endpoint.id === 'anthropic-direct';
+    });
+
     (getCachedCredentials as jest.Mock).mockReturnValue({
-      endpoints: {
+      providers: {
         'openai-compatible': {
-          enabled: true,
           apiKey: 'openai-compatible-1234567890',
         },
         'anthropic-direct': {
-          enabled: true,
           apiKey: 'anthropic-direct-1234567890',
         },
         'azure-openai': {
-          enabled: false,
           apiKey: 'azure-should-not-show',
         },
       },

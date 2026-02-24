@@ -32,7 +32,11 @@ jest.mock('../../src/cli/lib/openai-client.js', () => ({
 
 jest.mock('../../src/infra/config/credentials-loader.js', () => ({
   getCachedEndpointCredential: jest.fn(),
-  getCachedCredentials: jest.fn(() => ({ endpoints: {} })),
+  getCachedCredentials: jest.fn(() => ({ providers: {} })),
+}));
+
+jest.mock('../../src/infra/llm/provider-manager/config-loader.js', () => ({
+  loadLLMConfig: jest.fn(),
 }));
 
 function sanitizeOutput(value: string): string {
@@ -52,16 +56,28 @@ describe('pb status', () => {
     const { accountManagerV2, authManagerV2 } = await import('../../src/cli/lib/auth-manager-v2.js');
     const { openaiClient } = await import('../../src/cli/lib/openai-client.js');
     const { getCachedEndpointCredential } = await import('../../src/infra/config/credentials-loader.js');
+    const { loadLLMConfig } = await import('../../src/infra/llm/provider-manager/config-loader.js');
+
+    (loadLLMConfig as jest.Mock).mockReturnValue({
+      providers: {
+        'openai-compatible': { enabled: true },
+        'anthropic-direct': { enabled: true },
+      },
+      models: {},
+      tiers: {},
+      workloads: {},
+      defaults: {},
+    });
 
     (authManagerV2.isAuthenticated as jest.Mock).mockReturnValue(true);
     (authManagerV2.getConfig as jest.Mock).mockReturnValue({ email: 'honeyday.mj@gmail.com' });
     (accountManagerV2.getCurrentAccount as jest.Mock).mockReturnValue({ provider: 'codex' });
     (getCachedEndpointCredential as jest.Mock).mockImplementation((endpointId: string) => {
       if (endpointId === 'openai-compatible') {
-        return { enabled: true, apiKey: 'test-key' };
+        return { apiKey: 'test-key' };
       }
       if (endpointId === 'anthropic-direct') {
-        return { enabled: true, apiKey: 'ak-test' };
+        return { apiKey: 'ak-test' };
       }
       return null;
     });
