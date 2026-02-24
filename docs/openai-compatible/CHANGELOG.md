@@ -105,7 +105,7 @@
 **credentials.json:**
 ```json
 {
-  "endpoints": {
+  "providers": {
     "openai-compatible": {
       "enabled": true,
       "apiKey": "your-api-key",
@@ -118,7 +118,7 @@
 **llm-config.json:**
 ```json
 {
-  "endpoints": {
+  "providers": {
     "openai-compatible": {
       "enabled": true,
       "protocol": "openai",
@@ -128,7 +128,7 @@
   "models": {
     "local-model": {
       "displayName": "Local Model",
-      "endpoints": ["openai-compatible"],
+      "providers": ["openai-compatible"],
       "costPer1kTokens": { "input": 0.0, "output": 0.0 },
       "maxContextTokens": 8192,
       "capabilities": ["text"],

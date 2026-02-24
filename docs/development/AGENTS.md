@@ -190,7 +190,7 @@ const model = service.getModelForTier('complex');
 ### Configuration Files
 All in `~/.ponybunny/`:
 - `credentials.json` - API keys (sensitive, never commit)
-- `llm-config.json` - LLM endpoints, models, tiers, agents
+- `llm-config.json` - LLM providers, models, tiers, workloads
 - `mcp-config.json` - Model Context Protocol servers
 - `gateway.pid`, `scheduler.pid` - Process info
 

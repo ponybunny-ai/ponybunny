@@ -160,7 +160,7 @@ PonyBunny uses multiple JSON config files in `~/.ponybunny/`:
 ```json
 {
   "$schema": "https://ponybunny.dho.ai/schemas/credentials.schema.json",
-  "endpoints": {
+  "providers": {
     "anthropic-direct": {
       "enabled": true,
       "apiKey": "sk-ant-xxx"
@@ -179,11 +179,11 @@ PonyBunny uses multiple JSON config files in `~/.ponybunny/`:
 ```
 
 ### 2. `llm-config.json` - LLM Configuration
-Defines endpoints, models, tiers, and agent-to-model mappings. See README.md for full schema.
+Defines providers, models, tiers, and workload-to-model mappings. See README.md for full schema.
 
 **Key concepts:**
-- **Endpoints**: Protocol + baseUrl + priority
-- **Models**: Cost, capabilities, available endpoints
+- **Providers**: Protocol + baseUrl + priority
+- **Models**: Cost, capabilities, available providers
 - **Tiers**: simple/medium/complex with primary + fallback chains
 - **Agents**: Maps lifecycle phases to tiers or specific models
 

@@ -54,9 +54,8 @@
 **credentials.json:**
 ```json
 {
-  "endpoints": {
+  "providers": {
     "openai-compatible": {
-      "enabled": true,
       "apiKey": "your-api-key",
       "baseUrl": "http://localhost:8000/v1"
     }
@@ -67,7 +66,7 @@
 **llm-config.json:**
 ```json
 {
-  "endpoints": {
+  "providers": {
     "openai-compatible": {
       "enabled": true,
       "protocol": "openai",
@@ -78,7 +77,7 @@
   "models": {
     "llama-3-70b": {
       "displayName": "Llama 3 70B",
-      "endpoints": ["openai-compatible"],
+      "providers": ["openai-compatible"],
       "costPer1kTokens": { "input": 0.0, "output": 0.0 },
       "maxContextTokens": 8192,
       "capabilities": ["text", "function-calling"],
@@ -105,7 +104,7 @@ export OPENAI_COMPATIBLE_BASE_URL="http://localhost:8000/v1"
 ### 优先级系统
 - Priority 1: 官方 API（anthropic-direct, openai-direct, google-ai-studio）
 - Priority 2: 云服务商（aws-bedrock, azure-openai, google-vertex-ai）
-- Priority 3: 兼容 endpoint（openai-compatible）
+- Priority 3: 兼容 provider（openai-compatible）
 
 ### 凭证解析
 优先级顺序：
@@ -156,10 +155,10 @@ Tests:       15 passed, 15 total
 ## 使用方法
 
 ### 1. 配置凭证
-编辑 `~/.ponybunny/credentials.json`，添加 `openai-compatible` endpoint。
+编辑 `~/.ponybunny/credentials.json`，添加 `openai-compatible` provider。
 
 ### 2. 配置 LLM
-编辑 `~/.ponybunny/llm-config.json`，启用 endpoint 并添加模型。
+编辑 `~/.ponybunny/llm-config.json`，启用 provider 并添加模型。
 
 ### 3. 验证配置
 ```bash
@@ -167,14 +166,14 @@ pb status
 ```
 
 ### 4. 使用
-配置完成后，系统会自动使用配置的模型和 endpoint。
+配置完成后，系统会自动使用配置的模型和 provider。
 
 ## 后续改进建议
 
-1. **多个兼容 endpoint** - 支持配置多个不同的 OpenAI 兼容服务
+1. **多个兼容 provider** - 支持配置多个不同的 OpenAI 兼容服务
 2. **模型自动发现** - 从 `/v1/models` endpoint 自动发现可用模型
 3. **自定义认证** - 支持 Bearer token 之外的认证方式
-4. **Per-endpoint 配置** - 支持每个 endpoint 独立的超时和重试配置
+4. **Per-provider 配置** - 支持每个 provider 独立的超时和重试配置
 
 ## 相关文档
 

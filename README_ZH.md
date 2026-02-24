@@ -70,7 +70,7 @@ pb init --list
 生成文件：
 - `~/.ponybunny/credentials.json` - API Key（编辑此文件添加密钥）
 - `~/.ponybunny/credentials.schema.json` - JSON Schema 校验
-- `~/.ponybunny/llm-config.json` - LLM 端点/模型/分层/代理
+- `~/.ponybunny/llm-config.json` - LLM Provider/模型/分层/workload
 - `~/.ponybunny/llm-config.schema.json` - JSON Schema 校验
 - `~/.ponybunny/mcp-config.json` - MCP 服务器配置（默认禁用）
 - `~/.ponybunny/mcp-config.schema.json` - JSON Schema 校验
@@ -82,24 +82,20 @@ pb init --list
 ```json
 {
   "$schema": "https://ponybunny.dho.ai/schemas/credentials.schema.json",
-  "endpoints": {
+  "providers": {
     "anthropic-direct": {
-      "enabled": true,
       "apiKey": "sk-ant-xxx",
       "baseUrl": ""
     },
     "openai-direct": {
-      "enabled": true,
       "apiKey": "sk-xxx",
       "baseUrl": ""
     },
     "openai-compatible": {
-      "enabled": false,
       "apiKey": "your-api-key",
       "baseUrl": "http://localhost:8000/v1"
     },
     "google-ai-studio": {
-      "enabled": true,
       "apiKey": "xxx",
       "baseUrl": ""
     }
@@ -226,13 +222,13 @@ src/
 
 ### LLM 配置（`~/.ponybunny/llm-config.json`）
 
-用于控制端点、模型和代理：
+用于控制 provider、模型和 workload：
 
 ```json
 {
   "$schema": "https://ponybunny.dho.ai/schemas/llm-config.schema.json",
 
-  "endpoints": {
+  "providers": {
     "anthropic-direct": {
       "enabled": true,
       "protocol": "anthropic",
@@ -250,28 +246,32 @@ src/
   "models": {
     "claude-opus-4-5": {
       "displayName": "Claude Opus 4.5",
-      "endpoints": ["anthropic-direct", "aws-bedrock"],
+      "providers": ["anthropic-direct", "aws-bedrock"],
       "costPer1kTokens": { "input": 0.015, "output": 0.075 },
       "maxContextTokens": 200000,
       "capabilities": ["text", "vision", "function-calling"]
     },
     "claude-sonnet-4-5": {
       "displayName": "Claude Sonnet 4.5",
-      "endpoints": ["anthropic-direct", "aws-bedrock"],
+      "providers": ["anthropic-direct", "aws-bedrock"],
       "costPer1kTokens": { "input": 0.003, "output": 0.015 },
       "maxContextTokens": 200000,
       "capabilities": ["text", "vision", "function-calling"]
     },
     "claude-haiku-4-5": {
       "displayName": "Claude Haiku 4.5",
-      "endpoints": ["anthropic-direct", "aws-bedrock"],
+      "providers": ["anthropic-direct", "aws-bedrock"],
       "costPer1kTokens": { "input": 0.001, "output": 0.005 },
       "maxContextTokens": 200000,
       "capabilities": ["text", "vision", "function-calling"]
     },
     "gpt-5.2": {
       "displayName": "GPT-5.2",
-      "endpoints": ["openai-direct", "azure-openai"],
+      "providers": ["openai-direct", "azure-openai"],
+      "endpoints": [
+        { "name": "chat-completions", "url": "/v1/chat/completions" },
+        { "name": "responses", "url": "/v1/responses" }
+      ],
       "costPer1kTokens": { "input": 0.01, "output": 0.03 },
       "maxContextTokens": 128000,
       "capabilities": ["text", "vision", "function-calling"]
@@ -293,7 +293,7 @@ src/
     }
   },
 
-  "agents": {
+  "workloads": {
     "input-analysis": { "tier": "simple" },
     "planning": { "tier": "complex" },
     "execution": { "tier": "medium", "primary": "claude-sonnet-4-5" },
@@ -312,37 +312,31 @@ src/
 
 ### 凭据（`~/.ponybunny/credentials.json`）
 
-API Key 独立存放：
+API Key 独立存放。Provider 启用/禁用仅由 `llm-config.json` 控制：
 
 ```json
 {
   "$schema": "https://ponybunny.dho.ai/schemas/credentials.schema.json",
-  "endpoints": {
+  "providers": {
     "anthropic-direct": {
-      "enabled": true,
       "apiKey": "sk-ant-xxx"
     },
     "aws-bedrock": {
-      "enabled": false,
       "accessKeyId": "",
       "secretAccessKey": "",
       "region": "us-east-1"
     },
     "openai-direct": {
-      "enabled": true,
       "apiKey": "sk-xxx"
     },
     "azure-openai": {
-      "enabled": false,
       "apiKey": "",
       "endpoint": ""
     },
     "google-ai-studio": {
-      "enabled": true,
       "apiKey": "xxx"
     },
     "google-vertex-ai": {
-      "enabled": false,
       "projectId": "",
       "region": ""
     }

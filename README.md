@@ -70,7 +70,7 @@ pb init --list
 This creates:
 - `~/.ponybunny/credentials.json` - API keys (edit this to add your keys)
 - `~/.ponybunny/credentials.schema.json` - JSON Schema for validation
-- `~/.ponybunny/llm-config.json` - LLM endpoints, models, tiers, agents
+- `~/.ponybunny/llm-config.json` - LLM providers, models, tiers, workloads
 - `~/.ponybunny/llm-config.schema.json` - JSON Schema for validation
 - `~/.ponybunny/mcp-config.json` - MCP server configuration (disabled by default)
 - `~/.ponybunny/mcp-config.schema.json` - JSON Schema for validation
@@ -82,24 +82,20 @@ Edit `~/.ponybunny/credentials.json`:
 ```json
 {
   "$schema": "https://ponybunny.dho.ai/schemas/credentials.schema.json",
-  "endpoints": {
+  "providers": {
     "anthropic-direct": {
-      "enabled": true,
       "apiKey": "sk-ant-xxx",
       "baseUrl": ""
     },
     "openai-direct": {
-      "enabled": true,
       "apiKey": "sk-xxx",
       "baseUrl": ""
     },
     "openai-compatible": {
-      "enabled": false,
       "apiKey": "your-api-key",
       "baseUrl": "http://localhost:8000/v1"
     },
     "google-ai-studio": {
-      "enabled": true,
       "apiKey": "xxx",
       "baseUrl": ""
     }
@@ -226,13 +222,13 @@ src/
 
 ### LLM Configuration (`~/.ponybunny/llm-config.json`)
 
-Controls which endpoints, models, and agents are available:
+Controls which providers, models, and workloads are available:
 
 ```json
 {
   "$schema": "https://ponybunny.dho.ai/schemas/llm-config.schema.json",
 
-  "endpoints": {
+  "providers": {
     "anthropic-direct": {
       "enabled": true,
       "protocol": "anthropic",
@@ -250,28 +246,32 @@ Controls which endpoints, models, and agents are available:
   "models": {
     "claude-opus-4-5": {
       "displayName": "Claude Opus 4.5",
-      "endpoints": ["anthropic-direct", "aws-bedrock"],
+      "providers": ["anthropic-direct", "aws-bedrock"],
       "costPer1kTokens": { "input": 0.015, "output": 0.075 },
       "maxContextTokens": 200000,
       "capabilities": ["text", "vision", "function-calling"]
     },
     "claude-sonnet-4-5": {
       "displayName": "Claude Sonnet 4.5",
-      "endpoints": ["anthropic-direct", "aws-bedrock"],
+      "providers": ["anthropic-direct", "aws-bedrock"],
       "costPer1kTokens": { "input": 0.003, "output": 0.015 },
       "maxContextTokens": 200000,
       "capabilities": ["text", "vision", "function-calling"]
     },
     "claude-haiku-4-5": {
       "displayName": "Claude Haiku 4.5",
-      "endpoints": ["anthropic-direct", "aws-bedrock"],
+      "providers": ["anthropic-direct", "aws-bedrock"],
       "costPer1kTokens": { "input": 0.001, "output": 0.005 },
       "maxContextTokens": 200000,
       "capabilities": ["text", "vision", "function-calling"]
     },
     "gpt-5.2": {
       "displayName": "GPT-5.2",
-      "endpoints": ["openai-direct", "azure-openai"],
+      "providers": ["openai-direct", "azure-openai"],
+      "endpoints": [
+        { "name": "chat-completions", "url": "/v1/chat/completions" },
+        { "name": "responses", "url": "/v1/responses" }
+      ],
       "costPer1kTokens": { "input": 0.01, "output": 0.03 },
       "maxContextTokens": 128000,
       "capabilities": ["text", "vision", "function-calling"]
@@ -293,7 +293,7 @@ Controls which endpoints, models, and agents are available:
     }
   },
 
-  "agents": {
+  "workloads": {
     "input-analysis": { "tier": "simple" },
     "planning": { "tier": "complex" },
     "execution": { "tier": "medium", "primary": "claude-sonnet-4-5" },
@@ -312,37 +312,31 @@ Controls which endpoints, models, and agents are available:
 
 ### Credentials (`~/.ponybunny/credentials.json`)
 
-Stores API keys separately from configuration:
+Stores API keys separately from configuration. Provider enable/disable is controlled only in `llm-config.json`:
 
 ```json
 {
   "$schema": "https://ponybunny.dho.ai/schemas/credentials.schema.json",
-  "endpoints": {
+  "providers": {
     "anthropic-direct": {
-      "enabled": true,
       "apiKey": "sk-ant-xxx"
     },
     "aws-bedrock": {
-      "enabled": false,
       "accessKeyId": "",
       "secretAccessKey": "",
       "region": "us-east-1"
     },
     "openai-direct": {
-      "enabled": true,
       "apiKey": "sk-xxx"
     },
     "azure-openai": {
-      "enabled": false,
       "apiKey": "",
       "endpoint": ""
     },
     "google-ai-studio": {
-      "enabled": true,
       "apiKey": "xxx"
     },
     "google-vertex-ai": {
-      "enabled": false,
       "projectId": "",
       "region": ""
     }

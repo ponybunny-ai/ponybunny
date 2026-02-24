@@ -57,7 +57,7 @@ Added support for OpenAI-compatible API endpoints to PonyBunny's LLM provider sy
 ### 5. Updated Documentation
 
 **Files: `CLAUDE.md`, `README.md`**
-- Updated credentials examples to include `openai-compatible` endpoint
+- Updated credentials examples to include `openai-compatible` provider
 
 ## Usage
 
@@ -66,7 +66,7 @@ Added support for OpenAI-compatible API endpoints to PonyBunny's LLM provider sy
 1. **Add credentials** (`~/.ponybunny/credentials.json`):
 ```json
 {
-  "endpoints": {
+  "providers": {
     "openai-compatible": {
       "enabled": true,
       "apiKey": "your-api-key",
@@ -76,10 +76,10 @@ Added support for OpenAI-compatible API endpoints to PonyBunny's LLM provider sy
 }
 ```
 
-2. **Configure endpoint** (`~/.ponybunny/llm-config.json`):
+2. **Configure provider** (`~/.ponybunny/llm-config.json`):
 ```json
 {
-  "endpoints": {
+  "providers": {
     "openai-compatible": {
       "enabled": true,
       "protocol": "openai",
@@ -96,7 +96,7 @@ Added support for OpenAI-compatible API endpoints to PonyBunny's LLM provider sy
   "models": {
     "llama-3-70b": {
       "displayName": "Llama 3 70B",
-      "endpoints": ["openai-compatible"],
+      "providers": ["openai-compatible"],
       "costPer1kTokens": { "input": 0.0, "output": 0.0 },
       "maxContextTokens": 8192,
       "capabilities": ["text", "function-calling"],

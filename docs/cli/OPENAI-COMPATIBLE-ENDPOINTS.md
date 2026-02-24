@@ -1,10 +1,10 @@
 # OpenAI Compatible Endpoints
 
-PonyBunny supports any OpenAI-compatible API endpoint through the `openai-compatible` endpoint configuration. This allows you to use local LLM servers, third-party providers, or custom deployments that implement the OpenAI API specification.
+PonyBunny supports any OpenAI-compatible API endpoint through the `openai-compatible` provider configuration. This allows you to use local LLM servers, third-party providers, or custom deployments that implement the OpenAI API specification.
 
 ## Supported Services
 
-The `openai-compatible` endpoint works with:
+The `openai-compatible` provider works with:
 
 - **LocalAI** - Local inference server
 - **vLLM** - High-performance inference engine
@@ -23,9 +23,8 @@ Edit `~/.ponybunny/credentials.json`:
 ```json
 {
   "$schema": "https://ponybunny.dho.ai/schemas/credentials.schema.json",
-  "endpoints": {
+  "providers": {
     "openai-compatible": {
-      "enabled": true,
       "apiKey": "your-api-key-here",
       "baseUrl": "http://localhost:8000/v1"
     }
@@ -34,18 +33,19 @@ Edit `~/.ponybunny/credentials.json`:
 ```
 
 **Fields:**
-- `enabled`: Set to `true` to enable this endpoint
 - `apiKey`: API key for authentication (use any string if not required)
 - `baseUrl`: Base URL of your OpenAI-compatible service
 
-### 2. Configure Endpoint in LLM Config
+Provider enablement is configured in `~/.ponybunny/llm-config.json` via `providers.openai-compatible.enabled`.
+
+### 2. Configure Provider in LLM Config
 
 Edit `~/.ponybunny/llm-config.json`:
 
 ```json
 {
   "$schema": "https://ponybunny.dho.ai/schemas/llm-config.schema.json",
-  "endpoints": {
+  "providers": {
     "openai-compatible": {
       "enabled": true,
       "protocol": "openai",
@@ -61,14 +61,14 @@ Edit `~/.ponybunny/llm-config.json`:
 
 ### 3. Add Models
 
-Define models that are available through your endpoint:
+Define models that are available through your provider:
 
 ```json
 {
   "models": {
     "llama-3-70b": {
       "displayName": "Llama 3 70B",
-      "endpoints": ["openai-compatible"],
+      "providers": ["openai-compatible"],
       "costPer1kTokens": {
         "input": 0.0,
         "output": 0.0
@@ -88,7 +88,7 @@ Define models that are available through your endpoint:
 
 ```json
 {
-  "endpoints": {
+  "providers": {
     "openai-compatible": {
       "enabled": true,
       "apiKey": "not-needed",
@@ -102,7 +102,7 @@ Define models that are available through your endpoint:
 
 ```json
 {
-  "endpoints": {
+  "providers": {
     "openai-compatible": {
       "enabled": true,
       "apiKey": "EMPTY",
@@ -116,7 +116,7 @@ Define models that are available through your endpoint:
 
 ```json
 {
-  "endpoints": {
+  "providers": {
     "openai-compatible": {
       "enabled": true,
       "apiKey": "ollama",
@@ -130,7 +130,7 @@ Define models that are available through your endpoint:
 
 ```json
 {
-  "endpoints": {
+  "providers": {
     "openai-compatible": {
       "enabled": true,
       "apiKey": "lm-studio",
@@ -144,7 +144,7 @@ Define models that are available through your endpoint:
 
 ```json
 {
-  "endpoints": {
+  "providers": {
     "openai-compatible": {
       "enabled": true,
       "apiKey": "tb_xxxxxxxxxxxxx",
@@ -220,11 +220,11 @@ Update your `llm-config.json` with the correct model ID.
 
 ## Priority and Fallback
 
-The `openai-compatible` endpoint has `priority: 3` by default (lower priority than official APIs). You can adjust this in `llm-config.json`:
+The `openai-compatible` provider has `priority: 3` by default (lower priority than official APIs). You can adjust this in `llm-config.json`:
 
 ```json
 {
-  "endpoints": {
+  "providers": {
     "openai-compatible": {
       "priority": 1  // Higher priority (1 = highest)
     }
@@ -234,11 +234,11 @@ The `openai-compatible` endpoint has `priority: 3` by default (lower priority th
 
 ## Multiple Compatible Endpoints
 
-To use multiple OpenAI-compatible services, you can override the `baseUrl` in the credentials file for existing endpoints:
+To use multiple OpenAI-compatible services, you can override the `baseUrl` in the credentials file for existing providers:
 
 ```json
 {
-  "endpoints": {
+  "providers": {
     "openai-direct": {
       "enabled": true,
       "apiKey": "sk-local-key",

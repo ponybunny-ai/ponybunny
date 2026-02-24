@@ -61,7 +61,7 @@ vim ~/.ponybunny/credentials.json
 ```json
 {
   "$schema": "https://ponybunny.dho.ai/schemas/credentials.schema.json",
-  "endpoints": {
+  "providers": {
     "anthropic-direct": {
       "enabled": true,
       "apiKey": "sk-ant-xxx"
@@ -88,7 +88,7 @@ vim ~/.ponybunny/credentials.json
       "contextWindow": 200000,
       "thinking": true,
       "streaming": true,
-      "endpoints": ["anthropic-direct"]
+      "providers": ["anthropic-direct"]
     },
     "gpt-4-turbo": {
       "displayName": "GPT-4 Turbo",
@@ -96,7 +96,7 @@ vim ~/.ponybunny/credentials.json
       "costPer1kOutput": 0.03,
       "contextWindow": 128000,
       "streaming": true,
-      "endpoints": ["openai-direct"]
+      "providers": ["openai-direct"]
     }
   }
 }

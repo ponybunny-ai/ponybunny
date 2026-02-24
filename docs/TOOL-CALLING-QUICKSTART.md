@@ -18,7 +18,7 @@ npm run build
 
 ```json
 {
-  "endpoints": {
+  "providers": {
     "anthropic-direct": {
       "enabled": true,
       "apiKey": "sk-ant-xxx"

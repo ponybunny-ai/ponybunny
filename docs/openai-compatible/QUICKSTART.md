@@ -8,9 +8,8 @@
 
 ```json
 {
-  "endpoints": {
+  "providers": {
     "openai-compatible": {
-      "enabled": true,
       "apiKey": "your-api-key",
       "baseUrl": "http://localhost:8000/v1"
     }
@@ -18,13 +17,13 @@
 }
 ```
 
-### 2. 配置 Endpoint
+### 2. 配置 Provider
 
 编辑 `~/.ponybunny/llm-config.json`:
 
 ```json
 {
-  "endpoints": {
+  "providers": {
     "openai-compatible": {
       "enabled": true,
       "protocol": "openai",
@@ -42,7 +41,7 @@
   "models": {
     "your-model-name": {
       "displayName": "Your Model",
-      "endpoints": ["openai-compatible"],
+      "providers": ["openai-compatible"],
       "costPer1kTokens": { "input": 0.0, "output": 0.0 },
       "maxContextTokens": 8192,
       "capabilities": ["text"],
