@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ponybunny.dev/schemas/ponybunny.schema.json",
+  "title": "PonyBunny Runtime Configuration",
+  "type": "object",
+  "required": [
+    "paths",
+    "gateway",
+    "scheduler",
+    "agent",
+    "debug"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "paths": {
+      "type": "object",
+      "required": [
+        "database",
+        "schedulerSocket"
+      ],
+      "properties": {
+        "database": {
+          "type": "string"
+        },
+        "schedulerSocket": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "gateway": {
+      "type": "object",
+      "required": [
+        "host",
+        "port"
+      ],
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "scheduler": {
+      "type": "object",
+      "required": [
+        "tickIntervalMs",
+        "maxConcurrentGoals",
+        "agentsEnabled"
+      ],
+      "properties": {
+        "tickIntervalMs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxConcurrentGoals": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "agentsEnabled": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "agent": {
+      "type": "object",
+      "required": [
+        "mainAgentId",
+        "personaEnabled"
+      ],
+      "properties": {
+        "mainAgentId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "personaEnabled": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "debug": {
+      "type": "object",
+      "required": [
+        "serverPort",
+        "loggingEnabled",
+        "antigravityDebug"
+      ],
+      "properties": {
+        "serverPort": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "loggingEnabled": {
+          "type": "boolean"
+        },
+        "antigravityDebug": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

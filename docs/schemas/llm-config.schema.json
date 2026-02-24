@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ponybunny.dev/schemas/llm-config.schema.json",
+  "title": "PonyBunny LLM Configuration",
+  "type": "object",
+  "required": [
+    "endpoints",
+    "models",
+    "tiers",
+    "agents",
+    "defaults"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "endpoints": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "protocol",
+          "priority"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "anthropic",
+              "openai",
+              "gemini"
+            ]
+          },
+          "baseUrl": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "rateLimit": {
+            "type": "object",
+            "properties": {
+              "requestsPerMinute": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "tokensPerMinute": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "region": {
+            "type": "string"
+          },
+          "costMultiplier": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "displayName",
+          "endpoints",
+          "costPer1kTokens"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "endpoints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "costPer1kTokens": {
+            "type": "object",
+            "required": [
+              "input",
+              "output"
+            ],
+            "properties": {
+              "input": {
+                "type": "number",
+                "minimum": 0
+              },
+              "output": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          },
+          "maxContextTokens": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "text",
+                "vision",
+                "function-calling",
+                "json-mode"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "tiers": {
+      "type": "object",
+      "required": [
+        "simple",
+        "medium",
+        "complex"
+      ],
+      "properties": {
+        "simple": {
+          "$ref": "#/$defs/TierConfig"
+        },
+        "medium": {
+          "$ref": "#/$defs/TierConfig"
+        },
+        "complex": {
+          "$ref": "#/$defs/TierConfig"
+        }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "tier": {
+            "type": "string",
+            "enum": [
+              "simple",
+              "medium",
+              "complex"
+            ]
+          },
+          "primary": {
+            "type": "string"
+          },
+          "fallback": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "properties": {
+        "timeout": {
+          "type": "integer",
+          "minimum": 1000
+        },
+        "maxTokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxRetries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "retryDelayMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "temperature": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2
+        }
+      }
+    }
+  },
+  "$defs": {
+    "TierConfig": {
+      "type": "object",
+      "required": [
+        "primary"
+      ],
+      "properties": {
+        "primary": {
+          "type": "string"
+        },
+        "fallback": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

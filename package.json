@@ -32,7 +32,8 @@
     "test:tool-calling": "npm run build && npx tsx test/quick-tool-calling-test.ts",
     "test:tool-calling-demo": "npm run build && npx tsx test/e2e/tool-calling-demo.ts",
     "test:tool-calling-unit": "jest test/infra/llm/protocols/tool-calling.test.ts --verbose",
-    "test:mcp": "jest test/infra/mcp/ --verbose"
+    "test:mcp": "jest test/infra/mcp/ --verbose",
+    "schemas:sync": "npx tsx scripts/sync-schemas.ts"
   },
   "bin": {
     "pb": "./dist/cli/index.js"
