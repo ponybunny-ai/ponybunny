@@ -25,17 +25,32 @@ export interface IConversationSession {
   id: string;
   personaId: string;
   state: ConversationState;
+  lifecycleState?: ConversationLifecycleState;
   turns: IConversationTurn[];
   activeGoalId?: string;
+  archivedAt?: number;
+  archiveSummary?: string;
+  archiveMetadata?: Record<string, unknown>;
   createdAt: number;
   updatedAt: number;
   metadata?: Record<string, unknown>;
+}
+
+export type ConversationLifecycleState = 'active' | 'archived';
+
+export interface IArchivedSessionSnapshot {
+  summary: string;
+  metadata: Record<string, unknown>;
+  archivedAt: number;
 }
 
 export interface ISessionSummary {
   id: string;
   personaId: string;
   state: ConversationState;
+  lifecycleState: ConversationLifecycleState;
+  archivedAt?: number;
+  archiveSummary?: string;
   turnCount: number;
   lastMessage?: string;
   createdAt: number;

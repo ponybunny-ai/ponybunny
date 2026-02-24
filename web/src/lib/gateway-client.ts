@@ -12,6 +12,9 @@ import type {
   ConversationMessageParams,
   ConversationMessageResult,
   ConversationTurn,
+  ConversationSessionSummary,
+  ConversationLifecycleState,
+  ConversationState,
   PersonaSummary,
   Persona,
 } from './types';
@@ -314,8 +317,38 @@ export class WebGatewayClient {
     return this.request<{ success: boolean }>('conversation.end', { sessionId });
   }
 
-  async getConversationStatus(sessionId: string): Promise<{ exists: boolean; state?: string; turnCount?: number }> {
-    return this.request<{ exists: boolean; state?: string; turnCount?: number }>('conversation.status', { sessionId });
+  async createConversationSession(params?: { personaId?: string; userProfileId?: string }): Promise<{
+    sessionId: string;
+    personaId: string;
+    state: ConversationState;
+    lifecycleState: ConversationLifecycleState;
+  }> {
+    return this.request('conversation.new', params);
+  }
+
+  async listConversationSessions(params?: {
+    limit?: number;
+    lifecycleState?: ConversationLifecycleState;
+  }): Promise<{ sessions: ConversationSessionSummary[] }> {
+    return this.request('conversation.list', params);
+  }
+
+  async archiveConversation(sessionId: string): Promise<{ success: boolean; archivedAt?: number; summary?: string }> {
+    return this.request('conversation.archive', { sessionId });
+  }
+
+  async resumeConversation(sessionId: string): Promise<{ success: boolean }> {
+    return this.request('conversation.resume', { sessionId });
+  }
+
+  async getConversationStatus(sessionId: string): Promise<{
+    exists: boolean;
+    state?: string;
+    lifecycleState?: ConversationLifecycleState;
+    archivedAt?: number;
+    turnCount?: number;
+  }> {
+    return this.request('conversation.status', { sessionId });
   }
 
   async listPersonas(): Promise<{ personas: PersonaSummary[] }> {

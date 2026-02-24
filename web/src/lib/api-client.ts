@@ -10,9 +10,11 @@ import type {
   ConversationMessageParams,
   ConversationMessageResult,
   ConversationTurn,
+  ConversationState,
   PersonaSummary,
   Persona,
-  ConversationState,
+  ConversationSessionSummary,
+  ConversationLifecycleState,
 } from './types';
 
 class ApiClient {
@@ -75,6 +77,43 @@ class ApiClient {
     return this.fetch('/api/conversation', {
       method: 'DELETE',
       body: JSON.stringify({ sessionId }),
+    });
+  }
+
+  async createConversationSession(params?: { personaId?: string; userProfileId?: string }): Promise<{
+    sessionId: string;
+    personaId: string;
+    state: ConversationState;
+    lifecycleState: ConversationLifecycleState;
+  }> {
+    return this.fetch('/api/conversation', {
+      method: 'PUT',
+      body: JSON.stringify(params ?? {}),
+    });
+  }
+
+  async listConversationSessions(params?: {
+    limit?: number;
+    lifecycleState?: ConversationLifecycleState;
+  }): Promise<{ sessions: ConversationSessionSummary[] }> {
+    const searchParams = new URLSearchParams();
+    if (params?.limit) searchParams.set('limit', params.limit.toString());
+    if (params?.lifecycleState) searchParams.set('lifecycleState', params.lifecycleState);
+    const query = searchParams.toString();
+    return this.fetch(`/api/conversation${query ? `?${query}` : ''}`);
+  }
+
+  async archiveConversation(sessionId: string): Promise<{ success: boolean; archivedAt?: number; summary?: string }> {
+    return this.fetch('/api/conversation', {
+      method: 'PATCH',
+      body: JSON.stringify({ sessionId, action: 'archive' }),
+    });
+  }
+
+  async resumeConversation(sessionId: string): Promise<{ success: boolean }> {
+    return this.fetch('/api/conversation', {
+      method: 'PATCH',
+      body: JSON.stringify({ sessionId, action: 'resume' }),
     });
   }
 

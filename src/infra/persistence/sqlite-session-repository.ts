@@ -7,8 +7,11 @@ import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 
 import type {
+  ConversationLifecycleState,
+  IArchivedSessionSnapshot,
   IConversationSession,
   IConversationTurn,
+  ISessionSummary,
   IAttachment,
 } from '../../domain/conversation/session.js';
 import type { ISessionRepository } from '../../app/conversation/session-manager.js';
@@ -22,10 +25,14 @@ interface SessionRow {
   id: string;
   persona_id: string;
   state: string;
+  lifecycle_state: string;
   active_goal_id: string | null;
   created_at: number;
   updated_at: number;
   expires_at: number | null;
+  archived_at: number | null;
+  archive_summary: string | null;
+  archive_metadata: string | null;
   metadata: string | null;
 }
 
@@ -56,10 +63,14 @@ export class SqliteSessionRepository implements ISessionRepository {
         id TEXT PRIMARY KEY,
         persona_id TEXT NOT NULL,
         state TEXT NOT NULL,
+        lifecycle_state TEXT NOT NULL DEFAULT 'active',
         active_goal_id TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         expires_at INTEGER,
+        archived_at INTEGER,
+        archive_summary TEXT,
+        archive_metadata TEXT,
         metadata TEXT
       );
 
@@ -77,10 +88,39 @@ export class SqliteSessionRepository implements ISessionRepository {
 
       -- Indexes
       CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_sessions_lifecycle ON sessions(lifecycle_state, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived_at DESC);
       CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
       CREATE INDEX IF NOT EXISTS idx_sessions_persona ON sessions(persona_id);
       CREATE INDEX IF NOT EXISTS idx_sessions_goal ON sessions(active_goal_id);
       CREATE INDEX IF NOT EXISTS idx_session_turns_session ON session_turns(session_id, timestamp);
+    `);
+
+    this.ensureSessionLifecycleColumns();
+  }
+
+  private ensureSessionLifecycleColumns(): void {
+    const columns = this.db
+      .prepare('PRAGMA table_info(sessions)')
+      .all() as Array<{ name: string }>;
+    const names = new Set(columns.map((item) => item.name));
+
+    if (!names.has('lifecycle_state')) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN lifecycle_state TEXT NOT NULL DEFAULT 'active'");
+    }
+    if (!names.has('archived_at')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN archived_at INTEGER');
+    }
+    if (!names.has('archive_summary')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN archive_summary TEXT');
+    }
+    if (!names.has('archive_metadata')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN archive_metadata TEXT');
+    }
+
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_lifecycle ON sessions(lifecycle_state, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived_at DESC);
     `);
   }
 
@@ -89,8 +129,12 @@ export class SqliteSessionRepository implements ISessionRepository {
       id: row.id,
       personaId: row.persona_id,
       state: row.state as ConversationState,
+      lifecycleState: (row.lifecycle_state as ConversationLifecycleState) || 'active',
       turns,
       activeGoalId: row.active_goal_id ?? undefined,
+      archivedAt: row.archived_at ?? undefined,
+      archiveSummary: row.archive_summary ?? undefined,
+      archiveMetadata: row.archive_metadata ? JSON.parse(row.archive_metadata) : undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
@@ -124,6 +168,7 @@ export class SqliteSessionRepository implements ISessionRepository {
       id: randomUUID(),
       personaId,
       state: 'idle',
+      lifecycleState: 'active',
       turns: [],
       createdAt: now,
       updatedAt: now,
@@ -131,17 +176,21 @@ export class SqliteSessionRepository implements ISessionRepository {
 
     const stmt = this.db.prepare(`
       INSERT INTO sessions (
-        id, persona_id, state, active_goal_id, created_at, updated_at, expires_at, metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        id, persona_id, state, lifecycle_state, active_goal_id, created_at, updated_at, expires_at, archived_at, archive_summary, archive_metadata, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
       session.id,
       session.personaId,
       session.state,
+      session.lifecycleState ?? 'active',
       null,
       session.createdAt,
       session.updatedAt,
+      null,
+      null,
+      null,
       null,
       null
     );
@@ -165,16 +214,24 @@ export class SqliteSessionRepository implements ISessionRepository {
     const stmt = this.db.prepare(`
       UPDATE sessions SET
         state = ?,
+        lifecycle_state = ?,
         active_goal_id = ?,
         updated_at = ?,
+        archived_at = ?,
+        archive_summary = ?,
+        archive_metadata = ?,
         metadata = ?
       WHERE id = ?
     `);
 
     stmt.run(
       session.state,
+      session.lifecycleState ?? 'active',
       session.activeGoalId ?? null,
       now,
+      session.archivedAt ?? null,
+      session.archiveSummary ?? null,
+      session.archiveMetadata ? JSON.stringify(session.archiveMetadata) : null,
       session.metadata ? JSON.stringify(session.metadata) : null,
       session.id
     );
@@ -226,34 +283,47 @@ export class SqliteSessionRepository implements ISessionRepository {
   /**
    * List sessions without loading all turns (for performance)
    */
-  listSessionsSummary(limit?: number): Array<{
-    id: string;
-    personaId: string;
-    state: ConversationState;
-    turnCount: number;
-    createdAt: number;
-    updatedAt: number;
-  }> {
+  listSessionsSummary(options?: {
+    limit?: number;
+    lifecycleState?: ConversationLifecycleState;
+  }): ISessionSummary[] {
+    const lifecycleState = options?.lifecycleState;
+    const limit = options?.limit;
     const query = `
       SELECT
         s.id,
         s.persona_id,
         s.state,
+        s.lifecycle_state,
+        s.archived_at,
+        s.archive_summary,
         s.created_at,
         s.updated_at,
         COUNT(t.id) as turn_count
       FROM sessions s
       LEFT JOIN session_turns t ON s.id = t.session_id
+      ${lifecycleState ? 'WHERE s.lifecycle_state = ?' : ''}
       GROUP BY s.id
       ORDER BY s.updated_at DESC
       ${limit ? 'LIMIT ?' : ''}
     `;
 
     const stmt = this.db.prepare(query);
-    const rows = (limit ? stmt.all(limit) : stmt.all()) as Array<{
+    const rows = (
+      lifecycleState && limit
+        ? stmt.all(lifecycleState, limit)
+        : lifecycleState
+          ? stmt.all(lifecycleState)
+          : limit
+            ? stmt.all(limit)
+            : stmt.all()
+    ) as Array<{
       id: string;
       persona_id: string;
       state: string;
+      lifecycle_state: string;
+      archived_at: number | null;
+      archive_summary: string | null;
       created_at: number;
       updated_at: number;
       turn_count: number;
@@ -263,10 +333,45 @@ export class SqliteSessionRepository implements ISessionRepository {
       id: row.id,
       personaId: row.persona_id,
       state: row.state as ConversationState,
+      lifecycleState: (row.lifecycle_state as ConversationLifecycleState) || 'active',
+      archivedAt: row.archived_at ?? undefined,
+      archiveSummary: row.archive_summary ?? undefined,
       turnCount: row.turn_count,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
+  }
+
+  archiveSession(sessionId: string, snapshot: IArchivedSessionSnapshot): boolean {
+    const stmt = this.db.prepare(`
+      UPDATE sessions
+      SET lifecycle_state = 'archived',
+          archived_at = ?,
+          archive_summary = ?,
+          archive_metadata = ?,
+          updated_at = ?
+      WHERE id = ?
+    `);
+    const result = stmt.run(
+      snapshot.archivedAt,
+      snapshot.summary,
+      JSON.stringify(snapshot.metadata),
+      Date.now(),
+      sessionId
+    );
+    return result.changes > 0;
+  }
+
+  resumeSession(sessionId: string): boolean {
+    const stmt = this.db.prepare(`
+      UPDATE sessions
+      SET lifecycle_state = 'active',
+          archived_at = NULL,
+          updated_at = ?
+      WHERE id = ?
+    `);
+    const result = stmt.run(Date.now(), sessionId);
+    return result.changes > 0;
   }
 
   /**

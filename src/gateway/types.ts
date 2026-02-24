@@ -151,6 +151,8 @@ export type GatewayEventType =
   | 'conversation.response'
   | 'conversation.typing'
   | 'conversation.ended'
+  | 'conversation.archived'
+  | 'conversation.resumed'
   | 'task.narration'
   | 'task.result'
   // LLM streaming events

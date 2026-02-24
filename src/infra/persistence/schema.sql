@@ -401,14 +401,20 @@ CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,                    -- UUID v4
     persona_id TEXT NOT NULL,
     state TEXT NOT NULL,                    -- idle | clarifying | executing | monitoring | retrying
+    lifecycle_state TEXT NOT NULL DEFAULT 'active',
     active_goal_id TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     expires_at INTEGER,
+    archived_at INTEGER,
+    archive_summary TEXT,
+    archive_metadata TEXT,
     metadata TEXT                           -- JSON
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_lifecycle ON sessions(lifecycle_state, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_persona ON sessions(persona_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_goal ON sessions(active_goal_id);

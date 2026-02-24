@@ -3,7 +3,14 @@
  * Manages conversation sessions and coordinates all conversation components
  */
 
-import type { IConversationSession, IConversationTurn, IAttachment } from '../../domain/conversation/session.js';
+import type {
+  ConversationLifecycleState,
+  IArchivedSessionSnapshot,
+  IAttachment,
+  IConversationSession,
+  IConversationTurn,
+  ISessionSummary,
+} from '../../domain/conversation/session.js';
 import type { ConversationState } from '../../domain/conversation/state-machine-rules.js';
 import type { IPersona } from '../../domain/conversation/persona.js';
 import type { IInputAnalysis, IExtractedRequirements } from '../../domain/conversation/analysis.js';
@@ -25,6 +32,12 @@ export interface ISessionRepository {
   addTurn(sessionId: string, turn: IConversationTurn): void;
   deleteSession(id: string): boolean;
   listSessions(limit?: number): IConversationSession[];
+  listSessionsSummary(options?: {
+    limit?: number;
+    lifecycleState?: ConversationLifecycleState;
+  }): ISessionSummary[];
+  archiveSession(sessionId: string, snapshot: IArchivedSessionSnapshot): boolean;
+  resumeSession(sessionId: string): boolean;
 }
 
 export interface IConversationResponse {
@@ -58,6 +71,13 @@ export interface ISessionManager {
 
   getSession(sessionId: string): IConversationSession | null;
   getHistory(sessionId: string, limit?: number): IConversationTurn[];
+  createSession(personaId?: string, userProfileId?: string): IConversationSession;
+  listSessions(options?: {
+    limit?: number;
+    lifecycleState?: ConversationLifecycleState;
+  }): ISessionSummary[];
+  archiveSession(sessionId: string): { success: boolean; snapshot?: IArchivedSessionSnapshot };
+  resumeSession(sessionId: string): boolean;
   endSession(sessionId: string): boolean;
 }
 
@@ -127,6 +147,11 @@ export class SessionManager implements ISessionManager {
       const existing = this.sessionRepository.getSession(sessionId);
       if (existing) {
         session = existing;
+        if (session.lifecycleState === 'archived') {
+          this.sessionRepository.resumeSession(session.id);
+          session.lifecycleState = 'active';
+          session.archivedAt = undefined;
+        }
       } else {
         session = this.sessionRepository.createSession(
           personaId || this.personaEngine.getDefaultPersonaId()
@@ -389,6 +414,25 @@ export class SessionManager implements ISessionManager {
     return this.sessionRepository.getSession(sessionId);
   }
 
+  createSession(personaId?: string, userProfileId?: string): IConversationSession {
+    const session = this.sessionRepository.createSession(personaId || this.personaEngine.getDefaultPersonaId());
+    if (userProfileId && userProfileId.trim().length > 0) {
+      session.metadata = {
+        ...(session.metadata ?? {}),
+        userProfileId: userProfileId.trim(),
+      };
+      this.sessionRepository.updateSession(session);
+    }
+    return session;
+  }
+
+  listSessions(options?: {
+    limit?: number;
+    lifecycleState?: ConversationLifecycleState;
+  }): ISessionSummary[] {
+    return this.sessionRepository.listSessionsSummary(options);
+  }
+
   getHistory(sessionId: string, limit?: number): IConversationTurn[] {
     const session = this.sessionRepository.getSession(sessionId);
     if (!session) {
@@ -398,10 +442,59 @@ export class SessionManager implements ISessionManager {
     return limit ? turns.slice(-limit) : turns;
   }
 
+  archiveSession(sessionId: string): { success: boolean; snapshot?: IArchivedSessionSnapshot } {
+    const session = this.sessionRepository.getSession(sessionId);
+    if (!session || session.lifecycleState === 'archived') {
+      return { success: false };
+    }
+
+    const snapshot = this.buildArchiveSnapshot(session);
+    this.stateMachines.delete(sessionId);
+    this.retryContexts.delete(sessionId);
+    const success = this.sessionRepository.archiveSession(sessionId, snapshot);
+    if (!success) {
+      return { success: false };
+    }
+
+    return { success: true, snapshot };
+  }
+
+  resumeSession(sessionId: string): boolean {
+    return this.sessionRepository.resumeSession(sessionId);
+  }
+
   endSession(sessionId: string): boolean {
     this.stateMachines.delete(sessionId);
     this.retryContexts.delete(sessionId);
     return this.sessionRepository.deleteSession(sessionId);
+  }
+
+  private buildArchiveSnapshot(session: IConversationSession): IArchivedSessionSnapshot {
+    const archivedAt = Date.now();
+    const userTurns = session.turns.filter((turn) => turn.role === 'user');
+    const assistantTurns = session.turns.filter((turn) => turn.role === 'assistant');
+    const firstUserTurn = userTurns[0];
+    const lastUserTurn = userTurns[userTurns.length - 1];
+    const lastAssistantTurn = assistantTurns[assistantTurns.length - 1];
+
+    const summaryParts = [
+      `Conversation with ${session.personaId} archived after ${session.turns.length} turns.`,
+      firstUserTurn ? `Started with: ${firstUserTurn.content.slice(0, 160)}` : undefined,
+      lastUserTurn ? `Last user intent: ${lastUserTurn.content.slice(0, 160)}` : undefined,
+      lastAssistantTurn ? `Last assistant response: ${lastAssistantTurn.content.slice(0, 160)}` : undefined,
+    ].filter((part): part is string => !!part);
+
+    return {
+      archivedAt,
+      summary: summaryParts.join(' '),
+      metadata: {
+        turnCount: session.turns.length,
+        activeGoalId: session.activeGoalId ?? null,
+        personaId: session.personaId,
+        firstTurnAt: session.turns[0]?.timestamp ?? null,
+        lastTurnAt: session.turns[session.turns.length - 1]?.timestamp ?? null,
+      },
+    };
   }
 
   private async recallMemories(session: IConversationSession, query: string): Promise<IRecalledMemory[]> {

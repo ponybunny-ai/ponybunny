@@ -4,7 +4,10 @@
  */
 
 import type {
+  ConversationLifecycleState,
+  IArchivedSessionSnapshot,
   IConversationSession,
+  ISessionSummary,
   IConversationTurn,
 } from '../../domain/conversation/session.js';
 import type { ISessionRepository } from '../../app/conversation/session-manager.js';
@@ -26,6 +29,7 @@ export class InMemorySessionRepository implements ISessionRepository {
       id: generateId(),
       personaId,
       state: 'idle',
+      lifecycleState: 'active',
       turns: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -59,6 +63,58 @@ export class InMemorySessionRepository implements ISessionRepository {
     const sessions = Array.from(this.sessions.values())
       .sort((a, b) => b.updatedAt - a.updatedAt);
     return limit ? sessions.slice(0, limit) : sessions;
+  }
+
+  listSessionsSummary(options?: {
+    limit?: number;
+    lifecycleState?: ConversationLifecycleState;
+  }): ISessionSummary[] {
+    const lifecycleState = options?.lifecycleState;
+    const sessions = Array.from(this.sessions.values())
+      .filter((session) => (lifecycleState ? (session.lifecycleState ?? 'active') === lifecycleState : true))
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+
+    const selected = options?.limit ? sessions.slice(0, options.limit) : sessions;
+
+    return selected.map((session) => ({
+      id: session.id,
+      personaId: session.personaId,
+      state: session.state,
+      lifecycleState: session.lifecycleState ?? 'active',
+      archivedAt: session.archivedAt,
+      archiveSummary: session.archiveSummary,
+      turnCount: session.turns.length,
+      lastMessage: session.turns[session.turns.length - 1]?.content,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+    }));
+  }
+
+  archiveSession(sessionId: string, snapshot: IArchivedSessionSnapshot): boolean {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return false;
+    }
+
+    session.lifecycleState = 'archived';
+    session.archivedAt = snapshot.archivedAt;
+    session.archiveSummary = snapshot.summary;
+    session.archiveMetadata = snapshot.metadata;
+    session.updatedAt = Date.now();
+    this.sessions.set(sessionId, session);
+    return true;
+  }
+
+  resumeSession(sessionId: string): boolean {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return false;
+    }
+    session.lifecycleState = 'active';
+    session.archivedAt = undefined;
+    session.updatedAt = Date.now();
+    this.sessions.set(sessionId, session);
+    return true;
   }
 
   // Cleanup old sessions

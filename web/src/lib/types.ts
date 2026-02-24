@@ -275,6 +275,8 @@ export type GatewayEventType =
   | 'conversation.response'
   | 'conversation.typing'
   | 'conversation.ended'
+  | 'conversation.archived'
+  | 'conversation.resumed'
   | 'task.narration'
   | 'task.result';
 
@@ -324,6 +326,8 @@ export type ConversationState =
   | 'monitoring'
   | 'reporting'
   | 'retrying';
+
+export type ConversationLifecycleState = 'active' | 'archived';
 
 export interface PersonalityTraits {
   warmth: number;
@@ -376,8 +380,24 @@ export interface ConversationSession {
   id: string;
   personaId: string;
   state: ConversationState;
+  lifecycleState: ConversationLifecycleState;
   turns: ConversationTurn[];
   activeGoalId?: string;
+  archivedAt?: number;
+  archiveSummary?: string;
+  archiveMetadata?: Record<string, unknown>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ConversationSessionSummary {
+  id: string;
+  personaId: string;
+  state: ConversationState;
+  lifecycleState: ConversationLifecycleState;
+  archivedAt?: number;
+  archiveSummary?: string;
+  turnCount: number;
   createdAt: number;
   updatedAt: number;
 }

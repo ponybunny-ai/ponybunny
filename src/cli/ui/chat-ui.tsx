@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { render, Box, Text, useInput, useApp } from 'ink';
 import TextInput from 'ink-text-input';
 import Spinner from 'ink-spinner';
@@ -20,6 +20,13 @@ import {
 } from '../../infra/llm/index.js';
 import type { ReActCycleParams } from '../../autonomy/react-integration.js';
 import { loadLLMConfig } from '../../infra/llm/provider-manager/config-loader.js';
+import {
+  createLocalSessionId,
+  listResumableSessions,
+  resolveResumeTarget,
+  summarizeSessionForArchive,
+  type LocalConversationSession,
+} from './session-lifecycle.js';
 
 // Initialize core services lazily
 let executionService: ExecutionService | null = null;
@@ -111,7 +118,19 @@ interface ChatUIProps {
 
 
 const ChatUI = ({ model: initialModel = 'gpt-5.2', system }: ChatUIProps) => {
+  const initialSessionIdRef = useRef<string>(createLocalSessionId());
+  const initialSessionTimestampRef = useRef<number>(Date.now());
   const [messages, setMessages] = useState<Message[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string>(initialSessionIdRef.current);
+  const [sessionStore, setSessionStore] = useState<Record<string, LocalConversationSession>>(() => ({
+    [initialSessionIdRef.current]: {
+      id: initialSessionIdRef.current,
+      messages: [],
+      createdAt: initialSessionTimestampRef.current,
+      updatedAt: initialSessionTimestampRef.current,
+      lifecycleState: 'active',
+    },
+  }));
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -162,9 +181,24 @@ const ChatUI = ({ model: initialModel = 'gpt-5.2', system }: ChatUIProps) => {
     loadModels();
 
     if (system) {
-      setMessages([{ role: 'system', content: system }]);
+      const seeded: Message[] = [{ role: 'system', content: system }];
+      setMessages(seeded);
+      setSessionStore((prev) => ({
+        ...prev,
+        [activeSessionId]: {
+          ...(prev[activeSessionId] ?? {
+            id: activeSessionId,
+            messages: [],
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            lifecycleState: 'active',
+          }),
+          messages: seeded,
+          updatedAt: Date.now(),
+        },
+      }));
     }
-  }, [system, currentModel]);
+  }, [system, currentModel, activeSessionId]);
 
   const [sessionParams, setSessionParams] = useState<ReActCycleParams | null>(null);
 
@@ -223,6 +257,50 @@ const ChatUI = ({ model: initialModel = 'gpt-5.2', system }: ChatUIProps) => {
     }
   }, [currentModel]);
 
+  const persistCurrentSession = useCallback((lifecycleState?: 'active' | 'archived', archiveSummary?: string) => {
+    const now = Date.now();
+    setSessionStore((prev) => {
+      const existing = prev[activeSessionId];
+      const createdAt = existing?.createdAt ?? now;
+      return {
+        ...prev,
+        [activeSessionId]: {
+          id: activeSessionId,
+          messages: [...messages],
+          createdAt,
+          updatedAt: now,
+          lifecycleState: lifecycleState ?? existing?.lifecycleState ?? 'active',
+          archivedAt: lifecycleState === 'archived' ? now : existing?.archivedAt,
+          archiveSummary: lifecycleState === 'archived' ? archiveSummary : existing?.archiveSummary,
+        },
+      };
+    });
+  }, [activeSessionId, messages]);
+
+  const switchToNewSession = useCallback((systemMessage?: string): string => {
+    const newSessionId = createLocalSessionId();
+    const now = Date.now();
+    setSessionStore((prev) => ({
+      ...prev,
+      [newSessionId]: {
+        id: newSessionId,
+        messages: systemMessage
+          ? [{ role: 'system', content: systemMessage, isCommand: true }]
+          : [],
+        createdAt: now,
+        updatedAt: now,
+        lifecycleState: 'active',
+      },
+    }));
+    setActiveSessionId(newSessionId);
+    setMessages(
+      systemMessage
+        ? [{ role: 'system', content: systemMessage, isCommand: true }]
+        : []
+    );
+    return newSessionId;
+  }, []);
+
   const handleCommand = useCallback(async (command: string): Promise<boolean> => {
     const parts = command.slice(1).trim().split(/\s+/);
     const cmd = parts[0].toLowerCase();
@@ -239,6 +317,9 @@ const ChatUI = ({ model: initialModel = 'gpt-5.2', system }: ChatUIProps) => {
       case 'help':
         response = `Available Commands:
   /help              - Show this help message
+  /new               - Start a new interactive session
+  /archive           - Archive current session with snapshot summary
+  /resume [target]   - Resume a previous session (id|index|latest)
   /exit, /quit       - Exit the chat
   /clear             - Clear chat history
   /status            - Show current status
@@ -250,17 +331,137 @@ const ChatUI = ({ model: initialModel = 'gpt-5.2', system }: ChatUIProps) => {
 
       case 'clear':
         setMessages([]);
+        setSessionStore((prev) => ({
+          ...prev,
+          [activeSessionId]: {
+            ...(prev[activeSessionId] ?? {
+              id: activeSessionId,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+              lifecycleState: 'active',
+              messages: [],
+            }),
+            messages: [],
+            lifecycleState: 'active',
+            updatedAt: Date.now(),
+          },
+        }));
         response = 'Chat history cleared.';
         break;
+
+      case 'new': {
+        persistCurrentSession('active');
+        const newSessionId = switchToNewSession();
+        setMessages([
+          {
+            role: 'system',
+            content: `Started new session: ${newSessionId}`,
+            isCommand: true,
+          },
+        ]);
+        setSessionStore((prev) => ({
+          ...prev,
+          [newSessionId]: {
+            ...(prev[newSessionId] ?? {
+              id: newSessionId,
+              messages: [],
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+              lifecycleState: 'active',
+            }),
+            messages: [
+              {
+                role: 'system',
+                content: `Started new session: ${newSessionId}`,
+                isCommand: true,
+              },
+            ],
+            updatedAt: Date.now(),
+          },
+        }));
+        return true;
+      }
+
+      case 'archive': {
+        const summary = summarizeSessionForArchive(messages);
+        persistCurrentSession('archived', summary);
+        const archivedSessionId = activeSessionId;
+        const replacementSessionId = switchToNewSession();
+        const note = `Archived ${archivedSessionId}. Summary: ${summary}`;
+        setMessages([{ role: 'system', content: note, isCommand: true }]);
+        setSessionStore((prev) => ({
+          ...prev,
+          [replacementSessionId]: {
+            ...(prev[replacementSessionId] ?? {
+              id: replacementSessionId,
+              messages: [],
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+              lifecycleState: 'active',
+            }),
+            messages: [{ role: 'system', content: note, isCommand: true }],
+            updatedAt: Date.now(),
+          },
+        }));
+        return true;
+      }
+
+      case 'resume': {
+        persistCurrentSession('active');
+        const target = resolveResumeTarget(args[0], sessionStore, activeSessionId);
+        if (!target) {
+          const resumable = listResumableSessions(sessionStore, activeSessionId);
+          if (resumable.length === 0) {
+            response = 'No resumable sessions found. Start chatting, then use /new or /archive first.';
+            break;
+          }
+
+          response = `No matching session for "${args[0] ?? 'latest'}". Available sessions:\n${resumable
+            .map((session, index) => {
+              const marker = session.lifecycleState === 'archived' ? '[archived]' : '[active]';
+              const preview = session.archiveSummary ?? session.messages.find((m) => m.role === 'user')?.content ?? 'No messages';
+              return `${index + 1}. ${session.id} ${marker} - ${preview.slice(0, 80)}`;
+            })
+            .join('\n')}`;
+          break;
+        }
+
+        const resumedMessages = [
+          ...target.messages,
+          {
+            role: 'system' as const,
+            content: `Resumed session ${target.id}${
+              target.lifecycleState === 'archived' ? ' (auto-unarchived for continued conversation)' : ''
+            }.`,
+            isCommand: true,
+          },
+        ];
+
+        setSessionStore((prev) => ({
+          ...prev,
+          [target.id]: {
+            ...target,
+            lifecycleState: 'active',
+            updatedAt: Date.now(),
+            messages: resumedMessages,
+          },
+        }));
+        setActiveSessionId(target.id);
+        setMessages(resumedMessages);
+        return true;
+      }
 
       case 'status':
         const provider = getModelProvider(currentModel);
         const account = accountManagerV2.getCurrentAccount(provider);
         const strategy = accountManagerV2.getStrategy();
         const accounts = accountManagerV2.listAccounts();
+        const resumableCount = listResumableSessions(sessionStore, activeSessionId).length;
         response = `Status:
   Model: ${currentModel}
   Provider: ${provider}
+  Session: ${activeSessionId}
+  Resumable Sessions: ${resumableCount}
   Account: ${account?.email || account?.userId || 'None'}
   Strategy: ${strategy}
   Total Accounts: ${accounts.length}`;
@@ -338,7 +539,16 @@ Type /help for available commands.`;
     }]);
 
     return true;
-  }, [currentModel, exit, updateAccountInfo]);
+  }, [
+    currentModel,
+    exit,
+    updateAccountInfo,
+    activeSessionId,
+    messages,
+    persistCurrentSession,
+    sessionStore,
+    switchToNewSession,
+  ]);
 
   useInput((input: string, key: any) => {
     if (key.escape || (key.ctrl && input === 'c')) {

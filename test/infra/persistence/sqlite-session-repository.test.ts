@@ -23,6 +23,7 @@ describe('SqliteSessionRepository', () => {
       expect(session.id).toBeDefined();
       expect(session.personaId).toBe('persona-1');
       expect(session.state).toBe('idle');
+      expect(session.lifecycleState).toBe('active');
       expect(session.turns).toHaveLength(0);
       expect(session.createdAt).toBeDefined();
       expect(session.updatedAt).toBeDefined();
@@ -194,6 +195,50 @@ describe('SqliteSessionRepository', () => {
       const summaries = repository.listSessionsSummary();
       expect(summaries).toHaveLength(1);
       expect(summaries[0].turnCount).toBe(2);
+      expect(summaries[0].lifecycleState).toBe('active');
+    });
+
+    it('should filter summaries by lifecycle state', () => {
+      const active = repository.createSession('persona-1');
+      const archived = repository.createSession('persona-2');
+
+      repository.archiveSession(archived.id, {
+        archivedAt: Date.now(),
+        summary: 'archived snapshot',
+        metadata: { turnCount: 0 },
+      });
+
+      const activeSessions = repository.listSessionsSummary({ lifecycleState: 'active' });
+      const archivedSessions = repository.listSessionsSummary({ lifecycleState: 'archived' });
+
+      expect(activeSessions.map((item) => item.id)).toContain(active.id);
+      expect(activeSessions.map((item) => item.id)).not.toContain(archived.id);
+      expect(archivedSessions.map((item) => item.id)).toContain(archived.id);
+      expect(archivedSessions[0].archiveSummary).toBe('archived snapshot');
+    });
+  });
+
+  describe('archiveSession and resumeSession', () => {
+    it('should archive and resume a session', () => {
+      const session = repository.createSession('persona-1');
+
+      const archiveSuccess = repository.archiveSession(session.id, {
+        archivedAt: Date.now(),
+        summary: 'summary text',
+        metadata: { turnCount: 0 },
+      });
+
+      expect(archiveSuccess).toBe(true);
+      const archived = repository.getSession(session.id);
+      expect(archived?.lifecycleState).toBe('archived');
+      expect(archived?.archiveSummary).toBe('summary text');
+
+      const resumeSuccess = repository.resumeSession(session.id);
+      expect(resumeSuccess).toBe(true);
+
+      const resumed = repository.getSession(session.id);
+      expect(resumed?.lifecycleState).toBe('active');
+      expect(resumed?.archivedAt).toBeUndefined();
     });
   });
 

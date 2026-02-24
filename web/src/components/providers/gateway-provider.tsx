@@ -10,6 +10,8 @@ import type {
   GatewayEventType,
   ConversationState,
   ConversationMessageResult,
+  ConversationLifecycleState,
+  ConversationSessionSummary,
 } from '@/lib/types';
 
 // ============================================================================
@@ -27,6 +29,8 @@ interface ConversationInfo {
   sessionId: string | null;
   personaId: string | null;
   state: ConversationState;
+  lifecycleState: ConversationLifecycleState;
+  archivedAt: number | null;
   activeGoalId: string | null;
 }
 
@@ -74,6 +78,7 @@ type GatewayAction =
   | { type: 'ESCALATIONS_LOADED'; escalations: Escalation[] }
   | { type: 'CLEAR_ERROR' }
   | { type: 'CONVERSATION_UPDATED'; sessionId: string; state: ConversationState; goalId?: string }
+  | { type: 'CONVERSATION_LIFECYCLE_UPDATED'; lifecycleState: ConversationLifecycleState; archivedAt?: number | null }
   | { type: 'CONVERSATION_ENDED' }
   | { type: 'LLM_STREAM_START'; data: any }
   | { type: 'LLM_STREAM_CHUNK'; data: any }
@@ -162,7 +167,19 @@ function gatewayReducer(state: GatewayState, action: GatewayAction): GatewayStat
           ...state.conversation,
           sessionId: action.sessionId,
           state: action.state,
+          lifecycleState: 'active',
+          archivedAt: null,
           activeGoalId: action.goalId || state.conversation.activeGoalId,
+        },
+      };
+
+    case 'CONVERSATION_LIFECYCLE_UPDATED':
+      return {
+        ...state,
+        conversation: {
+          ...state.conversation,
+          lifecycleState: action.lifecycleState,
+          archivedAt: action.archivedAt ?? null,
         },
       };
 
@@ -173,6 +190,8 @@ function gatewayReducer(state: GatewayState, action: GatewayAction): GatewayStat
           sessionId: null,
           personaId: null,
           state: 'idle',
+          lifecycleState: 'active',
+          archivedAt: null,
           activeGoalId: null,
         },
       };
@@ -245,6 +264,8 @@ const initialState: GatewayState = {
     sessionId: null,
     personaId: null,
     state: 'idle',
+    lifecycleState: 'active',
+    archivedAt: null,
     activeGoalId: null,
   },
   activeStreams: new Map(),
@@ -262,6 +283,10 @@ interface GatewayContextValue {
   refreshWorkItems: (goalId: string) => Promise<void>;
   respondToEscalation: (escalationId: string, action: string, data?: Record<string, unknown>) => Promise<void>;
   sendMessage: (message: string, personaId?: string) => Promise<ConversationMessageResult>;
+  createConversationSession: (personaId?: string) => Promise<{ sessionId: string; personaId: string; state: ConversationState; lifecycleState: ConversationLifecycleState }>;
+  listConversationSessions: (params?: { limit?: number; lifecycleState?: ConversationLifecycleState }) => Promise<ConversationSessionSummary[]>;
+  archiveConversation: (sessionId: string) => Promise<{ success: boolean; archivedAt?: number; summary?: string }>;
+  resumeConversation: (sessionId: string) => Promise<{ success: boolean }>;
   endConversation: () => Promise<void>;
 }
 
@@ -416,6 +441,57 @@ export function GatewayProvider({ children }: GatewayProviderProps) {
     dispatch({ type: 'CONVERSATION_ENDED' });
   }, [state.conversation.sessionId]);
 
+  const createConversationSession = useCallback(async (personaId?: string) => {
+    const result = await apiClient.createConversationSession({
+      personaId,
+    });
+
+    dispatch({
+      type: 'CONVERSATION_UPDATED',
+      sessionId: result.sessionId,
+      state: result.state,
+    });
+    dispatch({
+      type: 'CONVERSATION_LIFECYCLE_UPDATED',
+      lifecycleState: result.lifecycleState,
+      archivedAt: null,
+    });
+
+    return result;
+  }, []);
+
+  const listConversationSessions = useCallback(async (params?: {
+    limit?: number;
+    lifecycleState?: ConversationLifecycleState;
+  }) => {
+    const result = await apiClient.listConversationSessions(params);
+    return result.sessions;
+  }, []);
+
+  const archiveConversation = useCallback(async (sessionId: string) => {
+    const result = await apiClient.archiveConversation(sessionId);
+    if (result.success && sessionId === state.conversation.sessionId) {
+      dispatch({
+        type: 'CONVERSATION_LIFECYCLE_UPDATED',
+        lifecycleState: 'archived',
+        archivedAt: result.archivedAt ?? Date.now(),
+      });
+    }
+    return result;
+  }, [state.conversation.sessionId]);
+
+  const resumeConversation = useCallback(async (sessionId: string) => {
+    const result = await apiClient.resumeConversation(sessionId);
+    if (result.success && sessionId === state.conversation.sessionId) {
+      dispatch({
+        type: 'CONVERSATION_LIFECYCLE_UPDATED',
+        lifecycleState: 'active',
+        archivedAt: null,
+      });
+    }
+    return result;
+  }, [state.conversation.sessionId]);
+
   const value: GatewayContextValue = useMemo(() => ({
     state,
     submitGoal,
@@ -424,8 +500,25 @@ export function GatewayProvider({ children }: GatewayProviderProps) {
     refreshWorkItems,
     respondToEscalation,
     sendMessage,
+    createConversationSession,
+    listConversationSessions,
+    archiveConversation,
+    resumeConversation,
     endConversation,
-  }), [state, submitGoal, setActiveGoal, refreshGoals, refreshWorkItems, respondToEscalation, sendMessage, endConversation]);
+  }), [
+    state,
+    submitGoal,
+    setActiveGoal,
+    refreshGoals,
+    refreshWorkItems,
+    respondToEscalation,
+    sendMessage,
+    createConversationSession,
+    listConversationSessions,
+    archiveConversation,
+    resumeConversation,
+    endConversation,
+  ]);
 
   return (
     <GatewayContext.Provider value={value}>
