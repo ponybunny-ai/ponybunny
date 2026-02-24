@@ -28,7 +28,7 @@ describe('config-paths migration', () => {
 
     const legacyDir = path.join(tempHome, '.ponybunny');
     fs.mkdirSync(path.join(legacyDir, 'prompts'), { recursive: true });
-    fs.writeFileSync(path.join(legacyDir, 'credentials.json'), '{"endpoints":{}}');
+      fs.writeFileSync(path.join(legacyDir, 'credentials.json'), '{"providers":{}}');
     fs.writeFileSync(path.join(legacyDir, 'prompts', 'manifest.json'), '{"manifestVersion":"1"}');
 
     const { getConfigDir } = await import('../../../src/infra/config/config-paths.js');

@@ -18,11 +18,11 @@ export const CREDENTIALS_SCHEMA_TEMPLATE = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: 'https://ponybunny.dev/schemas/credentials.schema.json',
   title: 'PonyBunny Credentials',
-  description: 'Credentials configuration for LLM endpoints',
+  description: 'Credentials configuration for LLM providers',
   type: 'object',
   properties: {
     $schema: { type: 'string', description: 'JSON Schema reference' },
-    endpoints: {
+    providers: {
       type: 'object',
       description: 'Per-endpoint credential configuration',
       additionalProperties: { $ref: '#/$defs/EndpointCredential' },
@@ -34,10 +34,6 @@ export const CREDENTIALS_SCHEMA_TEMPLATE = {
       type: 'object',
       description: 'Credentials for a specific endpoint',
       properties: {
-        enabled: {
-          type: 'boolean',
-          description: 'Whether this endpoint is enabled (default: true if credentials are present)',
-        },
         apiKey: {
           type: 'string',
           description: 'API key for the endpoint (Anthropic, OpenAI, Google AI Studio, Azure)',
@@ -62,42 +58,35 @@ export const CREDENTIALS_SCHEMA_TEMPLATE = {
  */
 export const CREDENTIALS_TEMPLATE = {
   $schema: 'https://ponybunny.dho.ai/schemas/credentials.schema.json',
-  endpoints: {
+  providers: {
     'anthropic-direct': {
-      enabled: false,
       apiKey: '',
       baseUrl: '',
     },
     'aws-bedrock': {
-      enabled: false,
       accessKeyId: '',
       secretAccessKey: '',
       region: 'us-east-1',
       baseUrl: '',
     },
     'openai-direct': {
-      enabled: false,
       apiKey: '',
       baseUrl: '',
     },
     'openai-compatible': {
-      enabled: false,
       apiKey: '',
       baseUrl: '',
     },
     'azure-openai': {
-      enabled: false,
       apiKey: '',
       endpoint: '',
       baseUrl: '',
     },
     'google-ai-studio': {
-      enabled: false,
       apiKey: '',
       baseUrl: '',
     },
     'google-vertex-ai': {
-      enabled: false,
       projectId: '',
       region: '',
       baseUrl: '',
@@ -113,17 +102,17 @@ export const LLM_CONFIG_SCHEMA_TEMPLATE = {
   $id: 'https://ponybunny.dev/schemas/llm-config.schema.json',
   title: 'PonyBunny LLM Configuration',
   type: 'object',
-  required: ['endpoints', 'models', 'tiers', 'workloads', 'defaults'],
+  required: ['providers', 'models', 'tiers', 'workloads', 'defaults'],
   properties: {
     $schema: { type: 'string' },
-    endpoints: {
+    providers: {
       type: 'object',
       additionalProperties: {
         type: 'object',
         required: ['enabled', 'protocol', 'priority'],
         properties: {
           enabled: { type: 'boolean' },
-          protocol: { type: 'string', enum: ['anthropic', 'openai', 'gemini'] },
+          protocol: { type: 'string', enum: ['anthropic', 'openai', 'gemini', 'codex'] },
           baseUrl: { type: 'string' },
           priority: { type: 'integer', minimum: 1 },
           rateLimit: {
@@ -142,10 +131,40 @@ export const LLM_CONFIG_SCHEMA_TEMPLATE = {
       type: 'object',
       additionalProperties: {
         type: 'object',
-        required: ['displayName', 'endpoints', 'costPer1kTokens'],
+        required: ['displayName', 'providers', 'costPer1kTokens'],
         properties: {
           displayName: { type: 'string' },
-          endpoints: { type: 'array', items: { type: 'string' }, minItems: 1 },
+          providers: { type: 'array', items: { type: 'string' }, minItems: 1 },
+          endpoints: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['name', 'url'],
+              properties: {
+                name: {
+                  type: 'string',
+                  enum: [
+                    'chat-completions',
+                    'responses',
+                    'realtime',
+                    'assistants',
+                    'batch',
+                    'fine-tuning',
+                    'embeddings',
+                    'image-generation',
+                    'videos',
+                    'image-edit',
+                    'speech-generation',
+                    'transcription',
+                    'translation',
+                    'moderation',
+                  ],
+                },
+                url: { type: 'string' },
+              },
+            },
+            minItems: 1,
+          },
           costPer1kTokens: {
             type: 'object',
             required: ['input', 'output'],
@@ -159,6 +178,17 @@ export const LLM_CONFIG_SCHEMA_TEMPLATE = {
             type: 'array',
             items: { type: 'string', enum: ['text', 'vision', 'function-calling', 'json-mode'] },
           },
+        },
+      },
+    },
+    providerAliases: {
+      type: 'object',
+      additionalProperties: {
+        type: 'object',
+        required: ['protocol', 'providers'],
+        properties: {
+          protocol: { type: 'string', enum: ['anthropic', 'openai', 'gemini', 'codex'] },
+          providers: { type: 'array', items: { type: 'string' }, minItems: 1 },
         },
       },
     },
@@ -177,6 +207,7 @@ export const LLM_CONFIG_SCHEMA_TEMPLATE = {
         type: 'object',
         properties: {
           tier: { type: 'string', enum: ['simple', 'medium', 'complex'] },
+          llm_model: { type: 'string' },
           primary: { type: 'string' },
           fallback: { type: 'array', items: { type: 'string' } },
           description: { type: 'string' },
@@ -212,9 +243,9 @@ export const LLM_CONFIG_SCHEMA_TEMPLATE = {
 export const LLM_CONFIG_TEMPLATE = {
   $schema: 'https://ponybunny.dho.ai/schemas/llm-config.schema.json',
 
-  endpoints: {
+  providers: {
     'anthropic-direct': {
-      enabled: true,
+      enabled: false,
       protocol: 'anthropic',
       baseUrl: 'https://api.anthropic.com/v1/messages',
       priority: 1,
@@ -228,7 +259,7 @@ export const LLM_CONFIG_TEMPLATE = {
       costMultiplier: 1.0,
     },
     'openai-direct': {
-      enabled: true,
+      enabled: false,
       protocol: 'openai',
       baseUrl: 'https://api.openai.com/v1',
       priority: 1,
@@ -247,7 +278,7 @@ export const LLM_CONFIG_TEMPLATE = {
       priority: 2,
     },
     'google-ai-studio': {
-      enabled: true,
+      enabled: false,
       protocol: 'gemini',
       baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
       priority: 1,
@@ -257,65 +288,174 @@ export const LLM_CONFIG_TEMPLATE = {
       protocol: 'gemini',
       priority: 2,
     },
+    codex: {
+      enabled: false,
+      protocol: 'codex',
+      priority: 1,
+    },
   },
 
   models: {
-    'claude-haiku-4-5-20251001': {
-      displayName: 'Claude Haiku 4.5',
-      endpoints: ['anthropic-direct', 'aws-bedrock'],
-      costPer1kTokens: { input: 0.001, output: 0.005 },
-      maxContextTokens: 200000,
-      capabilities: ['text', 'vision'],
-    },
-    'claude-sonnet-4-5-20250929': {
-      displayName: 'Claude Sonnet 4.5',
-      endpoints: ['anthropic-direct', 'aws-bedrock'],
-      costPer1kTokens: { input: 0.003, output: 0.015 },
-      maxContextTokens: 200000,
-      capabilities: ['text', 'vision', 'function-calling'],
-    },
-    'claude-opus-4-5-20251101': {
-      displayName: 'Claude Opus 4.5',
-      endpoints: ['anthropic-direct', 'aws-bedrock'],
-      costPer1kTokens: { input: 0.015, output: 0.075 },
-      maxContextTokens: 200000,
-      capabilities: ['text', 'vision', 'function-calling'],
-    },
     'gpt-5.2': {
       displayName: 'GPT-5.2',
-      endpoints: ['openai-direct', 'openai-compatible'],
-      costPer1kTokens: { input: 0.01, output: 0.03 },
+      providers: ['openai-direct', 'azure-openai', 'openai-compatible'],
+      endpoints: [
+        { name: 'chat-completions', url: '/v1/chat/completions' },
+        { name: 'responses', url: '/v1/responses' },
+      ],
+      costPer1kTokens: { input: 0, output: 0 },
       maxContextTokens: 128000,
       capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
     },
-    'gemini-2.0-flash': {
-      displayName: 'Gemini 2.0 Flash',
-      endpoints: ['google-ai-studio', 'google-vertex-ai'],
-      costPer1kTokens: { input: 0.00035, output: 0.0014 },
+    'gpt-5-mini': {
+      displayName: 'GPT-5 Mini',
+      providers: ['openai-direct', 'azure-openai', 'openai-compatible'],
+      endpoints: [
+        { name: 'chat-completions', url: '/v1/chat/completions' },
+        { name: 'responses', url: '/v1/responses' },
+      ],
+      costPer1kTokens: { input: 0, output: 0 },
+      maxContextTokens: 128000,
+      capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
+    },
+    'gpt-5-nano': {
+      displayName: 'GPT-5 Nano',
+      providers: ['openai-direct', 'azure-openai', 'openai-compatible'],
+      endpoints: [
+        { name: 'chat-completions', url: '/v1/chat/completions' },
+        { name: 'responses', url: '/v1/responses' },
+      ],
+      costPer1kTokens: { input: 0, output: 0 },
+      maxContextTokens: 128000,
+      capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
+    },
+    'gpt-5.3-codex': {
+      displayName: 'GPT-5.3 Codex',
+      providers: ['codex'],
+      endpoints: [{ name: 'responses', url: '/v1/responses' }],
+      costPer1kTokens: { input: 0, output: 0 },
+      maxContextTokens: 128000,
+      capabilities: ['text', 'function-calling'],
+    },
+    'claude-opus-4-6': {
+      displayName: 'Claude Opus 4.6',
+      providers: ['anthropic-direct'],
+      costPer1kTokens: { input: 0, output: 0 },
+      maxContextTokens: 200000,
+      capabilities: ['text', 'vision', 'function-calling'],
+    },
+    'claude-sonnet-4-6': {
+      displayName: 'Claude Sonnet 4.6',
+      providers: ['anthropic-direct'],
+      costPer1kTokens: { input: 0, output: 0 },
+      maxContextTokens: 200000,
+      capabilities: ['text', 'vision', 'function-calling'],
+    },
+    'claude-haiku-4-5-20251001': {
+      displayName: 'Claude Haiku 4.5 (20251001)',
+      providers: ['anthropic-direct'],
+      costPer1kTokens: { input: 0, output: 0 },
+      maxContextTokens: 200000,
+      capabilities: ['text', 'vision', 'function-calling'],
+    },
+    'anthropic.claude-opus-4-6-v1': {
+      displayName: 'Anthropic Claude Opus 4.6 (Bedrock)',
+      providers: ['aws-bedrock'],
+      costPer1kTokens: { input: 0, output: 0 },
+      maxContextTokens: 200000,
+      capabilities: ['text', 'vision', 'function-calling'],
+    },
+    'anthropic.claude-sonnet-4-6': {
+      displayName: 'Anthropic Claude Sonnet 4.6 (Bedrock)',
+      providers: ['aws-bedrock'],
+      costPer1kTokens: { input: 0, output: 0 },
+      maxContextTokens: 200000,
+      capabilities: ['text', 'vision', 'function-calling'],
+    },
+    'anthropic.claude-haiku-4-5-20251001-v1:0': {
+      displayName: 'Anthropic Claude Haiku 4.5 (Bedrock)',
+      providers: ['aws-bedrock'],
+      costPer1kTokens: { input: 0, output: 0 },
+      maxContextTokens: 200000,
+      capabilities: ['text', 'vision', 'function-calling'],
+    },
+    'claude-haiku-4-5@20251001': {
+      displayName: 'Claude Haiku 4.5 @20251001 (Vertex)',
+      providers: ['google-vertex-ai'],
+      costPer1kTokens: { input: 0, output: 0 },
+      maxContextTokens: 200000,
+      capabilities: ['text', 'vision', 'function-calling'],
+    },
+    'gemini-3.1-pro-preview': {
+      displayName: 'Gemini 3.1 Pro Preview',
+      providers: ['google-ai-studio'],
+      costPer1kTokens: { input: 0, output: 0 },
+      maxContextTokens: 2000000,
+      capabilities: ['text', 'vision', 'function-calling'],
+    },
+    'gemini-3-flash-preview': {
+      displayName: 'Gemini 3 Flash Preview',
+      providers: ['google-ai-studio'],
+      costPer1kTokens: { input: 0, output: 0 },
       maxContextTokens: 1000000,
       capabilities: ['text', 'vision', 'function-calling'],
     },
-    'gemini-2.0-pro': {
-      displayName: 'Gemini 2.0 Pro',
-      endpoints: ['google-ai-studio', 'google-vertex-ai'],
-      costPer1kTokens: { input: 0.00125, output: 0.005 },
+    'gemini-3-pro-preview': {
+      displayName: 'Gemini 3 Pro Preview',
+      providers: ['google-ai-studio'],
+      costPer1kTokens: { input: 0, output: 0 },
       maxContextTokens: 2000000,
       capabilities: ['text', 'vision', 'function-calling'],
+    },
+  },
+
+  providerAliases: {
+    anthropic: {
+      protocol: 'anthropic',
+      providers: ['anthropic-direct'],
+    },
+    aws: {
+      protocol: 'anthropic',
+      providers: ['aws-bedrock'],
+    },
+    openai: {
+      protocol: 'openai',
+      providers: ['openai-direct'],
+    },
+    azure: {
+      protocol: 'openai',
+      providers: ['azure-openai'],
+    },
+    'openai-compatible': {
+      protocol: 'openai',
+      providers: ['openai-compatible'],
+    },
+    codex: {
+      protocol: 'codex',
+      providers: ['codex'],
+    },
+    gemini: {
+      protocol: 'gemini',
+      providers: ['google-ai-studio'],
+    },
+    vertex: {
+      protocol: 'gemini',
+      providers: ['google-vertex-ai'],
     },
   },
 
   tiers: {
     simple: {
       primary: 'claude-haiku-4-5-20251001',
-      fallback: ['gpt-5.2', 'gemini-2.0-flash'],
+      fallback: ['gpt-5-mini', 'gemini-3-flash-preview'],
     },
     medium: {
-      primary: 'claude-sonnet-4-5-20250929',
-      fallback: ['gpt-5.2', 'gemini-2.0-pro', 'claude-haiku-4-5-20251001'],
+      primary: 'claude-sonnet-4-6',
+      fallback: ['gpt-5.2', 'gemini-3-pro-preview', 'claude-haiku-4-5-20251001'],
     },
     complex: {
-      primary: 'claude-opus-4-5-20251101',
-      fallback: ['gpt-5.2', 'claude-sonnet-4-5-20250929'],
+      primary: 'claude-opus-4-6',
+      fallback: ['gpt-5.2', 'gemini-3.1-pro-preview', 'claude-sonnet-4-6'],
     },
   },
 
@@ -330,7 +470,7 @@ export const LLM_CONFIG_TEMPLATE = {
     },
     execution: {
       tier: 'medium',
-      primary: 'claude-sonnet-4-5-20250929',
+      llm_model: 'openai.gpt-5.2',
       description: 'ReAct execution loop',
     },
     verification: {
@@ -343,6 +483,7 @@ export const LLM_CONFIG_TEMPLATE = {
     },
     conversation: {
       tier: 'medium',
+      llm_model: 'openai.gpt-5-mini',
       description: 'Conversation agent',
     },
   },
@@ -709,7 +850,7 @@ export function getOnboardingFiles(): OnboardingFile[] {
       template: LLM_CONFIG_TEMPLATE,
       format: 'json',
       mode: 0o644,
-      description: 'LLM endpoints, models, tiers, and workload configuration',
+    description: 'LLM providers, models, tiers, and workload configuration',
     },
     {
       name: 'mcp-config.json',

@@ -22,6 +22,7 @@ import {
   getCachedCredentials,
   getCachedEndpointCredential,
   clearCredentialsCache,
+  CredentialsValidationError,
   type CredentialsFile,
 } from '../../../src/infra/config/credentials-loader.js';
 
@@ -96,7 +97,7 @@ describe('CredentialsLoader', () => {
     it('should load valid credentials file', () => {
       fs.mkdirSync(configDir, { recursive: true });
       const testCreds: CredentialsFile = {
-        endpoints: {
+      providers: {
           'anthropic-direct': {
             apiKey: 'test-api-key',
           },
@@ -115,6 +116,24 @@ describe('CredentialsLoader', () => {
       const result = loadCredentialsFile();
       expect(result).toBeNull();
     });
+
+    it('rejects unknown fields in provider credentials payload', () => {
+      fs.mkdirSync(configDir, { recursive: true });
+      fs.writeFileSync(
+        credentialsPath,
+        JSON.stringify({
+      providers: {
+            'openai-direct': {
+              enabled: true,
+              apiKey: 'sk-test',
+            },
+          },
+        }),
+        { mode: 0o600 }
+      );
+
+      expect(() => loadCredentialsFile()).toThrow(CredentialsValidationError);
+    });
   });
 
   describe('getEndpointCredential', () => {
@@ -126,7 +145,7 @@ describe('CredentialsLoader', () => {
     it('should return null when endpoint not configured', () => {
       fs.mkdirSync(configDir, { recursive: true });
       const testCreds: CredentialsFile = {
-        endpoints: {
+      providers: {
           'openai-direct': { apiKey: 'test-key' },
         },
       };
@@ -139,7 +158,7 @@ describe('CredentialsLoader', () => {
     it('should return credential for configured endpoint', () => {
       fs.mkdirSync(configDir, { recursive: true });
       const testCreds: CredentialsFile = {
-        endpoints: {
+      providers: {
           'anthropic-direct': { apiKey: 'test-api-key' },
         },
       };
@@ -154,7 +173,7 @@ describe('CredentialsLoader', () => {
     it('should create config directory and file', () => {
       // Just test that save works - directory may already exist
       const testCreds: CredentialsFile = {
-        endpoints: {
+      providers: {
           'anthropic-direct': { apiKey: 'test-key' },
         },
       };
@@ -167,7 +186,7 @@ describe('CredentialsLoader', () => {
 
     it('should save credentials with correct content', () => {
       const testCreds: CredentialsFile = {
-        endpoints: {
+      providers: {
           'anthropic-direct': { apiKey: 'test-key' },
           'aws-bedrock': {
             accessKeyId: 'aws-id',
@@ -188,7 +207,7 @@ describe('CredentialsLoader', () => {
     });
 
     it('should set restrictive file permissions', () => {
-      const testCreds: CredentialsFile = { endpoints: {} };
+    const testCreds: CredentialsFile = { providers: {} };
       saveCredentialsFile(testCreds);
 
       const stats = fs.statSync(credentialsPath);
@@ -202,13 +221,13 @@ describe('CredentialsLoader', () => {
       setEndpointCredential('anthropic-direct', { apiKey: 'new-key' });
 
       const result = loadCredentialsFile();
-      expect(result?.endpoints?.['anthropic-direct']).toEqual({ apiKey: 'new-key' });
+    expect(result?.providers?.['anthropic-direct']).toEqual({ apiKey: 'new-key' });
     });
 
     it('should add endpoint to existing credentials', () => {
       // Create initial credentials
       saveCredentialsFile({
-        endpoints: {
+      providers: {
           'openai-direct': { apiKey: 'openai-key' },
         },
       });
@@ -216,13 +235,13 @@ describe('CredentialsLoader', () => {
       setEndpointCredential('anthropic-direct', { apiKey: 'anthropic-key' });
 
       const result = loadCredentialsFile();
-      expect(result?.endpoints?.['openai-direct']).toEqual({ apiKey: 'openai-key' });
-      expect(result?.endpoints?.['anthropic-direct']).toEqual({ apiKey: 'anthropic-key' });
+    expect(result?.providers?.['openai-direct']).toEqual({ apiKey: 'openai-key' });
+    expect(result?.providers?.['anthropic-direct']).toEqual({ apiKey: 'anthropic-key' });
     });
 
     it('should update existing endpoint credential', () => {
       saveCredentialsFile({
-        endpoints: {
+      providers: {
           'anthropic-direct': { apiKey: 'old-key' },
         },
       });
@@ -230,7 +249,7 @@ describe('CredentialsLoader', () => {
       setEndpointCredential('anthropic-direct', { apiKey: 'new-key' });
 
       const result = loadCredentialsFile();
-      expect(result?.endpoints?.['anthropic-direct']).toEqual({ apiKey: 'new-key' });
+    expect(result?.providers?.['anthropic-direct']).toEqual({ apiKey: 'new-key' });
     });
   });
 
@@ -242,7 +261,7 @@ describe('CredentialsLoader', () => {
 
     it('should return false when endpoint not configured', () => {
       saveCredentialsFile({
-        endpoints: {
+      providers: {
           'openai-direct': { apiKey: 'key' },
         },
       });
@@ -253,7 +272,7 @@ describe('CredentialsLoader', () => {
 
     it('should remove endpoint and return true', () => {
       saveCredentialsFile({
-        endpoints: {
+      providers: {
           'anthropic-direct': { apiKey: 'key' },
           'openai-direct': { apiKey: 'key2' },
         },
@@ -263,8 +282,8 @@ describe('CredentialsLoader', () => {
       expect(result).toBe(true);
 
       const creds = loadCredentialsFile();
-      expect(creds?.endpoints?.['anthropic-direct']).toBeUndefined();
-      expect(creds?.endpoints?.['openai-direct']).toEqual({ apiKey: 'key2' });
+    expect(creds?.providers?.['anthropic-direct']).toBeUndefined();
+    expect(creds?.providers?.['openai-direct']).toEqual({ apiKey: 'key2' });
     });
   });
 
@@ -275,7 +294,7 @@ describe('CredentialsLoader', () => {
     });
 
     it('should return empty array when no endpoints configured', () => {
-      saveCredentialsFile({ endpoints: {} });
+    saveCredentialsFile({ providers: {} });
 
       const result = listConfiguredEndpoints();
       expect(result).toEqual([]);
@@ -283,7 +302,7 @@ describe('CredentialsLoader', () => {
 
     it('should return list of configured endpoint IDs', () => {
       saveCredentialsFile({
-        endpoints: {
+      providers: {
           'anthropic-direct': { apiKey: 'key1' },
           'openai-direct': { apiKey: 'key2' },
           'aws-bedrock': { accessKeyId: 'id', secretAccessKey: 'secret' },
@@ -304,7 +323,7 @@ describe('CredentialsLoader', () => {
     });
 
     it('should return true when file exists', () => {
-      saveCredentialsFile({ endpoints: {} });
+    saveCredentialsFile({ providers: {} });
       expect(credentialsFileExists()).toBe(true);
     });
   });
@@ -312,30 +331,30 @@ describe('CredentialsLoader', () => {
   describe('caching', () => {
     it('should cache credentials', () => {
       saveCredentialsFile({
-        endpoints: {
+      providers: {
           'anthropic-direct': { apiKey: 'cached-key' },
         },
       });
 
       // First call loads from file
       const result1 = getCachedCredentials();
-      expect(result1?.endpoints?.['anthropic-direct']?.apiKey).toBe('cached-key');
+    expect(result1?.providers?.['anthropic-direct']?.apiKey).toBe('cached-key');
 
       // Modify file directly
       fs.writeFileSync(
         credentialsPath,
-        JSON.stringify({ endpoints: { 'anthropic-direct': { apiKey: 'new-key' } } }),
+      JSON.stringify({ providers: { 'anthropic-direct': { apiKey: 'new-key' } } }),
         { mode: 0o600 }
       );
 
       // Should still return cached value
       const result2 = getCachedCredentials();
-      expect(result2?.endpoints?.['anthropic-direct']?.apiKey).toBe('cached-key');
+    expect(result2?.providers?.['anthropic-direct']?.apiKey).toBe('cached-key');
     });
 
     it('should clear cache', () => {
       saveCredentialsFile({
-        endpoints: {
+      providers: {
           'anthropic-direct': { apiKey: 'original-key' },
         },
       });
@@ -345,7 +364,7 @@ describe('CredentialsLoader', () => {
       // Modify file
       fs.writeFileSync(
         credentialsPath,
-        JSON.stringify({ endpoints: { 'anthropic-direct': { apiKey: 'updated-key' } } }),
+      JSON.stringify({ providers: { 'anthropic-direct': { apiKey: 'updated-key' } } }),
         { mode: 0o600 }
       );
 
@@ -354,12 +373,12 @@ describe('CredentialsLoader', () => {
 
       // Should now return new value
       const result = getCachedCredentials();
-      expect(result?.endpoints?.['anthropic-direct']?.apiKey).toBe('updated-key');
+    expect(result?.providers?.['anthropic-direct']?.apiKey).toBe('updated-key');
     });
 
     it('should get cached endpoint credential', () => {
       saveCredentialsFile({
-        endpoints: {
+      providers: {
           'anthropic-direct': { apiKey: 'test-key' },
         },
       });

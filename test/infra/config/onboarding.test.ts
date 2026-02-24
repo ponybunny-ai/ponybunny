@@ -56,4 +56,12 @@ describe('Onboarding config generation', () => {
     expect(template.persona.promptOverrides.personalityDescription).toContain('Example:');
     expect(template.persona.promptOverrides.guidelines).toContain('Example:');
   });
+
+  it('keeps all llm providers disabled by default in init template', () => {
+    const providers = Object.values(LLM_CONFIG_TEMPLATE.providers);
+    expect(providers.length).toBeGreaterThan(0);
+    for (const provider of providers) {
+      expect(provider.enabled).toBe(false);
+    }
+  });
 });

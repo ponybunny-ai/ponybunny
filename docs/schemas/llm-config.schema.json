@@ -4,7 +4,7 @@
   "title": "PonyBunny LLM Configuration",
   "type": "object",
   "required": [
-    "endpoints",
+    "providers",
     "models",
     "tiers",
     "workloads",
@@ -14,7 +14,7 @@
     "$schema": {
       "type": "string"
     },
-    "endpoints": {
+    "providers": {
       "type": "object",
       "additionalProperties": {
         "type": "object",
@@ -32,7 +32,8 @@
             "enum": [
               "anthropic",
               "openai",
-              "gemini"
+              "gemini",
+              "codex"
             ]
           },
           "baseUrl": {
@@ -71,17 +72,52 @@
         "type": "object",
         "required": [
           "displayName",
-          "endpoints",
+          "providers",
           "costPer1kTokens"
         ],
         "properties": {
           "displayName": {
             "type": "string"
           },
-          "endpoints": {
+          "providers": {
             "type": "array",
             "items": {
               "type": "string"
+            },
+            "minItems": 1
+          },
+          "endpoints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "url"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "enum": [
+                    "chat-completions",
+                    "responses",
+                    "realtime",
+                    "assistants",
+                    "batch",
+                    "fine-tuning",
+                    "embeddings",
+                    "image-generation",
+                    "videos",
+                    "image-edit",
+                    "speech-generation",
+                    "transcription",
+                    "translation",
+                    "moderation"
+                  ]
+                },
+                "url": {
+                  "type": "string"
+                }
+              }
             },
             "minItems": 1
           },
@@ -121,6 +157,34 @@
         }
       }
     },
+    "providerAliases": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "protocol",
+          "providers"
+        ],
+        "properties": {
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "anthropic",
+              "openai",
+              "gemini",
+              "codex"
+            ]
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          }
+        }
+      }
+    },
     "tiers": {
       "type": "object",
       "required": [
@@ -152,6 +216,9 @@
               "medium",
               "complex"
             ]
+          },
+          "llm_model": {
+            "type": "string"
           },
           "primary": {
             "type": "string"

@@ -23,8 +23,6 @@ export class CredentialsValidationError extends Error {
  * Credentials for a specific endpoint
  */
 export interface EndpointCredential {
-  /** Whether this endpoint is enabled (default: true if credentials are present) */
-  enabled?: boolean;
   apiKey?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
@@ -39,7 +37,7 @@ export interface EndpointCredential {
  * Structure of ~/.config/ponybunny/credentials.json
  */
 export interface CredentialsFile {
-  endpoints?: Record<string, EndpointCredential>;
+  providers?: Record<string, EndpointCredential>;
 }
 
 /**
@@ -67,7 +65,7 @@ const EMBEDDED_SCHEMA = {
   type: 'object',
   properties: {
     $schema: { type: 'string' },
-    endpoints: {
+    providers: {
       type: 'object',
       additionalProperties: {
         $ref: '#/$defs/EndpointCredential',
@@ -79,7 +77,6 @@ const EMBEDDED_SCHEMA = {
     EndpointCredential: {
       type: 'object',
       properties: {
-        enabled: { type: 'boolean' },
         apiKey: { type: 'string' },
         accessKeyId: { type: 'string' },
         secretAccessKey: { type: 'string' },
@@ -175,11 +172,11 @@ export function loadCredentialsFile(): CredentialsFile | null {
  */
 export function getEndpointCredential(endpointId: string): EndpointCredential | null {
   const credentials = loadCredentialsFile();
-  if (!credentials?.endpoints) {
+  if (!credentials?.providers) {
     return null;
   }
 
-  return credentials.endpoints[endpointId] || null;
+  return credentials.providers[endpointId] || null;
 }
 
 /**
@@ -218,13 +215,13 @@ export function setEndpointCredential(
   endpointId: string,
   credential: EndpointCredential
 ): void {
-  const credentials = loadCredentialsFile() || { endpoints: {} };
+  const credentials = loadCredentialsFile() || { providers: {} };
 
-  if (!credentials.endpoints) {
-    credentials.endpoints = {};
+  if (!credentials.providers) {
+    credentials.providers = {};
   }
 
-  credentials.endpoints[endpointId] = credential;
+  credentials.providers[endpointId] = credential;
   saveCredentialsFile(credentials);
 }
 
@@ -233,11 +230,11 @@ export function setEndpointCredential(
  */
 export function removeEndpointCredential(endpointId: string): boolean {
   const credentials = loadCredentialsFile();
-  if (!credentials?.endpoints || !credentials.endpoints[endpointId]) {
+  if (!credentials?.providers || !credentials.providers[endpointId]) {
     return false;
   }
 
-  delete credentials.endpoints[endpointId];
+  delete credentials.providers[endpointId];
   saveCredentialsFile(credentials);
   return true;
 }
@@ -247,11 +244,11 @@ export function removeEndpointCredential(endpointId: string): boolean {
  */
 export function listConfiguredEndpoints(): string[] {
   const credentials = loadCredentialsFile();
-  if (!credentials?.endpoints) {
+  if (!credentials?.providers) {
     return [];
   }
 
-  return Object.keys(credentials.endpoints);
+  return Object.keys(credentials.providers);
 }
 
 /**
@@ -273,7 +270,16 @@ export function getCachedCredentials(): CredentialsFile | null {
   const now = Date.now();
 
   if (credentialsCache === undefined || now - cacheTimestamp > CACHE_TTL_MS) {
-    credentialsCache = loadCredentialsFile();
+    try {
+      credentialsCache = loadCredentialsFile();
+    } catch (error) {
+      if (error instanceof CredentialsValidationError) {
+        console.warn(`[CredentialsLoader] Invalid credentials file: ${error.message}`);
+        credentialsCache = null;
+      } else {
+        throw error;
+      }
+    }
     cacheTimestamp = now;
   }
 
@@ -285,11 +291,11 @@ export function getCachedCredentials(): CredentialsFile | null {
  */
 export function getCachedEndpointCredential(endpointId: string): EndpointCredential | null {
   const credentials = getCachedCredentials();
-  if (!credentials?.endpoints) {
+  if (!credentials?.providers) {
     return null;
   }
 
-  return credentials.endpoints[endpointId] || null;
+  return credentials.providers[endpointId] || null;
 }
 
 /**
