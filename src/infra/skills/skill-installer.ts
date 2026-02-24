@@ -15,7 +15,7 @@ const readFile = promisify(fs.readFile);
 const stat = promisify(fs.stat);
 
 export interface SkillInstallOptions {
-  managedSkillsDir: string; // Default: ~/.ponybunny/skills
+  managedSkillsDir: string; // Default: ~/.config/ponybunny/skills
   overwrite?: boolean;
 }
 

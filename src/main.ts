@@ -8,7 +8,7 @@ import { getLLMService } from './infra/llm/index.js';
 import type { ILLMProvider } from './infra/llm/llm-provider.js';
 import { MockLLMProvider, LLMRouter } from './infra/llm/llm-provider.js';
 import { getGlobalSkillRegistry } from './infra/skills/skill-registry.js';
-import { getConfigDir } from './infra/config/config-paths.js';
+import { getConfigDir, getManagedSkillsDir } from './infra/config/config-paths.js';
 import { loadRuntimeConfig } from './infra/config/runtime-config.js';
 
 const DB_PATH = loadRuntimeConfig().paths.database;
@@ -20,8 +20,7 @@ async function initializeEnhancedSystem() {
   console.log('[PonyBunny] 📚 Loading skills...');
   const skillRegistry = getGlobalSkillRegistry();
 
-  const managedSkillsDir = process.env.PONYBUNNY_SKILLS_DIR ||
-    `${process.env.HOME}/.ponybunny/skills`;
+  const managedSkillsDir = getManagedSkillsDir();
 
   await skillRegistry.loadSkills({
     workspaceDir: process.cwd(),

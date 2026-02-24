@@ -13,6 +13,7 @@ const CONFIG_FILES_TO_MIGRATE = [
   'auth.json',
   'debug-config.json',
   'prompts',
+  'skills',
 ] as const;
 
 let migrationDone = false;
@@ -87,6 +88,15 @@ export function getConfigDir(): string {
 
   ensureConfigDirMigration(configDir);
   return configDir;
+}
+
+export function getManagedSkillsDir(): string {
+  const override = process.env.PONYBUNNY_SKILLS_DIR;
+  if (typeof override === 'string' && override.trim()) {
+    return override;
+  }
+
+  return path.join(getConfigDir(), 'skills');
 }
 
 export function ensureConfigDirMigration(targetConfigDir?: string): void {

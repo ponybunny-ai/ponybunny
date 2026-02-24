@@ -20,6 +20,7 @@ import { SchedulerDaemon } from '../../scheduler-daemon/daemon.js';
 import { getGlobalSkillRegistry } from '../../infra/skills/skill-registry.js';
 import { isDebugLoggingEnabled } from '../../infra/config/debug-flags.js';
 import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
+import { getManagedSkillsDir } from '../../infra/config/config-paths.js';
 import { getAsciiArtBanner } from '../../infra/ui/ascii-art-banner.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -150,7 +151,7 @@ async function runScheduler(
 
     // Initialize Skill Registry (for enhanced execution capabilities)
     const skillRegistry = getGlobalSkillRegistry();
-    const managedSkillsDir = process.env.PONYBUNNY_SKILLS_DIR || `${process.env.HOME}/.ponybunny/skills`;
+    const managedSkillsDir = getManagedSkillsDir();
 
     await skillRegistry.loadSkills({
       workspaceDir: process.cwd(),

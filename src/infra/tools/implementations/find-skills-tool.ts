@@ -6,8 +6,7 @@
 import type { ToolDefinition, ToolContext } from '../tool-registry.js';
 import { getSkillsShClient } from '../../skills/skills-sh-client.js';
 import { getSkillInstaller } from '../../skills/skill-installer.js';
-import os from 'node:os';
-import path from 'node:path';
+import { getManagedSkillsDir } from '../../config/config-paths.js';
 
 export const findSkillsTool: ToolDefinition = {
   name: 'find_skills',
@@ -58,7 +57,7 @@ export const findSkillsTool: ToolDefinition = {
       if (install) {
         const skillToInstall = result.skills[0];
         const installer = getSkillInstaller();
-        const managedSkillsDir = path.join(os.homedir(), '.ponybunny', 'skills');
+        const managedSkillsDir = getManagedSkillsDir();
 
         const installResult = await installer.installSkill(skillToInstall, {
           managedSkillsDir,

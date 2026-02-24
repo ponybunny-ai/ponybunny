@@ -196,9 +196,6 @@ export async function loadSkillsFromDir(
   }
 }
 
-/**
- * Load skills with precedence: extra < bundled < managed < workspace
- */
 export async function loadSkillsWithPrecedence(options: {
   workspaceDir: string;
   managedSkillsDir?: string;
@@ -221,17 +218,17 @@ export async function loadSkillsWithPrecedence(options: {
     }
   }
 
+  const workspaceSkillsDir = path.join(options.workspaceDir, 'skills');
+  const skills = await loadSkillsFromDir(workspaceSkillsDir, 'workspace');
+  for (const skill of skills) {
+    skillMap.set(skill.name, skill);
+  }
+
   if (options.managedSkillsDir) {
     const skills = await loadSkillsFromDir(options.managedSkillsDir, 'managed');
     for (const skill of skills) {
       skillMap.set(skill.name, skill);
     }
-  }
-
-  const workspaceSkillsDir = path.join(options.workspaceDir, 'skills');
-  const skills = await loadSkillsFromDir(workspaceSkillsDir, 'workspace');
-  for (const skill of skills) {
-    skillMap.set(skill.name, skill);
   }
 
   return Array.from(skillMap.values());

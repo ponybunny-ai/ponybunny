@@ -44,6 +44,13 @@ describe('Onboarding config generation', () => {
     expect(names.has('agents/scout/AGENT.md')).toBe(true);
   });
 
+  it('includes project skill files in init output for user config seeding', () => {
+    const names = new Set(getOnboardingFiles().map((file) => file.name));
+
+    expect(names.has('skills/control-tick/SKILL.md')).toBe(true);
+    expect(names.has('skills/source-read-stream/SKILL.md')).toBe(true);
+  });
+
   it('generates example persona prompt override content in ponybunny template', () => {
     const template = getPonyBunnyConfigTemplate();
     expect(template.persona.promptOverrides.personalityDescription).toContain('Example:');

@@ -6,7 +6,7 @@ import { describe, it, expect } from '@jest/globals';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parseFrontmatter, loadSkillsFromDir } from './skill-loader.js';
+import { parseFrontmatter, loadSkillsFromDir, loadSkillsWithPrecedence } from './skill-loader.js';
 
 describe('parseFrontmatter', () => {
   it('should parse basic frontmatter', () => {
@@ -104,6 +104,42 @@ describe('loadSkillsFromDir', () => {
       expect(warnSpy).not.toHaveBeenCalled();
     } finally {
       warnSpy.mockRestore();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('loadSkillsWithPrecedence', () => {
+  it('prefers managed skills over workspace fallback when names collide', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ponybunny-skills-precedence-'));
+    const workspaceDir = path.join(tempDir, 'workspace');
+    const managedDir = path.join(tempDir, 'managed');
+
+    const workspaceSkillDir = path.join(workspaceDir, 'skills', 'duplicate-skill');
+    const managedSkillDir = path.join(managedDir, 'duplicate-skill');
+
+    fs.mkdirSync(workspaceSkillDir, { recursive: true });
+    fs.mkdirSync(managedSkillDir, { recursive: true });
+
+    fs.writeFileSync(
+      path.join(workspaceSkillDir, 'SKILL.md'),
+      '---\nname: duplicate-skill\ndescription: workspace version\n---\n# Workspace Skill\n'
+    );
+    fs.writeFileSync(
+      path.join(managedSkillDir, 'SKILL.md'),
+      '---\nname: duplicate-skill\ndescription: user managed version\n---\n# Managed Skill\n'
+    );
+
+    try {
+      const skills = await loadSkillsWithPrecedence({
+        workspaceDir,
+        managedSkillsDir: managedDir,
+      });
+      expect(skills).toHaveLength(1);
+      expect(skills[0].name).toBe('duplicate-skill');
+      expect(skills[0].source).toBe('managed');
+      expect(skills[0].description).toBe('user managed version');
+    } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });

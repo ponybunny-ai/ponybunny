@@ -17,6 +17,7 @@ import { getGlobalSkillRegistry } from '../../../infra/skills/skill-registry.js'
 import { initializeMCPIntegration } from '../../../infra/mcp/adapters/registry-integration.js';
 import { extractMCPToolName } from '../../../infra/mcp/adapters/tool-adapter.js';
 import { routeContextFromWorkItemContext } from '../../../infra/routing/route-context.js';
+import { getManagedSkillsDir } from '../../../infra/config/config-paths.js';
 
 interface ScopedToolEnforcerConfig {
   enforcer: ToolEnforcer;
@@ -72,7 +73,7 @@ export class ExecutionService implements IExecutionService {
    * Initialize skills - should be called after workspace is known
    */
   async initializeSkills(workspaceDir: string): Promise<void> {
-    const managedSkillsDir = process.env.PONYBUNNY_SKILLS_DIR || `${process.env.HOME}/.ponybunny/skills`;
+    const managedSkillsDir = getManagedSkillsDir();
     await this.skillRegistry.loadSkills({
       workspaceDir,
       managedSkillsDir,

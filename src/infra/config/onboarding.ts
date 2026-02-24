@@ -684,6 +684,7 @@ export function getOnboardingFiles(): OnboardingFile[] {
   }));
 
   const agentCustomizationFiles = getAgentCustomizationFiles(configDir);
+  const skillSeedFiles = getSkillSeedFiles(configDir);
 
   return [
     {
@@ -727,8 +728,51 @@ export function getOnboardingFiles(): OnboardingFile[] {
       description: 'Common services (Postgres + Playwright MCP)',
     },
     ...agentCustomizationFiles,
+    ...skillSeedFiles,
     ...promptTemplateFiles,
   ];
+}
+
+function getSkillSeedFiles(configDir: string): OnboardingFile[] {
+  const sourceRoot = path.join(process.cwd(), 'skills');
+  if (!fs.existsSync(sourceRoot)) {
+    return [];
+  }
+
+  const files = collectRegularFiles(sourceRoot);
+  return files.map((sourcePath) => {
+    const relativePath = path.relative(sourceRoot, sourcePath);
+    const targetPath = path.join(configDir, 'skills', relativePath);
+    return {
+      name: path.join('skills', relativePath),
+      path: targetPath,
+      template: fs.readFileSync(sourcePath, 'utf-8'),
+      format: 'raw' as const,
+      mode: 0o600,
+      description: `User-customizable skill seed: ${relativePath}`,
+    };
+  });
+}
+
+function collectRegularFiles(rootDir: string): string[] {
+  const results: string[] = [];
+  const stack = [rootDir];
+
+  while (stack.length > 0) {
+    const currentDir = stack.pop()!;
+    const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+      } else if (entry.isFile()) {
+        results.push(fullPath);
+      }
+    }
+  }
+
+  results.sort((left, right) => left.localeCompare(right));
+  return results;
 }
 
 function getAgentCustomizationFiles(configDir: string): OnboardingFile[] {

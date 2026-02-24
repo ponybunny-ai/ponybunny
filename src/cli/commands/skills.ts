@@ -5,11 +5,11 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import os from 'node:os';
 import path from 'node:path';
 import { getSkillsShClient } from '../../infra/skills/skills-sh-client.js';
 import { getSkillInstaller } from '../../infra/skills/skill-installer.js';
 import { getGlobalSkillRegistry } from '../../infra/skills/skill-registry.js';
+import { getManagedSkillsDir } from '../../infra/config/config-paths.js';
 
 export function registerSkillsCommand(program: Command): void {
   const skills = program
@@ -74,7 +74,7 @@ export function registerSkillsCommand(program: Command): void {
         console.log(chalk.blue(`📥 Installing skill: ${skillPath}`));
 
         const installer = getSkillInstaller();
-        const managedSkillsDir = path.join(os.homedir(), '.ponybunny', 'skills');
+        const managedSkillsDir = getManagedSkillsDir();
 
         const result = await installer.installSkillByPath(skillPath, {
           managedSkillsDir,
@@ -113,7 +113,7 @@ export function registerSkillsCommand(program: Command): void {
 
         // Load skills
         const workspaceDir = process.cwd();
-        const managedSkillsDir = path.join(os.homedir(), '.ponybunny', 'skills');
+        const managedSkillsDir = getManagedSkillsDir();
         const bundledSkillsDir = path.join(process.cwd(), 'skills');
 
         await registry.loadSkills({
@@ -186,7 +186,7 @@ export function registerSkillsCommand(program: Command): void {
 
         // Load skills
         const workspaceDir = process.cwd();
-        const managedSkillsDir = path.join(os.homedir(), '.ponybunny', 'skills');
+        const managedSkillsDir = getManagedSkillsDir();
         const bundledSkillsDir = path.join(process.cwd(), 'skills');
 
         await registry.loadSkills({
