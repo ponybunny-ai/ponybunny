@@ -1,8 +1,6 @@
 import type { IExecutionService } from '../../../src/app/lifecycle/stage-interfaces.js';
-import type { AgentAService } from '../../../src/app/agents/agent-a/agent-a-service.js';
 import { ExecutionEngineAdapter } from '../../../src/gateway/integration/execution-engine-adapter.js';
 import { getGlobalAgentRegistry } from '../../../src/infra/agents/agent-registry.js';
-import { MarketListenerRunner } from '../../../src/infra/agents/market-listener-runner.js';
 import type { AgentRunner } from '../../../src/infra/agents/runner-types.js';
 import { getGlobalRunnerRegistry } from '../../../src/infra/agents/runner-registry.js';
 import type { Run, WorkItem } from '../../../src/work-order/types/index.js';
@@ -50,10 +48,11 @@ describe('ExecutionEngineAdapter', () => {
   });
 
   it('routes agent_tick work items to runner path', async () => {
-    const agentAService = {
-      tick: jest.fn().mockResolvedValue(undefined),
-    } as unknown as AgentAService;
-    const runner: AgentRunner = new MarketListenerRunner(agentAService);
+    const runTick = jest.fn().mockImplementation(async (input) => {
+      expect(input.tick.runKey).toBe('run-1');
+      expect(input.tick.now.toISOString()).toBe(new Date(1700000000000).toISOString());
+    });
+    const runner: AgentRunner = { runTick };
     const runnerRegistry = getGlobalRunnerRegistry();
     runnerRegistry.register('market_listener', runner);
 
@@ -106,14 +105,7 @@ describe('ExecutionEngineAdapter', () => {
       budgetRemaining: {},
     });
 
-    expect(agentAService.tick).toHaveBeenCalledTimes(1);
-    expect(agentAService.tick).toHaveBeenCalledWith({
-      run_id: 'run-1',
-      now: new Date(1700000000000).toISOString(),
-      max_sources_per_tick: 10,
-      max_items_per_source: 50,
-      default_time_window: '6h',
-    });
+    expect(runTick).toHaveBeenCalledTimes(1);
     expect(executionService.executeWorkItem).not.toHaveBeenCalled();
   });
 

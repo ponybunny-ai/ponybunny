@@ -11,8 +11,8 @@ describe('RunnerRegistry', () => {
 
     const config = compileAgentConfig({
       schemaVersion: 1,
-      id: 'agent-a',
-      name: 'Agent A',
+      id: 'listener-main',
+      name: 'Listener Main',
       enabled: true,
       type: 'market_listener',
       schedule: { everyMs: 60000 },

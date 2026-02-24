@@ -21,8 +21,8 @@ describe('Scheduling semantics', () => {
   });
 
   it('builds deterministic idempotency keys', () => {
-    const key = buildRecurringIdempotencyKey('agent-a', 1234567890);
-    expect(key).toBe('agent-a:1234567890');
+    const key = buildRecurringIdempotencyKey('lead-agent', 1234567890);
+    expect(key).toBe('lead-agent:1234567890');
   });
 
   it('defaults catch-up policy mode and leaves safety limits undefined', () => {

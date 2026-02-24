@@ -80,7 +80,7 @@ No frontmatter here.`;
 describe('loadSkillsFromDir', () => {
   it('loads nested skills and skips grouping folders without SKILL.md', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ponybunny-skills-'));
-    const groupedRoot = path.join(tempDir, 'agent-a');
+    const groupedRoot = path.join(tempDir, 'grouped-skills');
     const nestedSkillDir = path.join(groupedRoot, 'nested-skill');
     const topLevelSkillDir = path.join(tempDir, 'top-level-skill');
 

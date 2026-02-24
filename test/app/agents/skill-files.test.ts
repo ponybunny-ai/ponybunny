@@ -10,7 +10,7 @@ const skillPaths = [
   'skills/data-store-record/SKILL.md',
 ];
 
-describe('Agent A skill files', () => {
+describe('Market listener skill files', () => {
   test('all skill files exist with frontmatter name and description', () => {
     for (const relativePath of skillPaths) {
       const fullPath = path.resolve(process.cwd(), relativePath);

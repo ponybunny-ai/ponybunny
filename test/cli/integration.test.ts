@@ -47,14 +47,12 @@ describe('CLI Integration Tests', () => {
   });
 
   describe('pb scheduler', () => {
-    test('scheduler start --help includes agents flag and deprecated agent-a', () => {
+    test('scheduler start --help includes dynamic agent flags', () => {
       const output = execSync(`${pbCommand} scheduler start --help`, {
         encoding: 'utf-8',
       });
 
       expect(output).toContain('--agents');
-      expect(output).toContain('--agent-a');
-      expect(output).toContain('(deprecated)');
     });
   });
 

@@ -14,7 +14,6 @@ import { spawn, execSync } from 'child_process';
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, appendFileSync, openSync, closeSync } from 'fs';
 import { WorkOrderDatabase } from '../../work-order/database/manager.js';
 import { ExecutionService } from '../../app/lifecycle/execution/execution-service.js';
-import { AgentAService } from '../../app/agents/agent-a/agent-a-service.js';
 import { getLLMService } from '../../infra/llm/index.js';
 import { LLMRouter, MockLLMProvider } from '../../infra/llm/llm-provider.js';
 import { SchedulerDaemon } from '../../scheduler-daemon/daemon.js';
@@ -194,7 +193,6 @@ async function runScheduler(
         agentsEnabled,
         mainAgentId,
         personaEnabled,
-        agentAService: AgentAService.create(llmService),
       }
     );
 
@@ -336,7 +334,6 @@ export const schedulerCommand = new Command('scheduler')
       .option('--agents', 'Enable config-driven agent scheduler loop', runtimeConfig.scheduler.agentsEnabled)
       .option('--main-agent <id>', 'Main agent to load and run', runtimeConfig.agent.mainAgentId)
       .option('--persona', 'Enable persona prompt loading', runtimeConfig.agent.personaEnabled)
-      .option('--agent-a', 'Enable Agent A background listener loop (deprecated)')
       .action(async (options) => {
         const dbPath = options.db;
         const socketPath = options.socket;
@@ -346,13 +343,6 @@ export const schedulerCommand = new Command('scheduler')
         const agentsEnabled = options.agents ?? runtimeConfig.scheduler.agentsEnabled;
         const mainAgentId = options.mainAgent ?? runtimeConfig.agent.mainAgentId;
         const personaEnabled = options.persona ?? runtimeConfig.agent.personaEnabled;
-        const agentAEnabled = options.agentA ?? false;
-
-        if (agentAEnabled) {
-          const deprecationMessage = '--agent-a is deprecated and has no runtime effect; Agent A runs via config-driven scheduling (--agents).';
-          log(deprecationMessage);
-          console.warn(chalk.yellow(`⚠ ${deprecationMessage}`));
-        }
 
         // Check if scheduler is already running
         const existingPid = readPidFile();

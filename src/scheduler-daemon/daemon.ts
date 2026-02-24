@@ -8,7 +8,6 @@
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
 import type { IExecutionService } from '../app/lifecycle/stage-interfaces.js';
 import type { ILLMProvider } from '../infra/llm/llm-provider.js';
-import type { AgentAService } from '../app/agents/agent-a/agent-a-service.js';
 import type { SchedulerEvent } from '../scheduler/types.js';
 import type { DebugEvent } from '../debug/types.js';
 import { SchedulerCore } from '../scheduler/core/index.js';
@@ -21,7 +20,6 @@ import { getGlobalRunnerRegistry } from '../infra/agents/runner-registry.js';
 import { reconcileCronJobsFromRegistry } from '../infra/scheduler/cron-job-reconciler.js';
 import { acquireSchedulerDaemonLock, releaseSchedulerDaemonLock } from './pid-lock.js';
 import { AgentScheduler } from './agent-scheduler.js';
-import { MarketListenerRunner } from '../infra/agents/market-listener-runner.js';
 import { createSchemaDrivenAgentRunner } from '../infra/agents/schema-driven-agent-runner.js';
 
 export interface SchedulerDaemonConfig {
@@ -38,7 +36,6 @@ export interface SchedulerDaemonConfig {
   agentsEnabled?: boolean;
   mainAgentId?: string;
   personaEnabled?: boolean;
-  agentAService?: AgentAService;
 }
 
 function resolveMainAgentId(configuredId: string | undefined, availableIds: string[]): string | null {
@@ -186,13 +183,10 @@ export class SchedulerDaemon {
       this.isRunning = true;
 
       const runnerRegistry = getGlobalRunnerRegistry();
-      runnerRegistry.register('default', createSchemaDrivenAgentRunner());
+      const schemaRunner = createSchemaDrivenAgentRunner();
+      runnerRegistry.register('default', schemaRunner);
+      runnerRegistry.register('market_listener', schemaRunner);
       console.log('[SchedulerDaemon] Registered default schema-driven runner');
-
-      if (this.config.agentAService) {
-        runnerRegistry.register('market_listener', new MarketListenerRunner(this.config.agentAService));
-        console.log('[SchedulerDaemon] Registered market_listener runner');
-      }
 
       if (this.config.agentsEnabled) {
         this.agentScheduler = new AgentScheduler(
