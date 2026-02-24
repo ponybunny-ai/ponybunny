@@ -5,6 +5,8 @@ import type { LLMMessage, LLMResponse, ToolDefinition, StreamChunk } from '../ll
  */
 export type ProtocolId = 'anthropic' | 'openai' | 'gemini' | 'codex';
 
+export type OpenAIOperation = 'chat-completions' | 'responses';
+
 /**
  * Credentials for endpoint authentication
  */
@@ -29,6 +31,8 @@ export interface ProtocolRequestConfig {
   tool_choice?: 'auto' | 'none' | 'required' | { type: 'function'; function: { name: string } };
   thinking?: boolean;
   stream?: boolean;
+  openaiOperation?: OpenAIOperation;
+  openaiEndpointUrl?: string;
 }
 
 /**
@@ -57,7 +61,7 @@ export interface IProtocolAdapter {
   /**
    * Parse provider-specific response into standard LLMResponse
    */
-  parseResponse(response: RawApiResponse, model: string): LLMResponse;
+  parseResponse(response: RawApiResponse, model: string, config?: ProtocolRequestConfig): LLMResponse;
 
   /**
    * Build headers for the request
@@ -67,7 +71,12 @@ export interface IProtocolAdapter {
   /**
    * Build the full URL for the request
    */
-  buildUrl(baseUrl: string, model: string, credentials: EndpointCredentials): string;
+  buildUrl(
+    baseUrl: string,
+    model: string,
+    credentials: EndpointCredentials,
+    config?: ProtocolRequestConfig
+  ): string;
 
   /**
    * Check if an error response is recoverable (can retry with fallback)
@@ -98,10 +107,19 @@ export abstract class BaseProtocolAdapter implements IProtocolAdapter {
   abstract readonly protocolId: ProtocolId;
 
   abstract formatRequest(messages: LLMMessage[], config: ProtocolRequestConfig): unknown;
-  abstract parseResponse(response: RawApiResponse, model: string): LLMResponse;
+  abstract parseResponse(
+    response: RawApiResponse,
+    model: string,
+    config?: ProtocolRequestConfig
+  ): LLMResponse;
   abstract buildHeaders(credentials: EndpointCredentials): Record<string, string>;
 
-  buildUrl(baseUrl: string, _model: string, _credentials: EndpointCredentials): string {
+  buildUrl(
+    baseUrl: string,
+    _model: string,
+    _credentials: EndpointCredentials,
+    _config?: ProtocolRequestConfig
+  ): string {
     return baseUrl;
   }
 

@@ -3,7 +3,6 @@
  * Collects information about loaded models, providers, tools, MCPs, and skills
  */
 
-import { getLLMProviderManager } from '../llm/provider-manager/index.js';
 import { loadLLMConfig } from '../llm/provider-manager/config-loader.js';
 import { getGlobalSkillRegistry } from '../skills/skill-registry.js';
 import { loadMCPConfig } from '../mcp/config/mcp-config-loader.js';
@@ -12,7 +11,7 @@ import type { ToolRegistry } from '../tools/tool-registry.js';
 export interface ModelInfo {
   name: string;
   displayName: string;
-  endpoints: string[];
+  providers: string[];
   capabilities: string[];
   costPer1kTokens: {
     input: number;
@@ -83,7 +82,7 @@ export function getModelsInfo(): ModelInfo[] {
       models.push({
         name: modelId,
         displayName: modelConfig.displayName,
-        endpoints: modelConfig.endpoints,
+        providers: modelConfig.providers,
         capabilities: modelConfig.capabilities || [],
         costPer1kTokens: modelConfig.costPer1kTokens,
         maxContextTokens: modelConfig.maxContextTokens || 0,
@@ -105,7 +104,7 @@ export function getProvidersInfo(): ProviderInfo[] {
     const config = loadLLMConfig();
     const providers: ProviderInfo[] = [];
 
-    for (const [endpointId, endpointConfig] of Object.entries(config.endpoints)) {
+    for (const [endpointId, endpointConfig] of Object.entries(config.providers)) {
       providers.push({
         name: endpointId,
         protocol: endpointConfig.protocol,

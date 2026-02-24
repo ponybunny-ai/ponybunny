@@ -93,7 +93,7 @@ export class LLMProviderRegistry implements ILLMProviderRegistry {
         const endpointId = PROVIDER_TO_ENDPOINT[providerId];
         if (endpointId) {
           const credential = getCachedEndpointCredential(endpointId);
-          if (credential && credential.enabled !== false && credential.apiKey) {
+          if (credential?.apiKey) {
             apiKey = credential.apiKey;
           }
         }
@@ -185,7 +185,7 @@ export class LLMProviderRegistry implements ILLMProviderRegistry {
     const endpointId = PROVIDER_TO_ENDPOINT[providerId];
     if (endpointId) {
       const credential = getCachedEndpointCredential(endpointId);
-      if (credential && credential.enabled !== false && credential.apiKey) {
+      if (credential?.apiKey) {
         return true;
       }
     }

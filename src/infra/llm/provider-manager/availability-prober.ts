@@ -41,7 +41,7 @@ async function probeEndpointModel(
   modelId: string,
   timeoutMs: number
 ): Promise<{ available: boolean; error?: string }> {
-  const endpointConfig = config.endpoints[endpointId];
+  const endpointConfig = config.providers[endpointId];
   if (!endpointConfig || endpointConfig.enabled !== true) {
     return { available: false, error: 'Endpoint disabled or missing from config' };
   }
@@ -117,7 +117,7 @@ export async function probeAndPersistAvailability(options: ProbeOptions = {}): P
   const endpointManager = getEndpointManager();
   const config = loadLLMConfig();
 
-  const enabledEndpointIds = Object.entries(config.endpoints)
+  const enabledEndpointIds = Object.entries(config.providers)
     .filter(([_, endpoint]) => endpoint.enabled === true)
     .map(([endpointId]) => endpointId);
 
@@ -127,9 +127,9 @@ export async function probeAndPersistAvailability(options: ProbeOptions = {}): P
   let modelEndpointAvailable = 0;
 
   for (const endpointId of enabledEndpointIds) {
-    const endpointConfig = config.endpoints[endpointId];
+    const endpointConfig = config.providers[endpointId];
     const candidateModels = Object.entries(config.models)
-      .filter(([_, model]) => model.endpoints.includes(endpointId))
+      .filter(([_, model]) => model.providers.includes(endpointId))
       .map(([modelId]) => modelId)
       .slice(0, maxModelsPerEndpoint);
 
@@ -152,10 +152,10 @@ export async function probeAndPersistAvailability(options: ProbeOptions = {}): P
 
       const modelConfig = config.models[modelId];
       if (!modelConfig.health) {
-        modelConfig.health = { lastCheckedAt: checkedAt, endpoints: {} };
+        modelConfig.health = { lastCheckedAt: checkedAt, providers: {} };
       }
       modelConfig.health.lastCheckedAt = checkedAt;
-      modelConfig.health.endpoints[endpointId] = {
+      modelConfig.health.providers[endpointId] = {
         available: result.available,
         lastError: result.error,
       };

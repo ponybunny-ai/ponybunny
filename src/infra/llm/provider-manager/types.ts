@@ -1,5 +1,6 @@
 import type { LLMMessage, LLMResponse } from '../llm-provider.js';
 import type { ProtocolId } from '../protocols/index.js';
+import type { OpenAIOperation } from '../protocols/protocol-adapter.js';
 
 /**
  * Model tier for complexity-based selection
@@ -53,6 +54,22 @@ export interface LLMEndpointConfig {
  */
 export type ModelCapability = 'text' | 'vision' | 'function-calling' | 'json-mode';
 
+export type OpenAIModelEndpointName =
+  | 'chat-completions'
+  | 'responses'
+  | 'realtime'
+  | 'assistants'
+  | 'batch'
+  | 'fine-tuning'
+  | 'embeddings'
+  | 'image-generation'
+  | 'videos'
+  | 'image-edit'
+  | 'speech-generation'
+  | 'transcription'
+  | 'translation'
+  | 'moderation';
+
 /**
  * Model configuration in llm-config.json
  */
@@ -60,7 +77,11 @@ export interface LLMModelConfig {
   /** Human-readable display name */
   displayName: string;
   /** List of endpoint IDs that support this model */
-  endpoints: string[];
+  providers: string[];
+  endpoints?: Array<{
+    name: OpenAIModelEndpointName;
+    url: string;
+  }>;
   /** Cost per 1k tokens */
   costPer1kTokens: {
     input: number;
@@ -72,7 +93,7 @@ export interface LLMModelConfig {
   capabilities?: ModelCapability[];
   health?: {
     lastCheckedAt: string;
-    endpoints: Record<
+    providers: Record<
       string,
       {
         available: boolean;
@@ -100,10 +121,16 @@ export interface LLMWorkloadConfig {
   tier?: ModelTier;
   /** Override primary model (takes precedence over tier) */
   primary?: string;
+  llm_model?: string;
   /** Override fallback chain */
   fallback?: string[];
   /** Description of the workload purpose */
   description?: string;
+}
+
+export interface LLMProviderSelectorConfig {
+  protocol: ProtocolId;
+  providers: string[];
 }
 
 /**
@@ -128,10 +155,10 @@ export interface LLMDefaultsConfig {
 export interface LLMConfig {
   /** JSON Schema reference */
   $schema?: string;
-  /** Endpoint configurations */
-  endpoints: Record<string, LLMEndpointConfig>;
+  providers: Record<string, LLMEndpointConfig>;
   /** Model configurations */
   models: Record<string, LLMModelConfig>;
+  providerAliases?: Record<string, LLMProviderSelectorConfig>;
   /** Tier configurations */
   tiers: Record<ModelTier, LLMTierConfig>;
   /** Workload configurations */
@@ -146,6 +173,7 @@ export interface LLMConfig {
 export interface LLMCompletionOptions {
   /** Override model selection */
   model?: string;
+  openaiOperation?: OpenAIOperation;
   /** Maximum tokens for response */
   maxTokens?: number;
   /** Temperature for response generation */

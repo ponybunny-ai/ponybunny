@@ -33,7 +33,7 @@ export class ModelRouter {
   getProtocolForModel(modelId: string): ProtocolId | undefined {
     const llmModelConfig = this.useLLMConfig ? getLLMModelConfig(modelId) : undefined;
     if (llmModelConfig) {
-      const firstEndpointId = llmModelConfig.endpoints[0];
+      const firstEndpointId = llmModelConfig.providers[0];
       if (!firstEndpointId) return undefined;
       const endpoint = safeGetEndpointConfig(firstEndpointId);
       return endpoint?.protocol;
@@ -50,11 +50,11 @@ export class ModelRouter {
     console.log(`🔍 [ModelRouter] Resolving endpoints for model: ${modelId}`);
 
     const llmModelConfig = this.useLLMConfig ? getLLMModelConfig(modelId) : undefined;
-    const candidateEndpointIds: string[] = llmModelConfig?.endpoints ?? [];
+    const candidateEndpointIds: string[] = llmModelConfig?.providers ?? [];
 
     if (llmModelConfig) {
       console.log(`✅ [ModelRouter] Exact model match in llm-config: ${modelId}`);
-      console.log(`📋 [ModelRouter] Candidate endpoints from llm-config.models['${modelId}'].endpoints: ${candidateEndpointIds.join(', ')}`);
+      console.log(`📋 [ModelRouter] Candidate providers from llm-config.models['${modelId}'].providers: ${candidateEndpointIds.join(', ')}`);
     } else {
       console.log(`⚠️ [ModelRouter] No exact model match in llm-config for: ${modelId}`);
     }
@@ -81,7 +81,7 @@ export class ModelRouter {
 
         const llmEndpointConfig = getLLMEndpointConfig(endpointId);
         if (llmEndpointConfig && llmEndpointConfig.enabled === false) {
-          console.log(`⚠️ [ModelRouter] Endpoint ${endpointId} disabled in llm-config.endpoints`);
+          console.log(`⚠️ [ModelRouter] Provider ${endpointId} disabled in llm-config.providers`);
           return null;
         }
 
@@ -90,7 +90,7 @@ export class ModelRouter {
           return null;
         }
 
-        if (llmModelConfig?.health?.endpoints?.[endpointId]?.available === false) {
+        if (llmModelConfig?.health?.providers?.[endpointId]?.available === false) {
           console.log(`⚠️ [ModelRouter] Endpoint ${endpointId} marked unavailable for model ${modelId} by probe health`);
           return null;
         }

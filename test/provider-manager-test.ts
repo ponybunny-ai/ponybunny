@@ -26,7 +26,7 @@ async function main() {
   // Test 1: Load configuration
   console.log('1. Testing configuration loading...');
   const config = getCachedConfig();
-  console.log(`   - Loaded ${Object.keys(config.endpoints).length} endpoints`);
+  console.log(`   - Loaded ${Object.keys(config.providers).length} providers`);
   console.log(`   - Loaded ${Object.keys(config.models).length} models`);
   console.log(`   - Loaded ${Object.keys(config.workloads).length} workloads`);
   console.log(`   - Tiers: ${Object.keys(config.tiers).join(', ')}`);

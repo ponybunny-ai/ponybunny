@@ -55,7 +55,7 @@ describe('probeAndPersistAvailability', () => {
 
   it('persists endpoint and model health after successful probe', async () => {
     mockLoadLLMConfig.mockReturnValue({
-      endpoints: {
+      providers: {
         'openai-direct': {
           enabled: true,
           protocol: 'openai',
@@ -66,7 +66,7 @@ describe('probeAndPersistAvailability', () => {
       models: {
         'gpt-5.2': {
           displayName: 'GPT-5.2',
-          endpoints: ['openai-direct'],
+          providers: ['openai-direct'],
           costPer1kTokens: { input: 0.01, output: 0.03 },
         },
       },
@@ -91,15 +91,15 @@ describe('probeAndPersistAvailability', () => {
     expect(mockSaveLLMConfig).toHaveBeenCalledTimes(1);
     const savedConfig = mockSaveLLMConfig.mock.calls[0][0];
 
-    expect(savedConfig.endpoints['openai-direct'].health.available).toBe(true);
-    expect(savedConfig.endpoints['openai-direct'].health.successfulModels).toEqual(['gpt-5.2']);
-    expect(savedConfig.models['gpt-5.2'].health.endpoints['openai-direct'].available).toBe(true);
+    expect(savedConfig.providers['openai-direct'].health.available).toBe(true);
+    expect(savedConfig.providers['openai-direct'].health.successfulModels).toEqual(['gpt-5.2']);
+    expect(savedConfig.models['gpt-5.2'].health.providers['openai-direct'].available).toBe(true);
     expect(mockClearConfigCache).toHaveBeenCalledTimes(1);
   });
 
   it('records probe failures and persists unavailable health status', async () => {
     mockLoadLLMConfig.mockReturnValue({
-      endpoints: {
+      providers: {
         'openai-compatible': {
           enabled: true,
           protocol: 'openai',
@@ -110,7 +110,7 @@ describe('probeAndPersistAvailability', () => {
       models: {
         'gpt-5.2': {
           displayName: 'GPT-5.2',
-          endpoints: ['openai-compatible'],
+          providers: ['openai-compatible'],
           costPer1kTokens: { input: 0.01, output: 0.03 },
         },
       },
@@ -142,7 +142,7 @@ describe('probeAndPersistAvailability', () => {
     expect(summary.failures[0].modelId).toBe('gpt-5.2');
 
     const savedConfig = mockSaveLLMConfig.mock.calls[0][0];
-    expect(savedConfig.endpoints['openai-compatible'].health.available).toBe(false);
-    expect(savedConfig.models['gpt-5.2'].health.endpoints['openai-compatible'].available).toBe(false);
+    expect(savedConfig.providers['openai-compatible'].health.available).toBe(false);
+    expect(savedConfig.models['gpt-5.2'].health.providers['openai-compatible'].available).toBe(false);
   });
 });

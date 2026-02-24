@@ -55,7 +55,7 @@ export class EndpointManager {
    */
   getEnabledEndpoints(): Array<{ id: string; config: LLMEndpointConfig }> {
     const config = getCachedConfig();
-    return Object.entries(config.endpoints)
+    return Object.entries(config.providers)
       .filter(([_, endpointConfig]) => endpointConfig.enabled)
       .map(([id, endpointConfig]) => ({ id, config: endpointConfig }))
       .sort((a, b) => a.config.priority - b.config.priority);
@@ -66,7 +66,7 @@ export class EndpointManager {
    */
   getEndpointConfig(endpointId: string): LLMEndpointConfig | undefined {
     const config = getCachedConfig();
-    return config.endpoints[endpointId];
+    return config.providers[endpointId];
   }
 
   /**
@@ -75,9 +75,6 @@ export class EndpointManager {
   hasCredentials(endpointId: string): boolean {
     // Check credentials file first
     const fileCredential = getCachedEndpointCredential(endpointId);
-    if (fileCredential?.enabled === false) {
-      return false;
-    }
 
     const requiredFields = ENDPOINT_CREDENTIAL_REQUIREMENTS[endpointId] || ['apiKey'];
     const envVars = ENDPOINT_ENV_VARS[endpointId] || [];
@@ -154,7 +151,7 @@ export class EndpointManager {
    */
   async getAllEndpointHealth(): Promise<EndpointHealth[]> {
     const config = getCachedConfig();
-    const endpointIds = Object.keys(config.endpoints);
+    const endpointIds = Object.keys(config.providers);
 
     return Promise.all(endpointIds.map(id => this.getEndpointHealth(id)));
   }
@@ -172,13 +169,13 @@ export class EndpointManager {
 
     const availableEndpoints: string[] = [];
 
-    for (const endpointId of modelConfig.endpoints) {
-      const endpointProbeHealth = config.endpoints[endpointId]?.health;
+    for (const endpointId of modelConfig.providers) {
+      const endpointProbeHealth = config.providers[endpointId]?.health;
       if (endpointProbeHealth?.available === false) {
         continue;
       }
 
-      const modelEndpointProbeHealth = modelConfig.health?.endpoints?.[endpointId];
+      const modelEndpointProbeHealth = modelConfig.health?.providers?.[endpointId];
       if (modelEndpointProbeHealth?.available === false) {
         continue;
       }
@@ -191,8 +188,8 @@ export class EndpointManager {
 
     // Sort by priority
     return availableEndpoints.sort((a, b) => {
-      const configA = config.endpoints[a];
-      const configB = config.endpoints[b];
+      const configA = config.providers[a];
+      const configB = config.providers[b];
       return (configA?.priority || 999) - (configB?.priority || 999);
     });
   }

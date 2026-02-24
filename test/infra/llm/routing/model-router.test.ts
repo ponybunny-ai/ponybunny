@@ -103,8 +103,8 @@ describe('ModelRouter', () => {
     it('should skip endpoint marked unavailable by persisted endpoint probe health', () => {
       process.env.OPENAI_API_KEY = 'test-openai-key';
       const config = getCachedConfig();
-      config.endpoints['openai-direct'].enabled = true;
-      config.endpoints['openai-direct'].health = {
+      config.providers['openai-direct'].enabled = true;
+      config.providers['openai-direct'].health = {
         available: false,
         lastCheckedAt: new Date().toISOString(),
         lastError: '502 Bad Gateway',
@@ -119,14 +119,14 @@ describe('ModelRouter', () => {
     it('should skip model-endpoint pair marked unavailable by persisted model probe health', () => {
       process.env.OPENAI_API_KEY = 'test-openai-key';
       const config = getCachedConfig();
-      config.endpoints['openai-direct'].enabled = true;
-      config.endpoints['openai-direct'].health = {
+      config.providers['openai-direct'].enabled = true;
+      config.providers['openai-direct'].health = {
         available: true,
         lastCheckedAt: new Date().toISOString(),
       };
       config.models['gpt-5.2'].health = {
         lastCheckedAt: new Date().toISOString(),
-        endpoints: {
+        providers: {
           'openai-direct': {
             available: false,
             lastError: 'Model unavailable on endpoint',
@@ -190,8 +190,8 @@ describe('ModelRouter', () => {
     it('should let persisted probe health override cached available status', () => {
       process.env.OPENAI_API_KEY = 'test-openai-key';
       const config = getCachedConfig();
-      config.endpoints['openai-direct'].enabled = true;
-      config.endpoints['openai-direct'].health = {
+      config.providers['openai-direct'].enabled = true;
+      config.providers['openai-direct'].health = {
         available: true,
         lastCheckedAt: new Date().toISOString(),
       };
@@ -200,7 +200,7 @@ describe('ModelRouter', () => {
 
       expect(router.isEndpointAvailable('openai-direct')).toBe(true);
 
-      config.endpoints['openai-direct'].health = {
+      config.providers['openai-direct'].health = {
         available: false,
         lastCheckedAt: new Date().toISOString(),
         lastError: '502 Bad Gateway',

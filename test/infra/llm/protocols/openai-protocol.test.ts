@@ -53,6 +53,23 @@ describe('OpenAIProtocolAdapter', () => {
       expect(result.max_tokens).toBe(4000);
       expect(result.temperature).toBe(0.7);
     });
+
+    it('should format request for responses API', () => {
+      const messages: LLMMessage[] = [
+        { role: 'system', content: 'You are helpful.' },
+        { role: 'user', content: 'Hello' },
+      ];
+
+      const result = adapter.formatRequest(messages, {
+        model: 'gpt-5.2',
+        maxTokens: 900,
+        openaiOperation: 'responses',
+      }) as Record<string, unknown>;
+
+      expect(result.model).toBe('gpt-5.2');
+      expect(result.max_output_tokens).toBe(900);
+      expect(Array.isArray(result.input)).toBe(true);
+    });
   });
 
   describe('parseResponse', () => {
@@ -118,6 +135,28 @@ describe('OpenAIProtocolAdapter', () => {
       expect(result.content).toBe('');
       expect(result.model).toBe('gpt-4o');
     });
+
+    it('should parse responses API payload', () => {
+      const response = {
+        status: 200,
+        statusText: 'OK',
+        data: {
+          model: 'gpt-5.2',
+          output_text: 'Responses output',
+          usage: { total_tokens: 42 },
+          status: 'completed',
+        },
+      };
+
+      const result = adapter.parseResponse(response, 'gpt-5.2', {
+        model: 'gpt-5.2',
+        openaiOperation: 'responses',
+      });
+
+      expect(result.content).toBe('Responses output');
+      expect(result.tokensUsed).toBe(42);
+      expect(result.finishReason).toBe('stop');
+    });
   });
 
   describe('buildHeaders', () => {
@@ -148,6 +187,17 @@ describe('OpenAIProtocolAdapter', () => {
       expect(url).toBe(
         'https://my-resource.openai.azure.com/openai/deployments/gpt-4o-deployment/chat/completions?api-version=2024-02-15-preview'
       );
+    });
+
+    it('should build responses API URL for OpenAI', () => {
+      const url = adapter.buildUrl(
+        'https://api.openai.com/v1',
+        'gpt-5.2',
+        {},
+        { model: 'gpt-5.2', openaiOperation: 'responses' }
+      );
+
+      expect(url).toBe('https://api.openai.com/v1/responses');
     });
   });
 

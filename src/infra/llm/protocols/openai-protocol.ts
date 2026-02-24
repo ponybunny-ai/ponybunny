@@ -13,6 +13,8 @@ import { BaseProtocolAdapter } from './protocol-adapter.js';
 export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
   readonly protocolId = 'openai' as const;
 
+  private readonly defaultOperation = 'chat-completions' as const;
+
   // Streaming tool_calls accumulator state
   private streamingToolCalls = new Map<number, { id: string; type: string; name: string; arguments: string }>();
 
@@ -24,6 +26,7 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
   }
 
   formatRequest(messages: LLMMessage[], config: ProtocolRequestConfig): unknown {
+    const operation = config.openaiOperation || this.defaultOperation;
     // Convert messages to OpenAI format
     const openaiMessages = messages.map(m => {
       // Handle tool result messages
@@ -57,6 +60,52 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
         content: m.content,
       };
     });
+
+    if (operation === 'responses') {
+      const inputItems: Array<Record<string, unknown>> = [];
+
+      for (const message of messages) {
+        if (message.role === 'tool' && message.tool_call_id) {
+          inputItems.push({
+            type: 'function_call_output',
+            call_id: message.tool_call_id,
+            output: message.content || '',
+          });
+          continue;
+        }
+
+        inputItems.push({
+          role: message.role === 'tool' ? 'user' : message.role,
+          content: message.content || '',
+        });
+      }
+
+      const requestBody: Record<string, unknown> = {
+        model: config.model,
+        input: inputItems,
+        max_output_tokens: config.maxTokens || 4000,
+        temperature: config.temperature ?? 0.7,
+      };
+
+      if (config.tools && config.tools.length > 0) {
+        requestBody.tools = config.tools.map(tool => ({
+          type: 'function',
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
+        }));
+      }
+
+      if (config.tool_choice) {
+        requestBody.tool_choice = config.tool_choice;
+      }
+
+      if (config.stream) {
+        requestBody.stream = true;
+      }
+
+      return requestBody;
+    }
 
     const requestBody: any = {
       model: config.model,
@@ -96,7 +145,66 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
     return requestBody;
   }
 
-  parseResponse(response: RawApiResponse, model: string): LLMResponse {
+  parseResponse(response: RawApiResponse, model: string, config?: ProtocolRequestConfig): LLMResponse {
+    const operation = config?.openaiOperation || this.defaultOperation;
+
+    if (operation === 'responses') {
+      const data = response.data as {
+        model?: string;
+        output_text?: string;
+        output?: Array<{
+          id?: string;
+          type?: string;
+          name?: string;
+          call_id?: string;
+          arguments?: unknown;
+          content?: Array<{ type?: string; text?: string }>;
+        }>;
+        usage?: { total_tokens?: number; input_tokens?: number; output_tokens?: number };
+        status?: string;
+      };
+
+      let content = data.output_text || '';
+      const toolCalls: ToolCall[] = [];
+
+      if (!content && Array.isArray(data.output)) {
+        for (const item of data.output) {
+          if (item.type === 'message' && Array.isArray(item.content)) {
+            for (const part of item.content) {
+              if (part.type === 'output_text' && part.text) {
+                content += part.text;
+              }
+            }
+          }
+
+          if (item.type === 'function_call' && item.name) {
+            toolCalls.push({
+              id: item.call_id || item.id || `call_${Date.now()}`,
+              type: 'function',
+              function: {
+                name: item.name,
+                arguments: typeof item.arguments === 'string'
+                  ? item.arguments
+                  : JSON.stringify(item.arguments || {}),
+              },
+            });
+          }
+        }
+      }
+
+      const usage = data.usage;
+      const tokensUsed = usage?.total_tokens
+        || ((usage?.input_tokens || 0) + (usage?.output_tokens || 0));
+
+      return {
+        content,
+        tokensUsed,
+        model: data.model || model,
+        finishReason: toolCalls.length > 0 ? 'tool_calls' : (data.status === 'incomplete' ? 'length' : 'stop'),
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+      };
+    }
+
     const data = response.data as {
       choices?: Array<{
         message?: {
@@ -156,14 +264,31 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
   /**
    * Build URL for Azure OpenAI (different URL pattern)
    */
-  buildUrl(baseUrl: string, model: string, _credentials: EndpointCredentials): string {
+  buildUrl(
+    baseUrl: string,
+    model: string,
+    _credentials: EndpointCredentials,
+    config?: ProtocolRequestConfig
+  ): string {
+    const operation = config?.openaiOperation || this.defaultOperation;
+    const endpointUrl = config?.openaiEndpointUrl || (operation === 'responses' ? '/responses' : '/chat/completions');
+    let normalizedEndpointUrl = endpointUrl.startsWith('/') ? endpointUrl : `/${endpointUrl}`;
+    const baseHasV1 = /\/v1\/?$/.test(baseUrl);
+
+    if (baseHasV1 && normalizedEndpointUrl.startsWith('/v1/')) {
+      normalizedEndpointUrl = normalizedEndpointUrl.slice(3);
+    }
+
+    let deploymentEndpointUrl = normalizedEndpointUrl;
+    if (deploymentEndpointUrl.startsWith('/v1/')) {
+      deploymentEndpointUrl = deploymentEndpointUrl.slice(3);
+    }
+
     // Azure OpenAI uses deployment-based URLs
     if (baseUrl.includes('openai.azure.com')) {
-      // Azure format: {endpoint}/openai/deployments/{deployment}/chat/completions?api-version=2024-02-15-preview
-      return `${baseUrl}/openai/deployments/${model}/chat/completions?api-version=2024-02-15-preview`;
+      return `${baseUrl}/openai/deployments/${model}${deploymentEndpointUrl}?api-version=2024-02-15-preview`;
     }
-    // Standard OpenAI
-    return `${baseUrl}/chat/completions`;
+    return `${baseUrl}${normalizedEndpointUrl}`;
   }
 
   /**

@@ -67,6 +67,7 @@ export interface LLMProviderConfig {
   tool_choice?: 'auto' | 'none' | 'required' | { type: 'function'; function: { name: string } };
   thinking?: boolean;            // Enable thinking mode (default based on model config)
   stream?: boolean;              // Enable streaming (default based on model config)
+  openaiOperation?: 'chat-completions' | 'responses';
   onChunk?: (chunk: StreamChunk) => void;  // Streaming callback
 }
 

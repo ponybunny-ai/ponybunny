@@ -39,7 +39,7 @@ export function getSchemaPath(): string {
  * Default configuration used when no config file exists
  */
 export const DEFAULT_LLM_CONFIG: LLMConfig = {
-  endpoints: {
+  providers: {
     'anthropic-direct': {
       enabled: true,
       protocol: 'anthropic',
@@ -92,52 +92,87 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
   models: {
     'claude-haiku-4-5-20251001': {
       displayName: 'Claude Haiku 4.5',
-      endpoints: ['anthropic-direct', 'aws-bedrock'],
+      providers: ['anthropic-direct', 'aws-bedrock'],
       costPer1kTokens: { input: 0.001, output: 0.005 },
       maxContextTokens: 200000,
       capabilities: ['text', 'vision'],
     },
     'claude-sonnet-4-5-20250929': {
       displayName: 'Claude Sonnet 4.5',
-      endpoints: ['anthropic-direct', 'aws-bedrock'],
+      providers: ['anthropic-direct', 'aws-bedrock'],
       costPer1kTokens: { input: 0.003, output: 0.015 },
       maxContextTokens: 200000,
       capabilities: ['text', 'vision', 'function-calling'],
     },
     'claude-opus-4-5-20251101': {
       displayName: 'Claude Opus 4.5',
-      endpoints: ['anthropic-direct', 'aws-bedrock'],
+      providers: ['anthropic-direct', 'aws-bedrock'],
       costPer1kTokens: { input: 0.015, output: 0.075 },
       maxContextTokens: 200000,
       capabilities: ['text', 'vision', 'function-calling'],
     },
     'gpt-5.2': {
       displayName: 'GPT-5.2',
-      endpoints: ['openai-direct', 'openai-compatible'],
+      providers: ['openai-direct', 'openai-compatible'],
+      endpoints: [
+        { name: 'chat-completions', url: '/v1/chat/completions' },
+        { name: 'responses', url: '/v1/responses' },
+      ],
       costPer1kTokens: { input: 0.01, output: 0.03 },
       maxContextTokens: 128000,
       capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
     },
     'gpt-5.2-codex': {
       displayName: 'GPT-5.2 Codex (OAuth)',
-      endpoints: ['codex'],
+      providers: ['codex'],
+      endpoints: [{ name: 'responses', url: '/v1/responses' }],
       costPer1kTokens: { input: 0.01, output: 0.03 },
       maxContextTokens: 128000,
       capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
     },
     'gemini-2.0-flash': {
       displayName: 'Gemini 2.0 Flash',
-      endpoints: ['google-ai-studio', 'google-vertex-ai'],
+      providers: ['google-ai-studio', 'google-vertex-ai'],
       costPer1kTokens: { input: 0.00035, output: 0.0014 },
       maxContextTokens: 1000000,
       capabilities: ['text', 'vision', 'function-calling'],
     },
     'gemini-2.0-pro': {
       displayName: 'Gemini 2.0 Pro',
-      endpoints: ['google-ai-studio', 'google-vertex-ai'],
+      providers: ['google-ai-studio', 'google-vertex-ai'],
       costPer1kTokens: { input: 0.00125, output: 0.005 },
       maxContextTokens: 2000000,
       capabilities: ['text', 'vision', 'function-calling'],
+    },
+  },
+  providerAliases: {
+    anthropic: {
+      protocol: 'anthropic',
+      providers: ['anthropic-direct'],
+    },
+    aws: {
+      protocol: 'anthropic',
+      providers: ['aws-bedrock'],
+    },
+    openai: {
+      protocol: 'openai',
+      providers: ['openai-direct'],
+    },
+    azure: {
+      protocol: 'openai',
+      providers: ['azure-openai'],
+    },
+    'openai-compatible': {
+      protocol: 'openai',
+      providers: ['openai-compatible'],
+    },
+    gemini: {
+      protocol: 'gemini',
+      providers: ['google-ai-studio'],
+    },
+    vertex: {
+      protocol: 'gemini',
+      providers: ['google-vertex-ai'],
     },
   },
   tiers: {
@@ -198,10 +233,10 @@ const EMBEDDED_SCHEMA = {
   $id: 'https://ponybunny.dev/schemas/llm-config.schema.json',
   title: 'PonyBunny LLM Configuration',
   type: 'object',
-  required: ['endpoints', 'models', 'tiers', 'workloads', 'defaults'],
+  required: ['providers', 'models', 'tiers', 'workloads', 'defaults'],
   properties: {
     $schema: { type: 'string' },
-    endpoints: {
+    providers: {
       type: 'object',
       additionalProperties: {
         type: 'object',
@@ -227,10 +262,40 @@ const EMBEDDED_SCHEMA = {
       type: 'object',
       additionalProperties: {
         type: 'object',
-        required: ['displayName', 'endpoints', 'costPer1kTokens'],
+        required: ['displayName', 'providers', 'costPer1kTokens'],
         properties: {
           displayName: { type: 'string' },
-          endpoints: { type: 'array', items: { type: 'string' }, minItems: 1 },
+          providers: { type: 'array', items: { type: 'string' }, minItems: 1 },
+          endpoints: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['name', 'url'],
+              properties: {
+                name: {
+                  type: 'string',
+                  enum: [
+                    'chat-completions',
+                    'responses',
+                    'realtime',
+                    'assistants',
+                    'batch',
+                    'fine-tuning',
+                    'embeddings',
+                    'image-generation',
+                    'videos',
+                    'image-edit',
+                    'speech-generation',
+                    'transcription',
+                    'translation',
+                    'moderation',
+                  ],
+                },
+                url: { type: 'string' },
+              },
+            },
+            minItems: 1,
+          },
           costPer1kTokens: {
             type: 'object',
             required: ['input', 'output'],
@@ -244,6 +309,17 @@ const EMBEDDED_SCHEMA = {
             type: 'array',
             items: { type: 'string', enum: ['text', 'vision', 'function-calling', 'json-mode'] },
           },
+        },
+      },
+    },
+    providerAliases: {
+      type: 'object',
+      additionalProperties: {
+        type: 'object',
+        required: ['protocol', 'providers'],
+        properties: {
+          protocol: { type: 'string', enum: ['anthropic', 'openai', 'gemini', 'codex'] },
+          providers: { type: 'array', items: { type: 'string' }, minItems: 1 },
         },
       },
     },
@@ -262,6 +338,7 @@ const EMBEDDED_SCHEMA = {
         type: 'object',
         properties: {
           tier: { type: 'string', enum: ['simple', 'medium', 'complex'] },
+          llm_model: { type: 'string' },
           primary: { type: 'string' },
           fallback: { type: 'array', items: { type: 'string' } },
           description: { type: 'string' },
@@ -314,7 +391,7 @@ function loadSchema(): object {
     };
 
     try {
-      patchEnum(schema?.properties?.endpoints?.additionalProperties?.properties?.protocol?.enum);
+      patchEnum(schema?.properties?.providers?.additionalProperties?.properties?.protocol?.enum);
     } catch {
     }
 
@@ -504,7 +581,7 @@ export function reloadConfig(): LLMConfig {
  */
 export function getEndpointConfig(endpointId: string): LLMEndpointConfig | undefined {
   const config = getCachedConfig();
-  return config.endpoints[endpointId];
+  return config.providers[endpointId];
 }
 
 /**

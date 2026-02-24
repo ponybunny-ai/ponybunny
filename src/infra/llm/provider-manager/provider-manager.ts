@@ -7,7 +7,7 @@ import type {
   ModelTier,
   LLMCompletionOptions,
 } from './types.js';
-import type { LLMMessage, LLMResponse, StreamChunk } from '../llm-provider.js';
+import type { LLMMessage, LLMResponse } from '../llm-provider.js';
 import { LLMProviderError } from '../llm-provider.js';
 import { getCachedConfig, reloadConfig, clearConfigCache } from './config-loader.js';
 import { EndpointManager, getEndpointManager } from './endpoint-manager.js';
@@ -16,6 +16,7 @@ import { getProtocolAdapter } from '../protocols/index.js';
 import type { EndpointCredentials } from '../protocols/index.js';
 import { gatewayEventBus } from '../../../gateway/events/event-bus.js';
 import { randomUUID } from 'crypto';
+import type { OpenAIOperation, ProtocolRequestConfig } from '../protocols/protocol-adapter.js';
 
 /**
  * LLM Provider Manager
@@ -85,7 +86,7 @@ export class LLMProviderManager implements ILLMProviderManager {
   getModelEndpoints(modelId: string): string[] {
     const config = getCachedConfig();
     const modelConfig = config.models[modelId];
-    return modelConfig?.endpoints || [];
+    return modelConfig?.providers || [];
   }
 
   // ============================================
@@ -114,7 +115,8 @@ export class LLMProviderManager implements ILLMProviderManager {
     options?: LLMCompletionOptions
   ): Promise<LLMResponse> {
     const fallbackChain = this.workloadModelResolver.getFallbackChain(workloadId);
-    return this.completeWithFallback(fallbackChain, messages, options);
+    const operation = this.resolveOpenAIOperation(workloadId, options?.openaiOperation);
+    return this.completeWithFallback(fallbackChain, messages, options, operation);
   }
 
   async completeWithModel(
@@ -144,13 +146,15 @@ export class LLMProviderManager implements ILLMProviderManager {
   private async completeWithFallback(
     modelChain: string[],
     messages: LLMMessage[],
-    options?: LLMCompletionOptions
+    options?: LLMCompletionOptions,
+    openaiOperation?: OpenAIOperation
   ): Promise<LLMResponse> {
     let lastError: Error | null = null;
 
     for (const modelId of modelChain) {
-      // Get available endpoints for this model
-      const endpoints = await this.endpointManager.getAvailableEndpointsForModel(modelId);
+      const resolution = await this.resolveModelAndEndpoints(modelId);
+      const endpoints = resolution.endpoints;
+      const resolvedModelId = resolution.modelId;
 
       if (endpoints.length === 0) {
         console.warn(`[ProviderManager] No available endpoints for model: ${modelId}`);
@@ -160,7 +164,13 @@ export class LLMProviderManager implements ILLMProviderManager {
       // Try each endpoint
       for (const endpointId of endpoints) {
         try {
-          return await this.callEndpoint(endpointId, modelId, messages, options);
+          return await this.callEndpoint(
+            endpointId,
+            resolvedModelId,
+            messages,
+            options,
+            openaiOperation
+          );
         } catch (error) {
           lastError = error as Error;
           console.warn(
@@ -192,10 +202,11 @@ export class LLMProviderManager implements ILLMProviderManager {
     endpointId: string,
     modelId: string,
     messages: LLMMessage[],
-    options?: LLMCompletionOptions
+    options?: LLMCompletionOptions,
+    openaiOperation?: OpenAIOperation
   ): Promise<LLMResponse> {
     const config = getCachedConfig();
-    const endpointConfig = config.endpoints[endpointId];
+    const endpointConfig = config.providers[endpointId];
 
     if (!endpointConfig) {
       throw new LLMProviderError(`Unknown endpoint: ${endpointId}`, endpointId, false);
@@ -220,14 +231,25 @@ export class LLMProviderManager implements ILLMProviderManager {
     };
 
     // Build request
-    const requestBody = adapter.formatRequest(messages, {
+    const modelConfig = config.models[modelId];
+    const selectedOpenAIEndpoint = this.resolveSupportedOpenAIEndpoint(
+      endpointConfig.protocol,
+      modelConfig,
+      openaiOperation
+    );
+
+    const requestConfig: ProtocolRequestConfig = {
       model: modelId,
       maxTokens: options?.maxTokens || this.defaultMaxTokens,
       temperature: options?.temperature ?? this.defaultTemperature,
       tools: options?.tools,
       tool_choice: options?.tool_choice,
       thinking: options?.thinking,
-    });
+      openaiOperation: selectedOpenAIEndpoint?.name,
+      openaiEndpointUrl: selectedOpenAIEndpoint?.url,
+    };
+
+    const requestBody = adapter.formatRequest(messages, requestConfig);
 
     // Debug log the request body
     console.log(`[ProviderManager] Request to ${endpointId}:`, JSON.stringify(requestBody, null, 2));
@@ -239,7 +261,7 @@ export class LLMProviderManager implements ILLMProviderManager {
 
     // Build URL and headers
     const baseUrl = credentials.baseUrl || endpointConfig.baseUrl || '';
-    const url = adapter.buildUrl(baseUrl, modelId, endpointCreds);
+    const url = adapter.buildUrl(baseUrl, modelId, endpointCreds, requestConfig);
     const headers = this.buildHeaders(adapter, endpointId, endpointCreds);
 
     // Debug log URL and headers
@@ -260,7 +282,8 @@ export class LLMProviderManager implements ILLMProviderManager {
           adapter,
           modelId,
           endpointId,
-          options
+          options,
+          requestConfig
         );
       }
 
@@ -290,7 +313,8 @@ export class LLMProviderManager implements ILLMProviderManager {
 
       return adapter.parseResponse(
         { status: response.status, statusText: response.statusText, data },
-        modelId
+        modelId,
+        requestConfig
       );
     } catch (error) {
       if (error instanceof LLMProviderError) {
@@ -316,7 +340,8 @@ export class LLMProviderManager implements ILLMProviderManager {
     adapter: ReturnType<typeof getProtocolAdapter>,
     modelId: string,
     endpointId: string,
-    options: LLMCompletionOptions
+    options: LLMCompletionOptions,
+    _requestConfig: ProtocolRequestConfig
   ): Promise<LLMResponse> {
     const requestId = randomUUID();
     const startTime = Date.now();
@@ -494,6 +519,101 @@ export class LLMProviderManager implements ILLMProviderManager {
         true
       );
     }
+  }
+
+  private resolveOpenAIOperation(
+    workloadId: WorkloadId,
+    explicit?: OpenAIOperation
+  ): OpenAIOperation {
+    if (explicit) {
+      return explicit;
+    }
+
+    if (workloadId === 'conversation') {
+      return 'chat-completions';
+    }
+
+    return 'responses';
+  }
+
+  private parseModelSelector(modelSelector: string): { providerId?: string; modelId: string } {
+    const dotIndex = modelSelector.indexOf('.');
+    if (dotIndex <= 0 || dotIndex === modelSelector.length - 1) {
+      return { modelId: modelSelector };
+    }
+
+    const providerId = modelSelector.slice(0, dotIndex);
+    const modelId = modelSelector.slice(dotIndex + 1);
+    return { providerId, modelId };
+  }
+
+  private async resolveModelAndEndpoints(
+    modelSelector: string
+  ): Promise<{ modelId: string; providerId?: string; endpoints: string[] }> {
+    const config = getCachedConfig();
+    const { providerId, modelId } = this.parseModelSelector(modelSelector);
+
+    if (!providerId) {
+      const endpoints = await this.endpointManager.getAvailableEndpointsForModel(modelId);
+      return { modelId, endpoints };
+    }
+
+    const providerAliasConfig = config.providerAliases?.[providerId];
+    if (!providerAliasConfig) {
+      const endpoints = await this.endpointManager.getAvailableEndpointsForModel(modelId);
+      return { modelId, endpoints };
+    }
+
+    const modelConfig = config.models[modelId];
+    if (!modelConfig) {
+      return { modelId, providerId, endpoints: [] };
+    }
+
+    const allowed = new Set(providerAliasConfig.providers);
+    const scoped = modelConfig.providers.filter(endpointId => allowed.has(endpointId));
+
+    const endpoints: string[] = [];
+    for (const endpointId of scoped) {
+      if (await this.endpointManager.isEndpointAvailable(endpointId)) {
+        endpoints.push(endpointId);
+      }
+    }
+
+    endpoints.sort((a, b) => {
+      const priorityA = config.providers[a]?.priority ?? 999;
+      const priorityB = config.providers[b]?.priority ?? 999;
+      return priorityA - priorityB;
+    });
+
+    return { modelId, providerId, endpoints };
+  }
+
+  private resolveSupportedOpenAIEndpoint(
+    protocol: string,
+    modelConfig: LLMModelConfig | undefined,
+    preferred: OpenAIOperation | undefined
+  ): { name: OpenAIOperation; url: string } | undefined {
+    if (protocol !== 'openai') {
+      return undefined;
+    }
+
+    const fallbackName: OpenAIOperation = preferred ?? 'responses';
+    const endpoints = (modelConfig?.endpoints ?? []).filter(
+      item => item.name === 'chat-completions' || item.name === 'responses'
+    ) as Array<{ name: OpenAIOperation; url: string }>;
+    if (!endpoints || endpoints.length === 0) {
+      return {
+        name: fallbackName,
+        url: fallbackName === 'responses' ? '/responses' : '/chat/completions',
+      };
+    }
+
+    const preferredEndpoint = endpoints.find(item => item.name === fallbackName);
+    if (preferredEndpoint) {
+      return preferredEndpoint;
+    }
+
+    return endpoints[0];
   }
 
   /**

@@ -1,6 +1,7 @@
 import type { ILLMProvider, LLMMessage, LLMResponse, LLMProviderConfig } from './llm-provider.js';
 import { LLMProviderError } from './llm-provider.js';
 import type { IProtocolAdapter, EndpointCredentials } from './protocols/index.js';
+import type { ProtocolRequestConfig } from './protocols/protocol-adapter.js';
 import { getProtocolAdapter } from './protocols/index.js';
 import type { EndpointConfig } from './endpoints/index.js';
 import { resolveCredentials } from './endpoints/index.js';
@@ -163,7 +164,7 @@ export class UnifiedLLMProvider implements ILLMProvider {
     }
 
     // Build request
-    const requestBody = adapter.formatRequest(messages, {
+    const requestConfig: ProtocolRequestConfig = {
       model,
       maxTokens: options?.maxTokens || this.config.defaultMaxTokens || 4000,
       temperature: options?.temperature ?? 0.7,
@@ -171,13 +172,16 @@ export class UnifiedLLMProvider implements ILLMProvider {
       tool_choice: options?.tool_choice,
       thinking: options?.thinking,
       stream: options?.stream,
-    });
+      openaiOperation: options?.openaiOperation,
+    };
+
+    const requestBody = adapter.formatRequest(messages, requestConfig);
 
     this.logRequestMeta(adapter, endpoint, model, requestBody, messages, requestId);
 
     // Build URL and headers (prefer credentials file baseUrl override)
     const baseUrl = credentials.baseUrl || credentials.endpoint || endpoint.baseUrl;
-    const url = adapter.buildUrl(baseUrl, model, endpointCreds);
+    const url = adapter.buildUrl(baseUrl, model, endpointCreds, requestConfig);
 
     const baseUrlSource = credentials.baseUrl || credentials.endpoint
       ? 'credentials'
@@ -206,7 +210,8 @@ export class UnifiedLLMProvider implements ILLMProvider {
         model,
         endpoint.id,
         requestId,
-        options?.onChunk
+        options?.onChunk,
+        requestConfig
       );
     }
 
@@ -236,7 +241,8 @@ export class UnifiedLLMProvider implements ILLMProvider {
 
       const parsed = adapter.parseResponse(
         { status: response.status, statusText: response.statusText, data },
-        model
+        model,
+        requestConfig
       );
 
       this.logInboundMessage(parsed, requestId, endpoint.id);
@@ -266,7 +272,8 @@ export class UnifiedLLMProvider implements ILLMProvider {
     model: string,
     endpointId: string,
     requestId: number,
-    onChunk?: (chunk: import('./llm-provider.js').StreamChunk) => void
+    onChunk?: (chunk: import('./llm-provider.js').StreamChunk) => void,
+    _requestConfig?: ProtocolRequestConfig
   ): Promise<LLMResponse> {
     const response = await fetch(url, {
       method: 'POST',

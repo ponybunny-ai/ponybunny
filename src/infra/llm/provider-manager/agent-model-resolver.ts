@@ -21,6 +21,10 @@ export class WorkloadModelResolver {
     }
 
     // Agent-specific primary model takes precedence
+    if (workloadConfig.llm_model) {
+      return workloadConfig.llm_model;
+    }
+
     if (workloadConfig.primary) {
       return workloadConfig.primary;
     }

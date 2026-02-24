@@ -87,7 +87,7 @@ describe('LLM Provider Manager', () => {
       const config = loadLLMConfig('/non/existent/path.json');
 
       expect(config).toBeDefined();
-      expect(config.endpoints).toBeDefined();
+      expect(config.providers).toBeDefined();
       expect(config.models).toBeDefined();
       expect(config.tiers).toBeDefined();
       expect(config.workloads).toBeDefined();
@@ -119,13 +119,13 @@ describe('LLM Provider Manager', () => {
       const config = getCachedConfig();
 
       expect(config).toBeDefined();
-      expect(config.endpoints).toBeDefined();
+      expect(config.providers).toBeDefined();
       expect(config.models).toBeDefined();
     });
 
     it('should validate config structure', () => {
       const validConfig: LLMConfig = {
-        endpoints: {
+        providers: {
           'test-endpoint': {
             enabled: true,
             protocol: 'anthropic',
@@ -135,7 +135,7 @@ describe('LLM Provider Manager', () => {
         models: {
           'test-model': {
             displayName: 'Test Model',
-            endpoints: ['test-endpoint'],
+            providers: ['test-endpoint'],
             costPer1kTokens: { input: 0.001, output: 0.002 },
           },
         },
@@ -158,7 +158,7 @@ describe('LLM Provider Manager', () => {
 
     it('should reject invalid config', () => {
       const invalidConfig = {
-        endpoints: {},
+        providers: {},
         // Missing required fields
       };
 
@@ -278,8 +278,8 @@ describe('LLM Provider Manager', () => {
       process.env.OPENAI_API_KEY = 'test-openai-key';
 
       const config = getCachedConfig();
-      config.endpoints['openai-direct'].enabled = true;
-      config.endpoints['openai-direct'].health = {
+      config.providers['openai-direct'].enabled = true;
+      config.providers['openai-direct'].health = {
         available: false,
         lastCheckedAt: new Date().toISOString(),
         lastError: '502 Bad Gateway',
@@ -295,14 +295,14 @@ describe('LLM Provider Manager', () => {
       process.env.OPENAI_API_KEY = 'test-openai-key';
 
       const config = getCachedConfig();
-      config.endpoints['openai-direct'].enabled = true;
-      config.endpoints['openai-direct'].health = {
+      config.providers['openai-direct'].enabled = true;
+      config.providers['openai-direct'].health = {
         available: true,
         lastCheckedAt: new Date().toISOString(),
       };
       config.models['gpt-5.2'].health = {
         lastCheckedAt: new Date().toISOString(),
-        endpoints: {
+        providers: {
           'openai-direct': {
             available: false,
             lastError: 'Model unavailable on endpoint',
@@ -362,6 +362,26 @@ describe('LLM Provider Manager', () => {
 
       const model = resolver.getModelForWorkload('unknown-workload-xyz');
       expect(model).toBe(config.tiers.medium.primary);
+    });
+
+    it('should prioritize llm_model selector when provided on workload', () => {
+      const resolver = getWorkloadModelResolver();
+      const config = getCachedConfig();
+      const previousExecution = config.workloads.execution;
+
+      config.workloads.execution = {
+        ...(config.workloads.execution || {}),
+        llm_model: 'openai.gpt-5.2',
+      };
+
+      const model = resolver.getModelForWorkload('execution');
+      expect(model).toBe('openai.gpt-5.2');
+
+      if (previousExecution) {
+        config.workloads.execution = previousExecution;
+      } else {
+        delete config.workloads.execution;
+      }
     });
 
     it('should get model for tiers', () => {
@@ -462,7 +482,7 @@ describe('LLM Provider Manager', () => {
       const config = manager.getConfig();
 
       expect(config).toBeDefined();
-      expect(config.endpoints).toBeDefined();
+      expect(config.providers).toBeDefined();
       expect(config.models).toBeDefined();
     });
 
@@ -581,7 +601,7 @@ describe('LLM Provider Manager', () => {
       const config = getCachedConfig();
 
       console.log('Loaded user config:');
-      console.log(`  - Endpoints: ${Object.keys(config.endpoints).length}`);
+      console.log(`  - Providers: ${Object.keys(config.providers).length}`);
       console.log(`  - Models: ${Object.keys(config.models).length}`);
       console.log(`  - Workloads: ${Object.keys(config.workloads).length}`);
 

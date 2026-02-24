@@ -121,11 +121,6 @@ function getCredentialValue(
 export function hasRequiredCredentials(config: EndpointConfig): boolean {
   const fileCredential = getCachedEndpointCredential(config.id);
 
-  // Check if explicitly disabled in credentials file
-  if (fileCredential?.enabled === false) {
-    return false;
-  }
-
   if (config.protocol === 'codex') {
     return authManagerV2.isAuthenticated();
   }
@@ -153,7 +148,7 @@ export function hasRequiredCredentials(config: EndpointConfig): boolean {
 
 /**
  * Resolve credentials for an endpoint
- * Priority: environment variables > ~/.ponybunny/credentials.json
+ * Priority: environment variables > ~/.config/ponybunny/credentials.json
  */
 export function resolveCredentials(config: EndpointConfig): ResolvedEndpointCredentials | null {
   if (!hasRequiredCredentials(config)) {
