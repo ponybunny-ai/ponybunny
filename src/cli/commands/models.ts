@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { modelsManager } from '../lib/models-manager.js';
 import { probeAndPersistAvailability } from '../../infra/llm/provider-manager/availability-prober.js';
+import { loadLLMConfig } from '../../infra/llm/provider-manager/config-loader.js';
 
 export const modelsCommand = new Command('models');
 
@@ -10,57 +10,51 @@ modelsCommand
   .description('Manage model lists')
   .addHelpText('after', `
 Examples:
-  $ pb models list         List cached models
-  $ pb models refresh      Refresh models from APIs
-  $ pb models clear        Clear cache and reset to defaults
-  $ pb models info         Show cache information
+  $ pb models list         List models from llm-config
   $ pb models probe        Probe enabled endpoints/models and persist health
 `);
 
 modelsCommand
   .command('list')
-  .description('List all available models from cache')
+  .description('List models from ~/.config/ponybunny/llm-config.json')
   .action(async () => {
     try {
-      const cache = await modelsManager.getModels();
-      
-      console.log(chalk.cyan('\n📋 OpenAI Codex Models:'));
-      cache.models.codex.forEach((model, idx) => {
-        console.log(chalk.white(`  ${idx + 1}. ${model.label || model.name}`));
-      });
-      
-      console.log(chalk.magenta('\n📋 Antigravity Models:'));
-      cache.models.antigravity.forEach((model, idx) => {
-        console.log(chalk.white(`  ${idx + 1}. ${model.label || model.name}`));
-      });
-      
-      const age = modelsManager.getCacheAge();
-      if (age) {
-        const hours = Math.floor(age / (1000 * 60 * 60));
-        console.log(chalk.gray(`\nCache age: ${hours} hours ago`));
+      const config = loadLLMConfig();
+      const endpointIds = Object.keys(config.endpoints).sort((a, b) => a.localeCompare(b));
+      const modelIds = Object.keys(config.models).sort((a, b) => a.localeCompare(b));
+
+      console.log(chalk.cyan('\n📋 Endpoints'));
+      for (const endpointId of endpointIds) {
+        const endpoint = config.endpoints[endpointId];
+        const healthMark = endpoint.health?.available === true
+          ? chalk.green('available')
+          : endpoint.health
+            ? chalk.red('unavailable')
+            : chalk.gray('unknown');
+        const enabledMark = endpoint.enabled ? chalk.green('enabled') : chalk.gray('disabled');
+        console.log(`  - ${chalk.white(endpointId)} (${enabledMark}, ${healthMark})`);
       }
+
+      console.log(chalk.cyan('\n📋 Models'));
+      for (const modelId of modelIds) {
+        const model = config.models[modelId];
+        const availableEndpoints = Object.entries(model.health?.endpoints ?? {})
+          .filter(([, value]) => value.available)
+          .map(([id]) => id);
+        const availability = availableEndpoints.length > 0
+          ? chalk.green(`available on ${availableEndpoints.join(', ')}`)
+          : model.health
+            ? chalk.red('unavailable on probed endpoints')
+            : chalk.gray('not probed');
+
+        console.log(`  - ${chalk.white(modelId)} (${chalk.gray(model.displayName)})`);
+        console.log(chalk.gray(`    endpoints: ${model.endpoints.join(', ')}`));
+        console.log(chalk.gray(`    status: ${availability}`));
+      }
+
       console.log();
     } catch (error) {
       console.error(chalk.red(`Failed to list models: ${(error as Error).message}`));
-      process.exit(1);
-    }
-  });
-
-modelsCommand
-  .command('refresh')
-  .description('Refresh model lists from APIs')
-  .action(async () => {
-    const spinner = ora('Fetching models from APIs...').start();
-    
-    try {
-      const cache = await modelsManager.refreshModels();
-      spinner.succeed('Models refreshed successfully');
-      
-      console.log(chalk.green(`\n✓ Cached ${cache.models.codex.length} Codex models`));
-      console.log(chalk.green(`✓ Cached ${cache.models.antigravity.length} Antigravity models\n`));
-    } catch (error) {
-      spinner.fail('Failed to refresh models');
-      console.error(chalk.red(`Error: ${(error as Error).message}`));
       process.exit(1);
     }
   });
@@ -107,54 +101,6 @@ modelsCommand
     } catch (error) {
       spinner.fail('LLM availability probe failed');
       console.error(chalk.red(`Error: ${(error as Error).message}`));
-      process.exit(1);
-    }
-  });
-
-modelsCommand
-  .command('clear')
-  .description('Clear cache and reset to defaults')
-  .action(() => {
-    try {
-      modelsManager.clearCache();
-      console.log(chalk.green('\n✓ Models cache cleared and reset to defaults\n'));
-    } catch (error) {
-      console.error(chalk.red(`Failed to clear cache: ${(error as Error).message}`));
-      process.exit(1);
-    }
-  });
-
-modelsCommand
-  .command('info')
-  .description('Show cache information')
-  .action(async () => {
-    try {
-      const cache = await modelsManager.getModels();
-      const age = modelsManager.getCacheAge();
-      
-      console.log(chalk.cyan('\n📊 Models Cache Info:'));
-      console.log(chalk.white(`  Version: ${cache.version}`));
-      console.log(chalk.white(`  Last Updated: ${new Date(cache.lastUpdated).toLocaleString()}`));
-      
-      if (age) {
-        const hours = Math.floor(age / (1000 * 60 * 60));
-        const minutes = Math.floor((age % (1000 * 60 * 60)) / (1000 * 60));
-        console.log(chalk.white(`  Age: ${hours}h ${minutes}m`));
-        
-        const ttl = 24 * 60 * 60 * 1000;
-        const remaining = ttl - age;
-        if (remaining > 0) {
-          const remainingHours = Math.floor(remaining / (1000 * 60 * 60));
-          console.log(chalk.green(`  Valid for: ${remainingHours} more hours`));
-        } else {
-          console.log(chalk.yellow(`  Status: Expired (run 'pb models refresh')`));
-        }
-      }
-      
-      console.log(chalk.white(`  Codex Models: ${cache.models.codex.length}`));
-      console.log(chalk.white(`  Antigravity Models: ${cache.models.antigravity.length}\n`));
-    } catch (error) {
-      console.error(chalk.red(`Failed to get cache info: ${(error as Error).message}`));
       process.exit(1);
     }
   });

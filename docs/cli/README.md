@@ -53,8 +53,8 @@ pb gateway status          # Check Gateway status
 pb gateway pair            # Create pairing token
 
 # Model management
-pb models list             # List cached models
-pb models refresh          # Refresh from APIs
+pb models list             # List models from llm-config
+pb models probe            # Probe endpoint/model availability
 
 # Authentication
 pb auth list               # List accounts

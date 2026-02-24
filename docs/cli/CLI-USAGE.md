@@ -76,7 +76,7 @@ Options:
 | `pb status` | Check system and authentication status |
 | `pb auth` | Authentication management |
 | `pb config` | Configuration management |
-| `pb models` | Model list management |
+| `pb models` | Model availability listing and probing |
 | `pb service` | Unified service management |
 | `pb gateway` | Gateway server management |
 | `pb scheduler` | Scheduler daemon management |
@@ -690,11 +690,11 @@ pb debug web --debug-db ./my-debug.db
 
 ## Model Management
 
-Manage cached model lists from AI providers.
+Manage model visibility and availability from `llm-config.json`.
 
 ### `pb models list`
 
-List all available models from cache.
+List configured models/endpoints and current probe health from `~/.config/ponybunny/llm-config.json`.
 
 ```bash
 pb models list
@@ -702,60 +702,32 @@ pb models list
 
 **Output:**
 ```
-📋 OpenAI Codex Models:
-  1. GPT-5.2 Turbo
-  2. GPT-5.2
-  3. GPT-4o
+📋 Endpoints
+  - openai-direct (enabled, available)
+  - anthropic-direct (enabled, unavailable)
 
-📋 Antigravity Models:
-  1. Gemini 2.0 Flash
-  2. Gemini 1.5 Pro
-  3. Gemini 1.5 Flash
-
-Cache age: 5 hours ago
+📋 Models
+  - gpt-5.2 (GPT-5.2)
+    endpoints: openai-direct
+    status: available on openai-direct
 ```
 
-### `pb models refresh`
+### `pb models probe`
 
-Refresh model lists from APIs.
+Probe enabled provider endpoints/models and persist health to `llm-config.json`.
 
 ```bash
-pb models refresh
+pb models probe [--timeout 10000] [--max-models 20]
 ```
 
 **Output:**
 ```
-✓ Models refreshed successfully
-
-✓ Cached 15 Codex models
-✓ Cached 8 Antigravity models
-```
-
-### `pb models clear`
-
-Clear cache and reset to defaults.
-
-```bash
-pb models clear
-```
-
-### `pb models info`
-
-Show cache information.
-
-```bash
-pb models info
-```
-
-**Output:**
-```
-📊 Models Cache Info:
-  Version: 1
-  Last Updated: 2026-02-08T10:00:00.000Z
-  Age: 5h 30m
-  Valid for: 18 more hours
-  Codex Models: 15
-  Antigravity Models: 8
+Probe Summary:
+  Checked at: 2026-02-23T12:00:00.000Z
+  Enabled endpoints: 3
+  Endpoint checks passed: 2
+  Model-endpoint checks: 12
+  Model-endpoint available: 10
 ```
 
 ---
@@ -832,8 +804,8 @@ pb auth login
 # 3. Verify authentication
 pb status
 
-# 4. Refresh model lists
-pb models refresh
+# 4. Probe endpoint/model availability
+pb models probe
 
 # 5. Start all services
 pb service start all
@@ -959,7 +931,6 @@ All configuration files are stored in `~/.ponybunny/`:
 | `llm-config.json` | LLM endpoint and model configuration |
 | `mcp-config.json` | MCP server configuration |
 | `auth.json` | OAuth authentication tokens |
-| `models-cache.json` | Cached model lists |
 | `debug-config.json` | Debug server configuration |
 | `services.json` | Service state tracking |
 | `gateway.pid` | Gateway process information |

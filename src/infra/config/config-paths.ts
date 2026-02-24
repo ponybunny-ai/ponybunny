@@ -11,7 +11,6 @@ const CONFIG_FILES_TO_MIGRATE = [
   'mcp-config.schema.json',
   'accounts.json',
   'auth.json',
-  'models.json',
   'debug-config.json',
   'prompts',
 ] as const;

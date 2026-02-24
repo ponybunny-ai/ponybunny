@@ -6,7 +6,6 @@ import Spinner from 'ink-spinner';
 import SelectInput from 'ink-select-input';
 import { openaiClient } from '../lib/openai-client.js';
 import { antigravityClient } from '../lib/antigravity-client.js';
-import { modelsManager } from '../lib/models-manager.js';
 import type { ChatMessage } from '../lib/openai-client.js';
 import type { AccountProvider } from '../lib/account-types.js';
 import { accountManagerV2 } from '../lib/auth-manager-v2.js';
@@ -20,6 +19,7 @@ import {
   AntigravityAccountProvider,
 } from '../../infra/llm/index.js';
 import type { ReActCycleParams } from '../../autonomy/react-integration.js';
+import { loadLLMConfig } from '../../infra/llm/provider-manager/config-loader.js';
 
 // Initialize core services lazily
 let executionService: ExecutionService | null = null;
@@ -136,22 +136,17 @@ const ChatUI = ({ model: initialModel = 'gpt-5.2', system }: ChatUIProps) => {
 
     const loadModels = async () => {
       try {
-        const cache = await modelsManager.getModels();
-        
-        const models = [
-          ...cache.models.codex.map(m => ({
-            label: m.label || `${m.name} - OpenAI Codex`,
-            value: m.name,
-          })),
-          ...cache.models.antigravity.map(m => ({
-            label: m.label || `${m.name} - Antigravity`,
-            value: m.name,
-          })),
-        ];
+        const config = loadLLMConfig();
+        const models = Object.entries(config.models)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([modelId, modelConfig]) => ({
+            label: `${modelConfig.displayName} (${modelId})`,
+            value: modelId,
+          }));
 
         setAvailableModels(models);
       } catch (error) {
-        console.warn('Failed to load models, using defaults');
+        console.warn('Failed to load models from llm-config, using defaults', error);
         setAvailableModels([
           { label: 'GPT-5.2 (Latest) - OpenAI Codex', value: 'gpt-5.2' },
           { label: 'GPT-5.2 Codex (Code optimized) - OpenAI Codex', value: 'gpt-5.2-codex' },
@@ -401,10 +396,9 @@ Type /help for available commands.`;
                 .split('\n\n')
                 .filter((step: string) => step.includes('THOUGHT') || step.includes('ACTION') || step.includes('OBSERVATION'))
                 .map((step: string) => {
-                    const isThought = step.includes('THOUGHT');
-                    const isAction = step.includes('ACTION');
-                    const isObservation = step.includes('OBSERVATION');
-                    const content = step.replace(/\[.*?\] (THOUGHT|ACTION|OBSERVATION): /, '');
+                 const isThought = step.includes('THOUGHT');
+                 const isAction = step.includes('ACTION');
+                 const content = step.replace(/\[.*?\] (THOUGHT|ACTION|OBSERVATION): /, '');
                     
                     return {
                         role: 'system' as const,
