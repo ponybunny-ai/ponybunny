@@ -14,6 +14,12 @@ describe('Onboarding config generation', () => {
     expect(getPonyBunnyConfigTemplate().$schema).toBe('https://ponybunny.dho.ai/schemas/ponybunny.schema.json');
   });
 
+  it('loads model pricing from llm-config.example.json during init template generation', () => {
+    const gpt52Pricing = LLM_CONFIG_TEMPLATE.models['gpt-5.2'].costPer1kTokens;
+    expect(gpt52Pricing.input).toBe(0.00175);
+    expect(gpt52Pricing.output).toBe(0.014);
+  });
+
   it('does not include local schema files in pb init output', () => {
     const names = new Set(getOnboardingFiles().map((file) => file.name));
 

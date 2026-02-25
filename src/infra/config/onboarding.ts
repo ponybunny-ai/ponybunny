@@ -237,10 +237,7 @@ export const LLM_CONFIG_SCHEMA_TEMPLATE = {
   },
 };
 
-/**
- * Template for llm-config.json
- */
-export const LLM_CONFIG_TEMPLATE = {
+const DEFAULT_LLM_CONFIG_TEMPLATE = {
   $schema: 'https://ponybunny.dho.ai/schemas/llm-config.schema.json',
 
   providers: {
@@ -496,6 +493,82 @@ export const LLM_CONFIG_TEMPLATE = {
     temperature: 0.7,
   },
 };
+
+type LlmConfigTemplate = typeof DEFAULT_LLM_CONFIG_TEMPLATE;
+
+function isLlmConfigTemplate(value: unknown): value is LlmConfigTemplate {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as Partial<LlmConfigTemplate>;
+  return (
+    typeof candidate.$schema === 'string'
+    && typeof candidate.providers === 'object'
+    && candidate.providers !== null
+    && typeof candidate.models === 'object'
+    && candidate.models !== null
+    && typeof candidate.tiers === 'object'
+    && candidate.tiers !== null
+    && typeof candidate.workloads === 'object'
+    && candidate.workloads !== null
+    && typeof candidate.defaults === 'object'
+    && candidate.defaults !== null
+  );
+}
+
+function getLlmConfigTemplateSourceCandidates(): string[] {
+  const entryPoint = process.argv[1] ? path.resolve(process.argv[1]) : undefined;
+  const entryDir = entryPoint ? path.dirname(entryPoint) : undefined;
+
+  const entryCandidates = entryDir
+    ? [
+      path.join(entryDir, '..', 'llm-config.example.json'),
+      path.join(entryDir, '..', '..', 'llm-config.example.json'),
+      path.join(entryDir, '..', '..', '..', 'llm-config.example.json'),
+      path.join(entryDir, '..', 'docs', 'openai-compatible', 'examples', 'llm-config.example.json'),
+      path.join(entryDir, '..', '..', 'docs', 'openai-compatible', 'examples', 'llm-config.example.json'),
+    ]
+    : [];
+
+  return [
+    path.join(process.cwd(), 'llm-config.example.json'),
+    path.join(process.cwd(), 'docs', 'openai-compatible', 'examples', 'llm-config.example.json'),
+    ...entryCandidates,
+  ];
+}
+
+function loadLlmConfigTemplateFromExample(): LlmConfigTemplate | undefined {
+  const visited = new Set<string>();
+  const candidates = getLlmConfigTemplateSourceCandidates();
+
+  for (const candidate of candidates) {
+    if (visited.has(candidate)) {
+      continue;
+    }
+    visited.add(candidate);
+
+    if (!fs.existsSync(candidate)) {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(fs.readFileSync(candidate, 'utf-8'));
+      if (isLlmConfigTemplate(parsed)) {
+        return parsed;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Template for llm-config.json
+ */
+export const LLM_CONFIG_TEMPLATE = loadLlmConfigTemplateFromExample() ?? DEFAULT_LLM_CONFIG_TEMPLATE;
 
 /**
  * Template for mcp-config.schema.json
