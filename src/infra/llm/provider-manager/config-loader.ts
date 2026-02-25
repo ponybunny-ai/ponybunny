@@ -115,7 +115,6 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
       displayName: 'GPT-5.2',
       providers: ['openai-direct', 'openai-compatible'],
       endpoints: [
-        { name: 'chat-completions', url: '/v1/chat/completions' },
         { name: 'responses', url: '/v1/responses' },
       ],
       costPer1kTokens: { input: 0.01, output: 0.03 },
@@ -275,7 +274,6 @@ const EMBEDDED_SCHEMA = {
                 name: {
                   type: 'string',
                   enum: [
-                    'chat-completions',
                     'responses',
                     'realtime',
                     'assistants',

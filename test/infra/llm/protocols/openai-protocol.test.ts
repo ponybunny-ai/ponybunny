@@ -33,12 +33,12 @@ describe('OpenAIProtocolAdapter', () => {
 
       expect(result).toEqual({
         model: 'gpt-4o',
-        messages: [
+        input: [
           { role: 'system', content: 'You are helpful.' },
           { role: 'user', content: 'Hello' },
           { role: 'assistant', content: 'Hi!' },
         ],
-        max_tokens: 1000,
+        max_output_tokens: 1000,
         temperature: 0.5,
       });
     });
@@ -50,11 +50,11 @@ describe('OpenAIProtocolAdapter', () => {
         model: 'gpt-4o',
       }) as Record<string, unknown>;
 
-      expect(result.max_tokens).toBe(4000);
+      expect(result.max_output_tokens).toBe(4000);
       expect(result.temperature).toBe(0.7);
     });
 
-    it('should use max_completion_tokens for gpt-5 models', () => {
+    it('should use max_output_tokens for gpt-5 models', () => {
       const messages: LLMMessage[] = [{ role: 'user', content: 'Hello' }];
 
       const result = adapter.formatRequest(messages, {
@@ -62,8 +62,7 @@ describe('OpenAIProtocolAdapter', () => {
         maxTokens: 1200,
       }) as Record<string, unknown>;
 
-      expect(result.max_completion_tokens).toBe(1200);
-      expect(result.max_tokens).toBeUndefined();
+      expect(result.max_output_tokens).toBe(1200);
     });
 
     it('should format request for responses API', () => {
@@ -90,14 +89,10 @@ describe('OpenAIProtocolAdapter', () => {
         status: 200,
         statusText: 'OK',
         data: {
-          choices: [
-            {
-              message: { content: 'Hello! How can I help?' },
-              finish_reason: 'stop',
-            },
-          ],
+          output_text: 'Hello! How can I help?',
           usage: { total_tokens: 50 },
           model: 'gpt-4o-2024-05-13',
+          status: 'completed',
         },
       };
 
@@ -116,14 +111,10 @@ describe('OpenAIProtocolAdapter', () => {
         status: 200,
         statusText: 'OK',
         data: {
-          choices: [
-            {
-              message: { content: 'Truncated...' },
-              finish_reason: 'length',
-            },
-          ],
+          output_text: 'Truncated...',
           usage: { total_tokens: 4000 },
           model: 'gpt-4o',
+          status: 'incomplete',
         },
       };
 
@@ -137,8 +128,9 @@ describe('OpenAIProtocolAdapter', () => {
         status: 200,
         statusText: 'OK',
         data: {
-          choices: [],
+          output: [],
           usage: { total_tokens: 0 },
+          status: 'completed',
         },
       };
 
@@ -186,7 +178,7 @@ describe('OpenAIProtocolAdapter', () => {
     it('should build standard OpenAI URL', () => {
       const url = adapter.buildUrl('https://api.openai.com/v1', 'gpt-4o', {});
 
-      expect(url).toBe('https://api.openai.com/v1/chat/completions');
+      expect(url).toBe('https://api.openai.com/v1/responses');
     });
 
     it('should build Azure OpenAI URL', () => {
@@ -197,7 +189,7 @@ describe('OpenAIProtocolAdapter', () => {
       );
 
       expect(url).toBe(
-        'https://my-resource.openai.azure.com/openai/deployments/gpt-4o-deployment/chat/completions?api-version=2024-02-15-preview'
+        'https://my-resource.openai.azure.com/openai/deployments/gpt-4o-deployment/responses?api-version=2024-02-15-preview'
       );
     });
 

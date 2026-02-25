@@ -522,15 +522,11 @@ export class LLMProviderManager implements ILLMProviderManager {
   }
 
   private resolveOpenAIOperation(
-    workloadId: WorkloadId,
+    _workloadId: WorkloadId,
     explicit?: OpenAIOperation
   ): OpenAIOperation {
     if (explicit) {
       return explicit;
-    }
-
-    if (workloadId === 'conversation') {
-      return 'chat-completions';
     }
 
     return 'responses';
@@ -599,12 +595,12 @@ export class LLMProviderManager implements ILLMProviderManager {
 
     const fallbackName: OpenAIOperation = preferred ?? 'responses';
     const endpoints = (modelConfig?.endpoints ?? []).filter(
-      item => item.name === 'chat-completions' || item.name === 'responses'
+      item => item.name === 'responses'
     ) as Array<{ name: OpenAIOperation; url: string }>;
     if (!endpoints || endpoints.length === 0) {
       return {
         name: fallbackName,
-        url: fallbackName === 'responses' ? '/responses' : '/chat/completions',
+        url: '/responses',
       };
     }
 

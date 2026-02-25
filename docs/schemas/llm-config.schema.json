@@ -98,7 +98,6 @@
                 "name": {
                   "type": "string",
                   "enum": [
-                    "chat-completions",
                     "responses",
                     "realtime",
                     "assistants",

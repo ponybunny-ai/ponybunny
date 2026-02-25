@@ -144,7 +144,6 @@ export const LLM_CONFIG_SCHEMA_TEMPLATE = {
                 name: {
                   type: 'string',
                   enum: [
-                    'chat-completions',
                     'responses',
                     'realtime',
                     'assistants',
@@ -296,10 +295,7 @@ const DEFAULT_LLM_CONFIG_TEMPLATE = {
     'gpt-5.2': {
       displayName: 'GPT-5.2',
       providers: ['openai-direct', 'azure-openai', 'openai-compatible'],
-      endpoints: [
-        { name: 'chat-completions', url: '/v1/chat/completions' },
-        { name: 'responses', url: '/v1/responses' },
-      ],
+      endpoints: [{ name: 'responses', url: '/v1/responses' }],
       costPer1kTokens: { input: 0, output: 0 },
       maxContextTokens: 128000,
       capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
@@ -307,10 +303,7 @@ const DEFAULT_LLM_CONFIG_TEMPLATE = {
     'gpt-5-mini': {
       displayName: 'GPT-5 Mini',
       providers: ['openai-direct', 'azure-openai', 'openai-compatible'],
-      endpoints: [
-        { name: 'chat-completions', url: '/v1/chat/completions' },
-        { name: 'responses', url: '/v1/responses' },
-      ],
+      endpoints: [{ name: 'responses', url: '/v1/responses' }],
       costPer1kTokens: { input: 0, output: 0 },
       maxContextTokens: 128000,
       capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
@@ -318,10 +311,7 @@ const DEFAULT_LLM_CONFIG_TEMPLATE = {
     'gpt-5-nano': {
       displayName: 'GPT-5 Nano',
       providers: ['openai-direct', 'azure-openai', 'openai-compatible'],
-      endpoints: [
-        { name: 'chat-completions', url: '/v1/chat/completions' },
-        { name: 'responses', url: '/v1/responses' },
-      ],
+      endpoints: [{ name: 'responses', url: '/v1/responses' }],
       costPer1kTokens: { input: 0, output: 0 },
       maxContextTokens: 128000,
       capabilities: ['text', 'vision', 'function-calling', 'json-mode'],

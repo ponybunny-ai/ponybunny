@@ -107,14 +107,10 @@ describe('UnifiedLLMProvider', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          choices: [
-            {
-              message: { content: 'Hello! How can I help?' },
-              finish_reason: 'stop',
-            },
-          ],
+          output_text: 'Hello! How can I help?',
           usage: { total_tokens: 50 },
           model: 'gpt-4o',
+          status: 'completed',
         }),
       });
 
@@ -128,7 +124,7 @@ describe('UnifiedLLMProvider', () => {
 
       // Verify fetch was called with correct URL and headers
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.openai.com/v1/chat/completions',
+        'https://api.openai.com/v1/responses',
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({

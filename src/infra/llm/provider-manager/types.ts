@@ -55,7 +55,6 @@ export interface LLMEndpointConfig {
 export type ModelCapability = 'text' | 'vision' | 'function-calling' | 'json-mode';
 
 export type OpenAIModelEndpointName =
-  | 'chat-completions'
   | 'responses'
   | 'realtime'
   | 'assistants'

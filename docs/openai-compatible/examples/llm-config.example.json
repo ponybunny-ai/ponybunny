@@ -13,7 +13,6 @@
       "displayName": "Qwen3 30B A3B Instruct",
       "providers": ["openai-compatible"],
       "endpoints": [
-        { "name": "chat-completions", "url": "/v1/chat/completions" },
         { "name": "responses", "url": "/v1/responses" }
       ],
       "costPer1kTokens": { "input": 0, "output": 0 },

@@ -5,7 +5,7 @@ import type { LLMMessage, LLMResponse, ToolDefinition, StreamChunk } from '../ll
  */
 export type ProtocolId = 'anthropic' | 'openai' | 'gemini' | 'codex';
 
-export type OpenAIOperation = 'chat-completions' | 'responses';
+export type OpenAIOperation = 'responses';
 
 /**
  * Credentials for endpoint authentication

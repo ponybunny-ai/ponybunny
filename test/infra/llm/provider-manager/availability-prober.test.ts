@@ -34,7 +34,7 @@ describe('probeAndPersistAvailability', () => {
 
     mockGetProtocolAdapter.mockReturnValue({
       formatRequest: jest.fn(() => ({ messages: [] })),
-      buildUrl: jest.fn((baseUrl: string) => `${baseUrl}/chat/completions`),
+      buildUrl: jest.fn((baseUrl: string) => `${baseUrl}/responses`),
       buildHeaders: jest.fn(() => ({ Authorization: 'Bearer k' })),
       extractErrorMessage: jest.fn((data: Record<string, unknown>) => String(data.error || 'bad request')),
       parseResponse: jest.fn(() => ({ content: 'pong' })),

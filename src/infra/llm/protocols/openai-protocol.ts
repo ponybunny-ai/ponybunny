@@ -7,13 +7,13 @@ import type {
 import { BaseProtocolAdapter } from './protocol-adapter.js';
 
 /**
- * OpenAI Chat Completions API protocol adapter
+ * OpenAI Responses API protocol adapter
  * Supports both OpenAI Direct and Azure OpenAI endpoints
  */
 export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
   readonly protocolId = 'openai' as const;
 
-  private readonly defaultOperation = 'chat-completions' as const;
+  private readonly defaultOperation = 'responses' as const;
 
   // Streaming tool_calls accumulator state
   private streamingToolCalls = new Map<number, { id: string; type: string; name: string; arguments: string }>();
@@ -280,8 +280,7 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
     _credentials: EndpointCredentials,
     config?: ProtocolRequestConfig
   ): string {
-    const operation = config?.openaiOperation || this.defaultOperation;
-    const endpointUrl = config?.openaiEndpointUrl || (operation === 'responses' ? '/responses' : '/chat/completions');
+    const endpointUrl = config?.openaiEndpointUrl || '/responses';
     let normalizedEndpointUrl = endpointUrl.startsWith('/') ? endpointUrl : `/${endpointUrl}`;
     const baseHasV1 = /\/v1\/?$/.test(baseUrl);
 

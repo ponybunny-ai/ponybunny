@@ -14,7 +14,7 @@ export class OpenAIProvider implements ILLMProvider {
     const mergedConfig = { ...this.config, ...options };
     
     try {
-      const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      const response = await fetch(`${this.baseUrl}/responses`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -22,11 +22,11 @@ export class OpenAIProvider implements ILLMProvider {
         },
         body: JSON.stringify({
           model: mergedConfig.model,
-          messages: messages.map(m => ({
-            role: m.role,
-            content: m.content,
+          input: messages.map(m => ({
+            role: m.role === 'tool' ? 'user' : m.role,
+            content: m.content ?? '',
           })),
-          max_tokens: mergedConfig.maxTokens || 4000,
+          max_output_tokens: mergedConfig.maxTokens || 4000,
           temperature: mergedConfig.temperature ?? 0.7,
         }),
         signal: AbortSignal.timeout(mergedConfig.timeout || 60000),
@@ -41,14 +41,39 @@ export class OpenAIProvider implements ILLMProvider {
         );
       }
 
-      const data = await response.json() as any;
+      const data = await response.json() as {
+        model?: string;
+        output_text?: string;
+        output?: Array<{
+          type?: string;
+          content?: Array<{ type?: string; text?: string }>;
+        }>;
+        usage?: { total_tokens?: number; input_tokens?: number; output_tokens?: number };
+        status?: string;
+      };
+
+      let content = data.output_text || '';
+      if (!content && Array.isArray(data.output)) {
+        for (const item of data.output) {
+          if (item.type !== 'message' || !Array.isArray(item.content)) {
+            continue;
+          }
+          for (const part of item.content) {
+            if (part.type === 'output_text' && part.text) {
+              content += part.text;
+            }
+          }
+        }
+      }
+
+      const usage = data.usage;
+      const tokensUsed = usage?.total_tokens ?? ((usage?.input_tokens || 0) + (usage?.output_tokens || 0));
       
       return {
-        content: data.choices[0].message.content,
-        tokensUsed: data.usage.total_tokens,
-        model: data.model,
-        finishReason: data.choices[0].finish_reason === 'stop' ? 'stop' : 
-                      data.choices[0].finish_reason === 'length' ? 'length' : 'error',
+        content,
+        tokensUsed,
+        model: data.model || mergedConfig.model,
+        finishReason: data.status === 'incomplete' ? 'length' : 'stop',
       };
     } catch (error) {
       if (error instanceof LLMProviderError) {
