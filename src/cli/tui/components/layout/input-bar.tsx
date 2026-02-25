@@ -161,7 +161,7 @@ export const InputBar: React.FC<InputBarProps> = ({
           ) : focus ? (
             'ESC unfocus │ Enter submit │ / for commands'
           ) : (
-            '/ or i to type │ Tab switch view │ Ctrl+N new goal │ Ctrl+E escalations'
+            '/ or i to type │ Tab switch view │ Ctrl+N new goal │ Ctrl+E escalations │ Ctrl+R refresh'
           )}
         </Text>
       </Box>

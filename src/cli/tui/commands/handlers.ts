@@ -23,6 +23,43 @@ type CommandHandler = (
   ctx: CommandContext
 ) => Promise<CommandResult> | CommandResult;
 
+async function refreshSchedulerData(ctx: CommandContext): Promise<CommandResult> {
+  const client = ctx.gateway.client;
+  if (!client) {
+    return { success: false, error: 'Not connected to gateway' };
+  }
+
+  ctx.app.setActivityStatus('refreshing scheduler data...');
+  try {
+    const [goalsResult, workItemsResult, escalationsResult, capabilities] = await Promise.all([
+      client.listGoals(),
+      client.listWorkItems(),
+      client.listEscalations(),
+      client.getSystemCapabilities(),
+    ]);
+
+    ctx.app.setGoals(goalsResult.goals);
+    ctx.app.setWorkItems(workItemsResult.workItems);
+    ctx.app.setEscalations(escalationsResult.escalations as Parameters<typeof ctx.app.setEscalations>[0]);
+    ctx.app.setSchedulerCapabilities(capabilities);
+    ctx.app.addEvent('scheduler.refreshed', {
+      goals: goalsResult.goals.length,
+      workItems: workItemsResult.workItems.length,
+      escalations: escalationsResult.escalations.length,
+      schedulerConnected: capabilities.schedulerConnected,
+    });
+
+    return {
+      success: true,
+      message: `Refreshed scheduler data (goals: ${goalsResult.goals.length}, work items: ${workItemsResult.workItems.length}, escalations: ${escalationsResult.escalations.length})`,
+    };
+  } catch (err) {
+    return { success: false, error: `Refresh failed: ${(err as Error).message}` };
+  } finally {
+    ctx.app.setActivityStatus('idle');
+  }
+}
+
 const handlers: Record<string, CommandHandler> = {
   // Help command
   help: (_cmd, ctx) => {
@@ -194,6 +231,10 @@ const handlers: Record<string, CommandHandler> = {
     return { success: true, message: 'Reconnecting...' };
   },
 
+  refresh: async (_cmd, ctx) => {
+    return refreshSchedulerData(ctx);
+  },
+
   // Navigation commands
   dashboard: (_cmd, ctx) => {
     ctx.app.setView('dashboard');
@@ -233,6 +274,7 @@ const aliasMap: Record<string, string> = {
   a: 'approvals',
   s: 'status',
   rc: 'reconnect',
+  rf: 'refresh',
   d: 'dashboard',
   home: 'dashboard',
   ev: 'events',

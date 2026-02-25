@@ -133,6 +133,18 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
       }
       return;
     }
+
+    if (key.ctrl && input === 'r') {
+      void (async () => {
+        const result = await executeCommand('/refresh', commandContext);
+        if (result.error) {
+          addEvent('command.error', { command: '/refresh', error: result.error });
+        } else if (result.message) {
+          addEvent('command.success', { command: '/refresh', message: result.message });
+        }
+      })();
+      return;
+    }
   });
 
   // Handle input submission

@@ -113,6 +113,12 @@ export const commands: CommandDefinition[] = [
     description: 'Reconnect to gateway',
     usage: '/reconnect',
   },
+  {
+    name: 'refresh',
+    aliases: ['rf'],
+    description: 'Refresh scheduler data from gateway',
+    usage: '/refresh',
+  },
 
   // Navigation commands
   {
@@ -199,7 +205,7 @@ export function getCommandsByCategory(): Record<string, CommandDefinition[]> {
       ['escalations', 'approvals', 'approve', 'reject'].includes(c.name)
     ),
     'System': commands.filter(c =>
-      ['status', 'ping', 'reconnect'].includes(c.name)
+      ['status', 'ping', 'reconnect', 'refresh'].includes(c.name)
     ),
     'Navigation': commands.filter(c =>
       ['dashboard', 'events', 'help'].includes(c.name)
