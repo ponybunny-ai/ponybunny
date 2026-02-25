@@ -107,6 +107,11 @@
         "catchUp"
       ],
       "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether schedule-based dispatch is enabled for this agent"
+        },
         "everyMs": {
           "type": "integer",
           "minimum": 1000,

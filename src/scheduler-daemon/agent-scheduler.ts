@@ -111,6 +111,15 @@ export class AgentScheduler {
         continue;
       }
 
+      if (!agent.config.schedule.enabled) {
+        this.logger.info('[AgentScheduler] Skipping schedule-disabled agent', {
+          agentId: job.agent_id,
+        });
+        this.releaseClaim(job, nowMs);
+        skipped += 1;
+        continue;
+      }
+
       let scheduleOutcome;
       try {
         scheduleOutcome = computeScheduleOutcome({

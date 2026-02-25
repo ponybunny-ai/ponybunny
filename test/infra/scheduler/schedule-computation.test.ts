@@ -4,6 +4,7 @@ describe('schedule computation', () => {
   it('coalesces missed interval runs into a single dispatch', () => {
     const result = computeScheduleOutcome({
       schedule: {
+        enabled: true,
         kind: 'interval',
         everyMs: 1000,
         catchUp: { mode: 'coalesce' },
@@ -23,6 +24,7 @@ describe('schedule computation', () => {
   it('returns not-due interval schedules unchanged', () => {
     const result = computeScheduleOutcome({
       schedule: {
+        enabled: true,
         kind: 'interval',
         everyMs: 1000,
         catchUp: { mode: 'coalesce' },
@@ -42,6 +44,7 @@ describe('schedule computation', () => {
   it('dispatches immediately for first interval run', () => {
     const result = computeScheduleOutcome({
       schedule: {
+        enabled: true,
         kind: 'interval',
         everyMs: 60000,
         catchUp: { mode: 'coalesce' },
@@ -61,6 +64,7 @@ describe('schedule computation', () => {
     const base = Date.UTC(2025, 0, 1, 0, 0, 0);
     const result = computeScheduleOutcome({
       schedule: {
+        enabled: true,
         kind: 'cron',
         cron: '*/15 * * * *',
         tz: 'UTC',
@@ -82,6 +86,7 @@ describe('schedule computation', () => {
     const base = Date.UTC(2025, 0, 1, 0, 0, 0);
     const result = computeScheduleOutcome({
       schedule: {
+        enabled: true,
         kind: 'cron',
         cron: '*/15 * * * *',
         tz: 'UTC',

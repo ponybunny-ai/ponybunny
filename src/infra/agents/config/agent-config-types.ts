@@ -13,12 +13,14 @@ export interface AgentScheduleWindow {
 }
 
 export interface AgentCronSchedule {
+  enabled?: boolean;
   cron: string;
   tz?: string;
   catchUp?: AgentCatchUpPolicy;
 }
 
 export interface AgentIntervalSchedule {
+  enabled?: boolean;
   everyMs: number;
   jitterMs?: number;
   timezone?: string;
@@ -119,6 +121,7 @@ export interface AgentConfig {
 }
 
 export interface CompiledAgentSchedule {
+  enabled: boolean;
   kind: 'cron' | 'interval';
   cron?: string;
   everyMs?: number;
@@ -140,11 +143,13 @@ export function compileAgentConfig(config: AgentConfig): CompiledAgentConfig {
   const schedule = config.schedule;
   const catchUp = { ...DEFAULT_CATCH_UP_POLICY, ...(schedule.catchUp ?? {}) };
   const tz = schedule.tz ?? ('timezone' in schedule ? schedule.timezone : undefined);
+  const enabled = schedule.enabled ?? false;
 
   if ('cron' in schedule) {
     return {
       ...config,
       schedule: {
+        enabled,
         kind: 'cron',
         cron: schedule.cron,
         tz,
@@ -156,6 +161,7 @@ export function compileAgentConfig(config: AgentConfig): CompiledAgentConfig {
   return {
     ...config,
     schedule: {
+      enabled,
       kind: 'interval',
       everyMs: schedule.everyMs,
       jitterMs: schedule.jitterMs,

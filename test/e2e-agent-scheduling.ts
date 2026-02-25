@@ -80,7 +80,7 @@ function writeReactGoalAgent(workspaceDir: string): void {
         name: 'React Goal E2E Agent',
         enabled: true,
         type: 'react_goal',
-        schedule: { everyMs: 60_000 },
+        schedule: { enabled: true, everyMs: 60_000 },
         policy: {},
         runner: {
           config: {

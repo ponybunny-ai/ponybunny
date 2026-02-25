@@ -30,6 +30,7 @@ const writeAgent = (
     type: 'growth',
     subAgents: [],
     schedule: {
+      enabled: true,
       everyMs: 60000,
       catchUp: { mode: 'coalesce' },
     },
@@ -75,13 +76,13 @@ describe('cron job reconciliation', () => {
 
     writeAgent(workspaceDir, 'agent-enabled', {
       name: 'Agent Enabled',
-      schedule: { everyMs: 60000, catchUp: { mode: 'coalesce' } },
+      schedule: { enabled: true, everyMs: 60000, catchUp: { mode: 'coalesce' } },
     });
 
     writeAgent(workspaceDir, 'agent-disabled', {
       name: 'Agent Disabled',
       enabled: false,
-      schedule: { everyMs: 60000, catchUp: { mode: 'coalesce' } },
+      schedule: { enabled: true, everyMs: 60000, catchUp: { mode: 'coalesce' } },
     });
 
     const registry = new AgentRegistry();
@@ -112,13 +113,37 @@ describe('cron job reconciliation', () => {
     repository.close();
   });
 
+  it('disables cron job when schedule toggle is off', async () => {
+    const workspaceDir = createTempDir();
+    const dbPath = createTempDbPath();
+
+    writeAgent(workspaceDir, 'agent-schedule-off', {
+      name: 'Agent Schedule Off',
+      schedule: { enabled: false, everyMs: 60000, catchUp: { mode: 'coalesce' } },
+    });
+
+    const registry = new AgentRegistry();
+    await registry.loadAgents({ workspaceDir });
+
+    const repository = new WorkOrderDatabase(dbPath);
+    await repository.initialize();
+
+    await reconcileCronJobsFromRegistry({ repository, registry });
+
+    const job = repository.getCronJob('agent-schedule-off');
+    expect(job).toBeDefined();
+    expect(job?.enabled).toBe(false);
+
+    repository.close();
+  });
+
   it('disables cron jobs missing from registry', async () => {
     const workspaceDir = createTempDir();
     const dbPath = createTempDbPath();
 
     writeAgent(workspaceDir, 'agent-present', {
       name: 'Agent Present',
-      schedule: { everyMs: 120000, catchUp: { mode: 'coalesce' } },
+      schedule: { enabled: true, everyMs: 120000, catchUp: { mode: 'coalesce' } },
     });
 
     const registry = new AgentRegistry();
@@ -149,12 +174,12 @@ describe('cron job reconciliation', () => {
 
     writeAgent(workspaceDir, 'lead', {
       name: 'Lead',
-      schedule: { everyMs: 60000, catchUp: { mode: 'coalesce' } },
+      schedule: { enabled: true, everyMs: 60000, catchUp: { mode: 'coalesce' } },
     });
 
     writeAgent(workspaceDir, 'scout', {
       name: 'Scout',
-      schedule: { everyMs: 60000, catchUp: { mode: 'coalesce' } },
+      schedule: { enabled: true, everyMs: 60000, catchUp: { mode: 'coalesce' } },
     });
 
     const registry = new AgentRegistry();

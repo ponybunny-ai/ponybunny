@@ -34,6 +34,7 @@ const writeAgent = (workspaceDir: string, id: string, config: Record<string, unk
     type: 'growth',
     subAgents: [],
     schedule: {
+      enabled: true,
       everyMs: 60000,
       catchUp: { mode: 'coalesce' },
     },
@@ -164,7 +165,7 @@ describe('durable agent scheduling integration', () => {
 
     writeAgent(workspaceDir, 'agent-idempotent', {
       name: 'Agent Idempotent',
-      schedule: { everyMs: 60000, catchUp: { mode: 'coalesce' } },
+      schedule: { enabled: true, everyMs: 60000, catchUp: { mode: 'coalesce' } },
     });
 
     const registry = new AgentRegistry();
@@ -237,7 +238,7 @@ describe('durable agent scheduling integration', () => {
 
     writeAgent(workspaceDir, 'agent-coalesce', {
       name: 'Agent Coalesce',
-      schedule: { everyMs: intervalMs, catchUp: { mode: 'coalesce' } },
+      schedule: { enabled: true, everyMs: intervalMs, catchUp: { mode: 'coalesce' } },
     });
 
     const registry = new AgentRegistry();
@@ -301,7 +302,7 @@ describe('durable agent scheduling integration', () => {
 
     writeAgent(workspaceDir, 'agent-contention', {
       name: 'Agent Contention',
-      schedule: { everyMs: 60000, catchUp: { mode: 'coalesce' } },
+      schedule: { enabled: true, everyMs: 60000, catchUp: { mode: 'coalesce' } },
     });
 
     const registry = new AgentRegistry();

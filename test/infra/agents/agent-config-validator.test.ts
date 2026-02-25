@@ -151,4 +151,17 @@ describe('Agent config validator', () => {
       expect(validationError.errors.some((entry) => entry.path.includes('/policy/skills/available'))).toBe(true);
     }
   });
+
+  it('accepts schedule.enabled as a boolean toggle', () => {
+    const disabledScheduleConfig = {
+      ...validConfig,
+      schedule: {
+        ...validConfig.schedule,
+        enabled: false,
+      },
+    };
+
+    const result = validateAgentConfig(disabledScheduleConfig);
+    expect(result).toEqual(disabledScheduleConfig);
+  });
 });

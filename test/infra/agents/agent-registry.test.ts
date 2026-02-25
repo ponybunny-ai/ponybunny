@@ -24,6 +24,7 @@ function writeAgentDir(baseDir: string, id: string, configOverride: Record<strin
     type: 'growth',
     subAgents: [],
     schedule: {
+      enabled: true,
       everyMs: 60000,
       catchUp: { mode: 'coalesce' },
     },
@@ -117,7 +118,7 @@ describe('AgentRegistry', () => {
       enabled: true,
       type: 'growth',
       subAgents: [],
-      schedule: { everyMs: 60000, catchUp: { mode: 'coalesce' } },
+      schedule: { enabled: true, everyMs: 60000, catchUp: { mode: 'coalesce' } },
       policy: {
         toolAllowlist: ['llm.classify', 'pg.select'],
         forbiddenPatterns: [
@@ -271,6 +272,7 @@ describe('AgentRegistry', () => {
     expect(agent?.status).toBe('valid');
     expect(agent?.config.enabled).toBe(true);
     expect(agent?.config.schedule.kind).toBe('interval');
+    expect(agent?.config.schedule.enabled).toBe(false);
     expect(agent?.config.schedule.everyMs).toBe(30000);
   });
 });

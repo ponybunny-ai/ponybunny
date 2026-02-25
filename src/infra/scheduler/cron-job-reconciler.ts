@@ -83,7 +83,7 @@ export async function reconcileCronJobsFromRegistry(
       const schedule = mapCompiledSchedule(agent.config.schedule);
       repository.upsertCronJob({
         agent_id: agent.id,
-        enabled: agent.config.enabled,
+        enabled: agent.config.enabled && agent.config.schedule.enabled,
         schedule,
         definition_hash: agent.definitionHash,
         now_ms: nowMs,

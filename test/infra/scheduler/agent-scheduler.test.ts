@@ -34,6 +34,7 @@ const writeAgent = (workspaceDir: string, id: string, config: Record<string, unk
     type: 'growth',
     subAgents: [],
     schedule: {
+      enabled: true,
       everyMs: 60000,
       catchUp: { mode: 'coalesce' },
     },
@@ -246,6 +247,42 @@ describe('AgentScheduler', () => {
         reason: 'run_already_linked_to_goal',
       })
     );
+
+    repository.close();
+  });
+
+  it('skips dispatch when schedule toggle is disabled', async () => {
+    const now = 1_700_000_150_000;
+    const workspaceDir = createTempDir();
+    const dbPath = createTempDbPath();
+
+    writeAgent(workspaceDir, 'agent-schedule-off', {
+      name: 'Agent Schedule Off',
+      schedule: { enabled: false, everyMs: 60000, catchUp: { mode: 'coalesce' } },
+    });
+
+    const registry = new AgentRegistry();
+    await registry.loadAgents({ workspaceDir });
+
+    const repository = new WorkOrderDatabase(dbPath);
+    await repository.initialize();
+    await reconcileCronJobsFromRegistry({ repository, registry });
+
+    const db = new Database(dbPath);
+    db.prepare('UPDATE cron_jobs SET next_run_at_ms = ? WHERE agent_id = ?').run(now - 1000, 'agent-schedule-off');
+    db.close();
+
+    const scheduler = new StubScheduler();
+    const agentScheduler = new AgentScheduler(
+      { repository, scheduler, registry },
+      { claimTtlMs: 60000, instanceId: 'test-instance' }
+    );
+
+    const summary = await agentScheduler.dispatchOnce(now);
+
+    expect(summary.dispatched).toBe(0);
+    expect(repository.listGoals()).toHaveLength(0);
+    expect(scheduler.submittedGoals).toHaveLength(0);
 
     repository.close();
   });

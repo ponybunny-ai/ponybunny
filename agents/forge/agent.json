@@ -8,6 +8,7 @@
     "type": "delivery",
     "subAgents": [],
     "schedule": {
+        "enabled": false,
         "everyMs": 45000,
         "jitterMs": 4000,
         "timezone": "Europe/London",

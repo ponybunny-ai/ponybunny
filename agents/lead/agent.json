@@ -13,6 +13,7 @@
     "keeper"
   ],
   "schedule": {
+    "enabled": false,
     "everyMs": 30000,
     "jitterMs": 3000,
     "timezone": "Europe/London",

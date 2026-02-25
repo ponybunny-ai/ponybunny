@@ -8,6 +8,7 @@
     "type": "support_ops",
     "subAgents": [],
     "schedule": {
+        "enabled": false,
         "everyMs": 60000,
         "jitterMs": 5000,
         "timezone": "Europe/London",

@@ -66,6 +66,7 @@ describe('ExecutionEngineAdapter', () => {
         enabled: true,
         type: 'market_listener',
         schedule: {
+          enabled: true,
           kind: 'interval',
           everyMs: 60000,
           tz: undefined,
@@ -158,6 +159,7 @@ describe('ExecutionEngineAdapter', () => {
         enabled: true,
         type: 'test_runner',
         schedule: {
+          enabled: true,
           kind: 'interval',
           everyMs: 60000,
           tz: undefined,
@@ -233,6 +235,7 @@ describe('ExecutionEngineAdapter', () => {
         enabled: true,
         type: 'growth',
         schedule: {
+          enabled: true,
           kind: 'interval',
           everyMs: 60000,
           tz: undefined,
