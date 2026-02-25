@@ -69,91 +69,17 @@
     "models": {
       "type": "object",
       "additionalProperties": {
-        "type": "object",
-        "required": [
-          "displayName",
-          "providers",
-          "costPer1kTokens"
-        ],
-        "properties": {
-          "displayName": {
-            "type": "string"
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ModelConfig"
           },
-          "providers": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "minItems": 1
-          },
-          "endpoints": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": [
-                "name",
-                "url"
-              ],
-              "properties": {
-                "name": {
-                  "type": "string",
-                  "enum": [
-                    "responses",
-                    "realtime",
-                    "assistants",
-                    "batch",
-                    "fine-tuning",
-                    "embeddings",
-                    "image-generation",
-                    "videos",
-                    "image-edit",
-                    "speech-generation",
-                    "transcription",
-                    "translation",
-                    "moderation"
-                  ]
-                },
-                "url": {
-                  "type": "string"
-                }
-              }
-            },
-            "minItems": 1
-          },
-          "costPer1kTokens": {
+          {
             "type": "object",
-            "required": [
-              "input",
-              "output"
-            ],
-            "properties": {
-              "input": {
-                "type": "number",
-                "minimum": 0
-              },
-              "output": {
-                "type": "number",
-                "minimum": 0
-              }
-            }
-          },
-          "maxContextTokens": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "capabilities": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "enum": [
-                "text",
-                "vision",
-                "function-calling",
-                "json-mode"
-              ]
+            "additionalProperties": {
+              "$ref": "#/$defs/ModelConfig"
             }
           }
-        }
+        ]
       }
     },
     "providerAliases": {
@@ -262,6 +188,143 @@
     }
   },
   "$defs": {
+    "ModelConfig": {
+      "type": "object",
+      "required": [
+        "displayName",
+        "providers",
+        "costPer1kTokens"
+      ],
+      "properties": {
+        "displayName": {
+          "type": "string"
+        },
+        "providers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "endpoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "url"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "enum": [
+                  "responses",
+                  "realtime",
+                  "assistants",
+                  "batch",
+                  "fine-tuning",
+                  "embeddings",
+                  "image-generation",
+                  "videos",
+                  "image-edit",
+                  "speech-generation",
+                  "transcription",
+                  "translation",
+                  "moderation"
+                ]
+              },
+              "url": {
+                "type": "string"
+              }
+            }
+          },
+          "minItems": 1
+        },
+        "costPer1kTokens": {
+          "type": "object",
+          "required": [
+            "input",
+            "output"
+          ],
+          "properties": {
+            "input": {
+              "type": "number",
+              "minimum": 0
+            },
+            "output": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        },
+        "maxContextTokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxOutputTokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "contextWindow": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reasoningTokenSupport": {
+          "type": "boolean"
+        },
+        "reasoningEfforts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "capabilities": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "text",
+                  "vision",
+                  "function-calling",
+                  "json-mode"
+                ]
+              }
+            },
+            {
+              "type": "object",
+              "properties": {
+                "input": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "output": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "TierConfig": {
       "type": "object",
       "required": [

@@ -88,6 +88,16 @@ export interface LLMModelConfig {
   };
   /** Maximum context window size */
   maxContextTokens?: number;
+  maxOutputTokens?: number;
+  contextWindow?: number;
+  reasoningTokenSupport?: boolean;
+  reasoningEfforts?: string[];
+  capabilitiesMatrix?: {
+    input?: string[];
+    output?: string[];
+  };
+  features?: string[];
+  tools?: string[];
   /** Model capabilities */
   capabilities?: ModelCapability[];
   health?: {

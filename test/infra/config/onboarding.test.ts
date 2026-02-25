@@ -15,7 +15,9 @@ describe('Onboarding config generation', () => {
   });
 
   it('loads model pricing from llm-config.example.json during init template generation', () => {
-    const gpt52Pricing = LLM_CONFIG_TEMPLATE.models['gpt-5.2'].costPer1kTokens;
+    const models = LLM_CONFIG_TEMPLATE.models as unknown as Record<string, unknown>;
+    const openaiModels = models.openai as Record<string, { costPer1kTokens: { input: number; output: number } }>;
+    const gpt52Pricing = openaiModels['gpt-5.2'].costPer1kTokens;
     expect(gpt52Pricing.input).toBe(0.00175);
     expect(gpt52Pricing.output).toBe(0.014);
   });

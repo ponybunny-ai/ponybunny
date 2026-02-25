@@ -164,6 +164,70 @@ describe('LLM Provider Manager', () => {
 
       expect(() => validateConfig(invalidConfig)).toThrow(ConfigValidationError);
     });
+
+    it('should normalize provider-grouped models structure from config file', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-config-facts-'));
+      const tempConfigPath = path.join(tempDir, 'llm-config.json');
+
+      const groupedConfig = {
+        providers: {
+          'openai-direct': {
+            enabled: true,
+            protocol: 'openai',
+            baseUrl: 'https://api.openai.com/v1',
+            priority: 1,
+          },
+        },
+        models: {
+          openai: {
+            'gpt-5.2': {
+              displayName: 'GPT-5.2',
+              endpoints: [
+                { name: 'chat-completions', url: '/v1/chat/completions' },
+                { name: 'responses', url: '/v1/responses' },
+              ],
+              costPer1kTokens: { input: 0.00175, output: 0.014 },
+              maxContextTokens: 400000,
+              maxOutputTokens: 128000,
+              capabilities: {
+                input: ['text', 'image'],
+                output: ['text'],
+              },
+              features: ['function_calling', 'structured_outputs'],
+            },
+          },
+        },
+        providerAliases: {
+          openai: {
+            protocol: 'openai',
+            providers: ['openai-direct'],
+          },
+        },
+        tiers: {
+          simple: { primary: 'gpt-5.2' },
+          medium: { primary: 'gpt-5.2' },
+          complex: { primary: 'gpt-5.2' },
+        },
+        workloads: {
+          conversation: { tier: 'medium' },
+        },
+        defaults: {
+          timeout: 120000,
+          maxTokens: 4096,
+        },
+      };
+
+      fs.writeFileSync(tempConfigPath, JSON.stringify(groupedConfig, null, 2), 'utf-8');
+
+      const config = loadLLMConfig(tempConfigPath);
+      const gpt = config.models['gpt-5.2'];
+
+      expect(gpt).toBeDefined();
+      expect(gpt.providers).toContain('openai-direct');
+      expect(gpt.endpoints).toEqual([{ name: 'responses', url: '/v1/responses' }]);
+      expect(gpt.maxOutputTokens).toBe(128000);
+      expect(gpt.capabilities).toEqual(expect.arrayContaining(['text', 'vision', 'function-calling', 'json-mode']));
+    });
   });
 
   // ============================================
@@ -560,6 +624,14 @@ describe('LLM Provider Manager', () => {
       expect(config).toBeDefined();
       expect(config?.displayName).toBe('Claude Sonnet 4.5');
       expect(config?.costPer1kTokens).toBeDefined();
+    });
+
+    it('should expose maxOutputTokens from model facts for OpenAI models', () => {
+      const manager = getLLMProviderManager();
+      const config = manager.getModelConfig('gpt-5.2');
+
+      expect(config).toBeDefined();
+      expect(config?.maxOutputTokens).toBe(128000);
     });
 
     it('should check if model is supported', () => {

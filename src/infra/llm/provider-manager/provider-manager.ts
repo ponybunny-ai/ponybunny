@@ -237,10 +237,11 @@ export class LLMProviderManager implements ILLMProviderManager {
       modelConfig,
       openaiOperation
     );
+    const maxTokens = this.resolveMaxTokens(options?.maxTokens, modelConfig);
 
     const requestConfig: ProtocolRequestConfig = {
       model: modelId,
-      maxTokens: options?.maxTokens || this.defaultMaxTokens,
+      maxTokens,
       temperature: options?.temperature ?? this.defaultTemperature,
       tools: options?.tools,
       tool_choice: options?.tool_choice,
@@ -610,6 +611,17 @@ export class LLMProviderManager implements ILLMProviderManager {
     }
 
     return endpoints[0];
+  }
+
+  private resolveMaxTokens(explicit: number | undefined, modelConfig: LLMModelConfig | undefined): number {
+    const requested = explicit ?? this.defaultMaxTokens;
+    const modelMax = modelConfig?.maxOutputTokens;
+
+    if (!modelMax || modelMax <= 0) {
+      return requested;
+    }
+
+    return Math.min(requested, modelMax);
   }
 
   /**

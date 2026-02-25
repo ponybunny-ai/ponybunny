@@ -49,129 +49,327 @@
     }
   },
   "models": {
-    "gpt-5.2": {
-      "displayName": "GPT-5.2",
-      "providers": [
-        "openai-direct",
-        "azure-openai",
-        "openai-compatible"
-      ],
-      "endpoints": [
-        {
-          "name": "responses",
-          "url": "/v1/responses"
-        }
-      ],
-      "costPer1kTokens": {
-        "input": 0.00175,
-        "output": 0.014
+    "openai": {
+      "gpt-5.2": {
+        "displayName": "GPT-5.2",
+        "providers": [
+          "openai-direct",
+          "azure-openai",
+          "openai-compatible"
+        ],
+        "endpoints": [
+          {
+            "name": "chat-completions",
+            "url": "/v1/chat/completions"
+          },
+          {
+            "name": "responses",
+            "url": "/v1/responses"
+          },
+          {
+            "name": "batch",
+            "url": "/v1/batch"
+          }
+        ],
+        "costPer1kTokens": {
+          "input": 0.00175,
+          "output": 0.014
+        },
+        "maxContextTokens": 400000,
+        "contextWindow": 400000,
+        "maxOutputTokens": 128000,
+        "reasoningTokenSupport": true,
+        "resongingEfforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "capabilities": {
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "features": [
+          "streaming",
+          "function_calling",
+          "structured_outputs",
+          "distillation"
+        ],
+        "tools": [
+          "web_search",
+          "file_search",
+          "image_generation",
+          "code_interpreter",
+          "mcp"
+        ]
       },
-      "maxContextTokens": 128000,
-      "capabilities": [
-        "text",
-        "vision",
-        "function-calling",
-        "json-mode"
-      ]
-    },
-    "gpt-5": {
-      "displayName": "GPT-5",
-      "providers": [
-        "openai-direct",
-        "azure-openai",
-        "openai-compatible"
-      ],
-      "endpoints": [
-        {
-          "name": "responses",
-          "url": "/v1/responses"
-        }
-      ],
-      "costPer1kTokens": {
-        "input": 0.00125,
-        "output": 0.01
+      "gpt-5": {
+        "displayName": "GPT-5",
+        "providers": [
+          "openai-direct",
+          "azure-openai",
+          "openai-compatible"
+        ],
+        "endpoints": [
+          {
+            "name": "chat-completions",
+            "url": "/v1/chat/completions"
+          },
+          {
+            "name": "responses",
+            "url": "/v1/responses"
+          },
+          {
+            "name": "batch",
+            "url": "/v1/batch"
+          }
+        ],
+        "costPer1kTokens": {
+          "input": 0.00125,
+          "output": 0.01
+        },
+        "maxContextTokens": 400000,
+        "contextWindow": 400000,
+        "maxOutputTokens": 128000,
+        "reasoningTokenSupport": true,
+        "resongingEfforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "capabilities": {
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "features": [
+          "streaming",
+          "function_calling",
+          "structured_outputs",
+          "distillation"
+        ],
+        "tools": [
+          "web_search",
+          "file_search",
+          "image_generation",
+          "code_interpreter",
+          "mcp"
+        ]
       },
-      "maxContextTokens": 128000,
-      "capabilities": [
-        "text",
-        "vision",
-        "function-calling",
-        "json-mode"
-      ]
-    },
-    "gpt-5-mini": {
-      "displayName": "GPT-5 Mini",
-      "providers": [
-        "openai-direct",
-        "azure-openai",
-        "openai-compatible"
-      ],
-      "endpoints": [
-        {
-          "name": "responses",
-          "url": "/v1/responses"
-        }
-      ],
-      "costPer1kTokens": {
-        "input": 0.00025,
-        "output": 0.002
+      "gpt-5.1": {
+        "displayName": "GPT-5.1",
+        "providers": [
+          "openai-direct",
+          "azure-openai",
+          "openai-compatible"
+        ],
+        "endpoints": [
+          {
+            "name": "chat-completions",
+            "url": "/v1/chat/completions"
+          },
+          {
+            "name": "responses",
+            "url": "/v1/responses"
+          },
+          {
+            "name": "batch",
+            "url": "/v1/batch"
+          }
+        ],
+        "costPer1kTokens": {
+          "input": 0.00125,
+          "output": 0.01
+        },
+        "maxContextTokens": 400000,
+        "contextWindow": 400000,
+        "maxOutputTokens": 128000,
+        "reasoningTokenSupport": true,
+        "resongingEfforts": [
+          "none",
+          "low",
+          "medium",
+          "high"
+        ],
+        "capabilities": {
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "features": [
+          "streaming",
+          "function_calling",
+          "structured_outputs",
+          "distillation"
+        ],
+        "tools": [
+          "web_search",
+          "file_search",
+          "image_generation",
+          "code_interpreter",
+          "mcp"
+        ]
       },
-      "maxContextTokens": 128000,
-      "capabilities": [
-        "text",
-        "vision",
-        "function-calling",
-        "json-mode"
-      ]
-    },
-    "gpt-5-nano": {
-      "displayName": "GPT-5 Nano",
-      "providers": [
-        "openai-direct",
-        "azure-openai",
-        "openai-compatible"
-      ],
-      "endpoints": [
-        {
-          "name": "responses",
-          "url": "/v1/responses"
-        }
-      ],
-      "costPer1kTokens": {
-        "input": 0.00005,
-        "output": 0.0004
+      "gpt-5-mini": {
+        "displayName": "GPT-5 mini",
+        "providers": [
+          "openai-direct",
+          "azure-openai",
+          "openai-compatible"
+        ],
+        "endpoints": [
+          {
+            "name": "chat-completions",
+            "url": "/v1/chat/completions"
+          },
+          {
+            "name": "responses",
+            "url": "/v1/responses"
+          },
+          {
+            "name": "batch",
+            "url": "/v1/batch"
+          }
+        ],
+        "costPer1kTokens": {
+          "input": 0.00025,
+          "output": 0.002
+        },
+        "maxContextTokens": 400000,
+        "contextWindow": 400000,
+        "maxOutputTokens": 128000,
+        "reasoningTokenSupport": true,
+        "capabilities": {
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "features": [
+          "streaming",
+          "function_calling",
+          "structured_outputs"
+        ],
+        "tools": [
+          "web_search",
+          "file_search",
+          "code_interpreter",
+          "mcp"
+        ]
       },
-      "maxContextTokens": 128000,
-      "capabilities": [
-        "text",
-        "vision",
-        "function-calling",
-        "json-mode"
-      ]
-    },
-    "gpt-5.3-codex": {
-      "displayName": "GPT-5.3 Codex",
-      "providers": [
-        "openai-direct",
-        "azure-openai",
-        "openai-compatible",
-        "codex"
-      ],
-      "endpoints": [
-        {
-          "name": "responses",
-          "url": "/v1/responses"
-        }
-      ],
-      "costPer1kTokens": {
-        "input": 0.00175,
-        "output": 0.014
+      "gpt-5-nano": {
+        "displayName": "GPT-5 nano",
+        "providers": [
+          "openai-direct",
+          "azure-openai",
+          "openai-compatible"
+        ],
+        "endpoints": [
+          {
+            "name": "chat-completions",
+            "url": "/v1/chat/completions"
+          },
+          {
+            "name": "responses",
+            "url": "/v1/responses"
+          },
+          {
+            "name": "batch",
+            "url": "/v1/batch"
+          }
+        ],
+        "costPer1kTokens": {
+          "input": 0.00005,
+          "output": 0.0004
+        },
+        "maxContextTokens": 400000,
+        "contextWindow": 400000,
+        "maxOutputTokens": 128000,
+        "reasoningTokenSupport": true,
+        "capabilities": {
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "features": [
+          "streaming",
+          "function_calling",
+          "structured_outputs"
+        ],
+        "tools": [
+          "web_search",
+          "file_search",
+          "image_generation",
+          "code_interpreter",
+          "mcp"
+        ]
       },
-      "maxContextTokens": 128000,
-      "capabilities": [
-        "text",
-        "function-calling"
-      ]
+      "gpt-5.3-codex": {
+        "displayName": "GPT-5.3-Codex",
+        "providers": [
+          "openai-direct",
+          "azure-openai",
+          "openai-compatible",
+          "codex"
+        ],
+        "endpoints": [
+          {
+            "name": "responses",
+            "url": "/v1/responses"
+          }
+        ],
+        "costPer1kTokens": {
+          "input": 0.00175,
+          "output": 0.014
+        },
+        "maxContextTokens": 400000,
+        "contextWindow": 400000,
+        "maxOutputTokens": 128000,
+        "reasoningTokenSupport": true,
+        "capabilities": {
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "features": [
+          "streaming",
+          "function_calling",
+          "structured_outputs"
+        ],
+        "tools": [
+          "web_search",
+          "file_search",
+          "image_generation",
+          "code_interpreter",
+          "mcp"
+        ]
+      }
     },
     "claude-opus-4-6": {
       "displayName": "Claude Opus 4.6",

@@ -261,53 +261,6 @@ const EMBEDDED_SCHEMA = {
       type: 'object',
       additionalProperties: {
         type: 'object',
-        required: ['displayName', 'providers', 'costPer1kTokens'],
-        properties: {
-          displayName: { type: 'string' },
-          providers: { type: 'array', items: { type: 'string' }, minItems: 1 },
-          endpoints: {
-            type: 'array',
-            items: {
-              type: 'object',
-              required: ['name', 'url'],
-              properties: {
-                name: {
-                  type: 'string',
-                  enum: [
-                    'responses',
-                    'realtime',
-                    'assistants',
-                    'batch',
-                    'fine-tuning',
-                    'embeddings',
-                    'image-generation',
-                    'videos',
-                    'image-edit',
-                    'speech-generation',
-                    'transcription',
-                    'translation',
-                    'moderation',
-                  ],
-                },
-                url: { type: 'string' },
-              },
-            },
-            minItems: 1,
-          },
-          costPer1kTokens: {
-            type: 'object',
-            required: ['input', 'output'],
-            properties: {
-              input: { type: 'number', minimum: 0 },
-              output: { type: 'number', minimum: 0 },
-            },
-          },
-          maxContextTokens: { type: 'integer', minimum: 1 },
-          capabilities: {
-            type: 'array',
-            items: { type: 'string', enum: ['text', 'vision', 'function-calling', 'json-mode'] },
-          },
-        },
       },
     },
     providerAliases: {
@@ -365,6 +318,247 @@ const EMBEDDED_SCHEMA = {
     },
   },
 };
+
+type JsonMap = Record<string, unknown>;
+
+type ModelFactsEntry = {
+  displayName?: string;
+  providers?: string[];
+  endpoints?: Array<{ name?: string; url?: string }>;
+  costPer1kTokens?: { input?: number; output?: number };
+  maxContextTokens?: number;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  reasoningTokenSupport?: boolean;
+  reasoningEfforts?: string[];
+  resongingEfforts?: string[];
+  capabilities?: unknown;
+  features?: string[];
+  tools?: string[];
+};
+
+type ModelCapabilityEntry = NonNullable<LLMModelConfig['capabilities']>[number];
+type OpenAIEndpointEntry = NonNullable<LLMModelConfig['endpoints']>[number];
+
+const MODEL_FACTS_CANDIDATE_PATHS = [
+  path.join(process.cwd(), 'docs', 'llm-facts', 'models.json'),
+  path.join(process.cwd(), 'dist', 'docs', 'llm-facts', 'models.json'),
+];
+
+function isJsonMap(value: unknown): value is JsonMap {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isModelFactsEntry(value: unknown): value is ModelFactsEntry {
+  if (!isJsonMap(value)) {
+    return false;
+  }
+
+  return 'displayName' in value || 'costPer1kTokens' in value || 'providers' in value || 'endpoints' in value;
+}
+
+function resolveProviderIds(
+  group: string | undefined,
+  entry: ModelFactsEntry,
+  providers: Record<string, LLMEndpointConfig>,
+  aliases?: LLMConfig['providerAliases']
+): string[] {
+  if (Array.isArray(entry.providers) && entry.providers.length > 0) {
+    return entry.providers;
+  }
+
+  const lower = (group || '').toLowerCase();
+  const byProtocol = Object.entries(providers)
+    .filter(([, cfg]) => cfg.protocol === lower)
+    .map(([providerId]) => providerId);
+
+  const fromAlias = group && aliases?.[group]?.providers?.length
+    ? aliases[group].providers
+    : [];
+
+  const merged = [...fromAlias, ...byProtocol];
+  if (merged.length > 0) {
+    return Array.from(new Set(merged));
+  }
+
+  return byProtocol;
+}
+
+function toModelCapabilities(entry: ModelFactsEntry): LLMModelConfig['capabilities'] {
+  if (Array.isArray(entry.capabilities)) {
+    return entry.capabilities as LLMModelConfig['capabilities'];
+  }
+
+  if (!isJsonMap(entry.capabilities)) {
+    return undefined;
+  }
+
+  const input = Array.isArray(entry.capabilities.input) ? entry.capabilities.input : [];
+  const output = Array.isArray(entry.capabilities.output) ? entry.capabilities.output : [];
+  const features = Array.isArray(entry.features) ? entry.features : [];
+  const set = new Set<ModelCapabilityEntry>();
+
+  if (input.includes('text') || output.includes('text')) {
+    set.add('text');
+  }
+  if (input.includes('image') || output.includes('image')) {
+    set.add('vision');
+  }
+  if (features.includes('function_calling')) {
+    set.add('function-calling');
+  }
+  if (features.includes('structured_outputs')) {
+    set.add('json-mode');
+  }
+
+  return set.size > 0 ? Array.from(set) : undefined;
+}
+
+function sanitizeEndpoints(entry: ModelFactsEntry): LLMModelConfig['endpoints'] {
+  if (!Array.isArray(entry.endpoints)) {
+    return undefined;
+  }
+
+  const endpoints = entry.endpoints
+    .filter(endpoint => endpoint && endpoint.name !== 'chat-completions' && typeof endpoint.name === 'string' && typeof endpoint.url === 'string')
+    .map(endpoint => ({
+      name: endpoint.name as OpenAIEndpointEntry['name'],
+      url: endpoint.url as string,
+    }));
+
+  return endpoints.length > 0 ? endpoints : undefined;
+}
+
+function normalizeModelEntry(
+  modelId: string,
+  entry: ModelFactsEntry,
+  group: string | undefined,
+  providers: Record<string, LLMEndpointConfig>,
+  aliases?: LLMConfig['providerAliases']
+): LLMModelConfig | undefined {
+  const resolvedProviders = resolveProviderIds(group, entry, providers, aliases);
+  if (resolvedProviders.length === 0) {
+    return undefined;
+  }
+
+  const reasoningEfforts = entry.reasoningEfforts ?? entry.resongingEfforts;
+  const capabilitiesMatrix = isJsonMap(entry.capabilities)
+    ? {
+      input: Array.isArray(entry.capabilities.input) ? entry.capabilities.input.filter(item => typeof item === 'string') as string[] : undefined,
+      output: Array.isArray(entry.capabilities.output) ? entry.capabilities.output.filter(item => typeof item === 'string') as string[] : undefined,
+    }
+    : undefined;
+
+  return {
+    displayName: entry.displayName || modelId,
+    providers: resolvedProviders,
+    endpoints: sanitizeEndpoints(entry),
+    costPer1kTokens: {
+      input: entry.costPer1kTokens?.input ?? 0,
+      output: entry.costPer1kTokens?.output ?? 0,
+    },
+    maxContextTokens: entry.maxContextTokens ?? entry.contextWindow,
+    maxOutputTokens: entry.maxOutputTokens,
+    contextWindow: entry.contextWindow,
+    reasoningTokenSupport: entry.reasoningTokenSupport,
+    reasoningEfforts: Array.isArray(reasoningEfforts) ? reasoningEfforts : undefined,
+    capabilitiesMatrix,
+    features: Array.isArray(entry.features) ? entry.features : undefined,
+    tools: Array.isArray(entry.tools) ? entry.tools : undefined,
+    capabilities: toModelCapabilities(entry),
+  };
+}
+
+function normalizeModels(
+  models: unknown,
+  providers: Record<string, LLMEndpointConfig>,
+  aliases?: LLMConfig['providerAliases']
+): Record<string, LLMModelConfig> {
+  if (!isJsonMap(models)) {
+    return {};
+  }
+
+  const normalized: Record<string, LLMModelConfig> = {};
+
+  for (const [key, value] of Object.entries(models)) {
+    if (isModelFactsEntry(value)) {
+      const model = normalizeModelEntry(key, value, undefined, providers, aliases);
+      if (model) {
+        normalized[key] = model;
+      }
+      continue;
+    }
+
+    if (!isJsonMap(value)) {
+      continue;
+    }
+
+    for (const [nestedModelId, nestedValue] of Object.entries(value)) {
+      if (!isModelFactsEntry(nestedValue)) {
+        continue;
+      }
+
+      const model = normalizeModelEntry(nestedModelId, nestedValue, key, providers, aliases);
+      if (model) {
+        normalized[nestedModelId] = model;
+      }
+    }
+  }
+
+  return normalized;
+}
+
+function loadModelsFacts(): unknown {
+  for (const candidate of MODEL_FACTS_CANDIDATE_PATHS) {
+    if (!fs.existsSync(candidate)) {
+      continue;
+    }
+
+    try {
+      return JSON.parse(fs.readFileSync(candidate, 'utf-8'));
+    } catch {
+      continue;
+    }
+  }
+
+  return undefined;
+}
+
+function normalizeExternalConfig(raw: unknown, defaults: LLMConfig): Partial<LLMConfig> {
+  if (!isJsonMap(raw)) {
+    return {};
+  }
+
+  const providers = isJsonMap(raw.providers)
+    ? (raw.providers as Record<string, LLMEndpointConfig>)
+    : defaults.providers;
+  const aliases = isJsonMap(raw.providerAliases)
+    ? (raw.providerAliases as LLMConfig['providerAliases'])
+    : defaults.providerAliases;
+
+  const normalizedModels = normalizeModels(raw.models, providers, aliases);
+
+  return {
+    ...(raw as Partial<LLMConfig>),
+    models: normalizedModels,
+  };
+}
+
+function buildDefaultConfigWithFacts(base: LLMConfig): LLMConfig {
+  const factsRaw = loadModelsFacts();
+  const factsModels = normalizeModels(factsRaw, base.providers, base.providerAliases);
+  if (Object.keys(factsModels).length === 0) {
+    return base;
+  }
+
+  return {
+    ...base,
+    models: {
+      ...base.models,
+      ...factsModels,
+    },
+  };
+}
 
 /**
  * Create AJV validator instance with draft 2020-12 support
@@ -473,18 +667,20 @@ function deepMerge<T extends Record<string, unknown>>(target: T, source: Partial
  */
 export function loadLLMConfig(configPath?: string): LLMConfig {
   const filePath = configPath || getLLMConfigPath();
+  const defaultConfig = buildDefaultConfigWithFacts(DEFAULT_LLM_CONFIG);
 
   try {
     if (!fs.existsSync(filePath)) {
       console.log(`[ConfigLoader] Config file not found at ${filePath}, using defaults`);
-      return { ...DEFAULT_LLM_CONFIG };
+      return defaultConfig;
     }
 
     const content = fs.readFileSync(filePath, 'utf-8');
     const parsed = JSON.parse(content);
+    const normalizedParsed = normalizeExternalConfig(parsed, defaultConfig);
 
     // Merge with defaults to ensure all required fields exist
-    const merged = deepMerge(DEFAULT_LLM_CONFIG as unknown as Record<string, unknown>, parsed) as unknown as LLMConfig;
+    const merged = deepMerge(defaultConfig as unknown as Record<string, unknown>, normalizedParsed as unknown as Record<string, unknown>) as unknown as LLMConfig;
 
     // Validate the merged configuration
     return validateConfig(merged);

@@ -1,0 +1,293 @@
+{
+    "openai": {
+        "gpt-5.2": {
+            "displayName": "GPT-5.2",
+            "endpoints": [
+                {
+                    "name": "chat-completions",
+                    "url": "/v1/chat/completions"
+                },
+                {
+                    "name": "responses",
+                    "url": "/v1/responses"
+                },
+                {
+                    "name": "batch",
+                    "url": "/v1/batch"
+                }
+            ],
+            "costPer1kTokens": {
+                "input": 0.00175,
+                "output": 0.014
+            },
+            "maxContextTokens": 400000,
+            "contextWindow": 400000,
+            "maxOutputTokens": 128000,
+            "reasoningTokenSupport": true,
+            "resongingEfforts": [
+                "none",
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+            ],
+            "capabilities": {
+                "input": [
+                    "text",
+                    "image"
+                ],
+                "output": [
+                    "text"
+                ]
+            },
+            "features": [
+                "streaming",
+                "function_calling",
+                "structured_outputs",
+                "distillation"
+            ],
+            "tools": [
+                "web_search",
+                "file_search",
+                "image_generation",
+                "code_interpreter",
+                "mcp"
+            ]
+        },
+        "gpt-5": {
+            "displayName": "GPT-5",
+            "endpoints": [
+                {
+                    "name": "chat-completions",
+                    "url": "/v1/chat/completions"
+                },
+                {
+                    "name": "responses",
+                    "url": "/v1/responses"
+                },
+                {
+                    "name": "batch",
+                    "url": "/v1/batch"
+                }
+            ],
+            "costPer1kTokens": {
+                "input": 0.00125,
+                "output": 0.010
+            },
+            "maxContextTokens": 400000,
+            "contextWindow": 400000,
+            "maxOutputTokens": 128000,
+            "reasoningTokenSupport": true,
+            "resongingEfforts": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+            ],
+            "capabilities": {
+                "input": [
+                    "text",
+                    "image"
+                ],
+                "output": [
+                    "text"
+                ]
+            },
+            "features": [
+                "streaming",
+                "function_calling",
+                "structured_outputs",
+                "distillation"
+            ],
+            "tools": [
+                "web_search",
+                "file_search",
+                "image_generation",
+                "code_interpreter",
+                "mcp"
+            ]
+        },
+        "gpt-5.1": {
+            "displayName": "GPT-5.1",
+            "endpoints": [
+                {
+                    "name": "chat-completions",
+                    "url": "/v1/chat/completions"
+                },
+                {
+                    "name": "responses",
+                    "url": "/v1/responses"
+                },
+                {
+                    "name": "batch",
+                    "url": "/v1/batch"
+                }
+            ],
+            "costPer1kTokens": {
+                "input": 0.00125,
+                "output": 0.010
+            },
+            "maxContextTokens": 400000,
+            "contextWindow": 400000,
+            "maxOutputTokens": 128000,
+            "reasoningTokenSupport": true,
+            "resongingEfforts": [
+                "none",
+                "low",
+                "medium",
+                "high"
+            ],
+            "capabilities": {
+                "input": [
+                    "text",
+                    "image"
+                ],
+                "output": [
+                    "text"
+                ]
+            },
+            "features": [
+                "streaming",
+                "function_calling",
+                "structured_outputs",
+                "distillation"
+            ],
+            "tools": [
+                "web_search",
+                "file_search",
+                "image_generation",
+                "code_interpreter",
+                "mcp"
+            ]
+        },
+        "gpt-5-mini": {
+            "displayName": "GPT-5 mini",
+            "endpoints": [
+                {
+                    "name": "chat-completions",
+                    "url": "/v1/chat/completions"
+                },
+                {
+                    "name": "responses",
+                    "url": "/v1/responses"
+                },
+                {
+                    "name": "batch",
+                    "url": "/v1/batch"
+                }
+            ],
+            "costPer1kTokens": {
+                "input": 0.00025,
+                "output": 0.002
+            },
+            "maxContextTokens": 400000,
+            "contextWindow": 400000,
+            "maxOutputTokens": 128000,
+            "reasoningTokenSupport": true,
+            "capabilities": {
+                "input": [
+                    "text",
+                    "image"
+                ],
+                "output": [
+                    "text"
+                ]
+            },
+            "features": [
+                "streaming",
+                "function_calling",
+                "structured_outputs"
+            ],
+            "tools": [
+                "web_search",
+                "file_search",
+                "code_interpreter",
+                "mcp"
+            ]
+        },
+        "gpt-5-nano": {
+            "displayName": "GPT-5 nano",
+            "endpoints": [
+                {
+                    "name": "chat-completions",
+                    "url": "/v1/chat/completions"
+                },
+                {
+                    "name": "responses",
+                    "url": "/v1/responses"
+                },
+                {
+                    "name": "batch",
+                    "url": "/v1/batch"
+                }
+            ],
+            "costPer1kTokens": {
+                "input": 0.00005,
+                "output": 0.00040
+            },
+            "maxContextTokens": 400000,
+            "contextWindow": 400000,
+            "maxOutputTokens": 128000,
+            "reasoningTokenSupport": true,
+            "capabilities": {
+                "input": [
+                    "text",
+                    "image"
+                ],
+                "output": [
+                    "text"
+                ]
+            },
+            "features": [
+                "streaming",
+                "function_calling",
+                "structured_outputs"
+            ],
+            "tools": [
+                "web_search",
+                "file_search",
+                "image_generation",
+                "code_interpreter",
+                "mcp"
+            ]
+        },
+        "gpt-5.3-codex": {
+            "displayName": "GPT-5.3-Codex",
+            "endpoints": [
+                {
+                    "name": "responses",
+                    "url": "/v1/responses"
+                }
+            ],
+            "costPer1kTokens": {
+                "input": 0.00175,
+                "output": 0.014
+            },
+            "maxContextTokens": 400000,
+            "contextWindow": 400000,
+            "maxOutputTokens": 128000,
+            "reasoningTokenSupport": true,
+            "capabilities": {
+                "input": [
+                    "text",
+                    "image"
+                ],
+                "output": [
+                    "text"
+                ]
+            },
+            "features": [
+                "streaming",
+                "function_calling",
+                "structured_outputs"
+            ],
+            "tools": [
+                "web_search",
+                "file_search",
+                "image_generation",
+                "code_interpreter",
+                "mcp"
+            ]
+        }
+    }
+}

@@ -9,15 +9,21 @@
     }
   },
   "models": {
-    "qwen3-30b-a3b-instruct": {
-      "displayName": "Qwen3 30B A3B Instruct",
-      "providers": ["openai-compatible"],
-      "endpoints": [
-        { "name": "responses", "url": "/v1/responses" }
-      ],
-      "costPer1kTokens": { "input": 0, "output": 0 },
-      "maxContextTokens": 32768,
-      "capabilities": ["text", "function-calling"]
+    "openai-compatible": {
+      "qwen3-30b-a3b-instruct": {
+        "displayName": "Qwen3 30B A3B Instruct",
+        "providers": ["openai-compatible"],
+        "endpoints": [
+          { "name": "responses", "url": "/v1/responses" }
+        ],
+        "costPer1kTokens": { "input": 0, "output": 0 },
+        "maxContextTokens": 32768,
+        "capabilities": {
+          "input": ["text"],
+          "output": ["text"]
+        },
+        "features": ["function_calling"]
+      }
     }
   },
   "providerAliases": {
