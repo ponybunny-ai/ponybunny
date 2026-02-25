@@ -5,6 +5,7 @@
 import * as React from 'react';
 import { Box, Text } from 'ink';
 import { InputBar } from './input-bar.js';
+import { TabBar } from './tab-bar.js';
 import { useGatewayContext } from '../../context/gateway-context.js';
 import { useAppContext } from '../../context/app-context.js';
 
@@ -52,6 +53,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 
       {/* Main Content */}
       <Box flexDirection="column" flexGrow={1} paddingX={1}>
+        <TabBar />
         {children}
       </Box>
 

@@ -183,6 +183,20 @@ export class GatewayClient {
 
   private async authenticate(): Promise<void> {
     try {
+      if (this.authenticated) {
+        return;
+      }
+
+      const connectWithExistingSession = async (): Promise<boolean> => {
+        try {
+          await this.request('system.methods');
+          this.markConnected();
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
       // If a pairing token is provided, use it to pair this client
       if (this.options.token) {
         // Start pairing flow
@@ -195,8 +209,7 @@ export class GatewayClient {
         const signature = signChallenge(pairResult.challenge);
 
         await this.request('auth.verify', { signature, publicKey });
-        this.authenticated = true;
-        this.onConnected?.();
+        this.markConnected();
         return;
       }
 
@@ -211,10 +224,13 @@ export class GatewayClient {
           const signature = signChallenge(helloResult.challenge);
 
           await this.request('auth.verify', { signature });
-          this.authenticated = true;
-          this.onConnected?.();
+          this.markConnected();
           return;
         } catch (error) {
+          if (await connectWithExistingSession()) {
+            return;
+          }
+
           // If auth.hello fails (unknown public key), we need to pair first
           const errorMsg = error instanceof Error ? error.message : String(error);
           if (errorMsg.includes('Unknown public key') || errorMsg.includes('auth.pair')) {
@@ -224,6 +240,10 @@ export class GatewayClient {
           }
           throw error;
         }
+      }
+
+      if (await connectWithExistingSession()) {
+        return;
       }
 
       // No keypair and no token - cannot authenticate
@@ -257,8 +277,19 @@ export class GatewayClient {
         }
       }
     } else if (frame.type === 'event') {
+      if (frame.event === 'connection.authenticated') {
+        this.markConnected();
+      }
       this.onEvent?.(frame.event, frame.data);
     }
+  }
+
+  private markConnected(): void {
+    if (this.authenticated) {
+      return;
+    }
+    this.authenticated = true;
+    this.onConnected?.();
   }
 
   private scheduleReconnect(): void {

@@ -6,7 +6,7 @@ import type { Goal, WorkItem, Escalation } from '../../../work-order/types/index
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
-export type ViewType = 'dashboard' | 'goals' | 'events' | 'help';
+export type ViewType = 'dashboard' | 'tasks' | 'goals' | 'events' | 'help';
 
 export type SimpleMessageStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
@@ -16,6 +16,19 @@ export interface SimpleMessage {
   status: SimpleMessageStatus;
   statusText?: string;
   goalId?: string;
+  workItemId?: string;
+  runId?: string;
+  timeline: Array<{
+    timestamp: number;
+    stage: string;
+    detail?: string;
+  }>;
+  resultSummary?: string;
+  actions?: Array<{
+    label: string;
+    kind: 'file' | 'url' | 'command';
+    target: string;
+  }>;
   error?: string;
   timestamp: number;
 }

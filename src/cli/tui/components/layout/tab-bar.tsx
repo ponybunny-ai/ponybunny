@@ -15,9 +15,10 @@ interface Tab {
 
 const TABS: Tab[] = [
   { id: 'dashboard', label: 'Dashboard', shortcut: '1' },
-  { id: 'goals', label: 'Goals', shortcut: '2' },
-  { id: 'events', label: 'Events', shortcut: '3' },
-  { id: 'help', label: 'Help', shortcut: '4' },
+  { id: 'tasks', label: 'Tasks', shortcut: '2' },
+  { id: 'goals', label: 'Goals', shortcut: '3' },
+  { id: 'events', label: 'Events', shortcut: '4' },
+  { id: 'help', label: 'Help', shortcut: '5' },
 ];
 
 export const TabBar: React.FC = () => {

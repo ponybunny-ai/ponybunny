@@ -294,6 +294,7 @@ export async function handleNaturalInput(
     id: messageId,
     input,
     status: 'pending',
+    timeline: [{ timestamp: Date.now(), stage: 'Parsing intent', detail: 'Analyzing request and planning execution.' }],
     timestamp: Date.now(),
   });
 
@@ -303,6 +304,13 @@ export async function handleNaturalInput(
     ctx.app.updateSimpleMessage(messageId, {
       status: 'processing',
       statusText: 'Creating task...',
+      timeline: [
+        {
+          timestamp: Date.now(),
+          stage: 'Creating task',
+          detail: 'Submitting goal to scheduler.',
+        },
+      ],
     });
 
     // Create goal directly from natural language input
@@ -326,6 +334,13 @@ export async function handleNaturalInput(
       status: 'processing',
       statusText: 'Queued...',
       goalId: goal.id,
+      timeline: [
+        {
+          timestamp: Date.now(),
+          stage: 'Queued',
+          detail: 'Waiting for scheduler to start execution.',
+        },
+      ],
     });
 
     try {
@@ -333,6 +348,13 @@ export async function handleNaturalInput(
       if (stats && typeof stats.schedulerConnected === 'boolean' && !stats.schedulerConnected) {
         ctx.app.updateSimpleMessage(messageId, {
           statusText: 'Queued (scheduler not connected)',
+          timeline: [
+            {
+              timestamp: Date.now(),
+              stage: 'Queued',
+              detail: 'Scheduler is not connected yet.',
+            },
+          ],
         });
         ctx.app.addEvent('scheduler.disconnected', { message: 'Scheduler not connected to gateway' });
       }
