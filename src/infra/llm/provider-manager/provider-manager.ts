@@ -534,6 +534,11 @@ export class LLMProviderManager implements ILLMProviderManager {
   }
 
   private parseModelSelector(modelSelector: string): { providerId?: string; modelId: string } {
+    const config = getCachedConfig();
+    if (config.models[modelSelector]) {
+      return { modelId: modelSelector };
+    }
+
     const dotIndex = modelSelector.indexOf('.');
     if (dotIndex <= 0 || dotIndex === modelSelector.length - 1) {
       return { modelId: modelSelector };
@@ -541,6 +546,16 @@ export class LLMProviderManager implements ILLMProviderManager {
 
     const providerId = modelSelector.slice(0, dotIndex);
     const modelId = modelSelector.slice(dotIndex + 1);
+
+    const providerAliasConfig = config.providerAliases?.[providerId];
+    if (!providerAliasConfig) {
+      return { modelId: modelSelector };
+    }
+
+    if (!config.models[modelId]) {
+      return { modelId: modelSelector };
+    }
+
     return { providerId, modelId };
   }
 

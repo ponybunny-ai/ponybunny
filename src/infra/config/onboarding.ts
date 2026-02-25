@@ -130,54 +130,13 @@ export const LLM_CONFIG_SCHEMA_TEMPLATE = {
     models: {
       type: 'object',
       additionalProperties: {
-        type: 'object',
-        required: ['displayName', 'providers', 'costPer1kTokens'],
-        properties: {
-          displayName: { type: 'string' },
-          providers: { type: 'array', items: { type: 'string' }, minItems: 1 },
-          endpoints: {
-            type: 'array',
-            items: {
-              type: 'object',
-              required: ['name', 'url'],
-              properties: {
-                name: {
-                  type: 'string',
-                  enum: [
-                    'responses',
-                    'realtime',
-                    'assistants',
-                    'batch',
-                    'fine-tuning',
-                    'embeddings',
-                    'image-generation',
-                    'videos',
-                    'image-edit',
-                    'speech-generation',
-                    'transcription',
-                    'translation',
-                    'moderation',
-                  ],
-                },
-                url: { type: 'string' },
-              },
-            },
-            minItems: 1,
-          },
-          costPer1kTokens: {
+        anyOf: [
+          { $ref: '#/$defs/ModelConfig' },
+          {
             type: 'object',
-            required: ['input', 'output'],
-            properties: {
-              input: { type: 'number', minimum: 0 },
-              output: { type: 'number', minimum: 0 },
-            },
+            additionalProperties: { $ref: '#/$defs/ModelConfig' },
           },
-          maxContextTokens: { type: 'integer', minimum: 1 },
-          capabilities: {
-            type: 'array',
-            items: { type: 'string', enum: ['text', 'vision', 'function-calling', 'json-mode'] },
-          },
-        },
+        ],
       },
     },
     providerAliases: {
@@ -225,6 +184,67 @@ export const LLM_CONFIG_SCHEMA_TEMPLATE = {
     },
   },
   $defs: {
+    ModelConfig: {
+      type: 'object',
+      required: ['displayName', 'providers', 'costPer1kTokens'],
+      properties: {
+        displayName: { type: 'string' },
+        providers: { type: 'array', items: { type: 'string' }, minItems: 1 },
+        endpoints: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['name', 'url'],
+            properties: {
+              name: {
+                type: 'string',
+                enum: [
+                  'responses',
+                  'realtime',
+                  'assistants',
+                  'batch',
+                  'fine-tuning',
+                  'embeddings',
+                  'image-generation',
+                  'videos',
+                  'image-edit',
+                  'speech-generation',
+                  'transcription',
+                  'translation',
+                  'moderation',
+                ],
+              },
+              url: { type: 'string' },
+            },
+          },
+          minItems: 1,
+        },
+        costPer1kTokens: {
+          type: 'object',
+          required: ['input', 'output'],
+          properties: {
+            input: { type: 'number', minimum: 0 },
+            output: { type: 'number', minimum: 0 },
+          },
+        },
+        maxContextTokens: { type: 'integer', minimum: 1 },
+        capabilities: {
+          anyOf: [
+            {
+              type: 'array',
+              items: { type: 'string', enum: ['text', 'vision', 'function-calling', 'json-mode'] },
+            },
+            {
+              type: 'object',
+              properties: {
+                input: { type: 'array', items: { type: 'string' } },
+                output: { type: 'array', items: { type: 'string' } },
+              },
+            },
+          ],
+        },
+      },
+    },
     TierConfig: {
       type: 'object',
       required: ['primary'],
@@ -292,107 +312,113 @@ const DEFAULT_LLM_CONFIG_TEMPLATE = {
   },
 
   models: {
-    'gpt-5.2': {
-      displayName: 'GPT-5.2',
-      providers: ['openai-direct', 'azure-openai', 'openai-compatible'],
-      endpoints: [{ name: 'responses', url: '/v1/responses' }],
-      costPer1kTokens: { input: 0, output: 0 },
-      maxContextTokens: 128000,
-      capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
+    openai: {
+      'gpt-5.2': {
+        displayName: 'GPT-5.2',
+        providers: ['openai-direct', 'azure-openai', 'openai-compatible'],
+        endpoints: [{ name: 'responses', url: '/v1/responses' }],
+        costPer1kTokens: { input: 0, output: 0 },
+        maxContextTokens: 128000,
+        capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
+      },
+      'gpt-5-mini': {
+        displayName: 'GPT-5 Mini',
+        providers: ['openai-direct', 'azure-openai', 'openai-compatible'],
+        endpoints: [{ name: 'responses', url: '/v1/responses' }],
+        costPer1kTokens: { input: 0, output: 0 },
+        maxContextTokens: 128000,
+        capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
+      },
+      'gpt-5-nano': {
+        displayName: 'GPT-5 Nano',
+        providers: ['openai-direct', 'azure-openai', 'openai-compatible'],
+        endpoints: [{ name: 'responses', url: '/v1/responses' }],
+        costPer1kTokens: { input: 0, output: 0 },
+        maxContextTokens: 128000,
+        capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
+      },
+      'gpt-5.3-codex': {
+        displayName: 'GPT-5.3 Codex',
+        providers: ['codex'],
+        endpoints: [{ name: 'responses', url: '/v1/responses' }],
+        costPer1kTokens: { input: 0, output: 0 },
+        maxContextTokens: 128000,
+        capabilities: ['text', 'function-calling'],
+      },
     },
-    'gpt-5-mini': {
-      displayName: 'GPT-5 Mini',
-      providers: ['openai-direct', 'azure-openai', 'openai-compatible'],
-      endpoints: [{ name: 'responses', url: '/v1/responses' }],
-      costPer1kTokens: { input: 0, output: 0 },
-      maxContextTokens: 128000,
-      capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
+    anthropic: {
+      'claude-opus-4-6': {
+        displayName: 'Claude Opus 4.6',
+        providers: ['anthropic-direct'],
+        costPer1kTokens: { input: 0, output: 0 },
+        maxContextTokens: 200000,
+        capabilities: ['text', 'vision', 'function-calling'],
+      },
+      'claude-sonnet-4-6': {
+        displayName: 'Claude Sonnet 4.6',
+        providers: ['anthropic-direct'],
+        costPer1kTokens: { input: 0, output: 0 },
+        maxContextTokens: 200000,
+        capabilities: ['text', 'vision', 'function-calling'],
+      },
+      'claude-haiku-4-5-20251001': {
+        displayName: 'Claude Haiku 4.5 (20251001)',
+        providers: ['anthropic-direct'],
+        costPer1kTokens: { input: 0, output: 0 },
+        maxContextTokens: 200000,
+        capabilities: ['text', 'vision', 'function-calling'],
+      },
+      'anthropic.claude-opus-4-6-v1': {
+        displayName: 'Anthropic Claude Opus 4.6 (Bedrock)',
+        providers: ['aws-bedrock'],
+        costPer1kTokens: { input: 0, output: 0 },
+        maxContextTokens: 200000,
+        capabilities: ['text', 'vision', 'function-calling'],
+      },
+      'anthropic.claude-sonnet-4-6': {
+        displayName: 'Anthropic Claude Sonnet 4.6 (Bedrock)',
+        providers: ['aws-bedrock'],
+        costPer1kTokens: { input: 0, output: 0 },
+        maxContextTokens: 200000,
+        capabilities: ['text', 'vision', 'function-calling'],
+      },
+      'anthropic.claude-haiku-4-5-20251001-v1:0': {
+        displayName: 'Anthropic Claude Haiku 4.5 (Bedrock)',
+        providers: ['aws-bedrock'],
+        costPer1kTokens: { input: 0, output: 0 },
+        maxContextTokens: 200000,
+        capabilities: ['text', 'vision', 'function-calling'],
+      },
+      'claude-haiku-4-5@20251001': {
+        displayName: 'Claude Haiku 4.5 @20251001 (Vertex)',
+        providers: ['google-vertex-ai'],
+        costPer1kTokens: { input: 0, output: 0 },
+        maxContextTokens: 200000,
+        capabilities: ['text', 'vision', 'function-calling'],
+      },
     },
-    'gpt-5-nano': {
-      displayName: 'GPT-5 Nano',
-      providers: ['openai-direct', 'azure-openai', 'openai-compatible'],
-      endpoints: [{ name: 'responses', url: '/v1/responses' }],
-      costPer1kTokens: { input: 0, output: 0 },
-      maxContextTokens: 128000,
-      capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
-    },
-    'gpt-5.3-codex': {
-      displayName: 'GPT-5.3 Codex',
-      providers: ['codex'],
-      endpoints: [{ name: 'responses', url: '/v1/responses' }],
-      costPer1kTokens: { input: 0, output: 0 },
-      maxContextTokens: 128000,
-      capabilities: ['text', 'function-calling'],
-    },
-    'claude-opus-4-6': {
-      displayName: 'Claude Opus 4.6',
-      providers: ['anthropic-direct'],
-      costPer1kTokens: { input: 0, output: 0 },
-      maxContextTokens: 200000,
-      capabilities: ['text', 'vision', 'function-calling'],
-    },
-    'claude-sonnet-4-6': {
-      displayName: 'Claude Sonnet 4.6',
-      providers: ['anthropic-direct'],
-      costPer1kTokens: { input: 0, output: 0 },
-      maxContextTokens: 200000,
-      capabilities: ['text', 'vision', 'function-calling'],
-    },
-    'claude-haiku-4-5-20251001': {
-      displayName: 'Claude Haiku 4.5 (20251001)',
-      providers: ['anthropic-direct'],
-      costPer1kTokens: { input: 0, output: 0 },
-      maxContextTokens: 200000,
-      capabilities: ['text', 'vision', 'function-calling'],
-    },
-    'anthropic.claude-opus-4-6-v1': {
-      displayName: 'Anthropic Claude Opus 4.6 (Bedrock)',
-      providers: ['aws-bedrock'],
-      costPer1kTokens: { input: 0, output: 0 },
-      maxContextTokens: 200000,
-      capabilities: ['text', 'vision', 'function-calling'],
-    },
-    'anthropic.claude-sonnet-4-6': {
-      displayName: 'Anthropic Claude Sonnet 4.6 (Bedrock)',
-      providers: ['aws-bedrock'],
-      costPer1kTokens: { input: 0, output: 0 },
-      maxContextTokens: 200000,
-      capabilities: ['text', 'vision', 'function-calling'],
-    },
-    'anthropic.claude-haiku-4-5-20251001-v1:0': {
-      displayName: 'Anthropic Claude Haiku 4.5 (Bedrock)',
-      providers: ['aws-bedrock'],
-      costPer1kTokens: { input: 0, output: 0 },
-      maxContextTokens: 200000,
-      capabilities: ['text', 'vision', 'function-calling'],
-    },
-    'claude-haiku-4-5@20251001': {
-      displayName: 'Claude Haiku 4.5 @20251001 (Vertex)',
-      providers: ['google-vertex-ai'],
-      costPer1kTokens: { input: 0, output: 0 },
-      maxContextTokens: 200000,
-      capabilities: ['text', 'vision', 'function-calling'],
-    },
-    'gemini-3.1-pro-preview': {
-      displayName: 'Gemini 3.1 Pro Preview',
-      providers: ['google-ai-studio'],
-      costPer1kTokens: { input: 0, output: 0 },
-      maxContextTokens: 2000000,
-      capabilities: ['text', 'vision', 'function-calling'],
-    },
-    'gemini-3-flash-preview': {
-      displayName: 'Gemini 3 Flash Preview',
-      providers: ['google-ai-studio'],
-      costPer1kTokens: { input: 0, output: 0 },
-      maxContextTokens: 1000000,
-      capabilities: ['text', 'vision', 'function-calling'],
-    },
-    'gemini-3-pro-preview': {
-      displayName: 'Gemini 3 Pro Preview',
-      providers: ['google-ai-studio'],
-      costPer1kTokens: { input: 0, output: 0 },
-      maxContextTokens: 2000000,
-      capabilities: ['text', 'vision', 'function-calling'],
+    gemini: {
+      'gemini-3.1-pro-preview': {
+        displayName: 'Gemini 3.1 Pro Preview',
+        providers: ['google-ai-studio'],
+        costPer1kTokens: { input: 0, output: 0 },
+        maxContextTokens: 2000000,
+        capabilities: ['text', 'vision', 'function-calling'],
+      },
+      'gemini-3-flash-preview': {
+        displayName: 'Gemini 3 Flash Preview',
+        providers: ['google-ai-studio'],
+        costPer1kTokens: { input: 0, output: 0 },
+        maxContextTokens: 1000000,
+        capabilities: ['text', 'vision', 'function-calling'],
+      },
+      'gemini-3-pro-preview': {
+        displayName: 'Gemini 3 Pro Preview',
+        providers: ['google-ai-studio'],
+        costPer1kTokens: { input: 0, output: 0 },
+        maxContextTokens: 2000000,
+        capabilities: ['text', 'vision', 'function-calling'],
+      },
     },
   },
 
@@ -433,16 +459,16 @@ const DEFAULT_LLM_CONFIG_TEMPLATE = {
 
   tiers: {
     simple: {
-      primary: 'claude-haiku-4-5-20251001',
-      fallback: ['gpt-5-mini', 'gemini-3-flash-preview'],
+      primary: 'anthropic.claude-haiku-4-5-20251001',
+      fallback: ['openai.gpt-5-mini', 'gemini.gemini-3-flash-preview'],
     },
     medium: {
-      primary: 'claude-sonnet-4-6',
-      fallback: ['gpt-5.2', 'gemini-3-pro-preview', 'claude-haiku-4-5-20251001'],
+      primary: 'anthropic.claude-sonnet-4-6',
+      fallback: ['openai.gpt-5.2', 'gemini.gemini-3-pro-preview', 'anthropic.claude-haiku-4-5-20251001'],
     },
     complex: {
-      primary: 'claude-opus-4-6',
-      fallback: ['gpt-5.2', 'gemini-3.1-pro-preview', 'claude-sonnet-4-6'],
+      primary: 'anthropic.claude-opus-4-6',
+      fallback: ['openai.gpt-5.2', 'gemini.gemini-3.1-pro-preview', 'anthropic.claude-sonnet-4-6'],
     },
   },
 

@@ -33,9 +33,9 @@
     }
   },
   "tiers": {
-    "simple": { "primary": "qwen3-30b-a3b-instruct" },
-    "medium": { "primary": "qwen3-30b-a3b-instruct" },
-    "complex": { "primary": "qwen3-30b-a3b-instruct" }
+    "simple": { "primary": "openai-compatible.qwen3-30b-a3b-instruct" },
+    "medium": { "primary": "openai-compatible.qwen3-30b-a3b-instruct" },
+    "complex": { "primary": "openai-compatible.qwen3-30b-a3b-instruct" }
   },
   "workloads": {
     "conversation": {

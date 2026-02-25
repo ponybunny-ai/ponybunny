@@ -161,7 +161,8 @@ export class EndpointManager {
    */
   async getAvailableEndpointsForModel(modelId: string): Promise<string[]> {
     const config = getCachedConfig();
-    const modelConfig = config.models[modelId];
+    const resolved = this.resolveModelSelector(config, modelId);
+    const modelConfig = config.models[resolved.modelId];
 
     if (!modelConfig) {
       return [];
@@ -169,7 +170,11 @@ export class EndpointManager {
 
     const availableEndpoints: string[] = [];
 
-    for (const endpointId of modelConfig.providers) {
+    const providerIds = resolved.providerScope
+      ? modelConfig.providers.filter(endpointId => resolved.providerScope!.has(endpointId))
+      : modelConfig.providers;
+
+    for (const endpointId of providerIds) {
       const endpointProbeHealth = config.providers[endpointId]?.health;
       if (endpointProbeHealth?.available === false) {
         continue;
@@ -291,6 +296,36 @@ export class EndpointManager {
     }
 
     return Object.keys(credentials).length > 0 ? credentials : null;
+  }
+
+  private resolveModelSelector(
+    config: ReturnType<typeof getCachedConfig>,
+    modelSelector: string
+  ): { modelId: string; providerScope?: Set<string> } {
+    if (config.models[modelSelector]) {
+      return { modelId: modelSelector };
+    }
+
+    const dotIndex = modelSelector.indexOf('.');
+    if (dotIndex <= 0 || dotIndex === modelSelector.length - 1) {
+      return { modelId: modelSelector };
+    }
+
+    const providerAliasId = modelSelector.slice(0, dotIndex);
+    const modelId = modelSelector.slice(dotIndex + 1);
+    const providerAlias = config.providerAliases?.[providerAliasId];
+    if (!providerAlias) {
+      return { modelId: modelSelector };
+    }
+
+    if (!config.models[modelId]) {
+      return { modelId: modelSelector };
+    }
+
+    return {
+      modelId,
+      providerScope: new Set(providerAlias.providers),
+    };
   }
 }
 

@@ -140,6 +140,16 @@ describe('ModelRouter', () => {
       expect(endpoints.find((endpoint) => endpoint.id === 'openai-direct')).toBeUndefined();
     });
 
+    it('should support provider-prefixed model selector from tiers/workloads', () => {
+      process.env.OPENAI_API_KEY = 'test-openai-key';
+
+      const router = new ModelRouter();
+      const endpoints = router.getEndpointsForModel('openai.gpt-5.2');
+
+      expect(endpoints.length).toBeGreaterThan(0);
+      expect(endpoints.map((endpoint) => endpoint.id)).toContain('openai-direct');
+    });
+
     it('should return empty array for unknown models', () => {
       const router = new ModelRouter();
       const endpoints = router.getEndpointsForModel('unknown-model');

@@ -3,7 +3,11 @@ import type { EndpointId, EndpointConfig } from '../endpoints/index.js';
 import { getEndpointConfig, hasRequiredCredentials } from '../endpoints/index.js';
 import type { ModelRoutingConfig } from './routing-config.js';
 import { getRoutingConfig } from './routing-config.js';
-import { getModelConfig as getLLMModelConfig, getEndpointConfig as getLLMEndpointConfig } from '../provider-manager/config-loader.js';
+import {
+  getModelConfig as getLLMModelConfig,
+  getEndpointConfig as getLLMEndpointConfig,
+  getCachedConfig,
+} from '../provider-manager/config-loader.js';
 import { authManagerV2 } from '../../../cli/lib/auth-manager-v2.js';
 
 function safeGetEndpointConfig(endpointId: string): EndpointConfig | null {
@@ -31,8 +35,18 @@ export class ModelRouter {
    * Get the protocol for a model
    */
   getProtocolForModel(modelId: string): ProtocolId | undefined {
-    const llmModelConfig = this.useLLMConfig ? getLLMModelConfig(modelId) : undefined;
+    const selectorResolution = this.useLLMConfig
+      ? this.resolveModelSelector(modelId)
+      : { modelId };
+    const llmModelConfig = this.useLLMConfig ? getLLMModelConfig(selectorResolution.modelId) : undefined;
     if (llmModelConfig) {
+      if (selectorResolution.providerAliasId) {
+        const aliasProtocol = getCachedConfig().providerAliases?.[selectorResolution.providerAliasId]?.protocol;
+        if (aliasProtocol) {
+          return aliasProtocol;
+        }
+      }
+
       const firstEndpointId = llmModelConfig.providers[0];
       if (!firstEndpointId) return undefined;
       const endpoint = safeGetEndpointConfig(firstEndpointId);
@@ -49,12 +63,22 @@ export class ModelRouter {
   getEndpointsForModel(modelId: string): EndpointConfig[] {
     console.log(`🔍 [ModelRouter] Resolving endpoints for model: ${modelId}`);
 
-    const llmModelConfig = this.useLLMConfig ? getLLMModelConfig(modelId) : undefined;
-    const candidateEndpointIds: string[] = llmModelConfig?.providers ?? [];
+    const selectorResolution = this.useLLMConfig
+      ? this.resolveModelSelector(modelId)
+      : { modelId };
+    const llmModelConfig = this.useLLMConfig ? getLLMModelConfig(selectorResolution.modelId) : undefined;
+    const candidateEndpointIds: string[] = llmModelConfig
+      ? llmModelConfig.providers.filter(endpointId => {
+        if (!selectorResolution.providerScope) {
+          return true;
+        }
+        return selectorResolution.providerScope.has(endpointId);
+      })
+      : [];
 
     if (llmModelConfig) {
-      console.log(`✅ [ModelRouter] Exact model match in llm-config: ${modelId}`);
-      console.log(`📋 [ModelRouter] Candidate providers from llm-config.models['${modelId}'].providers: ${candidateEndpointIds.join(', ')}`);
+      console.log(`✅ [ModelRouter] Exact model match in llm-config: ${selectorResolution.modelId}`);
+      console.log(`📋 [ModelRouter] Candidate providers from llm-config.models['${selectorResolution.modelId}'].providers: ${candidateEndpointIds.join(', ')}`);
     } else {
       console.log(`⚠️ [ModelRouter] No exact model match in llm-config for: ${modelId}`);
     }
@@ -215,6 +239,38 @@ export class ModelRouter {
 
     const regex = new RegExp(`^${regexPattern}$`);
     return regex.test(modelId);
+  }
+
+  private resolveModelSelector(
+    modelSelector: string
+  ): { modelId: string; providerAliasId?: string; providerScope?: Set<string> } {
+    const config = getCachedConfig();
+
+    if (config.models[modelSelector]) {
+      return { modelId: modelSelector };
+    }
+
+    const dotIndex = modelSelector.indexOf('.');
+    if (dotIndex <= 0 || dotIndex === modelSelector.length - 1) {
+      return { modelId: modelSelector };
+    }
+
+    const providerAliasId = modelSelector.slice(0, dotIndex);
+    const modelId = modelSelector.slice(dotIndex + 1);
+    const providerAlias = config.providerAliases?.[providerAliasId];
+    if (!providerAlias) {
+      return { modelId: modelSelector };
+    }
+
+    if (!config.models[modelId]) {
+      return { modelId: modelSelector };
+    }
+
+    return {
+      modelId,
+      providerAliasId,
+      providerScope: new Set(providerAlias.providers),
+    };
   }
 }
 

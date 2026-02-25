@@ -338,6 +338,15 @@ describe('LLM Provider Manager', () => {
       expect(Array.isArray(endpoints)).toBe(true);
     });
 
+    it('should resolve provider-prefixed model selector to scoped endpoints', async () => {
+      process.env.OPENAI_API_KEY = 'test-openai-key';
+      const manager = getEndpointManager();
+      const endpoints = await manager.getAvailableEndpointsForModel('openai.gpt-5.2');
+
+      expect(Array.isArray(endpoints)).toBe(true);
+      expect(endpoints).toContain('openai-direct');
+    });
+
     it('should skip endpoints marked unavailable by persisted endpoint probe health', async () => {
       process.env.OPENAI_API_KEY = 'test-openai-key';
 
