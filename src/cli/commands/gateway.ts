@@ -128,6 +128,22 @@ function ensureGatewaySchema(db: Database.Database): void {
   }
 }
 
+function ensureMemorySchema(db: Database.Database): void {
+  try {
+    const schemaPath = join(__dirname, '../../infra/persistence/schema-memory.sql');
+    const schema = readFileSync(schemaPath, 'utf-8');
+    db.exec(schema);
+  } catch {
+    try {
+      const distSchemaPath = join(__dirname, '../../../dist/infra/persistence/schema-memory.sql');
+      const schema = readFileSync(distSchemaPath, 'utf-8');
+      db.exec(schema);
+    } catch {
+      // Schema might already exist
+    }
+  }
+}
+
 async function getOrCreateLocalPairingToken(dbPath: string, permissions: Permission[]): Promise<string | null> {
   try {
     const publicKey = getPublicKey();
@@ -516,18 +532,8 @@ async function runGateway(
     const db = new Database(dbPath);
     const memoryDb = new Database(memoryDbPath);
 
-    // Load and run schema
-    const schemaPath = join(__dirname, '../../infra/persistence/schema.sql');
-    try {
-      const schema = readFileSync(schemaPath, 'utf-8');
-      db.exec(schema);
-      memoryDb.exec(schema);
-    } catch {
-      const distSchemaPath = join(__dirname, '../../../dist/infra/persistence/schema.sql');
-      const schema = readFileSync(distSchemaPath, 'utf-8');
-      db.exec(schema);
-      memoryDb.exec(schema);
-    }
+    ensureGatewaySchema(db);
+    ensureMemorySchema(memoryDb);
 
     // Initialize repository
     const repository = new WorkOrderDatabase(dbPath);

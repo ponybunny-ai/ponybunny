@@ -86,13 +86,7 @@ export class SqliteSessionRepository implements ISessionRepository {
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       );
 
-      -- Indexes
-      CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_sessions_lifecycle ON sessions(lifecycle_state, updated_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
-      CREATE INDEX IF NOT EXISTS idx_sessions_persona ON sessions(persona_id);
-      CREATE INDEX IF NOT EXISTS idx_sessions_goal ON sessions(active_goal_id);
+      -- Indexes safe for all schema versions
       CREATE INDEX IF NOT EXISTS idx_session_turns_session ON session_turns(session_id, timestamp);
     `);
 
@@ -119,6 +113,10 @@ export class SqliteSessionRepository implements ISessionRepository {
     }
 
     this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+      CREATE INDEX IF NOT EXISTS idx_sessions_persona ON sessions(persona_id);
+      CREATE INDEX IF NOT EXISTS idx_sessions_goal ON sessions(active_goal_id);
       CREATE INDEX IF NOT EXISTS idx_sessions_lifecycle ON sessions(lifecycle_state, updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived_at DESC);
     `);

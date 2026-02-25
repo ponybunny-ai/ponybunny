@@ -39,6 +39,46 @@ describe('SqliteSessionRepository', () => {
     });
   });
 
+  describe('initialize migration compatibility', () => {
+    it('should initialize successfully on legacy sessions table without lifecycle columns', () => {
+      const legacyDb = new Database(':memory:');
+      legacyDb.exec(`
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          persona_id TEXT NOT NULL,
+          state TEXT NOT NULL,
+          active_goal_id TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          expires_at INTEGER,
+          metadata TEXT
+        );
+
+        CREATE TABLE session_turns (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          role TEXT NOT NULL,
+          content TEXT NOT NULL,
+          timestamp INTEGER NOT NULL,
+          attachments TEXT,
+          metadata TEXT,
+          FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+      `);
+
+      const legacyRepository = new SqliteSessionRepository(legacyDb);
+
+      expect(() => legacyRepository.initialize()).not.toThrow();
+
+      const created = legacyRepository.createSession('persona-legacy');
+      const summaries = legacyRepository.listSessionsSummary({ lifecycleState: 'active' });
+
+      expect(summaries.some((item) => item.id === created.id)).toBe(true);
+
+      legacyDb.close();
+    });
+  });
+
   describe('getSession', () => {
     it('should return null for non-existent session', () => {
       const session = repository.getSession('non-existent');
