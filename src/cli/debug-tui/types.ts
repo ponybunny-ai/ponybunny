@@ -119,6 +119,26 @@ export interface DebugGatewayState {
   }>;
 }
 
+export interface DebugSchedulerCapabilities {
+  timestamp: number;
+  schedulerConnected: boolean;
+  capabilities: {
+    summary: {
+      totalModels: number;
+      totalProviders: number;
+      totalTools: number;
+      totalMCPServers: number;
+      totalSkills: number;
+      totalAgents: number;
+    };
+    agents?: Array<{
+      id: string;
+      name: string;
+      enabled: boolean;
+    }>;
+  };
+}
+
 // ============================================================================
 // TUI State Types
 // ============================================================================
@@ -145,6 +165,7 @@ export interface DebugTuiState {
   goals: Goal[];
   events: DebugEvent[];
   gatewayState: DebugGatewayState | null;
+  schedulerCapabilities: DebugSchedulerCapabilities | null;
 
   // Inspect view
   inspectTarget: InspectTarget | null;
@@ -170,6 +191,7 @@ export const initialDebugState: DebugTuiState = {
   goals: [],
   events: [],
   gatewayState: null,
+  schedulerCapabilities: null,
   inspectTarget: null,
   inspectData: null,
   selectedIndex: 0,
@@ -194,6 +216,7 @@ export type DebugAction =
   | { type: 'ADD_EVENT'; event: DebugEvent }
   | { type: 'SET_EVENTS'; events: DebugEvent[] }
   | { type: 'SET_GATEWAY_STATE'; state: DebugGatewayState }
+  | { type: 'SET_SCHEDULER_CAPABILITIES'; capabilities: DebugSchedulerCapabilities | null }
   | { type: 'SET_INSPECT_TARGET'; target: InspectTarget | null }
   | { type: 'SET_INSPECT_DATA'; data: DebugGoalTree | WorkItem | Run | null }
   | { type: 'SET_SELECTED_INDEX'; index: number }
@@ -237,6 +260,9 @@ export function debugReducer(state: DebugTuiState, action: DebugAction): DebugTu
 
     case 'SET_GATEWAY_STATE':
       return { ...state, gatewayState: action.state };
+
+    case 'SET_SCHEDULER_CAPABILITIES':
+      return { ...state, schedulerCapabilities: action.capabilities };
 
     case 'SET_INSPECT_TARGET':
       return { ...state, inspectTarget: action.target, currentView: action.target ? 'inspect' : state.currentView };

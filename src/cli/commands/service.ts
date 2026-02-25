@@ -4,20 +4,17 @@
  * Unified interface for managing all PonyBunny services:
  * - Gateway (WebSocket server)
  * - Scheduler (autonomous execution daemon)
- * - Debug Server (observability web UI)
  * - Web UI (main application)
  */
 
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { spawn, execSync } from 'child_process';
-import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'fs';
-import { join, dirname, resolve } from 'path';
+import { existsSync, readFileSync } from 'fs';
+import { join, resolve } from 'path';
 import { homedir } from 'os';
-import { fileURLToPath } from 'url';
 import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
 const PONY_DIR = join(homedir(), '.ponybunny');
 const SERVICES_STATE_FILE = join(PONY_DIR, 'services.json');
 function resolveServiceDbPath(): string {
@@ -38,14 +35,6 @@ interface ServiceInfo {
 interface ServicesState {
   gateway?: ServiceInfo;
   scheduler?: ServiceInfo;
-  debugServer?: ServiceInfo;
-  webui?: ServiceInfo;
-}
-
-function ensurePonyDir(): void {
-  if (!existsSync(PONY_DIR)) {
-    mkdirSync(PONY_DIR, { recursive: true });
-  }
 }
 
 function readServicesState(): ServicesState {
@@ -59,23 +48,9 @@ function readServicesState(): ServicesState {
   }
 }
 
-function writeServicesState(state: ServicesState): void {
-  ensurePonyDir();
-  writeFileSync(SERVICES_STATE_FILE, JSON.stringify(state, null, 2));
-}
-
 function isProcessRunning(pid: number): boolean {
   try {
     process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function killProcess(pid: number, signal: NodeJS.Signals = 'SIGTERM'): boolean {
-  try {
-    process.kill(pid, signal);
     return true;
   } catch {
     return false;
@@ -159,34 +134,7 @@ serviceCommand
       console.log(chalk.gray('    Start: pb service start scheduler'));
     }
 
-    // Debug Server - check actual PID file
-    console.log(chalk.white('\n  Debug Server:'));
-    try {
-      const debugPidFile = join(PONY_DIR, 'debug-server.pid');
-      if (existsSync(debugPidFile)) {
-        const debugPid = JSON.parse(readFileSync(debugPidFile, 'utf-8'));
-        if (isProcessRunning(debugPid.pid)) {
-          console.log(chalk.green('    ✓ Running'));
-          console.log(chalk.gray(`    PID: ${debugPid.pid}`));
-          console.log(chalk.gray(`    Address: http://localhost:${debugPid.port || 3001}`));
-          console.log(chalk.gray(`    Uptime: ${formatUptime(Date.now() - debugPid.startedAt)}`));
-        } else {
-          console.log(chalk.red('    ✗ Not running'));
-          console.log(chalk.gray('    Start: pb service start debug'));
-        }
-      } else {
-        console.log(chalk.red('    ✗ Not running'));
-        console.log(chalk.gray('    Start: pb service start debug'));
-      }
-    } catch {
-      console.log(chalk.red('    ✗ Not running'));
-      console.log(chalk.gray('    Start: pb service start debug'));
-    }
-
-    // Web UI
-    console.log(chalk.white('\n  Web UI:'));
-    console.log(chalk.red('    ✗ Not running'));
-    console.log(chalk.gray('    Start: pb service start web'));
+    console.log(chalk.gray('\n  Web UI is managed via `pb webui ...` commands'));
 
     console.log();
   });
@@ -194,7 +142,7 @@ serviceCommand
 // pb service start <service> - Start a specific service
 serviceCommand
   .command('start <service>')
-  .description('Start a service (gateway|scheduler|debug|web|all)')
+  .description('Start a service (gateway|scheduler|all)')
   .option('--foreground', 'Run in foreground')
   .action(async (serviceName: string, options) => {
     const { foreground } = options;
@@ -205,7 +153,7 @@ serviceCommand
       await new Promise(resolve => setTimeout(resolve, 1000));
       await startService('scheduler', foreground);
       console.log(chalk.green('\n✓ All services started'));
-      console.log(chalk.gray('\nNote: Debug Server not started (use `pb debug web` to start manually)'));
+      console.log(chalk.gray('\nNote: Debug services are managed via `pb debug ...` commands'));
       return;
     }
 
@@ -252,29 +200,9 @@ async function startService(serviceName: string, foreground: boolean = false): P
       }
       break;
 
-    case 'debug':
-      console.log(chalk.blue('Starting Debug Server...'));
-      try {
-        execSync('pb debug web', { stdio: 'inherit' });
-      } catch (error: any) {
-        if (error.status === 1) {
-          console.log(chalk.gray('  (skipping, may already be running)'));
-        } else {
-          throw error;
-        }
-      }
-      break;
-
-    case 'web':
-      console.log(chalk.blue('Starting Web UI...'));
-      // TODO: Implement web UI dev server start
-      console.log(chalk.yellow('Web UI dev server not yet implemented'));
-      console.log(chalk.gray('Run manually: cd web && npm run dev'));
-      break;
-
     default:
       console.log(chalk.red(`Unknown service: ${serviceName}`));
-      console.log(chalk.gray('Available services: gateway, scheduler, debug, web, all'));
+      console.log(chalk.gray('Available services: gateway, scheduler, all'));
       process.exit(1);
   }
 }
@@ -282,7 +210,7 @@ async function startService(serviceName: string, foreground: boolean = false): P
 // pb service stop <service> - Stop a specific service
 serviceCommand
   .command('stop <service>')
-  .description('Stop a service (gateway|scheduler|debug|web|all)')
+  .description('Stop a service (gateway|scheduler|all)')
   .option('-f, --force', 'Force kill with SIGKILL')
   .action(async (serviceName: string, options) => {
     const { force } = options;
@@ -292,7 +220,7 @@ serviceCommand
       await stopService('scheduler', force);
       await stopService('gateway', force);
       console.log(chalk.green('\n✓ All services stopped'));
-      console.log(chalk.gray('\nNote: Debug Server not managed by service command (stop manually if running)'));
+      console.log(chalk.gray('\nNote: Debug services are managed via `pb debug ...` commands'));
       return;
     }
 
@@ -327,16 +255,6 @@ async function stopService(serviceName: string, force: boolean = false): Promise
       }
       break;
 
-    case 'debug':
-      console.log(chalk.gray('Debug Server is not managed by service command'));
-      console.log(chalk.gray('Stop manually if running'));
-      break;
-
-    case 'web':
-      console.log(chalk.gray('Web UI is not managed by service command'));
-      console.log(chalk.gray('Stop manually if running'));
-      break;
-
     default:
       console.log(chalk.red(`Unknown service: ${serviceName}`));
       process.exit(1);
@@ -345,9 +263,22 @@ async function stopService(serviceName: string, force: boolean = false): Promise
 
 // pb service restart <service> - Restart a service
 serviceCommand
-  .command('restart <service>')
-  .description('Restart a service (gateway|scheduler|debug|web|all)')
+.command('restart <service>')
+  .description('Restart a service (gateway|scheduler|all)')
   .action(async (serviceName: string) => {
+    if (serviceName === 'all') {
+      console.log(chalk.blue('Restarting all services...\n'));
+      await stopService('scheduler');
+      await stopService('gateway');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await startService('gateway');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await startService('scheduler');
+      console.log(chalk.green('\n✓ All services restarted'));
+      console.log(chalk.gray('\nNote: Debug services are managed via `pb debug ...` commands'));
+      return;
+    }
+
     console.log(chalk.blue(`Restarting ${serviceName}...\n`));
     await stopService(serviceName);
     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -357,7 +288,7 @@ serviceCommand
 // pb service logs <service> - Show service logs
 serviceCommand
   .command('logs <service>')
-  .description('Show service logs (gateway|scheduler|debug)')
+  .description('Show service logs (gateway|scheduler)')
   .option('-f, --follow', 'Follow log output')
   .option('-n, --lines <n>', 'Number of lines to show', '50')
   .action((serviceName: string, options) => {
@@ -371,12 +302,9 @@ serviceCommand
       case 'scheduler':
         logFile = join(PONY_DIR, 'scheduler.log');
         break;
-      case 'debug':
-        logFile = join(PONY_DIR, 'debug-server.log');
-        break;
       default:
         console.log(chalk.red(`Unknown service: ${serviceName}`));
-        console.log(chalk.gray('Available services: gateway, scheduler, debug'));
+        console.log(chalk.gray('Available services: gateway, scheduler'));
         process.exit(1);
     }
 
@@ -415,8 +343,6 @@ serviceCommand
     const services = [
       { name: 'Gateway', info: state.gateway },
       { name: 'Scheduler', info: state.scheduler },
-      { name: 'Debug Server', info: state.debugServer },
-      { name: 'Web UI', info: state.webui },
     ];
 
     for (const service of services) {

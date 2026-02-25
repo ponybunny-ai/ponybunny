@@ -14,7 +14,7 @@ export const StatusBar: React.FC = () => {
   const { state } = useAppContext();
   const { connectionStatus } = useGatewayContext();
   const { goalCount, activeCount } = useGoals();
-  const { pendingEscalationCount } = state;
+  const { pendingEscalationCount, schedulerCapabilities } = state;
 
   const statusColor = getConnectionStatusColor(connectionStatus);
   const statusIcon = connectionStatus === 'connected' ? '●' : connectionStatus === 'connecting' ? '◐' : '○';
@@ -55,6 +55,12 @@ export const StatusBar: React.FC = () => {
             <Text color="yellow">⚠ {pendingEscalationCount} Escalation{pendingEscalationCount !== 1 ? 's' : ''}</Text>
           </>
         )}
+        <Text dimColor> │ </Text>
+        <Text color={schedulerCapabilities?.schedulerConnected ? 'green' : 'yellow'}>
+          SCH {schedulerCapabilities?.schedulerConnected ? 'ON' : 'OFF'}
+        </Text>
+        <Text dimColor> │ </Text>
+        <Text dimColor>A {schedulerCapabilities?.capabilities.summary.totalAgents ?? 0}</Text>
         <Text dimColor> │ </Text>
         <Text dimColor>{time}</Text>
       </Box>

@@ -6,7 +6,9 @@
 import { loadLLMConfig } from '../llm/provider-manager/config-loader.js';
 import { getGlobalSkillRegistry } from '../skills/skill-registry.js';
 import { loadMCPConfig } from '../mcp/config/mcp-config-loader.js';
+import { getGlobalAgentRegistry } from '../agents/agent-registry.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
+import { getManagedSkillsDir } from '../config/config-paths.js';
 
 export interface ModelInfo {
   name: string;
@@ -51,8 +53,19 @@ export interface SkillInfo {
   source: string;
   version?: string;
   description: string;
+  enabled: boolean;
   phases?: string[];
   tags?: string[];
+}
+
+export interface AgentInfo {
+  id: string;
+  name: string;
+  type: string;
+  enabled: boolean;
+  source: string;
+  status: string;
+  scheduleKind: 'cron' | 'interval';
 }
 
 export interface SchedulerCapabilities {
@@ -61,12 +74,14 @@ export interface SchedulerCapabilities {
   tools: ToolInfo[];
   mcpServers: MCPServerInfo[];
   skills: SkillInfo[];
+  agents: AgentInfo[];
   summary: {
     totalModels: number;
     totalProviders: number;
     totalTools: number;
     totalMCPServers: number;
     totalSkills: number;
+    totalAgents: number;
   };
 }
 
@@ -178,9 +193,15 @@ export function getMCPServersInfo(): MCPServerInfo[] {
 /**
  * Get all skills information
  */
-export function getSkillsInfo(): SkillInfo[] {
+export async function getSkillsInfo(): Promise<SkillInfo[]> {
   try {
     const registry = getGlobalSkillRegistry();
+    if (registry.getSkills().length === 0) {
+      await registry.loadSkills({
+        workspaceDir: process.cwd(),
+        managedSkillsDir: getManagedSkillsDir(),
+      });
+    }
     const skills = registry.getSkills();
 
     return skills.map(skill => ({
@@ -188,6 +209,7 @@ export function getSkillsInfo(): SkillInfo[] {
       source: skill.source,
       version: skill.metadata.version,
       description: skill.metadata.description,
+      enabled: skill.metadata.disableModelInvocation !== true,
       phases: skill.metadata.phases,
       tags: skill.metadata.tags,
     }));
@@ -197,15 +219,50 @@ export function getSkillsInfo(): SkillInfo[] {
   }
 }
 
+export async function getAgentsInfo(): Promise<AgentInfo[]> {
+  try {
+    const registry = getGlobalAgentRegistry();
+    if (registry.getAgents().length === 0) {
+      await registry.loadAgents({ workspaceDir: process.cwd() });
+    }
+    const agents = registry.getAgents();
+
+    return agents.map(agent => ({
+      id: agent.id,
+      name: agent.config.name,
+      type: agent.config.type,
+      enabled: agent.config.enabled,
+      source: agent.source,
+      status: agent.status,
+      scheduleKind: agent.config.schedule.kind,
+    }));
+  } catch (error) {
+    console.error('[SchedulerCapabilities] Failed to load agents info:', error);
+    return [];
+  }
+}
+
 /**
  * Get complete scheduler capabilities
  */
-export function getSchedulerCapabilities(toolRegistry?: ToolRegistry): SchedulerCapabilities {
+export async function getSchedulerCapabilities(toolRegistry?: ToolRegistry): Promise<SchedulerCapabilities> {
   const models = getModelsInfo();
   const providers = getProvidersInfo();
   const tools = getToolsInfo(toolRegistry);
   const mcpServers = getMCPServersInfo();
-  const skills = getSkillsInfo();
+  const skills = await getSkillsInfo();
+  const agents = await getAgentsInfo();
+
+  const enabledProviderNames = new Set(
+    providers.filter(provider => provider.enabled).map(provider => provider.name)
+  );
+  const enabledModelsCount = models.filter(model =>
+    model.providers.some(providerName => enabledProviderNames.has(providerName))
+  ).length;
+  const enabledProvidersCount = providers.filter(provider => provider.enabled).length;
+  const enabledMCPServersCount = mcpServers.filter(server => server.enabled).length;
+  const enabledSkillsCount = skills.filter(skill => skill.enabled).length;
+  const enabledAgentsCount = agents.filter(agent => agent.enabled).length;
 
   return {
     models,
@@ -213,12 +270,14 @@ export function getSchedulerCapabilities(toolRegistry?: ToolRegistry): Scheduler
     tools,
     mcpServers,
     skills,
+    agents,
     summary: {
-      totalModels: models.length,
-      totalProviders: providers.length,
+      totalModels: enabledModelsCount,
+      totalProviders: enabledProvidersCount,
       totalTools: tools.length,
-      totalMCPServers: mcpServers.length,
-      totalSkills: skills.length,
+      totalMCPServers: enabledMCPServersCount,
+      totalSkills: enabledSkillsCount,
+      totalAgents: enabledAgentsCount,
     },
   };
 }

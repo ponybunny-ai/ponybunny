@@ -188,6 +188,12 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
       }).catch(err => {
         appRef.current.addEvent('error', { message: `Failed to load work items: ${err.message}` });
       });
+
+      client.getSystemCapabilities().then(result => {
+        appRef.current.setSchedulerCapabilities(result);
+      }).catch(err => {
+        appRef.current.addEvent('error', { message: `Failed to load scheduler capabilities: ${err.message}` });
+      });
     }
   }, [gateway.connectionStatus]);
 
@@ -266,12 +272,26 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
   onExit,
 }) => {
   const app = useAppContext();
-  const { addEvent, addGoal, updateGoal, addEscalation } = app;
+  const { addEvent, addGoal, updateGoal, addEscalation, setSchedulerCapabilities } = app;
   const clientRef = useRef<TuiGatewayClient | null>(null);
 
   // Store handlers in ref to avoid recreating GatewayProvider
-  const handlersRef = useRef({ addEvent, addGoal, updateGoal, addEscalation, app });
-  handlersRef.current = { addEvent, addGoal, updateGoal, addEscalation, app };
+  const handlersRef = useRef({
+    addEvent,
+    addGoal,
+    updateGoal,
+    addEscalation,
+    setSchedulerCapabilities,
+    app,
+  });
+  handlersRef.current = {
+    addEvent,
+    addGoal,
+    updateGoal,
+    addEscalation,
+    setSchedulerCapabilities,
+    app,
+  };
 
   const handleConnected = useCallback(() => {
     // Connection established
@@ -282,7 +302,8 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
   }, []);
 
   const handleEvent = useCallback(async (event: ClientGatewayEvent) => {
-    const { addEvent, addGoal, updateGoal, addEscalation, app } = handlersRef.current;
+    const { addEvent, addGoal, updateGoal, addEscalation, setSchedulerCapabilities, app } =
+      handlersRef.current;
     const data = event.data as Record<string, unknown> | undefined;
     const client = clientRef.current;
     addEvent(event.event, data);
@@ -385,6 +406,20 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
         app.setEscalations(result.escalations as Parameters<typeof app.setEscalations>[0]);
       } catch (error) {
         app.addEvent('error', { message: `Failed to load escalations: ${(error as Error).message}` });
+      }
+    };
+
+    const refreshSchedulerCapabilities = async () => {
+      if (!client) {
+        return;
+      }
+      try {
+        const capabilities = await client.getSystemCapabilities();
+        setSchedulerCapabilities(capabilities);
+      } catch (error) {
+        app.addEvent('error', {
+          message: `Failed to load scheduler capabilities: ${(error as Error).message}`,
+        });
       }
     };
 
@@ -521,6 +556,29 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
         }
         break;
 
+      case 'workitem.in_progress':
+        if (typeof data?.goalId === 'string') {
+          const stage = typeof data?.stage === 'string' ? data.stage : 'execution';
+          const progress = typeof data?.progress === 'number' ? `${data.progress}%` : undefined;
+          updateSimpleMessageByGoalId(data.goalId, {
+            status: 'processing',
+            statusText: progress ? `${stage} (${progress})` : stage,
+          });
+          appendTimelineByGoalId(
+            data.goalId,
+            'Execution update',
+            progress ? `${stage} ${progress}` : stage
+          );
+        }
+        break;
+
+      case 'workitem.ended':
+        if (typeof data?.goalId === 'string') {
+          const outcome = typeof data?.outcome === 'string' ? data.outcome : 'completed';
+          appendTimelineByGoalId(data.goalId, 'Work item ended', `Outcome: ${outcome}`);
+        }
+        break;
+
       case 'run.started':
         if (typeof data?.goalId === 'string') {
           updateSimpleMessageByGoalId(data.goalId, {
@@ -624,6 +682,11 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
         } else {
           void refreshEscalations();
         }
+        break;
+
+      case 'system.status':
+      case 'scheduler.disconnected':
+        void refreshSchedulerCapabilities();
         break;
     }
   }, []);

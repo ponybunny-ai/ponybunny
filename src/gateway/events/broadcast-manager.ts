@@ -31,6 +31,8 @@ export class BroadcastManager {
     // Work item events
     this.subscribeAndBroadcast('workitem.created', 'workitem.created');
     this.subscribeAndBroadcast('workitem.started', 'workitem.started');
+    this.subscribeAndBroadcast('workitem.in_progress', 'workitem.in_progress');
+    this.subscribeAndBroadcast('workitem.ended', 'workitem.ended');
     this.subscribeAndBroadcast('workitem.updated', 'workitem.updated');
     this.subscribeAndBroadcast('workitem.completed', 'workitem.completed');
     this.subscribeAndBroadcast('workitem.failed', 'workitem.failed');
@@ -38,6 +40,11 @@ export class BroadcastManager {
     // Run events
     this.subscribeAndBroadcast('run.started', 'run.started');
     this.subscribeAndBroadcast('run.completed', 'run.completed');
+
+    this.subscribeAndBroadcast('verification.started', 'verification.started');
+    this.subscribeAndBroadcast('verification.completed', 'verification.completed');
+    this.subscribeAndBroadcast('budget.warning', 'budget.warning');
+    this.subscribeAndBroadcast('budget.exceeded', 'budget.exceeded');
 
     // Escalation events
     this.subscribeAndBroadcast('escalation.created', 'escalation.created');

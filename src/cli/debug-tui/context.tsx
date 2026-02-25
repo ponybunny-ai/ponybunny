@@ -14,6 +14,7 @@ import {
   type DebugLaneInfo,
   type DebugEvent,
   type DebugGatewayState,
+  type DebugSchedulerCapabilities,
   type DebugGoalTree,
   type InspectTarget,
   initialDebugState,
@@ -120,6 +121,9 @@ export const DebugProvider: React.FC<DebugProviderProps> = ({ url, token, childr
       // Fetch gateway state
       const gatewayState = await client.request<DebugGatewayState>('debug.gateway');
       dispatch({ type: 'SET_GATEWAY_STATE', state: gatewayState });
+
+      const schedulerCapabilities = await client.request<DebugSchedulerCapabilities>('system.capabilities');
+      dispatch({ type: 'SET_SCHEDULER_CAPABILITIES', capabilities: schedulerCapabilities });
 
       // Fetch recent events
       const eventsResult = await client.request<{ events: DebugEvent[] }>('debug.events', { limit: 100 });

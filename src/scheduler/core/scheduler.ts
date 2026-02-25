@@ -435,6 +435,15 @@ export class SchedulerCore implements ISchedulerCore {
       runId: run.id,
     });
 
+    this.emitEvent({
+      type: 'work_item_in_progress',
+      timestamp: Date.now(),
+      goalId: goal.id,
+      workItemId: workItem.id,
+      runId: run.id,
+      data: { stage: 'execution', progress: 10 },
+    });
+
     // Execute work item (async, don't await)
     this.executeWorkItem(context).catch((error) => {
       this.debug('Execution error:', error);
@@ -531,6 +540,15 @@ export class SchedulerCore implements ISchedulerCore {
       runId: run.id,
     });
 
+    this.emitEvent({
+      type: 'work_item_in_progress',
+      timestamp: Date.now(),
+      goalId: goal.id,
+      workItemId: workItem.id,
+      runId: run.id,
+      data: { stage: 'verification', progress: 75 },
+    });
+
     debug.custom('scheduler.verification.started', 'scheduler', {
       workItemId: workItem.id,
       runId: run.id,
@@ -565,6 +583,15 @@ export class SchedulerCore implements ISchedulerCore {
         workItemId: workItem.id,
       });
 
+      this.emitEvent({
+        type: 'work_item_ended',
+        timestamp: Date.now(),
+        goalId: goal.id,
+        workItemId: workItem.id,
+        runId: run.id,
+        data: { outcome: 'success', progress: 100 },
+      });
+
       // Update average duration
       const duration = Date.now() - context.startedAt;
       this.updateAverageDuration(duration);
@@ -587,6 +614,15 @@ export class SchedulerCore implements ISchedulerCore {
     error: { code: string; message: string; recoverable: boolean }
   ): Promise<void> {
     const { workItem, goal } = context;
+
+    this.emitEvent({
+      type: 'work_item_ended',
+      timestamp: Date.now(),
+      goalId: goal.id,
+      workItemId: workItem.id,
+      runId: context.run.id,
+      data: { outcome: 'failure', error, progress: 100 },
+    });
 
     // Decide retry strategy
     const retryDecision = this.deps.retryHandler.decideRetry(workItem, error, {});

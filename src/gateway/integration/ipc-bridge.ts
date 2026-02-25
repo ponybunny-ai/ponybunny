@@ -154,6 +154,28 @@ export class IPCBridge {
         });
         break;
 
+      case 'work_item_in_progress':
+        this.eventBus.emit('workitem.in_progress', {
+          workItemId: event.workItemId,
+          goalId: event.goalId,
+          runId: event.runId,
+          stage: event.data?.stage,
+          progress: event.data?.progress,
+          timestamp: event.timestamp,
+        });
+        break;
+
+      case 'work_item_ended':
+        this.eventBus.emit('workitem.ended', {
+          workItemId: event.workItemId,
+          goalId: event.goalId,
+          runId: event.runId,
+          outcome: event.data?.outcome,
+          error: event.data?.error,
+          timestamp: event.timestamp,
+        });
+        break;
+
       case 'work_item_completed':
         this.eventBus.emit('workitem.completed', {
           workItemId: event.workItemId,
@@ -258,12 +280,34 @@ export class IPCBridge {
       return;
     }
 
-    const event = message.data as any;
+    const event = message.data as {
+      id?: string;
+      timestamp?: number;
+      type: string;
+      source: string;
+      data: Record<string, unknown>;
+      goalId?: string;
+      workItemId?: string;
+      runId?: string;
+    };
 
     // Re-emit debug event through debugEmitter
     // This allows DebugBroadcaster to pick it up and send to clients
     if (debugEmitter.isEnabled()) {
-      debugEmitter.emitDebug(event.type, event.source, event.data);
+      if (typeof event.id === 'string' && typeof event.timestamp === 'number') {
+        debugEmitter.emitRaw({
+          id: event.id,
+          timestamp: event.timestamp,
+          type: event.type,
+          source: event.source,
+          data: event.data,
+          goalId: event.goalId,
+          workItemId: event.workItemId,
+          runId: event.runId,
+        });
+      } else {
+        debugEmitter.emitDebug(event.type, event.source, event.data);
+      }
     }
   }
 

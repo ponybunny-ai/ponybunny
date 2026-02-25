@@ -4,6 +4,7 @@
 
 import type { Goal, WorkItem, Escalation } from '../../../work-order/types/index.js';
 import type { ConnectionStatus, ViewType, ModalType, GatewayEvent, SimpleMessage } from './types.js';
+import type { SchedulerCapabilitiesResponse } from '../../gateway/tui-gateway-client.js';
 
 // Simple message actions
 export interface AddSimpleMessageAction {
@@ -115,6 +116,11 @@ export interface SetPendingApprovalCountAction {
   payload: number;
 }
 
+export interface SetSchedulerCapabilitiesAction {
+  type: 'SET_SCHEDULER_CAPABILITIES';
+  payload: SchedulerCapabilitiesResponse | null;
+}
+
 // Events actions
 export interface AddEventAction {
   type: 'ADD_EVENT';
@@ -186,6 +192,7 @@ export type AppAction =
   | SetEscalationsLoadingAction
   | SetPendingEscalationCountAction
   | SetPendingApprovalCountAction
+  | SetSchedulerCapabilitiesAction
   | AddEventAction
   | ClearEventsAction
   | SetActivityStatusAction
@@ -296,6 +303,13 @@ export const actions = {
   setPendingApprovalCount: (count: number): SetPendingApprovalCountAction => ({
     type: 'SET_PENDING_APPROVAL_COUNT',
     payload: count,
+  }),
+
+  setSchedulerCapabilities: (
+    capabilities: SchedulerCapabilitiesResponse | null
+  ): SetSchedulerCapabilitiesAction => ({
+    type: 'SET_SCHEDULER_CAPABILITIES',
+    payload: capabilities,
   }),
 
   addEvent: (event: GatewayEvent): AddEventAction => ({

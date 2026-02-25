@@ -3,6 +3,7 @@
  */
 
 import type { Goal, WorkItem, Escalation } from '../../../work-order/types/index.js';
+import type { SchedulerCapabilitiesResponse } from '../../gateway/tui-gateway-client.js';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -67,6 +68,7 @@ export interface AppState {
 
   // Approvals
   pendingApprovalCount: number;
+  schedulerCapabilities: SchedulerCapabilitiesResponse | null;
 
   // Events
   events: GatewayEvent[];
@@ -119,6 +121,7 @@ export const initialState: AppState = {
   escalationsLoading: false,
   pendingEscalationCount: 0,
   pendingApprovalCount: 0,
+  schedulerCapabilities: null,
   events: [],
   maxEvents: 100,
   activityStatus: 'idle',

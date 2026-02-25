@@ -13,6 +13,7 @@ import type { DebugEvent } from '../types.js';
 
 const getEventColor = (eventType: string): string => {
   if (eventType.includes('error') || eventType.includes('failed')) return 'red';
+  if (eventType.includes('in_progress')) return 'yellow';
   if (eventType.includes('completed') || eventType.includes('success')) return 'green';
   if (eventType.includes('started') || eventType.includes('running')) return 'yellow';
   if (eventType.includes('queued') || eventType.includes('ready')) return 'cyan';
@@ -48,6 +49,9 @@ const EventRow: React.FC<EventRowProps> = ({ event, isSelected, showDetails }) =
     if (event.data.workItemId) parts.push(`wi:${String(event.data.workItemId).slice(0, 6)}`);
     if (event.data.runId) parts.push(`run:${String(event.data.runId).slice(0, 6)}`);
     if (event.data.laneId) parts.push(`lane:${event.data.laneId}`);
+    if (event.data.stage) parts.push(`stage:${String(event.data.stage)}`);
+    if (event.data.progress !== undefined) parts.push(`progress:${String(event.data.progress)}%`);
+    if (event.data.outcome) parts.push(`outcome:${String(event.data.outcome)}`);
     if (event.data.status) parts.push(`status:${event.data.status}`);
     if (event.data.tokens) parts.push(`tokens:${event.data.tokens}`);
     if (event.data.error) parts.push(`error:${String(event.data.error).slice(0, 20)}`);

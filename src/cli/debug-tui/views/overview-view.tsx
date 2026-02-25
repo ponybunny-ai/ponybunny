@@ -139,7 +139,7 @@ const RecentEvents: React.FC = () => {
 
 export const OverviewView: React.FC = () => {
   const { state } = useDebugContext();
-  const { snapshot, schedulerState } = state;
+  const { snapshot, schedulerState, schedulerCapabilities } = state;
 
   // Get lane data
   const lanes = state.lanes.length > 0
@@ -191,6 +191,33 @@ export const OverviewView: React.FC = () => {
         <Box>
           <Text dimColor>Tokens: </Text>
           <Text>{(schedulerState?.metrics.totalTokensUsed || 0).toLocaleString()}</Text>
+        </Box>
+      </Box>
+
+      <Box marginBottom={1} borderStyle="single" borderColor="gray" paddingX={1}>
+        <Box marginRight={3}>
+          <Text dimColor>Models: </Text>
+          <Text>{schedulerCapabilities?.capabilities.summary.totalModels || 0}</Text>
+        </Box>
+        <Box marginRight={3}>
+          <Text dimColor>Providers: </Text>
+          <Text>{schedulerCapabilities?.capabilities.summary.totalProviders || 0}</Text>
+        </Box>
+        <Box marginRight={3}>
+          <Text dimColor>Tools: </Text>
+          <Text>{schedulerCapabilities?.capabilities.summary.totalTools || 0}</Text>
+        </Box>
+        <Box marginRight={3}>
+          <Text dimColor>MCP: </Text>
+          <Text>{schedulerCapabilities?.capabilities.summary.totalMCPServers || 0}</Text>
+        </Box>
+        <Box marginRight={3}>
+          <Text dimColor>Skills: </Text>
+          <Text>{schedulerCapabilities?.capabilities.summary.totalSkills || 0}</Text>
+        </Box>
+        <Box>
+          <Text dimColor>Agents: </Text>
+          <Text>{schedulerCapabilities?.capabilities.summary.totalAgents || 0}</Text>
         </Box>
       </Box>
 

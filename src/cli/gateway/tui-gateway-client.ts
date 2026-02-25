@@ -43,6 +43,28 @@ export interface GatewayStatus {
   schedulerConnected: boolean;
 }
 
+export interface SchedulerCapabilitiesSummary {
+  totalModels: number;
+  totalProviders: number;
+  totalTools: number;
+  totalMCPServers: number;
+  totalSkills: number;
+  totalAgents: number;
+}
+
+export interface SchedulerCapabilitiesResponse {
+  timestamp: number;
+  schedulerConnected: boolean;
+  capabilities: {
+    summary: SchedulerCapabilitiesSummary;
+    agents?: Array<{
+      id: string;
+      name: string;
+      enabled: boolean;
+    }>;
+  };
+}
+
 export interface GatewayEvent {
   event: string;
   data: unknown;
@@ -114,6 +136,10 @@ export class TuiGatewayClient {
    */
   async getStats(): Promise<GatewayStatus> {
     return this.client.request('system.stats');
+  }
+
+  async getSystemCapabilities(): Promise<SchedulerCapabilitiesResponse> {
+    return this.client.request('system.capabilities');
   }
 
   // ============================================================================

@@ -85,6 +85,14 @@ class DebugEmitter extends EventEmitter {
     return super.emit('debug', event);
   }
 
+  emitRaw(event: DebugEvent): boolean {
+    if (!this._enabled) {
+      return false;
+    }
+
+    return super.emit('debug', event);
+  }
+
   /**
    * Subscribe to debug events.
    * @param handler - Event handler function

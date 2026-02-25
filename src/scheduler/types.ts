@@ -152,6 +152,8 @@ export type SchedulerEventType =
   | 'goal_completed'
   | 'goal_failed'
   | 'work_item_started'
+  | 'work_item_in_progress'
+  | 'work_item_ended'
   | 'work_item_completed'
   | 'work_item_failed'
   | 'run_started'

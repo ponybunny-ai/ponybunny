@@ -287,6 +287,24 @@ export class AuditService implements IAuditService {
     });
   }
 
+  logSchedulerEvent(event: string, payload: Record<string, unknown>): void {
+    const goalId = typeof payload.goalId === 'string' ? payload.goalId : undefined;
+    const workItemId = typeof payload.workItemId === 'string' ? payload.workItemId : undefined;
+    const runId = typeof payload.runId === 'string' ? payload.runId : undefined;
+
+    this.log({
+      actor: 'scheduler',
+      actor_type: 'scheduler',
+      action: 'scheduler.event',
+      entity_type: 'scheduler_event',
+      entity_id: event,
+      goal_id: goalId,
+      work_item_id: workItemId,
+      run_id: runId,
+      new_value: payload,
+    });
+  }
+
   // ============================================================================
   // Tool Operations
   // ============================================================================

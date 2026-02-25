@@ -8,6 +8,7 @@ import { appReducer } from '../store/reducer.js';
 import { actions, type AppAction } from '../store/actions.js';
 import { initialState, type AppState, type ViewType, type ModalType, type SimpleMessage } from '../store/types.js';
 import type { Goal, WorkItem, Escalation } from '../../../work-order/types/index.js';
+import type { SchedulerCapabilitiesResponse } from '../../gateway/tui-gateway-client.js';
 
 export interface AppContextValue {
   state: AppState;
@@ -39,6 +40,8 @@ export interface AppContextValue {
   setEscalations: (escalations: Escalation[]) => void;
   addEscalation: (escalation: Escalation) => void;
   removeEscalation: (escalationId: string) => void;
+
+  setSchedulerCapabilities: (capabilities: SchedulerCapabilitiesResponse | null) => void;
 
   // Input methods
   setInputValue: (value: string) => void;
@@ -142,6 +145,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     dispatch(actions.removeEscalation(escalationId));
   }, []);
 
+  const setSchedulerCapabilities = useCallback((capabilities: SchedulerCapabilitiesResponse | null) => {
+    dispatch(actions.setSchedulerCapabilities(capabilities));
+  }, []);
+
   // Input methods
   const setInputValue = useCallback((value: string) => {
     dispatch(actions.setInputValue(value));
@@ -172,6 +179,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     setEscalations,
     addEscalation,
     removeEscalation,
+    setSchedulerCapabilities,
     setInputValue,
     addToInputHistory,
   }), [
@@ -194,6 +202,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     setEscalations,
     addEscalation,
     removeEscalation,
+    setSchedulerCapabilities,
     setInputValue,
     addToInputHistory,
   ]);

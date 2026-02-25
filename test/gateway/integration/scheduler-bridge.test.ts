@@ -153,6 +153,50 @@ describe('SchedulerBridge', () => {
       });
     });
 
+    it('should translate work_item_in_progress event', () => {
+      const event: SchedulerEvent = {
+        type: 'work_item_in_progress',
+        timestamp: Date.now(),
+        goalId: 'goal-1',
+        workItemId: 'wi-1',
+        runId: 'run-1',
+        data: { stage: 'execution', progress: 42 },
+      };
+
+      capturedHandler!(event);
+
+      expect(mockEventBus.emit).toHaveBeenCalledWith('workitem.in_progress', {
+        workItemId: 'wi-1',
+        goalId: 'goal-1',
+        runId: 'run-1',
+        stage: 'execution',
+        progress: 42,
+        timestamp: event.timestamp,
+      });
+    });
+
+    it('should translate work_item_ended event', () => {
+      const event: SchedulerEvent = {
+        type: 'work_item_ended',
+        timestamp: Date.now(),
+        goalId: 'goal-1',
+        workItemId: 'wi-1',
+        runId: 'run-1',
+        data: { outcome: 'success', error: null },
+      };
+
+      capturedHandler!(event);
+
+      expect(mockEventBus.emit).toHaveBeenCalledWith('workitem.ended', {
+        workItemId: 'wi-1',
+        goalId: 'goal-1',
+        runId: 'run-1',
+        outcome: 'success',
+        error: null,
+        timestamp: event.timestamp,
+      });
+    });
+
     it('should translate work_item_completed event', () => {
       const event: SchedulerEvent = {
         type: 'work_item_completed',

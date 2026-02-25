@@ -103,6 +103,7 @@ export class GatewayServer {
   private ipcBridge: IPCBridge;
   private scheduler: ISchedulerCore | null = null;
   private debugBroadcasterCleanup: (() => void) | null = null;
+  private schedulerEventAuditUnsubscribers: Array<() => void> = [];
 
   // Audit components
   private auditRepository: AuditLogRepository;
@@ -407,6 +408,7 @@ export class GatewayServer {
           this.isRunning = true;
           this.connectionManager.start();
           this.broadcastManager.start();
+          this.setupSchedulerEventAudit();
 
           // Start IPC server
           this.ipcServer.start()
@@ -484,6 +486,7 @@ export class GatewayServer {
     await this.auditService.shutdown();
 
     this.broadcastManager.stop();
+    this.teardownSchedulerEventAudit();
     this.connectionManager.stop();
 
     return new Promise((resolve) => {
@@ -592,6 +595,43 @@ export class GatewayServer {
    */
   getAuditService(): AuditService {
     return this.auditService;
+  }
+
+  private setupSchedulerEventAudit(): void {
+    const schedulerEvents = [
+      'goal.started',
+      'goal.completed',
+      'goal.failed',
+      'workitem.started',
+      'workitem.in_progress',
+      'workitem.ended',
+      'workitem.completed',
+      'workitem.failed',
+      'run.started',
+      'run.completed',
+      'verification.started',
+      'verification.completed',
+      'escalation.created',
+      'escalation.resolved',
+      'budget.warning',
+      'budget.exceeded',
+    ] as const;
+
+    for (const event of schedulerEvents) {
+      const unsubscribe = this.eventBus.on(event, (data: unknown) => {
+        if (typeof data === 'object' && data !== null) {
+          this.auditService.logSchedulerEvent(event, data as Record<string, unknown>);
+        }
+      });
+      this.schedulerEventAuditUnsubscribers.push(unsubscribe);
+    }
+  }
+
+  private teardownSchedulerEventAudit(): void {
+    for (const unsubscribe of this.schedulerEventAuditUnsubscribers) {
+      unsubscribe();
+    }
+    this.schedulerEventAuditUnsubscribers = [];
   }
 
   private handleConnection(ws: WebSocket, req: IncomingMessage): void {

@@ -100,6 +100,28 @@ export class SchedulerBridge {
         });
         break;
 
+      case 'work_item_in_progress':
+        this.eventBus.emit('workitem.in_progress', {
+          workItemId: event.workItemId,
+          goalId: event.goalId,
+          runId: event.runId,
+          stage: event.data?.stage,
+          progress: event.data?.progress,
+          timestamp: event.timestamp,
+        });
+        break;
+
+      case 'work_item_ended':
+        this.eventBus.emit('workitem.ended', {
+          workItemId: event.workItemId,
+          goalId: event.goalId,
+          runId: event.runId,
+          outcome: event.data?.outcome,
+          error: event.data?.error,
+          timestamp: event.timestamp,
+        });
+        break;
+
       case 'work_item_completed':
         this.eventBus.emit('workitem.completed', {
           workItemId: event.workItemId,

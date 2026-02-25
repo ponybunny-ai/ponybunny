@@ -9,6 +9,7 @@ import TextInput from 'ink-text-input';
 import Spinner from 'ink-spinner';
 import { useAppContext } from '../../context/app-context.js';
 import { commands, type CommandDefinition } from '../../commands/registry.js';
+import { normalizeSlashCommandInput } from './input-normalize.js';
 
 export interface InputBarProps {
   onSubmit: (input: string) => void;
@@ -38,6 +39,10 @@ export const InputBar: React.FC<InputBarProps> = ({
 
   const query = getQuery(inputValue);
   const showSuggestions = inputValue.startsWith('/') && !inputValue.slice(1).includes(' ');
+
+  const handleInputChange = useCallback((value: string) => {
+    setInputValue(normalizeSlashCommandInput(inputValue, value));
+  }, [inputValue, setInputValue]);
 
   const suggestions = React.useMemo(() => {
     if (!showSuggestions) {
@@ -130,7 +135,7 @@ export const InputBar: React.FC<InputBarProps> = ({
         <Box flexGrow={1}>
           <TextInput
             value={inputValue}
-            onChange={setInputValue}
+            onChange={handleInputChange}
             onSubmit={handleSubmit}
             placeholder={placeholder}
             focus={focus}

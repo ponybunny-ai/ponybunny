@@ -64,6 +64,12 @@ export interface SystemStatusResponse {
   };
 }
 
+export interface SystemCapabilitiesResponse {
+  timestamp: number;
+  schedulerConnected: boolean;
+  capabilities: SchedulerCapabilities;
+}
+
 export function registerSystemHandlers(
   rpcHandler: RpcHandler,
   getConnectionManager: () => ConnectionManager,
@@ -75,6 +81,21 @@ export function registerSystemHandlers(
   },
   getToolRegistry?: () => ToolRegistry | undefined
 ): void {
+  rpcHandler.register<Record<string, never>, SystemCapabilitiesResponse>(
+    'system.capabilities',
+    ['read'],
+    async () => {
+      const scheduler = getScheduler();
+      const toolRegistry = getToolRegistry?.();
+
+      return {
+        timestamp: Date.now(),
+        schedulerConnected: scheduler !== null,
+        capabilities: await getSchedulerCapabilities(toolRegistry),
+      };
+    }
+  );
+
   rpcHandler.register<Record<string, never>, SystemStatusResponse>(
     'system.status',
     ['admin'],
@@ -127,7 +148,7 @@ export function registerSystemHandlers(
 
       if (response.scheduler.isConnected) {
         const toolRegistry = getToolRegistry?.();
-        response.scheduler.capabilities = getSchedulerCapabilities(toolRegistry);
+        response.scheduler.capabilities = await getSchedulerCapabilities(toolRegistry);
       }
 
       return response;

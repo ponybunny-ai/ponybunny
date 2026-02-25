@@ -28,6 +28,7 @@ export type AuditAction =
   | 'run.started'
   | 'run.completed'
   | 'run.aborted'
+  | 'scheduler.event'
   // Tool operations
   | 'tool.invoked'
   | 'tool.completed'
@@ -73,7 +74,8 @@ export type AuditEntityType =
   | 'session'
   | 'tool'
   | 'auth'
-  | 'permission';
+  | 'permission'
+  | 'scheduler_event';
 
 // ============================================================================
 // Audit Log Interface

@@ -22,6 +22,20 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 }) => {
   const { connectionStatus } = useGatewayContext();
   const { state } = useAppContext();
+  const summary = state.schedulerCapabilities?.capabilities.summary;
+  const latestEventTs = state.events.length > 0 ? state.events[state.events.length - 1].timestamp : 0;
+
+  const [trafficFrame, setTrafficFrame] = React.useState(0);
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      setTrafficFrame((value) => (value + 1) % 4);
+    }, 180);
+    return () => clearInterval(interval);
+  }, []);
+
+  const isCommunicating =
+    connectionStatus === 'connected' &&
+    (state.activityStatus !== 'idle' || Date.now() - latestEventTs < 2000);
 
   const renderConnectionStatus = () => {
     switch (connectionStatus) {
@@ -42,13 +56,21 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
       {/* Minimal header */}
       <Box paddingX={1} alignItems="center">
         <Text bold color="cyan">PonyBunny</Text>
-        <Box flexGrow={1} justifyContent="center">
-          <Text dimColor>{state.activityStatus === 'idle' ? 'Idle' : state.activityStatus}</Text>
+        <Text dimColor> | </Text>
+        <Box flexGrow={1}>
+          <Text dimColor>
+            Models: {summary?.totalModels ?? 0} | Providers: {summary?.totalProviders ?? 0} | Tools: {summary?.totalTools ?? 0} | MCP: {summary?.totalMCPServers ?? 0} | Skills: {summary?.totalSkills ?? 0} | Agents: {summary?.totalAgents ?? 0}
+          </Text>
         </Box>
+        <Text dimColor> | </Text>
         <Box>
           {renderConnectionStatus()}
           <Text dimColor> {connectionStatus}</Text>
         </Box>
+        <Text dimColor> | </Text>
+        <Text color={isCommunicating ? 'green' : 'gray'}>
+          {isCommunicating ? ['◐', '◓', '◑', '◒'][trafficFrame] : '○'}
+        </Text>
       </Box>
 
       {/* Main Content */}

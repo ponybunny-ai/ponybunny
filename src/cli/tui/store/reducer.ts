@@ -109,6 +109,9 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case 'SET_PENDING_APPROVAL_COUNT':
       return { ...state, pendingApprovalCount: action.payload };
 
+    case 'SET_SCHEDULER_CAPABILITIES':
+      return { ...state, schedulerCapabilities: action.payload };
+
     case 'ADD_EVENT': {
       const newEvents = [...state.events, action.payload];
       // Keep only the last maxEvents

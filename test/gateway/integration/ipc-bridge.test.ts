@@ -99,3 +99,100 @@ describe('IPCBridge scheduler commands', () => {
     await expect(bridge.submitGoal('goal-x')).rejects.toThrow('Scheduler daemon is not connected');
   });
 });
+
+describe('IPCBridge scheduler event routing', () => {
+  let bridge: IPCBridge;
+  let mockEventBus: EventBus;
+  let mockServer: IPCServer;
+  let serverMessageHandler: IPCMessageHandler | null;
+
+  beforeEach(() => {
+    serverMessageHandler = null;
+
+    mockEventBus = {
+      emit: jest.fn(),
+      on: jest.fn(),
+      off: jest.fn(),
+      once: jest.fn(),
+    } as unknown as EventBus;
+
+    mockServer = {
+      onMessage: jest.fn((handler: IPCMessageHandler) => {
+        serverMessageHandler = handler;
+      }),
+      offMessage: jest.fn(),
+      getClients: jest.fn(() => [
+        {
+          id: 'client-1',
+          connectedAt: Date.now(),
+          clientInfo: {
+            clientType: 'scheduler-daemon',
+            version: '1.0.0',
+            pid: 42,
+          },
+        },
+      ]),
+      sendToClient: jest.fn(),
+      getConnectedClients: jest.fn(() => 1),
+      start: jest.fn(),
+      stop: jest.fn(),
+    } as unknown as IPCServer;
+
+    bridge = new IPCBridge(mockEventBus);
+    bridge.connect(mockServer);
+  });
+
+  it('routes work_item_in_progress scheduler events to gateway event bus', () => {
+    serverMessageHandler?.(
+      {
+        type: 'scheduler_event',
+        timestamp: Date.now(),
+        data: {
+          type: 'work_item_in_progress',
+          timestamp: 123,
+          goalId: 'goal-1',
+          workItemId: 'wi-1',
+          runId: 'run-1',
+          data: { stage: 'execution', progress: 35 },
+        },
+      },
+      'client-1'
+    );
+
+    expect(mockEventBus.emit).toHaveBeenCalledWith('workitem.in_progress', {
+      workItemId: 'wi-1',
+      goalId: 'goal-1',
+      runId: 'run-1',
+      stage: 'execution',
+      progress: 35,
+      timestamp: 123,
+    });
+  });
+
+  it('routes work_item_ended scheduler events to gateway event bus', () => {
+    serverMessageHandler?.(
+      {
+        type: 'scheduler_event',
+        timestamp: Date.now(),
+        data: {
+          type: 'work_item_ended',
+          timestamp: 456,
+          goalId: 'goal-1',
+          workItemId: 'wi-1',
+          runId: 'run-1',
+          data: { outcome: 'failure', error: 'x' },
+        },
+      },
+      'client-1'
+    );
+
+    expect(mockEventBus.emit).toHaveBeenCalledWith('workitem.ended', {
+      workItemId: 'wi-1',
+      goalId: 'goal-1',
+      runId: 'run-1',
+      outcome: 'failure',
+      error: 'x',
+      timestamp: 456,
+    });
+  });
+});
