@@ -18,11 +18,11 @@ describe('scheduler daemon pid lock', () => {
 
   beforeEach(() => {
     configDir = createTempConfigDir();
-    process.env.PONYBUNNY_CONFIG_DIR = configDir;
+    process.env.PONYBUNNY_PID_DIR = configDir;
   });
 
   afterEach(() => {
-    delete process.env.PONYBUNNY_CONFIG_DIR;
+    delete process.env.PONYBUNNY_PID_DIR;
     fs.rmSync(configDir, { recursive: true, force: true });
     jest.resetModules();
   });

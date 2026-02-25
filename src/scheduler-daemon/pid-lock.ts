@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { getConfigDir } from '../infra/config/index.js';
+import { getLegacyConfigDir } from '../infra/config/config-paths.js';
 
 export interface SchedulerDaemonLock {
   pid: number;
@@ -9,8 +9,16 @@ export interface SchedulerDaemonLock {
 
 const LOCK_FILE_NAME = 'scheduler-daemon.pid';
 
+function getSchedulerPidDir(): string {
+  const override = process.env.PONYBUNNY_PID_DIR;
+  if (typeof override === 'string' && override.trim()) {
+    return override;
+  }
+  return getLegacyConfigDir();
+}
+
 export function getSchedulerDaemonLockPath(): string {
-  return path.join(getConfigDir(), LOCK_FILE_NAME);
+  return path.join(getSchedulerPidDir(), LOCK_FILE_NAME);
 }
 
 function ensureConfigDir(configDir: string): void {
@@ -48,7 +56,7 @@ function readLockFile(lockPath: string): SchedulerDaemonLock | null {
 }
 
 export function acquireSchedulerDaemonLock(): SchedulerDaemonLock {
-  const configDir = getConfigDir();
+  const configDir = getSchedulerPidDir();
   ensureConfigDir(configDir);
 
   const lockPath = getSchedulerDaemonLockPath();
