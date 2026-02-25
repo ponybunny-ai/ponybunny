@@ -18,6 +18,11 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
   // Streaming tool_calls accumulator state
   private streamingToolCalls = new Map<number, { id: string; type: string; name: string; arguments: string }>();
 
+  private shouldUseMaxCompletionTokens(model: string): boolean {
+    const normalized = model.toLowerCase();
+    return normalized.startsWith('gpt-5');
+  }
+
   /**
    * Reset streaming state (call before each new stream)
    */
@@ -110,9 +115,14 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
     const requestBody: any = {
       model: config.model,
       messages: openaiMessages,
-      max_tokens: config.maxTokens || 4000,
       temperature: config.temperature ?? 0.7,
     };
+
+    if (this.shouldUseMaxCompletionTokens(config.model)) {
+      requestBody.max_completion_tokens = config.maxTokens || 4000;
+    } else {
+      requestBody.max_tokens = config.maxTokens || 4000;
+    }
 
     // Add tools if provided
     if (config.tools && config.tools.length > 0) {

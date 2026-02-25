@@ -54,6 +54,18 @@ describe('OpenAIProtocolAdapter', () => {
       expect(result.temperature).toBe(0.7);
     });
 
+    it('should use max_completion_tokens for gpt-5 models', () => {
+      const messages: LLMMessage[] = [{ role: 'user', content: 'Hello' }];
+
+      const result = adapter.formatRequest(messages, {
+        model: 'gpt-5.2',
+        maxTokens: 1200,
+      }) as Record<string, unknown>;
+
+      expect(result.max_completion_tokens).toBe(1200);
+      expect(result.max_tokens).toBeUndefined();
+    });
+
     it('should format request for responses API', () => {
       const messages: LLMMessage[] = [
         { role: 'system', content: 'You are helpful.' },
