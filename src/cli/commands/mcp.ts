@@ -5,6 +5,7 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
+import { spawn } from 'child_process';
 import {
   setMCPServerConfig,
   removeMCPServerConfig,
@@ -268,6 +269,77 @@ export function createMCPCommand(): Command {
         await client.disconnect();
       } catch (error) {
         console.error(chalk.red('✗ Connection failed:'), (error as Error).message);
+        process.exit(1);
+      }
+    });
+
+  mcp
+    .command('inspector <name>')
+    .description('Open MCP Inspector for a configured MCP server')
+    .option('--cli', 'Enable inspector CLI mode')
+    .action(async (name: string, options: { cli?: boolean }) => {
+      try {
+        const config = getMCPServerConfig(name);
+        if (!config) {
+          console.error(chalk.red(`MCP server not found: ${name}`));
+          process.exit(1);
+        }
+
+        const inspectorArgs = ['-y', '@modelcontextprotocol/inspector'];
+
+        if (options.cli) {
+          inspectorArgs.push('--cli');
+        }
+
+        if (config.transport === 'stdio') {
+          if (!config.command) {
+            console.error(chalk.red(`MCP server '${name}' is missing 'command' for stdio transport`));
+            process.exit(1);
+          }
+
+          inspectorArgs.push('--transport', 'stdio');
+
+          if (config.env) {
+            for (const [key, value] of Object.entries(config.env)) {
+              inspectorArgs.push('-e', `${key}=${value}`);
+            }
+          }
+
+          inspectorArgs.push(config.command, ...(config.args ?? []));
+        } else if (config.transport === 'http') {
+          if (!config.url) {
+            console.error(chalk.red(`MCP server '${name}' is missing 'url' for http transport`));
+            process.exit(1);
+          }
+
+          inspectorArgs.push('--transport', 'http', '--server-url', config.url);
+
+          if (config.headers) {
+            for (const [header, value] of Object.entries(config.headers)) {
+              inspectorArgs.push('--header', `${header}: ${value}`);
+            }
+          }
+        }
+
+        console.log(chalk.blue(`Launching MCP Inspector for ${name}...`));
+        const child = spawn('npx', inspectorArgs, {
+          stdio: 'inherit',
+          env: process.env,
+        });
+
+        await new Promise<void>((resolve, reject) => {
+          child.on('error', reject);
+          child.on('close', (code) => {
+            if (code === 0 || code === null) {
+              resolve();
+              return;
+            }
+
+            reject(new Error(`Inspector exited with code ${code}`));
+          });
+        });
+      } catch (error) {
+        console.error(chalk.red('Error launching MCP inspector:'), (error as Error).message);
         process.exit(1);
       }
     });
