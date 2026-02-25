@@ -43,6 +43,7 @@ describe('CLI Integration Tests', () => {
       expect(output).toContain('auth');
       expect(output).toContain('status');
       expect(output).toContain('config');
+      expect(output).toContain('results');
     });
   });
 
@@ -107,6 +108,19 @@ describe('CLI Integration Tests', () => {
       });
 
       expect(output).toContain('Enabled providers:');
+    });
+  });
+
+  describe('pb results', () => {
+    test('results --help shows history lookup options', () => {
+      const output = execSync(`${pbCommand} results --help`, {
+        encoding: 'utf-8',
+      });
+
+      expect(output).toContain('View completed execution results');
+      expect(output).toContain('--run <id>');
+      expect(output).toContain('--work-item <id>');
+      expect(output).toContain('--goal <id>');
     });
   });
 
