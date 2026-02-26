@@ -254,6 +254,47 @@ Current Configuration:
   User ID: usr_abc123
 ```
 
+### `pb config backup`
+
+Create a timestamped backup of config files (excluding `credentials.json`, `vault/`, and `backup/`).
+
+```bash
+pb config backup
+```
+
+**Behavior:**
+- Stores backup files under `~/.config/ponybunny/backup/`
+- Uses filename format: `YYYYMMDD-HHMMSS.pbbackup`
+- Prompts optionally for a passcode to encrypt backup payload
+- Backup payload is compressed and, if passcode is provided, encrypted
+
+**Interactive flow:**
+1. Prompt: "Encrypt backup with a passcode?"
+2. If yes: enter + confirm passcode
+3. Create backup file and print output path
+
+### `pb config restore`
+
+Restore config files from a selected backup file.
+
+```bash
+pb config restore
+```
+
+**Behavior:**
+- Reads backup files from `~/.config/ponybunny/backup/`
+- Sorts backups from newest to oldest
+- Lets user pick one backup interactively
+- If backup is encrypted, prompts for passcode
+- Requires overwrite confirmation before restore
+- Restores only backup-scoped files (does not overwrite `credentials.json` or `vault/`)
+
+**Interactive flow:**
+1. Select backup file (arrow keys + Enter)
+2. If encrypted: enter passcode
+3. Confirm overwrite
+4. Restore files into `~/.config/ponybunny/`
+
 ### `pb status`
 
 Check overall system and authentication status.
@@ -893,6 +934,12 @@ pb gateway status
 # List active tokens
 pb gateway tokens
 
+# Create config backup
+pb config backup
+
+# Restore from backup
+pb config restore
+
 # Stop all services and restart
 pb service stop all
 pb service start all
@@ -961,7 +1008,7 @@ pb auth login --help
 ## Feedback & Issues
 
 To report issues or provide feedback:
-- GitHub Issues: https://github.com/anthropics/claude-code/issues
+- GitHub Issues: https://github.com/DarkhorseOne/PonyBunny/issues
 - Run: `pb --help` for inline help
 
 ---

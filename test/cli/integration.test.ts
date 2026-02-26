@@ -88,6 +88,9 @@ describe('CLI Integration Tests', () => {
       });
 
       expect(output).toContain('Manage CLI configuration');
+      expect(output).toContain('show');
+      expect(output).toContain('backup');
+      expect(output).toContain('restore');
     });
   });
 
