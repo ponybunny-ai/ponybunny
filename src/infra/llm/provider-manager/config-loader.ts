@@ -403,19 +403,18 @@ function resolveProviderIds(
     return entry.providers;
   }
 
+  if (group && providers[group]) {
+    return [group];
+  }
+
+  if (group && aliases?.[group]?.providers?.length) {
+    return aliases[group].providers;
+  }
+
   const lower = (group || '').toLowerCase();
   const byProtocol = Object.entries(providers)
     .filter(([, cfg]) => cfg.protocol === lower)
     .map(([providerId]) => providerId);
-
-  const fromAlias = group && aliases?.[group]?.providers?.length
-    ? aliases[group].providers
-    : [];
-
-  const merged = [...fromAlias, ...byProtocol];
-  if (merged.length > 0) {
-    return Array.from(new Set(merged));
-  }
 
   return byProtocol;
 }
@@ -897,22 +896,23 @@ function serializeModelsForFile(
   const passthrough: Record<string, LLMModelConfig> = {};
 
   for (const [modelId, modelConfig] of Object.entries(models)) {
+    const { providers: _ignoredProviders, ...persistedModelConfig } = modelConfig;
     const providerId = inferProviderIdFromModelKey(modelId, providers, aliases);
     if (!providerId) {
-      passthrough[modelId] = modelConfig;
+      passthrough[modelId] = persistedModelConfig;
       continue;
     }
 
     const suffix = modelId.slice(providerId.length + 1);
     if (!suffix) {
-      passthrough[modelId] = modelConfig;
+      passthrough[modelId] = persistedModelConfig;
       continue;
     }
 
     if (!grouped[providerId]) {
       grouped[providerId] = {};
     }
-    grouped[providerId][suffix] = modelConfig;
+    grouped[providerId][suffix] = persistedModelConfig;
   }
 
   return {

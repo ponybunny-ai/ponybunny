@@ -69,6 +69,20 @@
           "costMultiplier": {
             "type": "number",
             "minimum": 0
+          },
+          "health": {
+            "type": "object",
+            "properties": {
+              "available": {
+                "type": "boolean"
+              },
+              "lastCheckedAt": {
+                "type": "string"
+              },
+              "lastError": {
+                "type": "string"
+              }
+            }
           }
         }
       }
@@ -327,6 +341,20 @@
           "type": "array",
           "items": {
             "type": "string"
+          }
+        },
+        "health": {
+          "type": "object",
+          "properties": {
+            "lastCheckedAt": {
+              "type": "string"
+            },
+            "available": {
+              "type": "boolean"
+            },
+            "lastError": {
+              "type": "string"
+            }
           }
         }
       }

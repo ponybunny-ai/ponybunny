@@ -275,7 +275,10 @@ modelsCommand
       if (summary.failures.length > 0) {
         console.log(chalk.yellow('\nRecent failures (first 10):'));
         for (const failure of summary.failures.slice(0, 10)) {
-          console.log(chalk.gray(`  - ${failure.endpointId} / ${failure.modelId}: ${failure.error}`));
+          const modelLabel = failure.sourceModelId && failure.sourceModelId !== failure.modelId
+            ? `${failure.modelId} (from ${failure.sourceModelId})`
+            : failure.modelId;
+          console.log(chalk.gray(`  - ${failure.endpointId} / ${modelLabel}: ${failure.error}`));
         }
       }
 

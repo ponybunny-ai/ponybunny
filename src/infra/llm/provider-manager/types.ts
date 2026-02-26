@@ -46,8 +46,6 @@ export interface LLMEndpointConfig {
     available: boolean;
     lastCheckedAt: string;
     lastError?: string;
-    successfulModels?: string[];
-    failedModels?: string[];
   };
 }
 
@@ -104,13 +102,8 @@ export interface LLMModelConfig {
   capabilities?: ModelCapability[];
   health?: {
     lastCheckedAt: string;
-    providers: Record<
-      string,
-      {
-        available: boolean;
-        lastError?: string;
-      }
-    >;
+    available: boolean;
+    lastError?: string;
   };
 }
 

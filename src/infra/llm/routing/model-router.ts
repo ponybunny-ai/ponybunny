@@ -122,7 +122,7 @@ export class ModelRouter {
           return null;
         }
 
-        if (llmModelConfig?.health?.providers?.[endpointId]?.available === false) {
+        if (llmModelConfig?.health?.available === false) {
           console.log(`⚠️ [ModelRouter] Endpoint ${endpointId} marked unavailable for model ${modelId} by probe health`);
           return null;
         }
