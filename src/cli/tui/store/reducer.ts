@@ -121,6 +121,19 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, events: newEvents };
     }
 
+    case 'ADD_EVENTS': {
+      if (action.payload.length === 0) {
+        return state;
+      }
+
+      const newEvents = [...state.events, ...action.payload];
+      if (newEvents.length > state.maxEvents) {
+        return { ...state, events: newEvents.slice(-state.maxEvents) };
+      }
+
+      return { ...state, events: newEvents };
+    }
+
     case 'CLEAR_EVENTS':
       return { ...state, events: [] };
 

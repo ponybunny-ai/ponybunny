@@ -156,9 +156,10 @@ export const GoalCreateModal: React.FC = () => {
             <Text dimColor>Description: {form.description}</Text>
             <Box marginTop={1} />
             <Text>Enter success criteria (type "done" when finished):</Text>
-            {form.criteria.map((c, i) => (
-              <Text key={i} dimColor>  {i + 1}. {c}</Text>
+            {form.criteria.slice(-6).map((c, i) => (
+              <Text key={i} dimColor>  {form.criteria.length - Math.min(6, form.criteria.length) + i + 1}. {c}</Text>
             ))}
+            {form.criteria.length > 6 && <Text dimColor>  ... {form.criteria.length - 6} more</Text>}
             <Box marginTop={1}>
               <Text color="green">➤ </Text>
               <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
@@ -189,9 +190,10 @@ export const GoalCreateModal: React.FC = () => {
               <Text>  Description: {form.description}</Text>
               <Text>  Priority: {form.priority}</Text>
               <Text>  Success Criteria:</Text>
-              {form.criteria.map((c, i) => (
+              {form.criteria.slice(0, 6).map((c, i) => (
                 <Text key={i}>    {i + 1}. {c}</Text>
               ))}
+              {form.criteria.length > 6 && <Text>    ... {form.criteria.length - 6} more</Text>}
             </Box>
             <Box marginTop={1} />
             <Text>Submit this goal? (y/n)</Text>

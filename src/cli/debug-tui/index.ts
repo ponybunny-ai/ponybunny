@@ -13,7 +13,11 @@ export interface DebugTuiOptions {
 
 export async function startDebugTui(options: DebugTuiOptions = {}): Promise<void> {
   const { waitUntilExit } = render(
-    React.createElement(DebugApp, { url: options.url, token: options.token })
+    React.createElement(DebugApp, { url: options.url, token: options.token }),
+    {
+      maxFps: 20,
+      incrementalRendering: true,
+    }
   );
 
   await waitUntilExit();

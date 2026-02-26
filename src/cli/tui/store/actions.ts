@@ -127,6 +127,11 @@ export interface AddEventAction {
   payload: GatewayEvent;
 }
 
+export interface AddEventsAction {
+  type: 'ADD_EVENTS';
+  payload: GatewayEvent[];
+}
+
 export interface ClearEventsAction {
   type: 'CLEAR_EVENTS';
 }
@@ -194,6 +199,7 @@ export type AppAction =
   | SetPendingApprovalCountAction
   | SetSchedulerCapabilitiesAction
   | AddEventAction
+  | AddEventsAction
   | ClearEventsAction
   | SetActivityStatusAction
   | OpenModalAction
@@ -315,6 +321,11 @@ export const actions = {
   addEvent: (event: GatewayEvent): AddEventAction => ({
     type: 'ADD_EVENT',
     payload: event,
+  }),
+
+  addEvents: (events: GatewayEvent[]): AddEventsAction => ({
+    type: 'ADD_EVENTS',
+    payload: events,
   }),
 
   clearEvents: (): ClearEventsAction => ({

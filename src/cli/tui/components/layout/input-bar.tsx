@@ -3,7 +3,7 @@
  */
 
 import * as React from 'react';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import Spinner from 'ink-spinner';
@@ -23,9 +23,14 @@ export const InputBar: React.FC<InputBarProps> = ({
   focus = true,
 }) => {
   const { state, setInputValue } = useAppContext();
-  const { activityStatus, inputValue } = state;
+  const { activityStatus, inputValue: externalInputValue } = state;
+  const [draftValue, setDraftValue] = useState(externalInputValue);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [lastQuery, setLastQuery] = useState('');
+
+  useEffect(() => {
+    setDraftValue(externalInputValue);
+  }, [externalInputValue]);
 
   const isActive = activityStatus !== 'idle';
 
@@ -37,12 +42,12 @@ export const InputBar: React.FC<InputBarProps> = ({
     return match?.[1] ?? '';
   };
 
-  const query = getQuery(inputValue);
-  const showSuggestions = inputValue.startsWith('/') && !inputValue.slice(1).includes(' ');
+  const query = getQuery(draftValue);
+  const showSuggestions = draftValue.startsWith('/') && !draftValue.slice(1).includes(' ');
 
   const handleInputChange = useCallback((value: string) => {
-    setInputValue(normalizeSlashCommandInput(inputValue, value));
-  }, [inputValue, setInputValue]);
+    setDraftValue((current) => normalizeSlashCommandInput(current, value));
+  }, []);
 
   const suggestions = React.useMemo(() => {
     if (!showSuggestions) {
@@ -68,7 +73,7 @@ export const InputBar: React.FC<InputBarProps> = ({
       return 0;
     });
 
-    return scored.slice(0, 8);
+    return scored.slice(0, 5);
   }, [query, showSuggestions]);
 
   React.useEffect(() => {
@@ -95,18 +100,20 @@ export const InputBar: React.FC<InputBarProps> = ({
   });
 
   const handleSubmit = useCallback(() => {
-    const trimmed = inputValue.trim();
+    const trimmed = draftValue.trim();
     if (!trimmed) return;
     if (showSuggestions && suggestions.length > 0) {
       const selection = suggestions[Math.max(0, Math.min(selectedIndex, suggestions.length - 1))];
       const rest = trimmed.replace(/^\/\S*/, '');
+      setDraftValue('');
       setInputValue('');
       onSubmit(`/${selection.name}${rest}`);
       return;
     }
+    setDraftValue('');
     setInputValue('');
     onSubmit(trimmed);
-  }, [inputValue, onSubmit, selectedIndex, showSuggestions, suggestions, setInputValue]);
+  }, [draftValue, onSubmit, selectedIndex, showSuggestions, suggestions, setInputValue]);
 
   const renderSuggestion = (cmd: CommandDefinition, index: number) => {
     const isSelected = index === selectedIndex;
@@ -134,7 +141,7 @@ export const InputBar: React.FC<InputBarProps> = ({
         </Box>
         <Box flexGrow={1}>
           <TextInput
-            value={inputValue}
+            value={draftValue}
             onChange={handleInputChange}
             onSubmit={handleSubmit}
             placeholder={placeholder}

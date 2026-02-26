@@ -36,6 +36,7 @@ export const TabBar: React.FC = () => {
               color={isActive ? 'cyan' : undefined}
               bold={isActive}
               dimColor={!isActive}
+              wrap="truncate-end"
             >
               [{tab.shortcut}] {tab.label}
             </Text>
@@ -43,7 +44,7 @@ export const TabBar: React.FC = () => {
         );
       })}
       <Box flexGrow={1} />
-      <Text dimColor>Tab to switch</Text>
+      <Text dimColor wrap="truncate-end">Tab to switch</Text>
     </Box>
   );
 };

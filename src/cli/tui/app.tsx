@@ -253,9 +253,10 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
   );
 
   const { columns, rows } = useTerminalSize();
+  const viewportRows = Math.max(1, rows - 1);
 
   return (
-    <Box flexDirection="column" height={rows} width={columns}>
+    <Box flexDirection="column" height={viewportRows} width={columns}>
       {renderContent()}
 
       {/* Modal overlay */}
@@ -266,7 +267,7 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
           justifyContent="center"
           alignItems="center"
           width={columns}
-          height={rows}
+          height={viewportRows}
         >
           {renderModal()}
         </Box>

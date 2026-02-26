@@ -3,7 +3,7 @@
  */
 
 import * as React from 'react';
-import { createContext, useContext, useReducer, useCallback, useMemo } from 'react';
+import { createContext, useContext, useReducer, useCallback, useMemo, useEffect, useRef } from 'react';
 import { appReducer } from '../store/reducer.js';
 import { actions, type AppAction } from '../store/actions.js';
 import { initialState, type AppState, type ViewType, type ModalType, type SimpleMessage } from '../store/types.js';
@@ -60,6 +60,8 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     ...initialState,
     gatewayUrl: initialUrl || initialState.gatewayUrl,
   });
+  const pendingEventsRef = useRef<Array<{ id: string; event: string; data: unknown; timestamp: number }>>([]);
+  const flushTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const addSimpleMessage = useCallback((message: SimpleMessage) => {
     dispatch(actions.addSimpleMessage(message));
@@ -89,14 +91,41 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
   }, []);
 
   // Event methods
+  const flushEvents = useCallback(() => {
+    const pending = pendingEventsRef.current;
+    if (pending.length === 0) {
+      return;
+    }
+
+    pendingEventsRef.current = [];
+    dispatch(actions.addEvents(pending));
+  }, []);
+
   const addEvent = useCallback((event: string, data: unknown) => {
-    dispatch(actions.addEvent({
+    pendingEventsRef.current.push({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       event,
       data,
       timestamp: Date.now(),
-    }));
-  }, []);
+    });
+
+    if (!flushTimerRef.current) {
+      flushTimerRef.current = setTimeout(() => {
+        flushTimerRef.current = null;
+        flushEvents();
+      }, 50);
+    }
+  }, [flushEvents]);
+
+  useEffect(() => {
+    return () => {
+      if (flushTimerRef.current) {
+        clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      flushEvents();
+    };
+  }, [flushEvents]);
 
   const clearEvents = useCallback(() => {
     dispatch(actions.clearEvents());

@@ -10,7 +10,7 @@ import SelectInput from 'ink-select-input';
 import { useAppContext } from '../../context/app-context.js';
 import { useGateway } from '../../hooks/use-gateway.js';
 import type { ResolutionAction } from '../../../../work-order/types/index.js';
-import { formatEscalationSeverity, formatDateTime } from '../../utils/formatters.js';
+import { formatEscalationSeverity, formatDateTime, truncate } from '../../utils/formatters.js';
 import { getEscalationSeverityColor } from '../../utils/colors.js';
 
 interface EscalationModalProps {
@@ -115,20 +115,20 @@ export const EscalationModal: React.FC<EscalationModalProps> = ({ escalationId }
 
       <Box marginTop={1} flexDirection="column">
         <Text bold>Description:</Text>
-        <Text>{escalation.description}</Text>
+        <Text>{truncate(escalation.description, 220)}</Text>
       </Box>
 
       {escalation.context_data && (
         <Box marginTop={1} flexDirection="column">
           <Text bold>Context:</Text>
           {escalation.context_data.last_error && (
-            <Text dimColor>  Last Error: {escalation.context_data.last_error}</Text>
+            <Text dimColor>  Last Error: {truncate(escalation.context_data.last_error, 180)}</Text>
           )}
           {escalation.context_data.retry_count !== undefined && (
             <Text dimColor>  Retry Count: {escalation.context_data.retry_count}</Text>
           )}
           {escalation.context_data.attempted_solutions && (
-            <Text dimColor>  Attempted: {escalation.context_data.attempted_solutions.join(', ')}</Text>
+            <Text dimColor>  Attempted: {truncate(escalation.context_data.attempted_solutions.join(', '), 180)}</Text>
           )}
         </Box>
       )}

@@ -24,7 +24,14 @@ export const useTerminalSize = (): TerminalSize => {
 
   useEffect(() => {
     const handleResize = () => {
-      setSize(resolveSize(stdout));
+      const next = resolveSize(stdout);
+      setSize((current) => {
+        if (current.columns === next.columns && current.rows === next.rows) {
+          return current;
+        }
+
+        return next;
+      });
     };
 
     stdout.on('resize', handleResize);

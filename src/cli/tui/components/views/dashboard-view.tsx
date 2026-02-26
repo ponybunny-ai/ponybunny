@@ -6,17 +6,21 @@ import * as React from 'react';
 import { Box, Text } from 'ink';
 import { useAppContext } from '../../context/app-context.js';
 import { useGoals } from '../../hooks/use-goals.js';
+import { useTerminalSize } from '../../hooks/use-terminal-size.js';
 import { SimpleMessageItem } from '../widgets/simple-message-item.js';
 
 export const DashboardView: React.FC = () => {
   const { state } = useAppContext();
   const { activeGoals, queuedGoals, completedGoals } = useGoals();
   const { pendingEscalationCount, simpleMessages, workItems } = state;
+  const { rows } = useTerminalSize();
 
   const hasMessages = simpleMessages.length > 0;
   const activeWorkItems = workItems.filter(item =>
     item.status === 'in_progress' || item.status === 'ready' || item.status === 'queued'
   );
+  const maxVisibleMessages = Math.max(2, Math.floor((rows - 14) / 3));
+  const visibleMessages = simpleMessages.slice(-maxVisibleMessages);
 
   return (
     <Box flexDirection="column" flexGrow={1}>
@@ -90,7 +94,7 @@ export const DashboardView: React.FC = () => {
           </Box>
         ) : (
           <Box flexDirection="column" flexGrow={1} paddingX={1}>
-            {simpleMessages.map(message => (
+            {visibleMessages.map(message => (
               <SimpleMessageItem key={message.id} message={message} />
             ))}
           </Box>

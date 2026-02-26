@@ -18,7 +18,11 @@ export async function startTui(options: StartTuiOptions = {}): Promise<void> {
   const { url = 'ws://127.0.0.1:18789', token } = options;
 
   const { waitUntilExit } = render(
-    React.createElement(App, { url, token })
+    React.createElement(App, { url, token }),
+    {
+      maxFps: 20,
+      incrementalRendering: true,
+    }
   );
 
   await waitUntilExit();
