@@ -27,10 +27,12 @@ export interface LLMEndpointConfig {
   enabled: boolean;
   /** Protocol used by this endpoint */
   protocol: ProtocolId;
+  type?: 'api' | 'oauth';
   /** Base URL for API requests (optional, uses default if not specified) */
   baseUrl?: string;
   /** Priority for endpoint selection (lower = preferred) */
   priority: number;
+  requiredEnvVars?: string[];
   /** Rate limit configuration */
   rateLimit?: {
     requestsPerMinute?: number;
@@ -76,7 +78,7 @@ export interface LLMModelConfig {
   /** Human-readable display name */
   displayName: string;
   /** List of endpoint IDs that support this model */
-  providers: string[];
+  providers?: string[];
   endpoints?: Array<{
     name: OpenAIModelEndpointName;
     url: string;

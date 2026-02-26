@@ -5,29 +5,40 @@ import {
   getAvailableEndpoints,
   getEndpointsByProtocol,
 } from '../../../../src/infra/llm/endpoints/endpoint-registry.js';
+import { getCachedConfig, clearConfigCache } from '../../../../src/infra/llm/provider-manager/config-loader.js';
 
 describe('EndpointRegistry', () => {
+  beforeEach(() => {
+    clearConfigCache();
+  });
+
+  afterEach(() => {
+    const config = getCachedConfig();
+    delete config.providers['custom-openai-endpoint'];
+    clearConfigCache();
+  });
+
   describe('ENDPOINT_CONFIGS', () => {
     it('should have all expected endpoints', () => {
       expect(Object.keys(ENDPOINT_CONFIGS)).toEqual([
-        'anthropic-direct',
+        'anthropic',
         'aws-bedrock',
-        'openai-direct',
+        'openai',
         'azure-openai',
         'openai-compatible',
         'google-ai-studio',
         'google-vertex-ai',
-        'codex',
+        'openai-codex',
       ]);
     });
 
     it('should have correct protocol for anthropic endpoints', () => {
-      expect(ENDPOINT_CONFIGS['anthropic-direct'].protocol).toBe('anthropic');
+      expect(ENDPOINT_CONFIGS['anthropic'].protocol).toBe('anthropic');
       expect(ENDPOINT_CONFIGS['aws-bedrock'].protocol).toBe('anthropic');
     });
 
     it('should have correct protocol for openai endpoints', () => {
-      expect(ENDPOINT_CONFIGS['openai-direct'].protocol).toBe('openai');
+      expect(ENDPOINT_CONFIGS['openai'].protocol).toBe('openai');
       expect(ENDPOINT_CONFIGS['azure-openai'].protocol).toBe('openai');
       expect(ENDPOINT_CONFIGS['openai-compatible'].protocol).toBe('openai');
     });
@@ -38,26 +49,41 @@ describe('EndpointRegistry', () => {
     });
 
     it('should have required env vars for each endpoint', () => {
-      expect(ENDPOINT_CONFIGS['anthropic-direct'].requiredEnvVars).toContain('ANTHROPIC_API_KEY');
-      expect(ENDPOINT_CONFIGS['openai-direct'].requiredEnvVars).toContain('OPENAI_API_KEY');
+      expect(ENDPOINT_CONFIGS['anthropic'].requiredEnvVars).toContain('ANTHROPIC_API_KEY');
+      expect(ENDPOINT_CONFIGS['openai'].requiredEnvVars).toContain('OPENAI_API_KEY');
       expect(ENDPOINT_CONFIGS['openai-compatible'].requiredEnvVars).toContain('OPENAI_COMPATIBLE_API_KEY');
       expect(ENDPOINT_CONFIGS['google-ai-studio'].requiredEnvVars).toContain('GEMINI_API_KEY');
       expect(ENDPOINT_CONFIGS['aws-bedrock'].requiredEnvVars).toContain('AWS_ACCESS_KEY_ID');
       expect(ENDPOINT_CONFIGS['azure-openai'].requiredEnvVars).toContain('AZURE_OPENAI_API_KEY');
-      expect(ENDPOINT_CONFIGS['codex'].requiredEnvVars).toEqual([]);
+      expect(ENDPOINT_CONFIGS['openai-codex'].requiredEnvVars).toEqual([]);
     });
   });
 
   describe('getEndpointConfig', () => {
     it('should return config for valid endpoint', () => {
-      const config = getEndpointConfig('anthropic-direct');
+      const config = getEndpointConfig('anthropic');
 
-      expect(config.id).toBe('anthropic-direct');
+      expect(config.id).toBe('anthropic');
       expect(config.protocol).toBe('anthropic');
     });
 
     it('should throw for unknown endpoint', () => {
       expect(() => getEndpointConfig('unknown' as any)).toThrow('Unknown endpoint: unknown');
+    });
+
+    it('should resolve dynamic endpoint from llm-config providers', () => {
+      const config = getCachedConfig();
+      config.providers['custom-openai-endpoint'] = {
+        enabled: true,
+        protocol: 'openai',
+        priority: 9,
+        baseUrl: 'https://custom.example.com',
+      };
+
+      const endpoint = getEndpointConfig('custom-openai-endpoint');
+      expect(endpoint.id).toBe('custom-openai-endpoint');
+      expect(endpoint.protocol).toBe('openai');
+      expect(endpoint.baseUrl).toBe('https://custom.example.com');
     });
   });
 
@@ -66,9 +92,21 @@ describe('EndpointRegistry', () => {
       const configs = getAllEndpointConfigs();
 
       expect(configs.length).toBe(8);
-      expect(configs.map(c => c.id)).toContain('anthropic-direct');
-      expect(configs.map(c => c.id)).toContain('openai-direct');
+      expect(configs.map(c => c.id)).toContain('anthropic');
+      expect(configs.map(c => c.id)).toContain('openai');
       expect(configs.map(c => c.id)).toContain('openai-compatible');
+    });
+
+    it('should include dynamic endpoints from llm-config providers', () => {
+      const config = getCachedConfig();
+      config.providers['custom-openai-endpoint'] = {
+        enabled: true,
+        protocol: 'openai',
+        priority: 9,
+      };
+
+      const configs = getAllEndpointConfigs();
+      expect(configs.map((c) => c.id)).toContain('custom-openai-endpoint');
     });
   });
 
@@ -104,7 +142,7 @@ describe('EndpointRegistry', () => {
 
       const available = getAvailableEndpoints();
 
-      expect(available.map(c => c.id)).toContain('anthropic-direct');
+      expect(available.map(c => c.id)).toContain('anthropic');
     });
 
     it('should return aws-bedrock when AWS credentials are set', () => {
@@ -122,7 +160,7 @@ describe('EndpointRegistry', () => {
       const endpoints = getEndpointsByProtocol('anthropic');
 
       expect(endpoints.length).toBe(2);
-      expect(endpoints[0].id).toBe('anthropic-direct'); // priority 1
+      expect(endpoints[0].id).toBe('anthropic'); // priority 1
       expect(endpoints[1].id).toBe('aws-bedrock'); // priority 2
     });
 
@@ -130,7 +168,7 @@ describe('EndpointRegistry', () => {
       const endpoints = getEndpointsByProtocol('openai');
 
       expect(endpoints.length).toBe(3);
-      expect(endpoints[0].id).toBe('openai-direct'); // priority 1
+      expect(endpoints[0].id).toBe('openai'); // priority 1
       expect(endpoints[1].id).toBe('azure-openai'); // priority 2
       expect(endpoints[2].id).toBe('openai-compatible'); // priority 3
     });

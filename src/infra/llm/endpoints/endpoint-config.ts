@@ -6,14 +6,18 @@ import { authManagerV2 } from '../../../cli/lib/auth-manager-v2.js';
  * Supported endpoint identifiers
  */
 export type EndpointId =
-  | 'anthropic-direct'
+  | 'anthropic'
   | 'aws-bedrock'
-  | 'openai-direct'
+  | 'openai'
   | 'azure-openai'
   | 'openai-compatible'
   | 'google-ai-studio'
   | 'google-vertex-ai'
-  | 'codex';
+  | 'openai-codex'
+  | 'anthropic-direct'
+  | 'openai-direct'
+  | 'codex'
+  | string;
 
 /**
  * Endpoint configuration
@@ -27,6 +31,7 @@ export interface EndpointConfig {
   baseUrl: string;
   /** Environment variables required for this endpoint */
   requiredEnvVars: string[];
+  requiredCredentialFields?: Array<keyof ResolvedEndpointCredentials>;
   /** Optional environment variables */
   optionalEnvVars?: string[];
   /** Priority for endpoint selection (lower = preferred) */
@@ -114,6 +119,43 @@ function getCredentialValue(
   return undefined;
 }
 
+function hasAnyResolvedCredential(credentials: ResolvedEndpointCredentials): boolean {
+  return Boolean(
+    credentials.apiKey
+    || credentials.accessToken
+    || credentials.endpoint
+    || credentials.baseUrl
+    || (credentials.accessKeyId && credentials.secretAccessKey)
+    || credentials.projectId
+  );
+}
+
+function mergeFromCredentialFile(
+  credentials: ResolvedEndpointCredentials,
+  fileCredential: ReturnType<typeof getCachedEndpointCredential>
+): void {
+  if (!fileCredential) {
+    return;
+  }
+
+  const mapping: Array<[keyof typeof fileCredential, keyof ResolvedEndpointCredentials]> = [
+    ['apiKey', 'apiKey'],
+    ['accessKeyId', 'accessKeyId'],
+    ['secretAccessKey', 'secretAccessKey'],
+    ['region', 'region'],
+    ['endpoint', 'endpoint'],
+    ['projectId', 'projectId'],
+    ['baseUrl', 'baseUrl'],
+  ];
+
+  for (const [fileField, targetField] of mapping) {
+    const value = fileCredential[fileField];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      credentials[targetField] = value;
+    }
+  }
+}
+
 /**
  * Check if an endpoint has all required credentials configured
  * Checks both environment variables and ~/.ponybunny/credentials.json
@@ -125,7 +167,7 @@ export function hasRequiredCredentials(config: EndpointConfig): boolean {
     return authManagerV2.isAuthenticated();
   }
 
-  return config.requiredEnvVars.every(envVar => {
+  const hasRequiredEnvCredentials = config.requiredEnvVars.length > 0 && config.requiredEnvVars.every(envVar => {
     // Check env var first
     if (process.env[envVar]) {
       return true;
@@ -144,6 +186,22 @@ export function hasRequiredCredentials(config: EndpointConfig): boolean {
 
     return false;
   });
+
+  if (hasRequiredEnvCredentials) {
+    return true;
+  }
+
+  const resolvedFromFile: ResolvedEndpointCredentials = { endpointId: config.id };
+  mergeFromCredentialFile(resolvedFromFile, fileCredential);
+
+  if (config.requiredCredentialFields && config.requiredCredentialFields.length > 0) {
+    return config.requiredCredentialFields.every((field) => {
+      const value = resolvedFromFile[field];
+      return typeof value === 'string' ? value.trim().length > 0 : Boolean(value);
+    });
+  }
+
+  return hasAnyResolvedCredential(resolvedFromFile);
 }
 
 /**
@@ -160,6 +218,8 @@ export function resolveCredentials(config: EndpointConfig): ResolvedEndpointCred
     endpointId: config.id,
   };
 
+  mergeFromCredentialFile(credentials, fileCredential);
+
   // Resolve all environment variables (required + optional)
   const allEnvVars = [...config.requiredEnvVars, ...(config.optionalEnvVars || [])];
   for (const envVar of allEnvVars) {
@@ -170,11 +230,6 @@ export function resolveCredentials(config: EndpointConfig): ResolvedEndpointCred
         credentials[field] = value;
       }
     }
-  }
-
-  // Check for baseUrl override in credentials file
-  if (fileCredential?.baseUrl) {
-    credentials.baseUrl = fileCredential.baseUrl;
   }
 
   return credentials;

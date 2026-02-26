@@ -4,7 +4,8 @@
     "openai-compatible": {
       "enabled": true,
       "protocol": "openai",
-      "baseUrl": "http://localhost:8000/v1",
+      "type": "api",
+      "baseUrl": "http://localhost:8000",
       "priority": 1
     }
   },
@@ -12,7 +13,6 @@
     "openai-compatible": {
       "qwen3-30b-a3b-instruct": {
         "displayName": "Qwen3 30B A3B Instruct",
-        "providers": ["openai-compatible"],
         "endpoints": [
           { "name": "responses", "url": "/v1/responses" }
         ],

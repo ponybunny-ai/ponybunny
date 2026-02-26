@@ -129,7 +129,18 @@ export async function probeAndPersistAvailability(options: ProbeOptions = {}): P
   for (const endpointId of enabledEndpointIds) {
     const endpointConfig = config.providers[endpointId];
     const candidateModels = Object.entries(config.models)
-      .filter(([_, model]) => model.providers.includes(endpointId))
+      .filter(([modelId, model]) => {
+        if (Array.isArray(model.providers) && model.providers.length > 0) {
+          return model.providers.includes(endpointId);
+        }
+
+        const dotIndex = modelId.indexOf('.');
+        if (dotIndex <= 0 || dotIndex === modelId.length - 1) {
+          return false;
+        }
+
+        return modelId.slice(0, dotIndex) === endpointId;
+      })
       .map(([modelId]) => modelId)
       .slice(0, maxModelsPerEndpoint);
 

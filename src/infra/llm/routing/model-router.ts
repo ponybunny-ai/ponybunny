@@ -47,7 +47,10 @@ export class ModelRouter {
         }
       }
 
-      const firstEndpointId = llmModelConfig.providers[0];
+      const providerCandidates = Array.isArray(llmModelConfig.providers) && llmModelConfig.providers.length > 0
+        ? llmModelConfig.providers
+        : this.inferProvidersFromModelId(selectorResolution.modelId);
+      const firstEndpointId = providerCandidates[0];
       if (!firstEndpointId) return undefined;
       const endpoint = safeGetEndpointConfig(firstEndpointId);
       return endpoint?.protocol;
@@ -67,8 +70,13 @@ export class ModelRouter {
       ? this.resolveModelSelector(modelId)
       : { modelId };
     const llmModelConfig = this.useLLMConfig ? getLLMModelConfig(selectorResolution.modelId) : undefined;
+    const modelProviders = llmModelConfig
+      ? (Array.isArray(llmModelConfig.providers) && llmModelConfig.providers.length > 0
+        ? llmModelConfig.providers
+        : this.inferProvidersFromModelId(selectorResolution.modelId))
+      : [];
     const candidateEndpointIds: string[] = llmModelConfig
-      ? llmModelConfig.providers.filter(endpointId => {
+      ? modelProviders.filter(endpointId => {
         if (!selectorResolution.providerScope) {
           return true;
         }
@@ -144,6 +152,14 @@ export class ModelRouter {
 
     console.log(`✅ [ModelRouter] Final available endpoints (oauth preferred): ${endpoints.map(e => e.id).join(', ')}`);
     return endpoints;
+  }
+
+  private inferProvidersFromModelId(modelId: string): string[] {
+    const dotIndex = modelId.indexOf('.');
+    if (dotIndex <= 0 || dotIndex === modelId.length - 1) {
+      return [];
+    }
+    return [modelId.slice(0, dotIndex)];
   }
 
   /**
@@ -256,7 +272,18 @@ export class ModelRouter {
     }
 
     const providerAliasId = modelSelector.slice(0, dotIndex);
-    const modelId = modelSelector.slice(dotIndex + 1);
+    const modelSuffix = modelSelector.slice(dotIndex + 1);
+
+    const directModelId = `${providerAliasId}.${modelSuffix}`;
+    if (config.models[directModelId]) {
+      return {
+        modelId: directModelId,
+        providerAliasId,
+        providerScope: new Set([providerAliasId]),
+      };
+    }
+
+    const modelId = modelSuffix;
     const providerAlias = config.providerAliases?.[providerAliasId];
     if (!providerAlias) {
       return { modelId: modelSelector };

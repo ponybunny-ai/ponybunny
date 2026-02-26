@@ -94,10 +94,20 @@ export function getModelsInfo(): ModelInfo[] {
     const models: ModelInfo[] = [];
 
     for (const [modelId, modelConfig] of Object.entries(config.models)) {
+      const providers = Array.isArray(modelConfig.providers) && modelConfig.providers.length > 0
+        ? modelConfig.providers
+        : (() => {
+          const dotIndex = modelId.indexOf('.');
+          if (dotIndex <= 0 || dotIndex === modelId.length - 1) {
+            return [];
+          }
+          return [modelId.slice(0, dotIndex)];
+        })();
+
       models.push({
         name: modelId,
         displayName: modelConfig.displayName,
-        providers: modelConfig.providers,
+        providers,
         capabilities: modelConfig.capabilities || [],
         costPer1kTokens: modelConfig.costPer1kTokens,
         maxContextTokens: modelConfig.maxContextTokens || 0,

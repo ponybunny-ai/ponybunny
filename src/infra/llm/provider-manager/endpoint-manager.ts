@@ -18,25 +18,76 @@ export interface EndpointHealth {
  * Map endpoint IDs to their required credential fields
  */
 const ENDPOINT_CREDENTIAL_REQUIREMENTS: Record<string, string[]> = {
-  'anthropic-direct': ['apiKey'],
+  anthropic: ['apiKey'],
   'aws-bedrock': ['accessKeyId', 'secretAccessKey'],
-  'openai-direct': ['apiKey'],
+  openai: ['apiKey'],
   'azure-openai': ['apiKey', 'endpoint'],
   'google-ai-studio': ['apiKey'],
   'google-vertex-ai': ['projectId'],
+  'openai-compatible': ['apiKey'],
+  'openai-codex': ['accessToken'],
+  'anthropic-direct': ['apiKey'],
+  'openai-direct': ['apiKey'],
+  codex: ['accessToken'],
 };
 
 /**
  * Map endpoint IDs to environment variable names
  */
 const ENDPOINT_ENV_VARS: Record<string, string[]> = {
-  'anthropic-direct': ['ANTHROPIC_API_KEY'],
+  anthropic: ['ANTHROPIC_API_KEY'],
   'aws-bedrock': ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'],
-  'openai-direct': ['OPENAI_API_KEY'],
+  openai: ['OPENAI_API_KEY'],
   'azure-openai': ['AZURE_OPENAI_API_KEY', 'AZURE_OPENAI_ENDPOINT'],
+  'openai-compatible': ['OPENAI_COMPATIBLE_API_KEY', 'OPENAI_COMPATIBLE_BASE_URL'],
   'google-ai-studio': ['GEMINI_API_KEY'],
   'google-vertex-ai': ['GOOGLE_CLOUD_PROJECT'],
+  'openai-codex': [],
+  'anthropic-direct': ['ANTHROPIC_API_KEY'],
+  'openai-direct': ['OPENAI_API_KEY'],
+  codex: [],
 };
+
+function defaultRequiredFieldsForProtocol(protocol?: string): string[] {
+  if (protocol === 'anthropic' || protocol === 'openai' || protocol === 'gemini') {
+    return ['apiKey'];
+  }
+  if (protocol === 'codex') {
+    return ['accessToken'];
+  }
+  return ['apiKey'];
+}
+
+function parseProviderFromModelSelector(modelSelector: string): string | undefined {
+  const dotIndex = modelSelector.indexOf('.');
+  if (dotIndex <= 0 || dotIndex === modelSelector.length - 1) {
+    return undefined;
+  }
+  return modelSelector.slice(0, dotIndex);
+}
+
+function getProviderIdsForModel(
+  modelSelector: string,
+  resolvedModelId: string,
+  modelConfig: ReturnType<typeof getCachedConfig>['models'][string],
+  providerScope?: Set<string>
+): string[] {
+  const fromModelConfig = Array.isArray(modelConfig.providers)
+    ? modelConfig.providers
+    : [];
+
+  const providerFromSelector = parseProviderFromModelSelector(modelSelector)
+    || parseProviderFromModelSelector(resolvedModelId);
+
+  const inferred = providerFromSelector ? [providerFromSelector] : [];
+  const candidates = fromModelConfig.length > 0 ? fromModelConfig : inferred;
+
+  if (!providerScope) {
+    return candidates;
+  }
+
+  return candidates.filter(endpointId => providerScope.has(endpointId));
+}
 
 /**
  * Endpoint Manager
@@ -73,11 +124,16 @@ export class EndpointManager {
    * Check if an endpoint has required credentials
    */
   hasCredentials(endpointId: string): boolean {
+    const endpointConfig = this.getEndpointConfig(endpointId);
+
     // Check credentials file first
     const fileCredential = getCachedEndpointCredential(endpointId);
 
-    const requiredFields = ENDPOINT_CREDENTIAL_REQUIREMENTS[endpointId] || ['apiKey'];
-    const envVars = ENDPOINT_ENV_VARS[endpointId] || [];
+    const requiredFields = ENDPOINT_CREDENTIAL_REQUIREMENTS[endpointId]
+      || defaultRequiredFieldsForProtocol(endpointConfig?.protocol);
+    const envVars = ENDPOINT_ENV_VARS[endpointId]
+      || endpointConfig?.requiredEnvVars
+      || [];
 
     // Check if credentials file has required fields
     if (fileCredential) {
@@ -91,7 +147,7 @@ export class EndpointManager {
     }
 
     // Check environment variables
-    const hasAllEnvVars = envVars.every(envVar => {
+    const hasAllEnvVars = envVars.length > 0 && envVars.every(envVar => {
       const value = process.env[envVar];
       return value !== undefined && value !== '';
     });
@@ -170,9 +226,7 @@ export class EndpointManager {
 
     const availableEndpoints: string[] = [];
 
-    const providerIds = resolved.providerScope
-      ? modelConfig.providers.filter(endpointId => resolved.providerScope!.has(endpointId))
-      : modelConfig.providers;
+    const providerIds = getProviderIdsForModel(modelId, resolved.modelId, modelConfig, resolved.providerScope);
 
     for (const endpointId of providerIds) {
       const endpointProbeHealth = config.providers[endpointId]?.health;
@@ -244,13 +298,16 @@ export class EndpointManager {
     }
 
     const fileCredential = getCachedEndpointCredential(endpointId);
-    const envVars = ENDPOINT_ENV_VARS[endpointId] || [];
+    const endpointConfig = this.getEndpointConfig(endpointId);
+    const envVars = ENDPOINT_ENV_VARS[endpointId] || endpointConfig?.requiredEnvVars || [];
     const credentials: Record<string, string> = {};
 
     // Map env var names to credential field names
     const envVarToField: Record<string, string> = {
       'ANTHROPIC_API_KEY': 'apiKey',
       'OPENAI_API_KEY': 'apiKey',
+      'OPENAI_COMPATIBLE_API_KEY': 'apiKey',
+      'OPENAI_COMPATIBLE_BASE_URL': 'baseUrl',
       'GEMINI_API_KEY': 'apiKey',
       'AZURE_OPENAI_API_KEY': 'apiKey',
       'AWS_ACCESS_KEY_ID': 'accessKeyId',

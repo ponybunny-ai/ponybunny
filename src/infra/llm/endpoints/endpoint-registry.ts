@@ -1,17 +1,18 @@
 import type { EndpointId, EndpointConfig } from './endpoint-config.js';
 import { hasRequiredCredentials } from './endpoint-config.js';
+import { getCachedConfig } from '../provider-manager/config-loader.js';
 
 /**
  * All supported endpoint configurations
  */
 export const ENDPOINT_CONFIGS: Record<EndpointId, EndpointConfig> = {
-  'anthropic-direct': {
-    id: 'anthropic-direct',
+  anthropic: {
+    id: 'anthropic',
     protocol: 'anthropic',
     baseUrl: 'https://api.anthropic.com/v1/messages',
     requiredEnvVars: ['ANTHROPIC_API_KEY'],
     priority: 1,
-    displayName: 'Anthropic Direct',
+    displayName: 'Anthropic',
     description: 'Direct access to Anthropic API',
   },
 
@@ -27,13 +28,13 @@ export const ENDPOINT_CONFIGS: Record<EndpointId, EndpointConfig> = {
     description: 'Claude via AWS Bedrock',
   },
 
-  'openai-direct': {
-    id: 'openai-direct',
+  openai: {
+    id: 'openai',
     protocol: 'openai',
     baseUrl: 'https://api.openai.com/v1',
     requiredEnvVars: ['OPENAI_API_KEY'],
     priority: 1,
-    displayName: 'OpenAI Direct',
+    displayName: 'OpenAI',
     description: 'Direct access to OpenAI API',
   },
 
@@ -79,8 +80,8 @@ export const ENDPOINT_CONFIGS: Record<EndpointId, EndpointConfig> = {
     description: 'Gemini via Google Cloud Vertex AI',
   },
 
-  'codex': {
-    id: 'codex',
+  'openai-codex': {
+    id: 'openai-codex',
     protocol: 'codex',
     baseUrl: 'https://chatgpt.com/backend-api',
     requiredEnvVars: [], // OAuth token managed dynamically
@@ -90,11 +91,47 @@ export const ENDPOINT_CONFIGS: Record<EndpointId, EndpointConfig> = {
   },
 };
 
+function toDynamicEndpointConfig(endpointId: string): EndpointConfig | null {
+  const provider = getCachedConfig().providers[endpointId];
+  if (!provider) {
+    return null;
+  }
+
+  return {
+    id: endpointId,
+    protocol: provider.protocol,
+    baseUrl: provider.baseUrl || '',
+    requiredEnvVars: provider.requiredEnvVars || [],
+    priority: provider.priority,
+    costMultiplier: provider.costMultiplier,
+    displayName: endpointId,
+    description: `Configured endpoint '${endpointId}' from llm-config.json`,
+  };
+}
+
+function getCombinedEndpointConfigsMap(): Record<string, EndpointConfig> {
+  const combined: Record<string, EndpointConfig> = { ...ENDPOINT_CONFIGS };
+  const providers = getCachedConfig().providers;
+
+  for (const endpointId of Object.keys(providers)) {
+    if (combined[endpointId]) {
+      continue;
+    }
+
+    const dynamicConfig = toDynamicEndpointConfig(endpointId);
+    if (dynamicConfig) {
+      combined[endpointId] = dynamicConfig;
+    }
+  }
+
+  return combined;
+}
+
 /**
  * Get endpoint configuration by ID
  */
 export function getEndpointConfig(endpointId: EndpointId): EndpointConfig {
-  const config = ENDPOINT_CONFIGS[endpointId];
+  const config = ENDPOINT_CONFIGS[endpointId] || toDynamicEndpointConfig(endpointId);
   if (!config) {
     throw new Error(`Unknown endpoint: ${endpointId}`);
   }
@@ -105,7 +142,7 @@ export function getEndpointConfig(endpointId: EndpointId): EndpointConfig {
  * Get all endpoint configurations
  */
 export function getAllEndpointConfigs(): EndpointConfig[] {
-  return Object.values(ENDPOINT_CONFIGS);
+  return Object.values(getCombinedEndpointConfigsMap());
 }
 
 /**

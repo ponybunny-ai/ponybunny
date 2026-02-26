@@ -70,7 +70,14 @@ modelsCommand
             : chalk.gray('not probed');
 
         console.log(`  - ${chalk.white(modelId)} (${chalk.gray(model.displayName)})`);
-        console.log(chalk.gray(`    providers: ${model.providers.join(', ')}`));
+        const providers = Array.isArray(model.providers) && model.providers.length > 0
+          ? model.providers
+          : (() => {
+              const dotIndex = modelId.indexOf('.');
+              return dotIndex > 0 ? [modelId.slice(0, dotIndex)] : [];
+            })();
+
+        console.log(chalk.gray(`    providers: ${providers.join(', ') || 'n/a'}`));
         console.log(chalk.gray(`    status: ${availability}`));
       }
 

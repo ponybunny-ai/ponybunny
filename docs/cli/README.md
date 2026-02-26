@@ -10,6 +10,7 @@ This directory contains documentation for the PonyBunny command-line interface (
   - Configuration management
   - Service management
   - Troubleshooting
+- **[LLM-BASEURL-CONFIG-GUIDE.md](./LLM-BASEURL-CONFIG-GUIDE.md)** - How to configure `baseUrl` and `/v1` in `llm-config.json` and `credentials.json`
 - **[INSTALLATION.md](./INSTALLATION.md)** - npm/Homebrew installation and maintainer release steps
 
 ## Quick Links

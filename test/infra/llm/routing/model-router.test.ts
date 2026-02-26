@@ -31,9 +31,9 @@ describe('ModelRouter', () => {
     it('should return anthropic for claude models', () => {
       const router = new ModelRouter();
 
-      expect(router.getProtocolForModel('claude-opus-4-5-20251101')).toBe('anthropic');
-      expect(router.getProtocolForModel('claude-sonnet-4-5-20250929')).toBe('anthropic');
-      expect(router.getProtocolForModel('claude-haiku-4-5-20251001')).toBe('anthropic');
+      expect(router.getProtocolForModel('anthropic.claude-opus-4-5-20251101')).toBe('anthropic');
+      expect(router.getProtocolForModel('anthropic.claude-sonnet-4-5-20250929')).toBe('anthropic');
+      expect(router.getProtocolForModel('anthropic.claude-haiku-4-5-20251001')).toBe('anthropic');
     });
 
     it('should return openai for gpt models', () => {
@@ -71,23 +71,23 @@ describe('ModelRouter', () => {
       process.env.ANTHROPIC_API_KEY = 'test-key';
 
       const router = new ModelRouter();
-      const endpoints = router.getEndpointsForModel('claude-opus-4-5-20251101');
+      const endpoints = router.getEndpointsForModel('anthropic.claude-opus-4-5-20251101');
 
       expect(endpoints.length).toBeGreaterThan(0);
-      expect(endpoints[0].id).toBe('anthropic-direct');
+      expect(endpoints[0].id).toBe('anthropic');
     });
 
-    it('should return multiple endpoints when credentials available', () => {
+    it('should prefer scoped provider endpoint for provider-prefixed model ids', () => {
       process.env.ANTHROPIC_API_KEY = 'test-key';
       process.env.AWS_ACCESS_KEY_ID = 'test-id';
       process.env.AWS_SECRET_ACCESS_KEY = 'test-secret';
 
       const router = new ModelRouter();
-      const endpoints = router.getEndpointsForModel('claude-opus-4-5-20251101');
+      const endpoints = router.getEndpointsForModel('anthropic.claude-opus-4-5-20251101');
 
-      expect(endpoints.length).toBe(2);
-      expect(endpoints.map(e => e.id)).toContain('anthropic-direct');
-      expect(endpoints.map(e => e.id)).toContain('aws-bedrock');
+      expect(endpoints.length).toBe(1);
+      expect(endpoints.map(e => e.id)).toContain('anthropic');
+      expect(endpoints.map(e => e.id)).not.toContain('aws-bedrock');
     });
 
     it('should return empty array when no credentials available', () => {
@@ -95,7 +95,7 @@ describe('ModelRouter', () => {
       delete process.env.AWS_ACCESS_KEY_ID;
 
       const router = new ModelRouter();
-      const endpoints = router.getEndpointsForModel('claude-opus-4-5-20251101');
+      const endpoints = router.getEndpointsForModel('anthropic.claude-opus-4-5-20251101');
 
       expect(endpoints.length).toBe(0);
     });
@@ -103,31 +103,31 @@ describe('ModelRouter', () => {
     it('should skip endpoint marked unavailable by persisted endpoint probe health', () => {
       process.env.OPENAI_API_KEY = 'test-openai-key';
       const config = getCachedConfig();
-      config.providers['openai-direct'].enabled = true;
-      config.providers['openai-direct'].health = {
+      config.providers.openai.enabled = true;
+      config.providers.openai.health = {
         available: false,
         lastCheckedAt: new Date().toISOString(),
         lastError: '502 Bad Gateway',
       };
 
       const router = new ModelRouter();
-      const endpoints = router.getEndpointsForModel('gpt-5.2');
+      const endpoints = router.getEndpointsForModel('openai.gpt-5.2');
 
-      expect(endpoints.find((endpoint) => endpoint.id === 'openai-direct')).toBeUndefined();
+      expect(endpoints.find((endpoint) => endpoint.id === 'openai')).toBeUndefined();
     });
 
     it('should skip model-endpoint pair marked unavailable by persisted model probe health', () => {
       process.env.OPENAI_API_KEY = 'test-openai-key';
       const config = getCachedConfig();
-      config.providers['openai-direct'].enabled = true;
-      config.providers['openai-direct'].health = {
+      config.providers.openai.enabled = true;
+      config.providers.openai.health = {
         available: true,
         lastCheckedAt: new Date().toISOString(),
       };
-      config.models['gpt-5.2'].health = {
+      config.models['openai.gpt-5.2'].health = {
         lastCheckedAt: new Date().toISOString(),
         providers: {
-          'openai-direct': {
+          openai: {
             available: false,
             lastError: 'Model unavailable on endpoint',
           },
@@ -135,9 +135,9 @@ describe('ModelRouter', () => {
       };
 
       const router = new ModelRouter();
-      const endpoints = router.getEndpointsForModel('gpt-5.2');
+      const endpoints = router.getEndpointsForModel('openai.gpt-5.2');
 
-      expect(endpoints.find((endpoint) => endpoint.id === 'openai-direct')).toBeUndefined();
+      expect(endpoints.find((endpoint) => endpoint.id === 'openai')).toBeUndefined();
     });
 
     it('should support provider-prefixed model selector from tiers/workloads', () => {
@@ -147,7 +147,7 @@ describe('ModelRouter', () => {
       const endpoints = router.getEndpointsForModel('openai.gpt-5.2');
 
       expect(endpoints.length).toBeGreaterThan(0);
-      expect(endpoints.map((endpoint) => endpoint.id)).toContain('openai-direct');
+      expect(endpoints.map((endpoint) => endpoint.id)).toContain('openai');
     });
 
     it('should return empty array for unknown models', () => {
@@ -165,7 +165,7 @@ describe('ModelRouter', () => {
 
       const router = new ModelRouter();
 
-      expect(router.isEndpointAvailable('anthropic-direct')).toBe(true);
+      expect(router.isEndpointAvailable('anthropic')).toBe(true);
     });
 
     it('should return false when credentials are missing', () => {
@@ -173,7 +173,7 @@ describe('ModelRouter', () => {
 
       const router = new ModelRouter();
 
-      expect(router.isEndpointAvailable('anthropic-direct')).toBe(false);
+      expect(router.isEndpointAvailable('anthropic')).toBe(false);
     });
 
     it('should cache availability results', () => {
@@ -182,41 +182,41 @@ describe('ModelRouter', () => {
       const router = new ModelRouter();
 
       // First call
-      expect(router.isEndpointAvailable('anthropic-direct')).toBe(true);
+      expect(router.isEndpointAvailable('anthropic')).toBe(true);
 
       // Remove key
       delete process.env.ANTHROPIC_API_KEY;
 
       // Should still return cached value
-      expect(router.isEndpointAvailable('anthropic-direct')).toBe(true);
+      expect(router.isEndpointAvailable('anthropic')).toBe(true);
 
       // Clear cache
       router.clearCache();
 
       // Now should return false
-      expect(router.isEndpointAvailable('anthropic-direct')).toBe(false);
+      expect(router.isEndpointAvailable('anthropic')).toBe(false);
     });
 
     it('should let persisted probe health override cached available status', () => {
       process.env.OPENAI_API_KEY = 'test-openai-key';
       const config = getCachedConfig();
-      config.providers['openai-direct'].enabled = true;
-      config.providers['openai-direct'].health = {
+      config.providers.openai.enabled = true;
+      config.providers.openai.health = {
         available: true,
         lastCheckedAt: new Date().toISOString(),
       };
 
       const router = new ModelRouter();
 
-      expect(router.isEndpointAvailable('openai-direct')).toBe(true);
+      expect(router.isEndpointAvailable('openai')).toBe(true);
 
-      config.providers['openai-direct'].health = {
+      config.providers.openai.health = {
         available: false,
         lastCheckedAt: new Date().toISOString(),
         lastError: '502 Bad Gateway',
       };
 
-      expect(router.isEndpointAvailable('openai-direct')).toBe(false);
+      expect(router.isEndpointAvailable('openai')).toBe(false);
     });
   });
 
@@ -225,9 +225,9 @@ describe('ModelRouter', () => {
       process.env.ANTHROPIC_API_KEY = 'test-key';
 
       const router = new ModelRouter();
-      const endpoint = router.getPreferredEndpoint('claude-opus-4-5-20251101');
+      const endpoint = router.getPreferredEndpoint('anthropic.claude-opus-4-5-20251101');
 
-      expect(endpoint?.id).toBe('anthropic-direct');
+      expect(endpoint?.id).toBe('anthropic');
     });
 
     it('should return undefined when no endpoints available', () => {
@@ -235,7 +235,7 @@ describe('ModelRouter', () => {
       delete process.env.AWS_ACCESS_KEY_ID;
 
       const router = new ModelRouter();
-      const endpoint = router.getPreferredEndpoint('claude-opus-4-5-20251101');
+      const endpoint = router.getPreferredEndpoint('anthropic.claude-opus-4-5-20251101');
 
       expect(endpoint).toBeUndefined();
     });
@@ -247,7 +247,7 @@ describe('ModelRouter', () => {
 
       const router = new ModelRouter();
 
-      expect(router.isModelSupported('claude-opus-4-5-20251101')).toBe(true);
+      expect(router.isModelSupported('anthropic.claude-opus-4-5-20251101')).toBe(true);
     });
 
     it('should return false when no endpoint is available', () => {
@@ -256,7 +256,7 @@ describe('ModelRouter', () => {
 
       const router = new ModelRouter();
 
-      expect(router.isModelSupported('claude-opus-4-5-20251101')).toBe(false);
+      expect(router.isModelSupported('anthropic.claude-opus-4-5-20251101')).toBe(false);
     });
   });
 
@@ -266,7 +266,7 @@ describe('ModelRouter', () => {
         {
           pattern: 'custom-*',
           protocol: 'anthropic',
-          endpoints: ['anthropic-direct'],
+          endpoints: ['anthropic'],
         },
       ];
 

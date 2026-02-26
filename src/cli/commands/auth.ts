@@ -588,7 +588,7 @@ interface ProviderConfigDefinition {
 }
 
 const PROVIDER_FIELD_DEFINITIONS: Record<string, ProviderFieldDefinition[]> = {
-  'anthropic-direct': [
+  anthropic: [
     { key: 'apiKey', label: 'API Key', kind: 'secret' },
     { key: 'baseUrl', label: 'Base URL', kind: 'url', optional: true },
   ],
@@ -598,7 +598,7 @@ const PROVIDER_FIELD_DEFINITIONS: Record<string, ProviderFieldDefinition[]> = {
     { key: 'region', label: 'Region', kind: 'text' },
     { key: 'baseUrl', label: 'Base URL', kind: 'url', optional: true },
   ],
-  'openai-direct': [
+  openai: [
     { key: 'apiKey', label: 'API Key', kind: 'secret' },
     { key: 'baseUrl', label: 'Base URL', kind: 'url', optional: true },
   ],
@@ -681,7 +681,7 @@ function maskSensitiveValue(value: string): string {
 
 function getProviderConfigDefinitions(): ProviderConfigDefinition[] {
   return getAllEndpointConfigs()
-    .filter((endpoint) => endpoint.id !== 'codex')
+    .filter((endpoint) => endpoint.id !== 'openai-codex' && endpoint.id !== 'codex')
     .map((endpoint) => ({
       endpointId: endpoint.id,
       displayName: endpoint.displayName,
@@ -690,6 +690,88 @@ function getProviderConfigDefinitions(): ProviderConfigDefinition[] {
         { key: 'baseUrl', label: 'Base URL', kind: 'url', optional: true },
       ],
     }));
+}
+
+function toOpenAICompatibleDisplayName(endpointId: string): string {
+  if (endpointId === 'openai-compatible') {
+    return 'OpenAI-Compatible';
+  }
+  const suffix = endpointId.slice('openai-compatible-'.length);
+  return `OpenAI-Compatible (${suffix})`;
+}
+
+function createOpenAICompatibleProvider(
+  endpointId: string,
+  baseUrl: string,
+  apiKey: string
+): void {
+  const llmConfig = loadLLMConfig();
+  llmConfig.providers[endpointId] = {
+    enabled: true,
+    protocol: 'openai',
+    type: 'api',
+    baseUrl,
+    priority: 3,
+  };
+  saveLLMConfig(llmConfig);
+  clearConfigCache();
+
+  upsertCredentialForEndpoint(endpointId, {
+    apiKey,
+    baseUrl,
+  });
+}
+
+async function promptCreateOpenAICompatibleProvider(): Promise<void> {
+  const { providerSuffix, baseUrl, apiKey } = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'providerSuffix',
+      message: 'New provider suffix (example: localai):',
+      validate: (value: string) => {
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return 'Provider suffix cannot be empty';
+        }
+        if (!/^[a-zA-Z0-9_-]+$/.test(trimmed)) {
+          return 'Use letters, numbers, - or _ only';
+        }
+        return true;
+      },
+    },
+    {
+      type: 'input',
+      name: 'baseUrl',
+      message: 'Provider base URL:',
+      validate: (value: string) => validateProviderInput({
+        key: 'baseUrl',
+        label: 'Base URL',
+        kind: 'url',
+      }, value),
+    },
+    {
+      type: 'password',
+      name: 'apiKey',
+      message: 'Provider API key:',
+      mask: '*',
+      validate: (value: string) => validateProviderInput({
+        key: 'apiKey',
+        label: 'API Key',
+        kind: 'secret',
+      }, value),
+    },
+  ]);
+
+  const suffix = providerSuffix.trim();
+  const endpointId = suffix === 'default'
+    ? 'openai-compatible'
+    : `openai-compatible-${suffix}`;
+  const trimmedBaseUrl = baseUrl.trim();
+  const trimmedApiKey = apiKey.trim();
+
+  createOpenAICompatibleProvider(endpointId, trimmedBaseUrl, trimmedApiKey);
+  console.log(chalk.green(`✓ Added ${toOpenAICompatibleDisplayName(endpointId)}`));
+  console.log();
 }
 
 function isEndpointEnabledInLLMConfig(endpointId: string): boolean {
@@ -870,6 +952,7 @@ async function configureProviders(): Promise<void> {
         name: 'endpointId',
         message: 'Select a provider to configure:',
         choices: [
+          { name: '+ New OpenAI-compatible provider', value: '__new_openai_compatible' },
           ...choices,
           { name: '✓ Done', value: '__done' },
         ],
@@ -878,6 +961,11 @@ async function configureProviders(): Promise<void> {
 
     if (endpointId === '__done') {
       continueConfig = false;
+      continue;
+    }
+
+    if (endpointId === '__new_openai_compatible') {
+      await promptCreateOpenAICompatibleProvider();
       continue;
     }
 

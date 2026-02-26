@@ -14,12 +14,13 @@ describe('Onboarding config generation', () => {
     expect(getPonyBunnyConfigTemplate().$schema).toBe('https://ponybunny.dho.ai/schemas/ponybunny.schema.json');
   });
 
-  it('loads model pricing from llm-config.example.json during init template generation', () => {
+  it('loads model data from docs/llm-facts/models.json during init template generation', () => {
     const models = LLM_CONFIG_TEMPLATE.models as unknown as Record<string, unknown>;
     const openaiModels = models.openai as Record<string, { costPer1kTokens: { input: number; output: number } }>;
     const gpt52Pricing = openaiModels['gpt-5.2'].costPer1kTokens;
     expect(gpt52Pricing.input).toBe(0.00175);
     expect(gpt52Pricing.output).toBe(0.014);
+    expect(openaiModels['gpt-5']).toBeDefined();
   });
 
   it('does not include local schema files in pb init output', () => {

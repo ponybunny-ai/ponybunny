@@ -36,6 +36,13 @@
               "codex"
             ]
           },
+          "type": {
+            "type": "string",
+            "enum": [
+              "api",
+              "oauth"
+            ]
+          },
           "baseUrl": {
             "type": "string"
           },
@@ -192,7 +199,6 @@
       "type": "object",
       "required": [
         "displayName",
-        "providers",
         "costPer1kTokens"
       ],
       "properties": {

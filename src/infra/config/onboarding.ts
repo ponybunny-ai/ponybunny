@@ -59,7 +59,7 @@ export const CREDENTIALS_SCHEMA_TEMPLATE = {
 export const CREDENTIALS_TEMPLATE = {
   $schema: 'https://ponybunny.dho.ai/schemas/credentials.schema.json',
   providers: {
-    'anthropic-direct': {
+    anthropic: {
       apiKey: '',
       baseUrl: '',
     },
@@ -69,7 +69,7 @@ export const CREDENTIALS_TEMPLATE = {
       region: 'us-east-1',
       baseUrl: '',
     },
-    'openai-direct': {
+    openai: {
       apiKey: '',
       baseUrl: '',
     },
@@ -80,6 +80,9 @@ export const CREDENTIALS_TEMPLATE = {
     'azure-openai': {
       apiKey: '',
       endpoint: '',
+      baseUrl: '',
+    },
+    'openai-codex': {
       baseUrl: '',
     },
     'google-ai-studio': {
@@ -113,6 +116,7 @@ export const LLM_CONFIG_SCHEMA_TEMPLATE = {
         properties: {
           enabled: { type: 'boolean' },
           protocol: { type: 'string', enum: ['anthropic', 'openai', 'gemini', 'codex'] },
+          type: { type: 'string', enum: ['api', 'oauth'] },
           baseUrl: { type: 'string' },
           priority: { type: 'integer', minimum: 1 },
           rateLimit: {
@@ -186,7 +190,7 @@ export const LLM_CONFIG_SCHEMA_TEMPLATE = {
   $defs: {
     ModelConfig: {
       type: 'object',
-      required: ['displayName', 'providers', 'costPer1kTokens'],
+      required: ['displayName', 'costPer1kTokens'],
       properties: {
         displayName: { type: 'string' },
         providers: { type: 'array', items: { type: 'string' }, minItems: 1 },
@@ -581,10 +585,207 @@ function loadLlmConfigTemplateFromExample(): LlmConfigTemplate | undefined {
   return undefined;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function getLlmFactsSourceCandidates(): string[] {
+  const entryPoint = process.argv[1] ? path.resolve(process.argv[1]) : undefined;
+  const entryDir = entryPoint ? path.dirname(entryPoint) : undefined;
+
+  const entryCandidates = entryDir
+    ? [
+      path.join(entryDir, '..', 'docs', 'llm-facts', 'models.json'),
+      path.join(entryDir, '..', '..', 'docs', 'llm-facts', 'models.json'),
+      path.join(entryDir, '..', '..', '..', 'docs', 'llm-facts', 'models.json'),
+    ]
+    : [];
+
+  return [
+    path.join(process.cwd(), 'docs', 'llm-facts', 'models.json'),
+    path.join(process.cwd(), 'dist', 'docs', 'llm-facts', 'models.json'),
+    ...entryCandidates,
+  ];
+}
+
+function sanitizeModelFact(modelId: string, entry: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(entry)) {
+    return undefined;
+  }
+
+  const sanitized: Record<string, unknown> = {
+    displayName: typeof entry.displayName === 'string' ? entry.displayName : modelId,
+    costPer1kTokens: {
+      input: isRecord(entry.costPer1kTokens) && typeof entry.costPer1kTokens.input === 'number'
+        ? entry.costPer1kTokens.input
+        : 0,
+      output: isRecord(entry.costPer1kTokens) && typeof entry.costPer1kTokens.output === 'number'
+        ? entry.costPer1kTokens.output
+        : 0,
+    },
+  };
+
+  if (Array.isArray(entry.providers)) {
+    sanitized.providers = entry.providers.filter((value): value is string => typeof value === 'string');
+  }
+
+  if (Array.isArray(entry.endpoints)) {
+    const allowedEndpointNames = new Set([
+      'responses',
+      'realtime',
+      'assistants',
+      'batch',
+      'fine-tuning',
+      'embeddings',
+      'image-generation',
+      'videos',
+      'image-edit',
+      'speech-generation',
+      'transcription',
+      'translation',
+      'moderation',
+    ]);
+
+    const endpoints = entry.endpoints
+      .filter((item): item is Record<string, unknown> => isRecord(item))
+      .map((item) => ({
+        name: item.name,
+        url: item.url,
+      }))
+      .filter((item): item is { name: string; url: string } => (
+        typeof item.name === 'string'
+        && typeof item.url === 'string'
+        && allowedEndpointNames.has(item.name)
+      ));
+
+    if (endpoints.length > 0) {
+      sanitized.endpoints = endpoints;
+    }
+  }
+
+  if (typeof entry.maxContextTokens === 'number') {
+    sanitized.maxContextTokens = entry.maxContextTokens;
+  } else if (typeof entry.contextWindow === 'number') {
+    sanitized.maxContextTokens = entry.contextWindow;
+  }
+
+  if (typeof entry.maxOutputTokens === 'number') {
+    sanitized.maxOutputTokens = entry.maxOutputTokens;
+  }
+
+  if (typeof entry.contextWindow === 'number') {
+    sanitized.contextWindow = entry.contextWindow;
+  }
+
+  if (typeof entry.reasoningTokenSupport === 'boolean') {
+    sanitized.reasoningTokenSupport = entry.reasoningTokenSupport;
+  }
+
+  if (Array.isArray(entry.reasoningEfforts)) {
+    sanitized.reasoningEfforts = entry.reasoningEfforts.filter((value): value is string => typeof value === 'string');
+  } else if (Array.isArray(entry.resongingEfforts)) {
+    sanitized.reasoningEfforts = entry.resongingEfforts.filter((value): value is string => typeof value === 'string');
+  }
+
+  if (Array.isArray(entry.capabilities)) {
+    sanitized.capabilities = entry.capabilities.filter((value): value is string => typeof value === 'string');
+  } else if (isRecord(entry.capabilities)) {
+    sanitized.capabilities = {
+      input: Array.isArray(entry.capabilities.input)
+        ? entry.capabilities.input.filter((value): value is string => typeof value === 'string')
+        : undefined,
+      output: Array.isArray(entry.capabilities.output)
+        ? entry.capabilities.output.filter((value): value is string => typeof value === 'string')
+        : undefined,
+    };
+  }
+
+  if (Array.isArray(entry.features)) {
+    sanitized.features = entry.features.filter((value): value is string => typeof value === 'string');
+  }
+
+  if (Array.isArray(entry.tools)) {
+    sanitized.tools = entry.tools.filter((value): value is string => typeof value === 'string');
+  }
+
+  return sanitized;
+}
+
+function loadModelsFromFacts(): Record<string, Record<string, Record<string, unknown>>> | undefined {
+  const visited = new Set<string>();
+  const candidates = getLlmFactsSourceCandidates();
+
+  for (const candidate of candidates) {
+    if (visited.has(candidate)) {
+      continue;
+    }
+    visited.add(candidate);
+
+    if (!fs.existsSync(candidate)) {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(fs.readFileSync(candidate, 'utf-8'));
+      if (!isRecord(parsed)) {
+        continue;
+      }
+
+      const grouped: Record<string, Record<string, Record<string, unknown>>> = {};
+      for (const [providerId, providerModelsRaw] of Object.entries(parsed)) {
+        if (!isRecord(providerModelsRaw)) {
+          continue;
+        }
+
+        const providerModels: Record<string, Record<string, unknown>> = {};
+        for (const [modelId, entry] of Object.entries(providerModelsRaw)) {
+          const sanitized = sanitizeModelFact(modelId, entry);
+          if (sanitized) {
+            providerModels[modelId] = sanitized;
+          }
+        }
+
+        if (Object.keys(providerModels).length > 0) {
+          grouped[providerId] = providerModels;
+        }
+      }
+
+      if (Object.keys(grouped).length > 0) {
+        return grouped;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return undefined;
+}
+
 /**
  * Template for llm-config.json
  */
-export const LLM_CONFIG_TEMPLATE = loadLlmConfigTemplateFromExample() ?? DEFAULT_LLM_CONFIG_TEMPLATE;
+const BASE_LLM_CONFIG_TEMPLATE = loadLlmConfigTemplateFromExample() ?? DEFAULT_LLM_CONFIG_TEMPLATE;
+const FACTS_MODELS_TEMPLATE = loadModelsFromFacts();
+const DISABLED_PROVIDERS_TEMPLATE = Object.fromEntries(
+  Object.entries(BASE_LLM_CONFIG_TEMPLATE.providers).map(([providerId, providerConfig]) => [
+    providerId,
+    {
+      ...providerConfig,
+      enabled: false,
+    },
+  ])
+);
+
+export const LLM_CONFIG_TEMPLATE = FACTS_MODELS_TEMPLATE
+  ? {
+    ...BASE_LLM_CONFIG_TEMPLATE,
+    providers: DISABLED_PROVIDERS_TEMPLATE,
+    models: FACTS_MODELS_TEMPLATE,
+  }
+  : {
+    ...BASE_LLM_CONFIG_TEMPLATE,
+    providers: DISABLED_PROVIDERS_TEMPLATE,
+  };
 
 /**
  * Template for mcp-config.schema.json

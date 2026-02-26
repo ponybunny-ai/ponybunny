@@ -86,7 +86,16 @@ export class LLMProviderManager implements ILLMProviderManager {
   getModelEndpoints(modelId: string): string[] {
     const config = getCachedConfig();
     const modelConfig = config.models[modelId];
-    return modelConfig?.providers || [];
+    if (Array.isArray(modelConfig?.providers) && modelConfig.providers.length > 0) {
+      return modelConfig.providers;
+    }
+
+    const dotIndex = modelId.indexOf('.');
+    if (dotIndex > 0 && dotIndex < modelId.length - 1) {
+      return [modelId.slice(0, dotIndex)];
+    }
+
+    return [];
   }
 
   // ============================================
@@ -536,6 +545,13 @@ export class LLMProviderManager implements ILLMProviderManager {
   private parseModelSelector(modelSelector: string): { providerId?: string; modelId: string } {
     const config = getCachedConfig();
     if (config.models[modelSelector]) {
+      const dotIndex = modelSelector.indexOf('.');
+      if (dotIndex > 0 && dotIndex < modelSelector.length - 1) {
+        return {
+          providerId: modelSelector.slice(0, dotIndex),
+          modelId: modelSelector,
+        };
+      }
       return { modelId: modelSelector };
     }
 
@@ -545,18 +561,23 @@ export class LLMProviderManager implements ILLMProviderManager {
     }
 
     const providerId = modelSelector.slice(0, dotIndex);
-    const modelId = modelSelector.slice(dotIndex + 1);
+    const modelSuffix = modelSelector.slice(dotIndex + 1);
+
+    const directModelId = `${providerId}.${modelSuffix}`;
+    if (config.models[directModelId]) {
+      return { providerId, modelId: directModelId };
+    }
 
     const providerAliasConfig = config.providerAliases?.[providerId];
     if (!providerAliasConfig) {
       return { modelId: modelSelector };
     }
 
-    if (!config.models[modelId]) {
+    if (!config.models[modelSuffix]) {
       return { modelId: modelSelector };
     }
 
-    return { providerId, modelId };
+    return { providerId, modelId: modelSuffix };
   }
 
   private async resolveModelAndEndpoints(
@@ -582,7 +603,14 @@ export class LLMProviderManager implements ILLMProviderManager {
     }
 
     const allowed = new Set(providerAliasConfig.providers);
-    const scoped = modelConfig.providers.filter(endpointId => allowed.has(endpointId));
+    const explicitProviders = Array.isArray(modelConfig.providers)
+      ? modelConfig.providers
+      : [];
+    const inferredProvider = providerId || modelId.split('.')[0];
+    const scopedBase = explicitProviders.length > 0
+      ? explicitProviders
+      : (inferredProvider ? [inferredProvider] : []);
+    const scoped = scopedBase.filter(endpointId => allowed.has(endpointId));
 
     const endpoints: string[] = [];
     for (const endpointId of scoped) {

@@ -40,10 +40,11 @@ export function getSchemaPath(): string {
  */
 export const DEFAULT_LLM_CONFIG: LLMConfig = {
   providers: {
-    'anthropic-direct': {
+    anthropic: {
       enabled: true,
       protocol: 'anthropic',
       baseUrl: 'https://api.anthropic.com/v1/messages',
+      type: 'api',
       priority: 1,
       rateLimit: { requestsPerMinute: 60 },
     },
@@ -51,69 +52,72 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
       enabled: true,
       protocol: 'anthropic',
       region: 'us-east-1',
+      type: 'api',
       priority: 2,
       costMultiplier: 1.0,
     },
-    'openai-direct': {
+    openai: {
       enabled: true,
       protocol: 'openai',
       baseUrl: 'https://api.openai.com/v1',
+      type: 'api',
       priority: 1,
       rateLimit: { requestsPerMinute: 60 },
     },
     'openai-compatible': {
       enabled: false,
       protocol: 'openai',
+      type: 'api',
       priority: 3,
     },
     'azure-openai': {
       enabled: false,
       protocol: 'openai',
+      type: 'api',
       priority: 2,
     },
     'google-ai-studio': {
       enabled: true,
       protocol: 'gemini',
       baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      type: 'api',
       priority: 1,
     },
     'google-vertex-ai': {
       enabled: false,
       protocol: 'gemini',
+      type: 'api',
       priority: 2,
     },
-    codex: {
+    'openai-codex': {
       enabled: true,
       protocol: 'codex',
       baseUrl: 'https://chatgpt.com/backend-api',
+      type: 'oauth',
       priority: 1,
     },
   },
   models: {
-    'claude-haiku-4-5-20251001': {
+    'anthropic.claude-haiku-4-5-20251001': {
       displayName: 'Claude Haiku 4.5',
-      providers: ['anthropic-direct', 'aws-bedrock'],
       costPer1kTokens: { input: 0.001, output: 0.005 },
       maxContextTokens: 200000,
       capabilities: ['text', 'vision'],
     },
-    'claude-sonnet-4-5-20250929': {
+    'anthropic.claude-sonnet-4-5-20250929': {
       displayName: 'Claude Sonnet 4.5',
-      providers: ['anthropic-direct', 'aws-bedrock'],
       costPer1kTokens: { input: 0.003, output: 0.015 },
       maxContextTokens: 200000,
       capabilities: ['text', 'vision', 'function-calling'],
     },
-    'claude-opus-4-5-20251101': {
+    'anthropic.claude-opus-4-5-20251101': {
       displayName: 'Claude Opus 4.5',
-      providers: ['anthropic-direct', 'aws-bedrock'],
       costPer1kTokens: { input: 0.015, output: 0.075 },
       maxContextTokens: 200000,
       capabilities: ['text', 'vision', 'function-calling'],
     },
-    'gpt-5.2': {
+    'openai.gpt-5.2': {
       displayName: 'GPT-5.2',
-      providers: ['openai-direct', 'openai-compatible'],
       endpoints: [
         { name: 'responses', url: '/v1/responses' },
       ],
@@ -121,24 +125,21 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
       maxContextTokens: 128000,
       capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
     },
-    'gpt-5.2-codex': {
+    'openai-codex.gpt-5.2-codex': {
       displayName: 'GPT-5.2 Codex (OAuth)',
-      providers: ['codex'],
       endpoints: [{ name: 'responses', url: '/v1/responses' }],
       costPer1kTokens: { input: 0.01, output: 0.03 },
       maxContextTokens: 128000,
       capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
     },
-    'gemini-2.0-flash': {
+    'google-ai-studio.gemini-2.0-flash': {
       displayName: 'Gemini 2.0 Flash',
-      providers: ['google-ai-studio', 'google-vertex-ai'],
       costPer1kTokens: { input: 0.00035, output: 0.0014 },
       maxContextTokens: 1000000,
       capabilities: ['text', 'vision', 'function-calling'],
     },
-    'gemini-2.0-pro': {
+    'google-ai-studio.gemini-2.0-pro': {
       displayName: 'Gemini 2.0 Pro',
-      providers: ['google-ai-studio', 'google-vertex-ai'],
       costPer1kTokens: { input: 0.00125, output: 0.005 },
       maxContextTokens: 2000000,
       capabilities: ['text', 'vision', 'function-calling'],
@@ -147,7 +148,7 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
   providerAliases: {
     anthropic: {
       protocol: 'anthropic',
-      providers: ['anthropic-direct'],
+      providers: ['anthropic'],
     },
     aws: {
       protocol: 'anthropic',
@@ -155,7 +156,7 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
     },
     openai: {
       protocol: 'openai',
-      providers: ['openai-direct'],
+      providers: ['openai'],
     },
     azure: {
       protocol: 'openai',
@@ -164,6 +165,14 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
     'openai-compatible': {
       protocol: 'openai',
       providers: ['openai-compatible'],
+    },
+    'openai-codex': {
+      protocol: 'codex',
+      providers: ['openai-codex'],
+    },
+    codex: {
+      protocol: 'codex',
+      providers: ['openai-codex'],
     },
     gemini: {
       protocol: 'gemini',
@@ -176,16 +185,20 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
   },
   tiers: {
     simple: {
-      primary: 'claude-haiku-4-5-20251001',
-      fallback: ['gpt-5.2', 'gemini-2.0-flash'],
+      primary: 'anthropic.claude-haiku-4-5-20251001',
+      fallback: ['openai.gpt-5.2', 'google-ai-studio.gemini-2.0-flash'],
     },
     medium: {
-      primary: 'claude-sonnet-4-5-20250929',
-      fallback: ['gpt-5.2', 'gemini-2.0-pro', 'claude-haiku-4-5-20251001'],
+      primary: 'anthropic.claude-sonnet-4-5-20250929',
+      fallback: [
+        'openai.gpt-5.2',
+        'google-ai-studio.gemini-2.0-pro',
+        'anthropic.claude-haiku-4-5-20251001',
+      ],
     },
     complex: {
-      primary: 'claude-opus-4-5-20251101',
-      fallback: ['gpt-5.2', 'claude-sonnet-4-5-20250929'],
+      primary: 'anthropic.claude-opus-4-5-20251101',
+      fallback: ['openai.gpt-5.2', 'anthropic.claude-sonnet-4-5-20250929'],
     },
   },
   workloads: {
@@ -199,7 +212,7 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
     },
     execution: {
       tier: 'medium',
-      primary: 'claude-sonnet-4-5-20250929',
+      primary: 'anthropic.claude-sonnet-4-5-20250929',
       description: 'ReAct execution loop',
     },
     verification: {
@@ -243,6 +256,7 @@ const EMBEDDED_SCHEMA = {
         properties: {
           enabled: { type: 'boolean' },
           protocol: { type: 'string', enum: ['anthropic', 'openai', 'gemini', 'codex'] },
+          type: { type: 'string', enum: ['api', 'oauth'] },
           baseUrl: { type: 'string' },
           priority: { type: 'integer', minimum: 1 },
           rateLimit: {
@@ -336,6 +350,28 @@ type ModelFactsEntry = {
   features?: string[];
   tools?: string[];
 };
+
+function inferProviderIdFromModelKey(
+  modelId: string,
+  providers?: Record<string, LLMEndpointConfig>,
+  aliases?: LLMConfig['providerAliases']
+): string | undefined {
+  const dotIndex = modelId.indexOf('.');
+  if (dotIndex <= 0 || dotIndex === modelId.length - 1) {
+    return undefined;
+  }
+
+  const candidate = modelId.slice(0, dotIndex);
+  if (!providers && !aliases) {
+    return candidate;
+  }
+
+  if (providers?.[candidate] || aliases?.[candidate]) {
+    return candidate;
+  }
+
+  return undefined;
+}
 
 type ModelCapabilityEntry = NonNullable<LLMModelConfig['capabilities']>[number];
 type OpenAIEndpointEntry = NonNullable<LLMModelConfig['endpoints']>[number];
@@ -437,9 +473,10 @@ function normalizeModelEntry(
   aliases?: LLMConfig['providerAliases']
 ): LLMModelConfig | undefined {
   const resolvedProviders = resolveProviderIds(group, entry, providers, aliases);
-  if (resolvedProviders.length === 0) {
-    return undefined;
-  }
+  const inferredProvider = inferProviderIdFromModelKey(modelId, providers, aliases);
+  const finalProviders = resolvedProviders.length > 0
+    ? resolvedProviders
+    : (inferredProvider ? [inferredProvider] : []);
 
   const reasoningEfforts = entry.reasoningEfforts ?? entry.resongingEfforts;
   const capabilitiesMatrix = isJsonMap(entry.capabilities)
@@ -451,7 +488,7 @@ function normalizeModelEntry(
 
   return {
     displayName: entry.displayName || modelId,
-    providers: resolvedProviders,
+    ...(finalProviders.length > 0 ? { providers: finalProviders } : {}),
     endpoints: sanitizeEndpoints(entry),
     costPer1kTokens: {
       input: entry.costPer1kTokens?.input ?? 0,
@@ -498,9 +535,12 @@ function normalizeModels(
         continue;
       }
 
-      const model = normalizeModelEntry(nestedModelId, nestedValue, key, providers, aliases);
+      const normalizedModelId = inferProviderIdFromModelKey(nestedModelId, providers, aliases)
+        ? nestedModelId
+        : `${key}.${nestedModelId}`;
+      const model = normalizeModelEntry(normalizedModelId, nestedValue, key, providers, aliases);
       if (model) {
-        normalized[nestedModelId] = model;
+        normalized[normalizedModelId] = model;
       }
     }
   }
@@ -524,6 +564,130 @@ function loadModelsFacts(): unknown {
   return undefined;
 }
 
+const LEGACY_PROVIDER_ID_MAP: Record<string, string> = {
+  'anthropic-direct': 'anthropic',
+  'openai-direct': 'openai',
+  codex: 'openai-codex',
+};
+
+function remapProviderId(providerId: string): string {
+  return LEGACY_PROVIDER_ID_MAP[providerId] || providerId;
+}
+
+function remapProviderReferenceInModelId(modelId: string): string {
+  const dotIndex = modelId.indexOf('.');
+  if (dotIndex <= 0 || dotIndex === modelId.length - 1) {
+    return modelId;
+  }
+
+  const providerId = modelId.slice(0, dotIndex);
+  const suffix = modelId.slice(dotIndex + 1);
+  const remapped = remapProviderId(providerId);
+  if (remapped === providerId) {
+    return modelId;
+  }
+
+  return `${remapped}.${suffix}`;
+}
+
+function remapProviderReferencesInModels(models: Record<string, LLMModelConfig>): Record<string, LLMModelConfig> {
+  const remapped: Record<string, LLMModelConfig> = {};
+
+  for (const [modelId, modelConfig] of Object.entries(models)) {
+    const nextModelId = remapProviderReferenceInModelId(modelId);
+    const nextProviders = Array.isArray(modelConfig.providers)
+      ? modelConfig.providers.map(remapProviderId)
+      : modelConfig.providers;
+
+    remapped[nextModelId] = {
+      ...modelConfig,
+      ...(nextProviders ? { providers: nextProviders } : {}),
+    };
+  }
+
+  return remapped;
+}
+
+function remapProviderReferencesInWorkloads(workloads: LLMConfig['workloads']): LLMConfig['workloads'] {
+  const remapped: LLMConfig['workloads'] = {};
+
+  for (const [workloadId, workload] of Object.entries(workloads || {})) {
+    remapped[workloadId] = {
+      ...workload,
+      ...(typeof workload.llm_model === 'string'
+        ? { llm_model: remapProviderReferenceInModelId(workload.llm_model) }
+        : {}),
+      ...(typeof workload.primary === 'string'
+        ? { primary: remapProviderReferenceInModelId(workload.primary) }
+        : {}),
+      ...(Array.isArray(workload.fallback)
+        ? { fallback: workload.fallback.map(remapProviderReferenceInModelId) }
+        : {}),
+    };
+  }
+
+  return remapped;
+}
+
+function remapLegacyProviderIds(config: Partial<LLMConfig>): Partial<LLMConfig> {
+  const providers = config.providers
+    ? Object.fromEntries(
+        Object.entries(config.providers).map(([providerId, providerConfig]) => [
+          remapProviderId(providerId),
+          providerConfig,
+        ])
+      )
+    : undefined;
+
+  const providerAliases = config.providerAliases
+    ? Object.fromEntries(
+        Object.entries(config.providerAliases).map(([aliasId, aliasConfig]) => [
+          aliasId,
+          {
+            ...aliasConfig,
+            providers: aliasConfig.providers.map(remapProviderId),
+          },
+        ])
+      )
+    : undefined;
+
+  return {
+    ...config,
+    ...(providers ? { providers } : {}),
+    ...(providerAliases ? { providerAliases } : {}),
+    ...(config.models ? { models: remapProviderReferencesInModels(config.models) } : {}),
+    ...(config.workloads ? { workloads: remapProviderReferencesInWorkloads(config.workloads) } : {}),
+    ...(config.tiers
+      ? {
+          tiers: {
+            ...config.tiers,
+            simple: {
+              ...config.tiers.simple,
+              primary: remapProviderReferenceInModelId(config.tiers.simple.primary),
+              ...(Array.isArray(config.tiers.simple.fallback)
+                ? { fallback: config.tiers.simple.fallback.map(remapProviderReferenceInModelId) }
+                : {}),
+            },
+            medium: {
+              ...config.tiers.medium,
+              primary: remapProviderReferenceInModelId(config.tiers.medium.primary),
+              ...(Array.isArray(config.tiers.medium.fallback)
+                ? { fallback: config.tiers.medium.fallback.map(remapProviderReferenceInModelId) }
+                : {}),
+            },
+            complex: {
+              ...config.tiers.complex,
+              primary: remapProviderReferenceInModelId(config.tiers.complex.primary),
+              ...(Array.isArray(config.tiers.complex.fallback)
+                ? { fallback: config.tiers.complex.fallback.map(remapProviderReferenceInModelId) }
+                : {}),
+            },
+          },
+        }
+      : {}),
+  };
+}
+
 function normalizeExternalConfig(raw: unknown, defaults: LLMConfig): Partial<LLMConfig> {
   if (!isJsonMap(raw)) {
     return {};
@@ -538,10 +702,12 @@ function normalizeExternalConfig(raw: unknown, defaults: LLMConfig): Partial<LLM
 
   const normalizedModels = normalizeModels(raw.models, providers, aliases);
 
-  return {
+  const normalized = {
     ...(raw as Partial<LLMConfig>),
     models: normalizedModels,
   };
+
+  return remapLegacyProviderIds(normalized);
 }
 
 function buildDefaultConfigWithFacts(base: LLMConfig): LLMConfig {
@@ -710,14 +876,49 @@ export function saveLLMConfig(config: LLMConfig, configPath?: string): void {
   }
 
   // Add schema reference
+  const serializedModels = serializeModelsForFile(config.models, config.providers, config.providerAliases);
   const configWithSchema = {
     $schema: 'https://ponybunny.dho.ai/schemas/llm-config.schema.json',
     ...config,
+    models: serializedModels,
   };
 
   fs.writeFileSync(filePath, JSON.stringify(configWithSchema, null, 2), {
     mode: 0o600,
   });
+}
+
+function serializeModelsForFile(
+  models: Record<string, LLMModelConfig>,
+  providers: Record<string, LLMEndpointConfig>,
+  aliases?: LLMConfig['providerAliases']
+): Record<string, unknown> {
+  const grouped: Record<string, Record<string, LLMModelConfig>> = {};
+  const passthrough: Record<string, LLMModelConfig> = {};
+
+  for (const [modelId, modelConfig] of Object.entries(models)) {
+    const providerId = inferProviderIdFromModelKey(modelId, providers, aliases);
+    if (!providerId) {
+      passthrough[modelId] = modelConfig;
+      continue;
+    }
+
+    const suffix = modelId.slice(providerId.length + 1);
+    if (!suffix) {
+      passthrough[modelId] = modelConfig;
+      continue;
+    }
+
+    if (!grouped[providerId]) {
+      grouped[providerId] = {};
+    }
+    grouped[providerId][suffix] = modelConfig;
+  }
+
+  return {
+    ...passthrough,
+    ...grouped,
+  };
 }
 
 /**

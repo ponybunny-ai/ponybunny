@@ -17,6 +17,7 @@ import {
   getCachedConfig,
   clearConfigCache,
   loadLLMConfig,
+  saveLLMConfig,
   validateConfig,
   DEFAULT_LLM_CONFIG,
   ConfigValidationError,
@@ -46,6 +47,9 @@ describe('LLM Provider Manager', () => {
       'AWS_REGION',
       'AZURE_OPENAI_API_KEY',
       'AZURE_OPENAI_ENDPOINT',
+      'OPENAI_COMPATIBLE_API_KEY',
+      'OPENAI_COMPATIBLE_BASE_URL',
+      'CUSTOM_OPENAI_API_KEY',
       'GOOGLE_CLOUD_PROJECT',
     ];
     for (const key of envVars) {
@@ -105,9 +109,9 @@ describe('LLM Provider Manager', () => {
     it('should have Claude models as primary in default tiers', () => {
       const config = DEFAULT_LLM_CONFIG;
 
-      expect(config.tiers.simple.primary).toBe('claude-haiku-4-5-20251001');
-      expect(config.tiers.medium.primary).toBe('claude-sonnet-4-5-20250929');
-      expect(config.tiers.complex.primary).toBe('claude-opus-4-5-20251101');
+      expect(config.tiers.simple.primary).toBe('anthropic.claude-haiku-4-5-20251001');
+      expect(config.tiers.medium.primary).toBe('anthropic.claude-sonnet-4-5-20250929');
+      expect(config.tiers.complex.primary).toBe('anthropic.claude-opus-4-5-20251101');
     });
 
     it('should load user config from ~/.ponybunny/llm-config.json if exists', () => {
@@ -171,7 +175,7 @@ describe('LLM Provider Manager', () => {
 
       const groupedConfig = {
         providers: {
-          'openai-direct': {
+          openai: {
             enabled: true,
             protocol: 'openai',
             baseUrl: 'https://api.openai.com/v1',
@@ -180,7 +184,7 @@ describe('LLM Provider Manager', () => {
         },
         models: {
           openai: {
-            'gpt-5.2': {
+          'openai.gpt-5.2': {
               displayName: 'GPT-5.2',
               endpoints: [
                 { name: 'chat-completions', url: '/v1/chat/completions' },
@@ -200,13 +204,13 @@ describe('LLM Provider Manager', () => {
         providerAliases: {
           openai: {
             protocol: 'openai',
-            providers: ['openai-direct'],
+            providers: ['openai'],
           },
         },
         tiers: {
-          simple: { primary: 'gpt-5.2' },
-          medium: { primary: 'gpt-5.2' },
-          complex: { primary: 'gpt-5.2' },
+          simple: { primary: 'openai.gpt-5.2' },
+          medium: { primary: 'openai.gpt-5.2' },
+          complex: { primary: 'openai.gpt-5.2' },
         },
         workloads: {
           conversation: { tier: 'medium' },
@@ -220,13 +224,30 @@ describe('LLM Provider Manager', () => {
       fs.writeFileSync(tempConfigPath, JSON.stringify(groupedConfig, null, 2), 'utf-8');
 
       const config = loadLLMConfig(tempConfigPath);
-      const gpt = config.models['gpt-5.2'];
+      const gpt = config.models['openai.gpt-5.2'];
 
       expect(gpt).toBeDefined();
-      expect(gpt.providers).toContain('openai-direct');
+      expect(gpt.providers).toContain('openai');
       expect(gpt.endpoints).toEqual([{ name: 'responses', url: '/v1/responses' }]);
       expect(gpt.maxOutputTokens).toBe(128000);
       expect(gpt.capabilities).toEqual(expect.arrayContaining(['text', 'vision', 'function-calling', 'json-mode']));
+    });
+
+    it('should save models using provider-grouped structure', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-config-save-grouped-'));
+      const tempConfigPath = path.join(tempDir, 'llm-config.json');
+
+      const config = loadLLMConfig('/non/existent/path.json');
+      saveLLMConfig(config, tempConfigPath);
+
+      const saved = JSON.parse(fs.readFileSync(tempConfigPath, 'utf-8')) as Record<string, unknown>;
+      const models = saved.models as Record<string, unknown>;
+
+      expect(models.openai).toBeDefined();
+      expect(models.anthropic).toBeDefined();
+      expect((models.openai as Record<string, unknown>)['gpt-5.2']).toBeDefined();
+      expect((models.anthropic as Record<string, unknown>)['claude-sonnet-4-5-20250929']).toBeDefined();
+      expect(models['openai.gpt-5.2']).toBeUndefined();
     });
   });
 
@@ -274,28 +295,28 @@ describe('LLM Provider Manager', () => {
       const managerWithoutKey = new EndpointManager();
       // May or may not have credentials depending on credentials.json
       // Just verify the method works without throwing
-      managerWithoutKey.hasCredentials('anthropic-direct');
+      managerWithoutKey.hasCredentials('anthropic');
 
       // With env var
       process.env.ANTHROPIC_API_KEY = 'test-key';
       const managerWithKey = new EndpointManager();
-      expect(managerWithKey.hasCredentials('anthropic-direct')).toBe(true);
+      expect(managerWithKey.hasCredentials('anthropic')).toBe(true);
     });
 
     it('should check endpoint availability', async () => {
       process.env.ANTHROPIC_API_KEY = 'test-key';
       const manager = new EndpointManager();
 
-      const isAvailable = await manager.isEndpointAvailable('anthropic-direct');
+      const isAvailable = await manager.isEndpointAvailable('anthropic');
       expect(typeof isAvailable).toBe('boolean');
     });
 
     it('should get endpoint health status', async () => {
       const manager = new EndpointManager();
-      const health = await manager.getEndpointHealth('anthropic-direct');
+      const health = await manager.getEndpointHealth('anthropic');
 
       expect(health).toBeDefined();
-      expect(health.endpointId).toBe('anthropic-direct');
+      expect(health.endpointId).toBe('anthropic');
       expect(typeof health.available).toBe('boolean');
       expect(typeof health.hasCredentials).toBe('boolean');
       expect(typeof health.enabled).toBe('boolean');
@@ -307,12 +328,12 @@ describe('LLM Provider Manager', () => {
       const manager = new EndpointManager();
 
       // Initially get health status
-      await manager.getEndpointHealth('anthropic-direct');
+      await manager.getEndpointHealth('anthropic');
 
       // Mark as failed
-      manager.markEndpointFailed('anthropic-direct', 'Test error');
+      manager.markEndpointFailed('anthropic', 'Test error');
 
-      const healthAfter = await manager.getEndpointHealth('anthropic-direct');
+      const healthAfter = await manager.getEndpointHealth('anthropic');
       expect(healthAfter.available).toBe(false);
       expect(healthAfter.lastError).toBe('Test error');
     });
@@ -321,19 +342,19 @@ describe('LLM Provider Manager', () => {
       const manager = new EndpointManager();
 
       // Populate cache
-      await manager.getEndpointHealth('anthropic-direct');
+      await manager.getEndpointHealth('anthropic');
 
       // Clear cache
-      manager.clearHealthCache('anthropic-direct');
+      manager.clearHealthCache('anthropic');
 
       // Should recheck (no error means it works)
-      const health = await manager.getEndpointHealth('anthropic-direct');
+      const health = await manager.getEndpointHealth('anthropic');
       expect(health).toBeDefined();
     });
 
     it('should get available endpoints for model', async () => {
       const manager = getEndpointManager();
-      const endpoints = await manager.getAvailableEndpointsForModel('claude-sonnet-4-5-20250929');
+      const endpoints = await manager.getAvailableEndpointsForModel('anthropic.claude-sonnet-4-5-20250929');
 
       expect(Array.isArray(endpoints)).toBe(true);
     });
@@ -344,39 +365,39 @@ describe('LLM Provider Manager', () => {
       const endpoints = await manager.getAvailableEndpointsForModel('openai.gpt-5.2');
 
       expect(Array.isArray(endpoints)).toBe(true);
-      expect(endpoints).toContain('openai-direct');
+      expect(endpoints).toContain('openai');
     });
 
     it('should skip endpoints marked unavailable by persisted endpoint probe health', async () => {
       process.env.OPENAI_API_KEY = 'test-openai-key';
 
       const config = getCachedConfig();
-      config.providers['openai-direct'].enabled = true;
-      config.providers['openai-direct'].health = {
+      config.providers.openai.enabled = true;
+      config.providers.openai.health = {
         available: false,
         lastCheckedAt: new Date().toISOString(),
         lastError: '502 Bad Gateway',
       };
 
       const manager = new EndpointManager();
-      const endpoints = await manager.getAvailableEndpointsForModel('gpt-5.2');
+      const endpoints = await manager.getAvailableEndpointsForModel('openai.gpt-5.2');
 
-      expect(endpoints).not.toContain('openai-direct');
+      expect(endpoints).not.toContain('openai');
     });
 
     it('should skip model-endpoint pairs marked unavailable by persisted model probe health', async () => {
       process.env.OPENAI_API_KEY = 'test-openai-key';
 
       const config = getCachedConfig();
-      config.providers['openai-direct'].enabled = true;
-      config.providers['openai-direct'].health = {
+      config.providers.openai.enabled = true;
+      config.providers.openai.health = {
         available: true,
         lastCheckedAt: new Date().toISOString(),
       };
-      config.models['gpt-5.2'].health = {
+      config.models['openai.gpt-5.2'].health = {
         lastCheckedAt: new Date().toISOString(),
         providers: {
-          'openai-direct': {
+          openai: {
             available: false,
             lastError: 'Model unavailable on endpoint',
           },
@@ -384,19 +405,34 @@ describe('LLM Provider Manager', () => {
       };
 
       const manager = new EndpointManager();
-      const endpoints = await manager.getAvailableEndpointsForModel('gpt-5.2');
+      const endpoints = await manager.getAvailableEndpointsForModel('openai.gpt-5.2');
 
-      expect(endpoints).not.toContain('openai-direct');
+      expect(endpoints).not.toContain('openai');
     });
 
     it('should resolve credentials', () => {
       process.env.ANTHROPIC_API_KEY = 'test-api-key';
       const manager = new EndpointManager();
 
-      const credentials = manager.resolveCredentials('anthropic-direct');
+      const credentials = manager.resolveCredentials('anthropic');
 
       expect(credentials).toBeDefined();
       expect(credentials?.apiKey).toBe('test-api-key');
+    });
+
+    it('should support custom endpoint ids from llm-config using endpoint requiredEnvVars', () => {
+      const config = getCachedConfig();
+      config.providers['custom-openai-endpoint'] = {
+        enabled: true,
+        protocol: 'openai',
+        priority: 10,
+        requiredEnvVars: ['CUSTOM_OPENAI_API_KEY'],
+      };
+
+      process.env.CUSTOM_OPENAI_API_KEY = 'custom-key';
+
+      const manager = new EndpointManager();
+      expect(manager.hasCredentials('custom-openai-endpoint')).toBe(true);
     });
   });
 
@@ -523,7 +559,7 @@ describe('LLM Provider Manager', () => {
       const resolver = getWorkloadModelResolver();
 
       // Claude Opus 4.5: $0.015/1k input, $0.075/1k output
-      const cost = resolver.estimateCost('claude-opus-4-5-20251101', 1000, 1000);
+      const cost = resolver.estimateCost('anthropic.claude-opus-4-5-20251101', 1000, 1000);
       expect(cost).toBeCloseTo(0.015 + 0.075, 4);
 
       // GPT-4o: $0.005/1k input, $0.015/1k output
@@ -584,9 +620,9 @@ describe('LLM Provider Manager', () => {
     it('should get model endpoints', () => {
       const manager = getLLMProviderManager();
 
-      const endpoints = manager.getModelEndpoints('claude-sonnet-4-5-20250929');
+      const endpoints = manager.getModelEndpoints('anthropic.claude-sonnet-4-5-20250929');
       expect(Array.isArray(endpoints)).toBe(true);
-      expect(endpoints).toContain('anthropic-direct');
+      expect(endpoints).toContain('anthropic');
     });
 
     it('should get model for workload', () => {
@@ -621,14 +657,14 @@ describe('LLM Provider Manager', () => {
     it('should estimate cost', () => {
       const manager = getLLMProviderManager();
 
-      const cost = manager.estimateCost('claude-opus-4-5-20251101', 1000, 500);
+      const cost = manager.estimateCost('anthropic.claude-opus-4-5-20251101', 1000, 500);
       expect(cost).toBeGreaterThan(0);
     });
 
     it('should get model config', () => {
       const manager = getLLMProviderManager();
 
-      const config = manager.getModelConfig('claude-sonnet-4-5-20250929');
+      const config = manager.getModelConfig('anthropic.claude-sonnet-4-5-20250929');
 
       expect(config).toBeDefined();
       expect(config?.displayName).toBe('Claude Sonnet 4.5');
@@ -637,7 +673,7 @@ describe('LLM Provider Manager', () => {
 
     it('should expose maxOutputTokens from model facts for OpenAI models', () => {
       const manager = getLLMProviderManager();
-      const config = manager.getModelConfig('gpt-5.2');
+      const config = manager.getModelConfig('openai.gpt-5.2');
 
       expect(config).toBeDefined();
       expect(config?.maxOutputTokens).toBe(128000);
@@ -646,7 +682,7 @@ describe('LLM Provider Manager', () => {
     it('should check if model is supported', () => {
       const manager = getLLMProviderManager();
 
-      expect(manager.isModelSupported('claude-sonnet-4-5-20250929')).toBe(true);
+      expect(manager.isModelSupported('anthropic.claude-sonnet-4-5-20250929')).toBe(true);
       expect(manager.isModelSupported('non-existent-model')).toBe(false);
     });
 
@@ -736,9 +772,9 @@ describe('LLM Provider Manager', () => {
   // ============================================
   describe('Cost Estimation', () => {
     const testCases = [
-      { model: 'claude-haiku-4-5-20251001', input: 1000, output: 500, expectedMin: 0.001 },
-      { model: 'claude-sonnet-4-5-20250929', input: 1000, output: 500, expectedMin: 0.005 },
-      { model: 'claude-opus-4-5-20251101', input: 1000, output: 500, expectedMin: 0.05 },
+      { model: 'anthropic.claude-haiku-4-5-20251001', input: 1000, output: 500, expectedMin: 0.001 },
+      { model: 'anthropic.claude-sonnet-4-5-20250929', input: 1000, output: 500, expectedMin: 0.005 },
+      { model: 'anthropic.claude-opus-4-5-20251101', input: 1000, output: 500, expectedMin: 0.05 },
       { model: 'gpt-4o', input: 1000, output: 500, expectedMin: 0.01 },
       { model: 'gpt-4o-mini', input: 1000, output: 500, expectedMin: 0.0001 },
       { model: 'gemini-2.0-flash', input: 1000, output: 500, expectedMin: 0.0001 },

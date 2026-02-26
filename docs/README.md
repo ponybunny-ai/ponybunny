@@ -17,6 +17,7 @@ User-facing and verification guides:
 ### 💻 CLI Documentation (`cli/`)
 Command-line interface documentation:
 - **CLI-USAGE.md** - Complete CLI reference (985 lines)
+- **LLM-BASEURL-CONFIG-GUIDE.md** - `baseUrl` and `/v1` configuration guide for LLM providers
 - **README.md** - CLI documentation index
 - **SCHEDULER-BACKGROUND-MODE.md** - Background mode implementation
 - **BUG-FIX-SERVICE-START-ALL.md** - Service command fixes
