@@ -4,8 +4,18 @@ import ora from 'ora';
 import open from 'open';
 import inquirer from 'inquirer';
 import { createServer } from 'http';
+import { existsSync } from 'fs';
 import { randomBytes, createHash } from 'crypto';
+import { relative } from 'path';
 import { accountManagerV2 } from '../lib/auth-manager-v2.js';
+import {
+  createVaultBackup,
+  getRelativeAgeLabel,
+  getVaultDirPath,
+  listVaultFiles,
+  resolveVaultFilePath,
+  restoreCredentialsFromVault,
+} from '../lib/auth-vault.js';
 import type { Account, AccountProvider, AntigravityAccount, CodexAccount, OpenAICompatibleAccount } from '../lib/account-types.js';
 import { getAllEndpointConfigs, hasRequiredCredentials } from '../../infra/llm/endpoints/index.js';
 import {
@@ -1115,6 +1125,158 @@ async function setStrategy(strategy: string): Promise<void> {
   console.log();
 }
 
+function isPromptCancelled(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return error.name === 'ExitPromptError' || /cancel/i.test(error.message);
+}
+
+async function saveCredentialsToVault(): Promise<void> {
+  if (!loadCredentialsFile()) {
+    console.log(chalk.red('Error: credentials.json missing'));
+    process.exit(1);
+  }
+
+  let passkey = '';
+  let passkeyConfirm = '';
+  let passkeyBuffer: Buffer | null = null;
+
+  try {
+    const answers = await inquirer.prompt([
+      {
+        type: 'password',
+        name: 'passkey',
+        message: 'Enter passkey:',
+        mask: '*',
+        validate: (value: string) => value.trim().length > 0 || 'Passkey cannot be empty',
+      },
+      {
+        type: 'password',
+        name: 'passkeyConfirm',
+        message: 'Confirm passkey:',
+        mask: '*',
+        validate: (value: string) => value.trim().length > 0 || 'Passkey cannot be empty',
+      },
+    ]);
+
+    passkey = answers.passkey;
+    passkeyConfirm = answers.passkeyConfirm;
+
+    if (passkey !== passkeyConfirm) {
+      console.log(chalk.red('Passkeys do not match.'));
+      process.exitCode = 1;
+      return;
+    }
+
+    passkeyBuffer = Buffer.from(passkey, 'utf-8');
+    const outputPath = createVaultBackup(passkeyBuffer);
+    console.log(chalk.green('✔ Credentials encrypted and saved'));
+    console.log(chalk.gray(`Vault file: ${outputPath}`));
+  } catch (error) {
+    if (isPromptCancelled(error)) {
+      console.log(chalk.yellow('Operation cancelled.'));
+      return;
+    }
+    console.log(chalk.red(`Save failed: ${(error as Error).message}`));
+    process.exitCode = 1;
+    return;
+  } finally {
+    if (passkeyBuffer) {
+      passkeyBuffer.fill(0);
+    }
+    passkey = '';
+    passkeyConfirm = '';
+  }
+}
+
+async function loadCredentialsFromVault(vaultFile?: string): Promise<void> {
+  let selectedPath: string;
+
+  try {
+    if (vaultFile && vaultFile.trim().length > 0) {
+      selectedPath = resolveVaultFilePath(vaultFile);
+    } else {
+      const vaultDir = getVaultDirPath();
+      if (!existsSync(vaultDir)) {
+        console.log(chalk.yellow('No vault directory found.'));
+        process.exitCode = 1;
+        return;
+      }
+
+      const files = listVaultFiles();
+      if (!files.length) {
+        console.log(chalk.yellow('No vault backups available.'));
+        process.exitCode = 1;
+        return;
+      }
+
+      const { selectedName } = await inquirer.prompt([
+        {
+          type: 'select',
+          name: 'selectedName',
+          message: 'Select a vault backup:',
+          choices: files.map((file) => {
+            const referenceMs = Number.isFinite(file.timestampMs) ? file.timestampMs : file.mtimeMs;
+            return {
+              name: `${file.name}  (${getRelativeAgeLabel(referenceMs)})`,
+              value: file.name,
+            };
+          }),
+        },
+      ]);
+
+      selectedPath = resolveVaultFilePath(selectedName);
+    }
+  } catch (error) {
+    if (isPromptCancelled(error)) {
+      console.log(chalk.yellow('Operation cancelled.'));
+      return;
+    }
+
+    console.log(chalk.red((error as Error).message));
+    process.exitCode = 1;
+    return;
+  }
+
+  let passkey = '';
+  let passkeyBuffer: Buffer | null = null;
+
+  try {
+    const { inputPasskey } = await inquirer.prompt([
+      {
+        type: 'password',
+        name: 'inputPasskey',
+        message: 'Enter passkey:',
+        mask: '*',
+        validate: (value: string) => value.trim().length > 0 || 'Passkey cannot be empty',
+      },
+    ]);
+
+    passkey = inputPasskey;
+    passkeyBuffer = Buffer.from(passkey, 'utf-8');
+    restoreCredentialsFromVault(selectedPath, passkeyBuffer);
+    const displayPath = relative(process.cwd(), selectedPath) || selectedPath;
+    console.log(chalk.green('✔ Credentials restored from vault'));
+    console.log(chalk.gray(`Vault file: ${displayPath}`));
+  } catch (error) {
+    if (isPromptCancelled(error)) {
+      console.log(chalk.yellow('Operation cancelled.'));
+      return;
+    }
+
+    console.log(chalk.red(`Load failed: ${(error as Error).message}`));
+    process.exitCode = 1;
+    return;
+  } finally {
+    if (passkeyBuffer) {
+      passkeyBuffer.fill(0);
+    }
+    passkey = '';
+  }
+}
+
 export const authCommand = new Command('auth')
   .description('Authentication commands');
 
@@ -1205,3 +1367,15 @@ authCommand
   .command('set-strategy <strategy>')
   .description('Set load balancing strategy (stick or round-robin)')
   .action(setStrategy);
+
+authCommand
+  .command('save')
+  .description('Encrypt and backup credentials.json into PonyBunny vault')
+  .addHelpText('after', '\nStores encrypted file at:\n  ~/.config/ponybunny/vault/\n\nRequires passkey input.')
+  .action(saveCredentialsToVault);
+
+authCommand
+  .command('load [vault-file]')
+  .description('Restore credentials from encrypted PonyBunny vault file')
+  .addHelpText('after', '\nUsage:\n  pb auth load <vault-file>\n  pb auth load   (interactive selection)\n\nIf no file is specified, an interactive vault selector will appear.\nWill overwrite:\n  ~/.config/ponybunny/credentials.json\nRequires correct passkey.')
+  .action(loadCredentialsFromVault);

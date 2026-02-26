@@ -66,6 +66,8 @@ describe('CLI Integration Tests', () => {
       expect(output).toContain('Authentication commands');
       expect(output).toContain('switch [identifier]');
       expect(output).toContain('config');
+      expect(output).toContain('save');
+      expect(output).toContain('load [vault-file]');
     });
   });
 
