@@ -126,12 +126,8 @@ describe('ModelRouter', () => {
       };
       config.models['openai.gpt-5.2'].health = {
         lastCheckedAt: new Date().toISOString(),
-        providers: {
-          openai: {
-            available: false,
-            lastError: 'Model unavailable on endpoint',
-          },
-        },
+        available: false,
+        lastError: 'Model unavailable on endpoint',
       };
 
       const router = new ModelRouter();

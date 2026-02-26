@@ -242,10 +242,13 @@ describe('LLM Provider Manager', () => {
 
       const saved = JSON.parse(fs.readFileSync(tempConfigPath, 'utf-8')) as Record<string, unknown>;
       const models = saved.models as Record<string, unknown>;
+      const openaiGroup = models.openai as Record<string, unknown>;
+      const openaiModel = openaiGroup['gpt-5.2'] as Record<string, unknown>;
 
       expect(models.openai).toBeDefined();
       expect(models.anthropic).toBeDefined();
-      expect((models.openai as Record<string, unknown>)['gpt-5.2']).toBeDefined();
+      expect(openaiModel).toBeDefined();
+      expect(openaiModel.providers).toBeUndefined();
       expect((models.anthropic as Record<string, unknown>)['claude-sonnet-4-5-20250929']).toBeDefined();
       expect(models['openai.gpt-5.2']).toBeUndefined();
     });
@@ -396,12 +399,8 @@ describe('LLM Provider Manager', () => {
       };
       config.models['openai.gpt-5.2'].health = {
         lastCheckedAt: new Date().toISOString(),
-        providers: {
-          openai: {
-            available: false,
-            lastError: 'Model unavailable on endpoint',
-          },
-        },
+        available: false,
+        lastError: 'Model unavailable on endpoint',
       };
 
       const manager = new EndpointManager();
