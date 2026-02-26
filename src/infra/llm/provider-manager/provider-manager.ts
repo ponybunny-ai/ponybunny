@@ -644,7 +644,7 @@ export class LLMProviderManager implements ILLMProviderManager {
     if (!endpoints || endpoints.length === 0) {
       return {
         name: fallbackName,
-        url: '/responses',
+        url: '/v1/responses',
       };
     }
 
