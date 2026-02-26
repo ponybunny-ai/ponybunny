@@ -39,6 +39,11 @@ jest.mock('../../src/infra/llm/provider-manager/config-loader.js', () => ({
   loadLLMConfig: jest.fn(),
 }));
 
+jest.mock('../../src/infra/llm/endpoints/index.js', () => ({
+  getAllEndpointConfigs: jest.fn(),
+  hasRequiredCredentials: jest.fn(),
+}));
+
 function sanitizeOutput(value: string): string {
   return value.replace(/\x1B\[[0-9;]*m/g, '');
 }
@@ -57,6 +62,7 @@ describe('pb status', () => {
     const { openaiClient } = await import('../../src/cli/lib/openai-client.js');
     const { getCachedEndpointCredential } = await import('../../src/infra/config/credentials-loader.js');
     const { loadLLMConfig } = await import('../../src/infra/llm/provider-manager/config-loader.js');
+    const { getAllEndpointConfigs, hasRequiredCredentials } = await import('../../src/infra/llm/endpoints/index.js');
 
     (loadLLMConfig as jest.Mock).mockReturnValue({
       providers: {
@@ -81,6 +87,11 @@ describe('pb status', () => {
       }
       return null;
     });
+    (getAllEndpointConfigs as jest.Mock).mockReturnValue([
+      { id: 'openai-compatible', displayName: 'OpenAI Compatible' },
+      { id: 'anthropic-direct', displayName: 'Anthropic Direct' },
+    ]);
+    (hasRequiredCredentials as jest.Mock).mockReturnValue(true);
     globalThis.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,

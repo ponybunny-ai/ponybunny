@@ -22,6 +22,7 @@ import {
   clearCredentialsCache,
   getCachedCredentials,
   loadCredentialsFile,
+  removeEndpointCredential,
   saveCredentialsFile,
   type EndpointCredential,
 } from '../../infra/config/credentials-loader.js';
@@ -622,6 +623,18 @@ const PROVIDER_FIELD_DEFINITIONS: Record<string, ProviderFieldDefinition[]> = {
   ],
 };
 
+const SYSTEM_PROVIDER_IDS = new Set<string>([
+  'anthropic',
+  'openai',
+  'aws-bedrock',
+  'azure-openai',
+  'google-ai-studio',
+  'google-vertex-ai',
+  'openai-codex',
+  'openai-compatible',
+  'codex',
+]);
+
 function maskApiKey(apiKey: string): string {
   const visiblePart = apiKey.slice(0, 15);
   return `${visiblePart}***`;
@@ -692,86 +705,279 @@ function getProviderConfigDefinitions(): ProviderConfigDefinition[] {
     }));
 }
 
-function toOpenAICompatibleDisplayName(endpointId: string): string {
-  if (endpointId === 'openai-compatible') {
-    return 'OpenAI-Compatible';
+function isSystemProvider(endpointId: string): boolean {
+  return SYSTEM_PROVIDER_IDS.has(endpointId);
+}
+
+function getUserAddedProviderIds(): string[] {
+  const config = loadLLMConfig();
+  return Object.keys(config.providers)
+    .filter((endpointId) => !isSystemProvider(endpointId))
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function normalizeBaseUrlForModels(baseUrl: string): string {
+  const normalized = baseUrl.trim().replace(/\/$/, '');
+  if (normalized.endsWith('/v1')) {
+    return `${normalized}/models`;
   }
-  const suffix = endpointId.slice('openai-compatible-'.length);
-  return `OpenAI-Compatible (${suffix})`;
+  return `${normalized}/v1/models`;
 }
 
-function createOpenAICompatibleProvider(
-  endpointId: string,
-  baseUrl: string,
-  apiKey: string
-): void {
+type AddProviderAnswers = {
+  providerId: string;
+  protocol: 'openai' | 'anthropic' | 'gemini' | 'codex';
+  type: 'api' | 'oauth';
+  baseUrl: string;
+  priority: string;
+  enabled: boolean;
+};
+
+async function addProviderWizard(): Promise<void> {
   const llmConfig = loadLLMConfig();
-  llmConfig.providers[endpointId] = {
-    enabled: true,
-    protocol: 'openai',
-    type: 'api',
-    baseUrl,
-    priority: 3,
-  };
-  saveLLMConfig(llmConfig);
-  clearConfigCache();
 
-  upsertCredentialForEndpoint(endpointId, {
-    apiKey,
-    baseUrl,
-  });
-}
-
-async function promptCreateOpenAICompatibleProvider(): Promise<void> {
-  const { providerSuffix, baseUrl, apiKey } = await inquirer.prompt([
+  const answers = await inquirer.prompt([
     {
       type: 'input',
-      name: 'providerSuffix',
-      message: 'New provider suffix (example: localai):',
+      name: 'providerId',
+      message: 'Provider ID (example: openai-compatible-local):',
       validate: (value: string) => {
         const trimmed = value.trim();
         if (!trimmed) {
-          return 'Provider suffix cannot be empty';
+          return 'Provider ID cannot be empty';
         }
         if (!/^[a-zA-Z0-9_-]+$/.test(trimmed)) {
           return 'Use letters, numbers, - or _ only';
+        }
+        if (llmConfig.providers[trimmed]) {
+          return `Provider ID already exists: ${trimmed}`;
         }
         return true;
       },
     },
     {
-      type: 'input',
-      name: 'baseUrl',
-      message: 'Provider base URL:',
-      validate: (value: string) => validateProviderInput({
-        key: 'baseUrl',
-        label: 'Base URL',
-        kind: 'url',
-      }, value),
+      type: 'select',
+      name: 'protocol',
+      message: 'Provider protocol:',
+      choices: [
+        { name: 'OpenAI', value: 'openai' },
+        { name: 'Anthropic', value: 'anthropic' },
+        { name: 'Gemini', value: 'gemini' },
+        { name: 'Codex', value: 'codex' },
+      ],
     },
     {
-      type: 'password',
-      name: 'apiKey',
-      message: 'Provider API key:',
-      mask: '*',
-      validate: (value: string) => validateProviderInput({
-        key: 'apiKey',
-        label: 'API Key',
-        kind: 'secret',
-      }, value),
+      type: 'select',
+      name: 'type',
+      message: 'Provider type:',
+      choices: [
+        { name: 'API Key (api)', value: 'api' },
+        { name: 'OAuth (oauth)', value: 'oauth' },
+      ],
+    },
+    {
+      type: 'input',
+      name: 'baseUrl',
+      message: 'Provider base URL (optional):',
+      default: '',
+      validate: (value: string) => {
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return true;
+        }
+        try {
+          new URL(trimmed);
+          return true;
+        } catch {
+          return 'Please enter a valid URL';
+        }
+      },
+    },
+    {
+      type: 'input',
+      name: 'priority',
+      message: 'Priority (lower is preferred):',
+      default: '3',
+      validate: (value: string) => {
+        const parsed = Number.parseInt(value, 10);
+        if (!Number.isInteger(parsed) || parsed <= 0) {
+          return 'Priority must be a positive integer';
+        }
+        return true;
+      },
+    },
+    {
+      type: 'confirm',
+      name: 'enabled',
+      message: 'Enable this provider now?',
+      default: true,
+    },
+  ]) as AddProviderAnswers;
+
+  let apiKey = '';
+  if (answers.type === 'api') {
+    const apiKeyAnswer = await inquirer.prompt([
+      {
+        type: 'password',
+        name: 'apiKey',
+        message: 'Provider API key (optional, press Enter to skip):',
+        mask: '*',
+      },
+    ]) as { apiKey?: string };
+    apiKey = String(apiKeyAnswer.apiKey ?? '').trim();
+  }
+
+  const providerId = String(answers.providerId).trim();
+  const protocol = answers.protocol;
+  const type = answers.type;
+  const baseUrl = String(answers.baseUrl ?? '').trim();
+  const priority = Number.parseInt(String(answers.priority), 10);
+  const enabled = Boolean(answers.enabled);
+
+  llmConfig.providers[providerId] = {
+    enabled,
+    protocol,
+    type,
+    baseUrl: baseUrl || undefined,
+    priority,
+  };
+  saveLLMConfig(llmConfig);
+  clearConfigCache();
+
+  if (apiKey.length > 0) {
+    upsertCredentialForEndpoint(providerId, {
+      apiKey,
+      baseUrl: baseUrl || undefined,
+    });
+  }
+
+  console.log(chalk.green(`\n✓ Added provider: ${providerId}`));
+  console.log(chalk.gray(`  protocol: ${protocol}`));
+  console.log(chalk.gray(`  type: ${type}`));
+  console.log(chalk.gray(`  enabled: ${enabled ? 'yes' : 'no'}`));
+  console.log();
+}
+
+function deleteUserAddedProvider(endpointId: string): { removedModels: number; removedCredential: boolean } {
+  const llmConfig = loadLLMConfig();
+  if (!llmConfig.providers[endpointId] || isSystemProvider(endpointId)) {
+    throw new Error(`Provider cannot be deleted: ${endpointId}`);
+  }
+
+  delete llmConfig.providers[endpointId];
+
+  let removedModels = 0;
+  const modelPrefix = `${endpointId}.`;
+  for (const modelKey of Object.keys(llmConfig.models)) {
+    if (modelKey.startsWith(modelPrefix)) {
+      delete llmConfig.models[modelKey];
+      removedModels += 1;
+    }
+  }
+
+  if (llmConfig.providerAliases) {
+    for (const aliasConfig of Object.values(llmConfig.providerAliases)) {
+      aliasConfig.providers = aliasConfig.providers.filter((providerId) => providerId !== endpointId);
+    }
+  }
+
+  saveLLMConfig(llmConfig);
+  clearConfigCache();
+
+  const removedCredential = removeEndpointCredential(endpointId);
+  clearCredentialsCache();
+
+  return { removedModels, removedCredential };
+}
+
+async function fetchModelsForProvider(endpointId: string): Promise<void> {
+  const llmConfig = loadLLMConfig();
+  const providerConfig = llmConfig.providers[endpointId];
+  if (!providerConfig) {
+    throw new Error(`Provider not found: ${endpointId}`);
+  }
+  if (providerConfig.protocol !== 'openai') {
+    throw new Error(`Provider protocol must be openai to fetch models: ${endpointId}`);
+  }
+
+  const credential = getCredentialForEndpoint(endpointId);
+  const apiKey = credential.apiKey?.trim();
+  if (!apiKey) {
+    throw new Error(`Missing API key for ${endpointId}. Set API key in pb auth config first.`);
+  }
+
+  const providerBaseUrl = credential.baseUrl?.trim() || providerConfig.baseUrl?.trim();
+  if (!providerBaseUrl) {
+    throw new Error(`Missing baseUrl for ${endpointId}. Set baseUrl in provider config first.`);
+  }
+
+  const modelsEndpoint = normalizeBaseUrlForModels(providerBaseUrl);
+  const response = await fetch(modelsEndpoint, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => response.statusText);
+    throw new Error(`Failed to fetch models from ${modelsEndpoint}: HTTP ${response.status} ${errorText}`);
+  }
+
+  const payload = await response.json() as { data?: Array<{ id?: string }>; models?: Array<{ id?: string } | string> };
+  const idsFromData = Array.isArray(payload.data)
+    ? payload.data.map((item) => (typeof item?.id === 'string' ? item.id : '')).filter((id) => id.length > 0)
+    : [];
+  const idsFromModels = Array.isArray(payload.models)
+    ? payload.models
+      .map((item) => {
+        if (typeof item === 'string') {
+          return item;
+        }
+        return typeof item?.id === 'string' ? item.id : '';
+      })
+      .filter((id) => id.length > 0)
+    : [];
+
+  const modelIds = Array.from(new Set([...idsFromData, ...idsFromModels])).sort((a, b) => a.localeCompare(b));
+
+  if (modelIds.length === 0) {
+    console.log(chalk.yellow(`\nNo models returned from ${modelsEndpoint}\n`));
+    return;
+  }
+
+  const { selectedModelIds } = await inquirer.prompt([
+    {
+      type: 'checkbox',
+      name: 'selectedModelIds',
+      message: `Select models to add under ${endpointId} (space to toggle):`,
+      choices: modelIds.map((modelId) => ({ name: modelId, value: modelId })),
+      pageSize: 20,
+      loop: false,
+      validate: (value: string[]) => value.length > 0 || 'Select at least one model',
     },
   ]);
 
-  const suffix = providerSuffix.trim();
-  const endpointId = suffix === 'default'
-    ? 'openai-compatible'
-    : `openai-compatible-${suffix}`;
-  const trimmedBaseUrl = baseUrl.trim();
-  const trimmedApiKey = apiKey.trim();
+  const selected = (Array.isArray(selectedModelIds) ? selectedModelIds : []) as string[];
+  let addedCount = 0;
 
-  createOpenAICompatibleProvider(endpointId, trimmedBaseUrl, trimmedApiKey);
-  console.log(chalk.green(`✓ Added ${toOpenAICompatibleDisplayName(endpointId)}`));
-  console.log();
+  for (const modelId of selected) {
+    const key = `${endpointId}.${modelId}`;
+    if (llmConfig.models[key]) {
+      continue;
+    }
+    llmConfig.models[key] = {
+      displayName: modelId,
+      costPer1kTokens: { input: 0, output: 0 },
+      capabilities: ['text'],
+    };
+    addedCount += 1;
+  }
+
+  saveLLMConfig(llmConfig);
+  clearConfigCache();
+
+  console.log(chalk.green(`\n✓ Added ${addedCount} model(s) into llm-config models for ${endpointId}.\n`));
 }
 
 function isEndpointEnabledInLLMConfig(endpointId: string): boolean {
@@ -870,7 +1076,10 @@ async function promptAndUpdateProviderField(
   });
 }
 
-async function configureProvider(provider: ProviderConfigDefinition): Promise<void> {
+async function configureProvider(
+  provider: ProviderConfigDefinition,
+  options?: { allowDelete?: boolean; allowFetchModels?: boolean }
+): Promise<void> {
   let keepEditing = true;
 
   while (keepEditing) {
@@ -888,7 +1097,13 @@ async function configureProvider(provider: ProviderConfigDefinition): Promise<vo
         message: `Configure ${provider.displayName}:`,
         choices: [
           { name: `Enabled: ${enabled ? 'enabled' : 'disabled'}`, value: '__enabled' },
+          ...(options?.allowFetchModels
+            ? [{ name: 'Fetch models from /v1/models', value: '__fetch_models' }]
+            : []),
           ...fieldChoices,
+          ...(options?.allowDelete
+            ? [{ name: 'Delete this provider', value: '__delete_provider' }]
+            : []),
           { name: '<- Back to provider list', value: '__back' },
         ],
       },
@@ -914,6 +1129,43 @@ async function configureProvider(provider: ProviderConfigDefinition): Promise<vo
       continue;
     }
 
+    if (fieldKey === '__fetch_models') {
+      try {
+        await fetchModelsForProvider(provider.endpointId);
+      } catch (error) {
+        console.log(chalk.red(`\n✗ ${(error as Error).message}\n`));
+      }
+      continue;
+    }
+
+    if (fieldKey === '__delete_provider') {
+      const { confirmed } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'confirmed',
+          message: `Delete provider ${provider.endpointId}? This also removes credentials and provider models.`,
+          default: false,
+        },
+      ]);
+
+      if (!confirmed) {
+        continue;
+      }
+
+      try {
+        const { removedModels, removedCredential } = deleteUserAddedProvider(provider.endpointId);
+        console.log(chalk.green(`\n✓ Deleted provider ${provider.endpointId}`));
+        console.log(chalk.gray(`  Removed models: ${removedModels}`));
+        console.log(chalk.gray(`  Removed credentials: ${removedCredential ? 'yes' : 'no'}`));
+        console.log();
+      } catch (error) {
+        console.log(chalk.red(`\n✗ ${(error as Error).message}\n`));
+      }
+
+      keepEditing = false;
+      continue;
+    }
+
     const selectedField = provider.fields.find((field) => field.key === fieldKey);
     if (!selectedField) {
       continue;
@@ -926,22 +1178,29 @@ async function configureProvider(provider: ProviderConfigDefinition): Promise<vo
 }
 
 async function configureProviders(): Promise<void> {
-  const providers = getProviderConfigDefinitions();
-
-  if (providers.length === 0) {
-    console.log(chalk.yellow('\nNo configurable providers found.\n'));
-    return;
-  }
-
   let continueConfig = true;
 
   while (continueConfig) {
+    const providers = getProviderConfigDefinitions();
+    if (providers.length === 0) {
+      console.log(chalk.yellow('\nNo configurable providers found.\n'));
+      return;
+    }
+
+    const userAddedProviderIds = getUserAddedProviderIds();
+    if (userAddedProviderIds.length > 0) {
+      console.log(chalk.cyan(`\nUser-added providers: ${userAddedProviderIds.join(', ')}`));
+    }
+
     const choices = providers.map((provider) => {
       const state = isEndpointEnabledInLLMConfig(provider.endpointId)
         ? chalk.green('enabled')
         : chalk.gray('disabled');
+      const userTag = isSystemProvider(provider.endpointId)
+        ? ''
+        : chalk.yellow(' [user-added]');
       return {
-        name: `${provider.displayName} (${state})`,
+        name: `${provider.displayName} (${state})${userTag}`,
         value: provider.endpointId,
       };
     });
@@ -952,7 +1211,7 @@ async function configureProviders(): Promise<void> {
         name: 'endpointId',
         message: 'Select a provider to configure:',
         choices: [
-          { name: '+ New OpenAI-compatible provider', value: '__new_openai_compatible' },
+          { name: '+ Add provider (wizard)', value: '__add_provider' },
           ...choices,
           { name: '✓ Done', value: '__done' },
         ],
@@ -964,8 +1223,8 @@ async function configureProviders(): Promise<void> {
       continue;
     }
 
-    if (endpointId === '__new_openai_compatible') {
-      await promptCreateOpenAICompatibleProvider();
+    if (endpointId === '__add_provider') {
+      await addProviderWizard();
       continue;
     }
 
@@ -974,7 +1233,12 @@ async function configureProviders(): Promise<void> {
       continue;
     }
 
-    await configureProvider(selectedProvider);
+    const llmConfig = loadLLMConfig();
+    const providerConfig = llmConfig.providers[selectedProvider.endpointId];
+    await configureProvider(selectedProvider, {
+      allowDelete: !isSystemProvider(selectedProvider.endpointId),
+      allowFetchModels: !isSystemProvider(selectedProvider.endpointId) && providerConfig?.protocol === 'openai',
+    });
   }
 
   console.log(chalk.green('\n✓ Provider credential configuration updated.\n'));
@@ -1445,6 +1709,11 @@ authCommand
   .command('config')
   .description('Configure provider credentials with an interactive wizard')
   .action(configureProviders);
+
+authCommand
+  .command('add-provider')
+  .description('Add a custom provider with an interactive wizard')
+  .action(addProviderWizard);
 
 authCommand
   .command('remove <identifier>')
