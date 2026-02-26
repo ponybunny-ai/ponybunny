@@ -235,4 +235,44 @@ describe('OpenAIProtocolAdapter', () => {
       expect(instance1).toBe(instance2);
     });
   });
+
+  describe('parseStreamChunk for Responses API events', () => {
+    it('parses response.output_text.delta as content chunk', () => {
+      const chunk = adapter.parseStreamChunk(
+        'data: {"type":"response.output_text.delta","delta":"Hello"}',
+        0
+      );
+
+      expect(chunk).toEqual({
+        content: 'Hello',
+        done: false,
+      });
+    });
+
+    it('parses response.completed as done chunk', () => {
+      const chunk = adapter.parseStreamChunk(
+        'data: {"type":"response.completed","response":{"usage":{"input_tokens":4,"output_tokens":8,"total_tokens":12}}}',
+        1
+      );
+
+      expect(chunk).toEqual({
+        done: true,
+        finishReason: 'stop',
+        tokensUsed: 12,
+      });
+    });
+
+    it('derives token usage from input/output when total_tokens is absent', () => {
+      const chunk = adapter.parseStreamChunk(
+        'data: {"type":"response.completed","response":{"usage":{"input_tokens":3,"output_tokens":5}}}',
+        2
+      );
+
+      expect(chunk).toEqual({
+        done: true,
+        finishReason: 'stop',
+        tokensUsed: 8,
+      });
+    });
+  });
 });

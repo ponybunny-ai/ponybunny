@@ -338,6 +338,9 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
 
       try {
         const data = JSON.parse(jsonStr) as {
+          type?: string;
+          delta?: string;
+          response?: { usage?: { total_tokens?: number; input_tokens?: number; output_tokens?: number } };
           choices?: Array<{
             delta?: {
               content?: string;
@@ -356,6 +359,47 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
           }>;
           usage?: { total_tokens: number };
         };
+
+        if (data.type === 'response.output_text.delta') {
+          const delta = data.delta;
+          if (typeof delta === 'string' && delta.length > 0) {
+            return {
+              content: delta,
+              done: false,
+            };
+          }
+          return null;
+        }
+
+        if (data.type === 'response.reasoning_summary_text.delta') {
+          const delta = data.delta;
+          if (typeof delta === 'string' && delta.length > 0) {
+            return {
+              thinking: delta,
+              done: false,
+            };
+          }
+          return null;
+        }
+
+        if (data.type === 'response.completed') {
+          const usage = data.response?.usage;
+          const totalTokens = typeof usage?.total_tokens === 'number'
+            ? usage.total_tokens
+            : ((usage?.input_tokens || 0) + (usage?.output_tokens || 0));
+          return {
+            done: true,
+            finishReason: 'stop',
+            tokensUsed: Number.isFinite(totalTokens) ? totalTokens : undefined,
+          };
+        }
+
+        if (data.type === 'response.failed' || data.type === 'error') {
+          return {
+            done: true,
+            finishReason: 'error',
+          };
+        }
 
         const choice = data.choices?.[0];
         if (!choice) {

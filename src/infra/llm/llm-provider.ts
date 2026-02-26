@@ -53,6 +53,7 @@ export interface StreamChunk {
   content?: string;              // Text content
   thinking?: string;             // Reasoning content
   toolCalls?: ToolCall[];        // Tool calls
+  tokensUsed?: number;
   done: boolean;                 // Whether streaming is complete
   finishReason?: 'stop' | 'length' | 'tool_calls' | 'error';
 }

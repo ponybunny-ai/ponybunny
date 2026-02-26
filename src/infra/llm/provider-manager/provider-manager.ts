@@ -15,6 +15,7 @@ import { WorkloadModelResolver, getWorkloadModelResolver } from './agent-model-r
 import { getProtocolAdapter } from '../protocols/index.js';
 import type { EndpointCredentials } from '../protocols/index.js';
 import { gatewayEventBus } from '../../../gateway/events/event-bus.js';
+import { isPonyBunnyDebugEnabled } from '../../config/debug-flags.js';
 import { randomUUID } from 'crypto';
 import type { OpenAIOperation, ProtocolRequestConfig } from '../protocols/protocol-adapter.js';
 
@@ -246,10 +247,11 @@ export class LLMProviderManager implements ILLMProviderManager {
       modelConfig,
       openaiOperation
     );
+    const providerRequestModel = this.resolveProviderRequestModel(modelId, config);
     const maxTokens = this.resolveMaxTokens(options?.maxTokens, modelConfig);
 
     const requestConfig: ProtocolRequestConfig = {
-      model: modelId,
+      model: providerRequestModel,
       maxTokens,
       temperature: options?.temperature ?? this.defaultTemperature,
       tools: options?.tools,
@@ -262,7 +264,9 @@ export class LLMProviderManager implements ILLMProviderManager {
     const requestBody = adapter.formatRequest(messages, requestConfig);
 
     // Debug log the request body
-    console.log(`[ProviderManager] Request to ${endpointId}:`, JSON.stringify(requestBody, null, 2));
+    if (isPonyBunnyDebugEnabled()) {
+      console.log(`[ProviderManager] Request to ${endpointId}:`, JSON.stringify(requestBody, null, 2));
+    }
 
     // Add streaming to request body if enabled
     if (options?.stream && adapter.supportsStreaming()) {
@@ -271,12 +275,14 @@ export class LLMProviderManager implements ILLMProviderManager {
 
     // Build URL and headers
     const baseUrl = credentials.baseUrl || endpointConfig.baseUrl || '';
-    const url = adapter.buildUrl(baseUrl, modelId, endpointCreds, requestConfig);
+    const url = adapter.buildUrl(baseUrl, providerRequestModel, endpointCreds, requestConfig);
     const headers = this.buildHeaders(adapter, endpointId, endpointCreds);
 
     // Debug log URL and headers
-    console.log(`[ProviderManager] URL: ${url}`);
-    console.log(`[ProviderManager] Headers:`, JSON.stringify(headers, null, 2));
+    if (isPonyBunnyDebugEnabled()) {
+      console.log(`[ProviderManager] URL: ${url}`);
+      console.log(`[ProviderManager] Headers:`, JSON.stringify(this.sanitizeHeadersForDebug(headers), null, 2));
+    }
 
     // Make request
     const timeout = options?.timeout || this.defaultTimeout;
@@ -308,7 +314,9 @@ export class LLMProviderManager implements ILLMProviderManager {
       const data = await response.json().catch(() => ({ error: { message: response.statusText } }));
 
       // Debug log
-      console.log(`[ProviderManager] Response from ${endpointId}:`, JSON.stringify(data, null, 2));
+      if (isPonyBunnyDebugEnabled()) {
+        console.log(`[ProviderManager] Response from ${endpointId}:`, JSON.stringify(data, null, 2));
+      }
 
       if (!response.ok) {
         const errorMessage = adapter.extractErrorMessage(data);
@@ -452,7 +460,9 @@ export class LLMProviderManager implements ILLMProviderManager {
 
             if (chunk.done) {
               finishReason = chunk.finishReason || 'stop';
-              // Note: tokensUsed not available in streaming mode
+              if (typeof chunk.tokensUsed === 'number' && Number.isFinite(chunk.tokensUsed)) {
+                tokensUsed = chunk.tokensUsed;
+              }
             }
           }
         }
@@ -477,6 +487,12 @@ export class LLMProviderManager implements ILLMProviderManager {
           }
           if (chunk.toolCalls) {
             accumulatedToolCalls.push(...chunk.toolCalls);
+          }
+          if (chunk.done) {
+            finishReason = chunk.finishReason || 'stop';
+            if (typeof chunk.tokensUsed === 'number' && Number.isFinite(chunk.tokensUsed)) {
+              tokensUsed = chunk.tokensUsed;
+            }
           }
         }
       }
@@ -667,6 +683,24 @@ export class LLMProviderManager implements ILLMProviderManager {
     return Math.min(requested, modelMax);
   }
 
+  private resolveProviderRequestModel(modelId: string, config: LLMConfig): string {
+    const dotIndex = modelId.indexOf('.');
+    if (dotIndex <= 0 || dotIndex === modelId.length - 1) {
+      return modelId;
+    }
+
+    const candidatePrefix = modelId.slice(0, dotIndex);
+    const suffix = modelId.slice(dotIndex + 1);
+    const isProviderPrefix = Boolean(config.providers[candidatePrefix]);
+    const isAliasPrefix = Boolean(config.providerAliases?.[candidatePrefix]);
+
+    if (!isProviderPrefix && !isAliasPrefix) {
+      return modelId;
+    }
+
+    return suffix;
+  }
+
   /**
    * Build headers for the request
    */
@@ -684,6 +718,17 @@ export class LLMProviderManager implements ILLMProviderManager {
     }
 
     return adapter.buildHeaders(credentials);
+  }
+
+  private sanitizeHeadersForDebug(headers: Record<string, string>): Record<string, string> {
+    const sanitized: Record<string, string> = { ...headers };
+    for (const key of Object.keys(sanitized)) {
+      const normalized = key.toLowerCase();
+      if (normalized === 'authorization' || normalized === 'api-key' || normalized === 'x-api-key') {
+        sanitized[key] = '[REDACTED]';
+      }
+    }
+    return sanitized;
   }
 
   // ============================================

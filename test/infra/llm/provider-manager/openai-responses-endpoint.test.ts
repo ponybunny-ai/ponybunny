@@ -80,6 +80,11 @@ describe('LLMProviderManager OpenAI protocol endpoint normalization', () => {
         method: 'POST',
       })
     );
+
+    const customCalls = (global.fetch as jest.Mock).mock.calls;
+    const [, customCallInit] = customCalls[customCalls.length - 1] as [string, RequestInit];
+    const customPayload = JSON.parse(String(customCallInit.body));
+    expect(customPayload.model).toBe('gpt-5.2-custom');
   });
 
   it('uses /v1/responses for official OpenAI providers when model endpoints are omitted', async () => {
@@ -104,5 +109,10 @@ describe('LLMProviderManager OpenAI protocol endpoint normalization', () => {
         method: 'POST',
       })
     );
+
+    const openaiCalls = (global.fetch as jest.Mock).mock.calls;
+    const [, openaiCallInit] = openaiCalls[openaiCalls.length - 1] as [string, RequestInit];
+    const openaiPayload = JSON.parse(String(openaiCallInit.body));
+    expect(openaiPayload.model).toBe('gpt-5.2-no-endpoints');
   });
 });
