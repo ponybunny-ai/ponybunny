@@ -1,0 +1,46 @@
+{
+  "mcpServers": {
+    "fs": {
+      "enabled": true,
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/Users/nickma/Develop/nick-ma/pony"
+      ],
+      "allowedTools": [
+        "*"
+      ],
+      "autoReconnect": true,
+      "timeout": 30000
+    },
+    "pg": {
+      "enabled": false,
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "postgresql://pony:pony_pass@localhost:15432/ponybunny"
+      ],
+      "allowedTools": [
+        "*"
+      ],
+      "autoReconnect": true,
+      "timeout": 60000
+    },
+    "playwright": {
+      "enabled": false,
+      "transport": "http",
+      "url": "http://localhost:17777/mcp",
+      "allowedTools": [
+        "playwright.navigate",
+        "playwright.get_content",
+        "playwright.query_selector_all"
+      ],
+      "autoReconnect": true,
+      "timeout": 60000
+    }
+  }
+}

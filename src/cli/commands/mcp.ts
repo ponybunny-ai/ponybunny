@@ -6,6 +6,8 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { spawn } from 'child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { dirname, join } from 'path';
 import {
   setMCPServerConfig,
   removeMCPServerConfig,
@@ -17,6 +19,25 @@ import {
 } from '../../infra/mcp/index.js';
 import type { MCPServerConfig } from '../../infra/mcp/index.js';
 import { getMCPConnectionManager } from '../../infra/mcp/index.js';
+
+const DEFAULT_MCP_TEMPLATE = {
+  mcpServers: {
+    filesystem: {
+      enabled: false,
+      transport: 'stdio' as const,
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', process.cwd()],
+      allowedTools: ['read_file', 'write_file', 'list_directory'],
+      autoReconnect: true,
+      timeout: 30000,
+    },
+  },
+};
+
+const MCP_TEMPLATE_CANDIDATES = [
+  join(process.cwd(), 'docs', 'config-templates', 'mcp-config.example.json'),
+  join(process.cwd(), '..', 'docs', 'config-templates', 'mcp-config.example.json'),
+];
 
 export function createMCPCommand(): Command {
   const mcp = new Command('mcp')
@@ -356,23 +377,26 @@ export function createMCPCommand(): Command {
           return;
         }
 
-        const exampleConfig = {
-          mcpServers: {
-            filesystem: {
-              enabled: false,
-              transport: 'stdio' as const,
-              command: 'npx',
-              args: ['-y', '@modelcontextprotocol/server-filesystem', process.cwd()],
-              allowedTools: ['read_file', 'write_file', 'list_directory'],
-              autoReconnect: true,
-              timeout: 30000,
-            },
-          },
-        };
+        const templatePath =
+          MCP_TEMPLATE_CANDIDATES.find((candidate) => existsSync(candidate)) ??
+          MCP_TEMPLATE_CANDIDATES[0];
 
-        saveMCPConfig(exampleConfig);
+        if (!existsSync(templatePath)) {
+          mkdirSync(dirname(templatePath), { recursive: true });
+          writeFileSync(
+            templatePath,
+            `${JSON.stringify(DEFAULT_MCP_TEMPLATE, null, 2)}\n`,
+            'utf-8'
+          );
+        }
+
+        const templateContent = readFileSync(templatePath, 'utf-8');
+        const templateConfig = JSON.parse(templateContent) as { mcpServers?: Record<string, MCPServerConfig> };
+
+        saveMCPConfig(templateConfig);
         console.log(chalk.green('✓ Created MCP configuration file'));
         console.log(chalk.gray(`Location: ${getMCPConfigPath()}`));
+        console.log(chalk.gray(`Template source: ${templatePath}`));
         console.log(chalk.gray('\nExample server added (disabled). Edit the file to configure your servers.'));
       } catch (error) {
         console.error(chalk.red('Error initializing MCP config:'), (error as Error).message);
