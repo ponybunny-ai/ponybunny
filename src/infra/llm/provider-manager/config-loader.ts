@@ -123,6 +123,7 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
       ],
       costPer1kTokens: { input: 0.01, output: 0.03 },
       maxContextTokens: 128000,
+      disallowedParams: ['temperature', 'top_p', 'top_k', 'top_n'],
       capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
     },
     'openai-codex.gpt-5.2-codex': {
@@ -130,6 +131,7 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
       endpoints: [{ name: 'responses', url: '/v1/responses' }],
       costPer1kTokens: { input: 0.01, output: 0.03 },
       maxContextTokens: 128000,
+      disallowedParams: ['temperature', 'top_p', 'top_k', 'top_n'],
       capabilities: ['text', 'vision', 'function-calling', 'json-mode'],
     },
     'google-ai-studio.gemini-2.0-flash': {
@@ -347,6 +349,13 @@ type ModelFactsEntry = {
   reasoningEfforts?: string[];
   resongingEfforts?: string[];
   capabilities?: unknown;
+  parameterSupport?: {
+    temperature?: boolean;
+    topP?: boolean;
+    topK?: boolean;
+    topN?: boolean;
+  };
+  disallowedParams?: string[];
   features?: string[];
   tools?: string[];
 };
@@ -499,6 +508,8 @@ function normalizeModelEntry(
     reasoningTokenSupport: entry.reasoningTokenSupport,
     reasoningEfforts: Array.isArray(reasoningEfforts) ? reasoningEfforts : undefined,
     capabilitiesMatrix,
+    parameterSupport: entry.parameterSupport,
+    disallowedParams: Array.isArray(entry.disallowedParams) ? entry.disallowedParams : undefined,
     features: Array.isArray(entry.features) ? entry.features : undefined,
     tools: Array.isArray(entry.tools) ? entry.tools : undefined,
     capabilities: toModelCapabilities(entry),

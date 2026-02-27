@@ -253,7 +253,7 @@ export class LLMProviderManager implements ILLMProviderManager {
     const requestConfig: ProtocolRequestConfig = {
       model: providerRequestModel,
       maxTokens,
-      temperature: options?.temperature ?? this.defaultTemperature,
+      temperature: this.resolveTemperature(providerRequestModel, modelConfig, options?.temperature),
       tools: options?.tools,
       tool_choice: options?.tool_choice,
       thinking: options?.thinking,
@@ -681,6 +681,26 @@ export class LLMProviderManager implements ILLMProviderManager {
     }
 
     return Math.min(requested, modelMax);
+  }
+
+  private resolveTemperature(
+    requestModel: string,
+    modelConfig: LLMModelConfig | undefined,
+    explicit: number | undefined
+  ): number | undefined {
+    if (this.isParamDisallowed(modelConfig, 'temperature')) {
+      return undefined;
+    }
+
+    if (requestModel.toLowerCase().startsWith('gpt-5')) {
+      return undefined;
+    }
+
+    return explicit ?? this.defaultTemperature;
+  }
+
+  private isParamDisallowed(modelConfig: LLMModelConfig | undefined, paramName: string): boolean {
+    return Array.isArray(modelConfig?.disallowedParams) && modelConfig.disallowedParams.includes(paramName);
   }
 
   private resolveProviderRequestModel(modelId: string, config: LLMConfig): string {

@@ -96,6 +96,13 @@ export interface LLMModelConfig {
     input?: string[];
     output?: string[];
   };
+  parameterSupport?: {
+    temperature?: boolean;
+    topP?: boolean;
+    topK?: boolean;
+    topN?: boolean;
+  };
+  disallowedParams?: string[];
   features?: string[];
   tools?: string[];
   /** Model capabilities */

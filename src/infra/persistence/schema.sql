@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS goals (
     -- State Management
     status TEXT NOT NULL DEFAULT 'pending', -- pending | active | completed | cancelled | blocked
     priority INTEGER NOT NULL DEFAULT 50,   -- 0 (lowest) to 100 (highest)
+    allowed_actions TEXT,
     
     -- Resource Management
     budget_tokens INTEGER,                  -- Max LLM tokens allowed
@@ -129,6 +130,20 @@ CREATE INDEX IF NOT EXISTS idx_runs_work_item ON runs(work_item_id);
 CREATE INDEX IF NOT EXISTS idx_runs_goal ON runs(goal_id);
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
 CREATE INDEX IF NOT EXISTS idx_runs_error_signature ON runs(error_signature);
+
+CREATE TABLE IF NOT EXISTS run_events (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT NOT NULL UNIQUE,
+    run_id TEXT NOT NULL,
+    plan_id TEXT,
+    event_type TEXT NOT NULL,
+    ts_ms INTEGER NOT NULL,
+    payload_json TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_events_run_sequence ON run_events(run_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_run_events_run_ts ON run_events(run_id, ts_ms);
+CREATE INDEX IF NOT EXISTS idx_run_events_type ON run_events(event_type);
 
 -- ============================================================================
 -- 4. ARTIFACTS Table

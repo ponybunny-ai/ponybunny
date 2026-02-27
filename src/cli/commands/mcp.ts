@@ -391,7 +391,10 @@ export function createMCPCommand(): Command {
         }
 
         const templateContent = readFileSync(templatePath, 'utf-8');
-        const templateConfig = JSON.parse(templateContent) as { mcpServers?: Record<string, MCPServerConfig> };
+        const parsedTemplate = JSON.parse(templateContent) as { mcpServers?: Record<string, MCPServerConfig> };
+        const templateConfig = {
+          mcpServers: parsedTemplate.mcpServers ?? {},
+        };
 
         saveMCPConfig(templateConfig);
         console.log(chalk.green('✓ Created MCP configuration file'));

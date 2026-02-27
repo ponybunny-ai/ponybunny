@@ -33,6 +33,7 @@ import { registerPersonaHandlers } from './rpc/handlers/persona-handlers.js';
 import { registerAuditHandlers } from './rpc/handlers/audit-handlers.js';
 import { registerSystemHandlers } from './rpc/handlers/system-handlers.js';
 import { registerInternalRuntimeHandlers } from './rpc/handlers/internal-runtime-handlers.js';
+import { RuntimeRolloutTelemetry } from './runtime/runtime-rollout-telemetry.js';
 import { setupDebugBroadcaster } from './debug-broadcaster.js';
 
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
@@ -124,6 +125,7 @@ export class GatewayServer {
   private enableConfigWatch: boolean;
 
   private isRunning = false;
+  private runtimeRolloutTelemetry = new RuntimeRolloutTelemetry();
 
   constructor(
     dependencies: GatewayServerDependencies,
@@ -369,7 +371,10 @@ export class GatewayServer {
         daemonConnected: this.daemonBridge.isConnected(),
         schedulerConnected: this.schedulerBridge.isConnected(),
       }),
-      () => this.toolRegistry
+      () => this.toolRegistry,
+      {
+        getRuntimeRolloutMetrics: () => this.runtimeRolloutTelemetry.snapshot(),
+      }
     );
 
     registerInternalRuntimeHandlers(
@@ -381,9 +386,16 @@ export class GatewayServer {
           deterministicRuntimeEnabled: runtime.scheduler.deterministicRuntimeEnabled,
           planCompilerEnabled: runtime.scheduler.planCompilerEnabled,
           toolRoutingMode: runtime.scheduler.toolRoutingMode,
+          runtimeRollout: runtime.scheduler.runtimeRollout,
         };
       },
-      () => this.toolRegistry
+      () => this.toolRegistry,
+      undefined,
+      {
+        onDryRunComplete: (sample) => {
+          this.runtimeRolloutTelemetry.recordDryRun(sample);
+        },
+      }
     );
 
     this.rpcHandler.register('system.ping', [], async () => ({ pong: Date.now() }));

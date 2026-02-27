@@ -28,6 +28,9 @@ const DEFAULT_CONFIG: SchedulerConfig = {
   maxConcurrentGoals: 5,
   autoStart: false,
   debug: false,
+  deterministicRuntimeEnabled: false,
+  planCompilerEnabled: false,
+  toolRoutingMode: 'legacy',
 };
 
 const INITIAL_LANE_STATUS: LaneStatus = {

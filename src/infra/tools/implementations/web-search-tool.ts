@@ -1,4 +1,4 @@
-import type { ToolDefinition, ToolContext } from '../tool-registry.js';
+import type { ToolDefinition, ToolContext, ToolManifestV1 } from '../tool-registry.js';
 
 interface WebSearchParams {
   query: string;
@@ -27,6 +27,33 @@ export class WebSearchTool implements ToolDefinition {
   riskLevel = 'safe' as const; // Search itself is safe, though content isn't controlled
   requiresApproval = false;
   description = 'Search the web using Brave (default) or Perplexity. Returns titles, URLs, and snippets.';
+  manifest: ToolManifestV1 = {
+    tool_ref: 'local://web_search',
+    display_name: 'Web Search',
+    description: 'Search external web providers',
+    version: 'v1',
+    tags: ['network', 'search'],
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query' },
+        count: { type: 'number', description: 'Number of results' },
+        provider: { type: 'string', description: 'brave/perplexity/duckduckgo' },
+        country: { type: 'string', description: 'Country code' },
+        freshness: { type: 'string', description: 'Freshness filter' },
+      },
+      required: ['query'],
+    },
+    output_schema: {
+      type: 'string',
+    },
+    side_effect: 'none',
+    supports_idempotency_key: true,
+    default_timeout_ms: 30000,
+    permissions: {
+      network: 'allow',
+    },
+  };
 
   private cache = new Map<string, CachedResult>();
   private readonly CACHE_TTL_MS = 1000 * 60 * 60; // 1 hour

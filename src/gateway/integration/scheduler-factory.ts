@@ -34,6 +34,9 @@ export interface SchedulerFactoryConfig {
   autoStart?: boolean;
   /** Enable debug logging (default: false) */
   debug?: boolean;
+  deterministicRuntimeEnabled?: boolean;
+  planCompilerEnabled?: boolean;
+  toolRoutingMode?: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
 }
 
 export interface SchedulerFactoryDependencies {
@@ -163,6 +166,9 @@ export function createScheduler(
     maxConcurrentGoals: config?.maxConcurrentGoals ?? 5,
     autoStart: config?.autoStart ?? false,
     debug: config?.debug ?? false,
+    deterministicRuntimeEnabled: config?.deterministicRuntimeEnabled ?? false,
+    planCompilerEnabled: config?.planCompilerEnabled ?? false,
+    toolRoutingMode: config?.toolRoutingMode ?? 'legacy',
   };
 
   return new SchedulerCore(schedulerDeps, schedulerConfig);

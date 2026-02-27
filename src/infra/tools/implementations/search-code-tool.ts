@@ -1,6 +1,6 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { ToolDefinition, ToolContext } from '../tool-registry.js';
+import type { ToolDefinition, ToolContext, ToolManifestV1 } from '../tool-registry.js';
 
 const execAsync = promisify(exec);
 
@@ -10,6 +10,30 @@ export class SearchCodeTool implements ToolDefinition {
   riskLevel = 'safe' as const;
   requiresApproval = false;
   description = 'Search for code patterns in the codebase using grep';
+  manifest: ToolManifestV1 = {
+    tool_ref: 'local://search_code',
+    display_name: 'Search Code',
+    description: this.description,
+    version: 'v1',
+    tags: ['code', 'search'],
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        pattern: { type: 'string', description: 'Pattern to search' },
+      },
+      required: ['pattern'],
+    },
+    output_schema: {
+      type: 'string',
+    },
+    side_effect: 'none' as const,
+    supports_idempotency_key: true,
+    default_timeout_ms: 10000,
+    permissions: {
+      network: 'deny' as const,
+      filesystem: { read: ['*'] },
+    },
+  };
 
   async execute(args: Record<string, any>, context: ToolContext): Promise<string> {
     if (!args.pattern || typeof args.pattern !== 'string') {

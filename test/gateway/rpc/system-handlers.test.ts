@@ -1,4 +1,5 @@
 import { RpcHandler } from '../../../src/gateway/rpc/rpc-handler.js';
+import * as runtimeConfig from '../../../src/infra/config/runtime-config.js';
 import { Session } from '../../../src/gateway/connection/session.js';
 import { GatewayError, ErrorCodes } from '../../../src/gateway/errors.js';
 import { registerSystemHandlers } from '../../../src/gateway/rpc/handlers/system-handlers.js';
@@ -89,8 +90,27 @@ describe('system handlers', () => {
       rpc,
       () => mockConnectionManager,
       () => mockScheduler,
-      () => ({ isRunning: true, daemonConnected: true, schedulerConnected: true })
+      () => ({ isRunning: true, daemonConnected: true, schedulerConnected: true }),
+      undefined,
+      {
+        getRuntimeRolloutMetrics: () => ({
+          dryRunsTotal: 8,
+          dryRunsSucceeded: 7,
+          dryRunsFailed: 1,
+          successRate: 0.875,
+          averagePlanStepCount: 4.2,
+          averageChangedStepCount: 1.1,
+          failureCodeCounts: {
+            ERR_TOOL_NOT_FOUND: 1,
+          },
+          lastDryRunAt: 1710000000000,
+        }),
+      }
     );
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it('returns system.capabilities for read sessions', async () => {
@@ -131,6 +151,144 @@ describe('system handlers', () => {
     expect(result).toEqual(
       expect.objectContaining({
         schedulerConnected: false,
+      })
+    );
+  });
+
+  it('returns runtime rollout status', async () => {
+    jest.spyOn(runtimeConfig, 'loadRuntimeConfig').mockReturnValue({
+      ...runtimeConfig.DEFAULT_RUNTIME_CONFIG,
+      scheduler: {
+        ...runtimeConfig.DEFAULT_RUNTIME_CONFIG.scheduler,
+        deterministicRuntimeEnabled: true,
+        planCompilerEnabled: true,
+        toolRoutingMode: 'system_only',
+        runtimeRollout: {
+          shadowModeEnabled: true,
+          canaryPercent: 25,
+          rollbackOnFailure: true,
+          lanePercents: {
+            dryRun: 5,
+            compile: 0,
+            replay: 0,
+          },
+        },
+      },
+    });
+
+    const result = await rpc.handle('system.runtime.rollout.status', {}, createSession(['read']));
+    expect(result).toEqual(
+      expect.objectContaining({
+        mode: 'shadow',
+        rollout: expect.objectContaining({
+          canaryPercent: 25,
+        }),
+        metrics: expect.objectContaining({
+          dryRunsTotal: 8,
+          dryRunsSucceeded: 7,
+        }),
+      })
+    );
+  });
+
+  it('updates runtime rollout config and supports rollback to legacy', async () => {
+    const currentConfig = {
+      ...runtimeConfig.DEFAULT_RUNTIME_CONFIG,
+      scheduler: {
+        ...runtimeConfig.DEFAULT_RUNTIME_CONFIG.scheduler,
+        deterministicRuntimeEnabled: true,
+        planCompilerEnabled: true,
+        toolRoutingMode: 'system_preferred' as const,
+        runtimeRollout: {
+          shadowModeEnabled: false,
+          canaryPercent: 50,
+          rollbackOnFailure: false,
+          lanePercents: {
+            dryRun: 0,
+            compile: 10,
+            replay: 0,
+          },
+        },
+      },
+    };
+
+    const loadSpy = jest.spyOn(runtimeConfig, 'loadRuntimeConfig').mockReturnValue(currentConfig);
+    const saveSpy = jest.spyOn(runtimeConfig, 'saveRuntimeConfig').mockImplementation(() => undefined);
+
+    const updateResult = await rpc.handle(
+      'system.runtime.rollout.update',
+      {
+        shadowModeEnabled: true,
+        canaryPercent: 10,
+        lanePercents: { dryRun: 20, compile: 15 },
+        rollbackOnFailure: true,
+      },
+      createSession(['admin'])
+    );
+
+    expect(updateResult).toEqual(
+      expect.objectContaining({
+        mode: 'shadow',
+        rollout: expect.objectContaining({
+          shadowModeEnabled: true,
+          canaryPercent: 10,
+          rollbackOnFailure: true,
+          lanePercents: {
+            dryRun: 20,
+            compile: 15,
+            replay: 0,
+          },
+        }),
+      })
+    );
+    expect(saveSpy).toHaveBeenCalledTimes(1);
+
+    const rollbackResult = await rpc.handle(
+      'system.runtime.rollout.update',
+      { rollbackToLegacy: true },
+      createSession(['admin'])
+    );
+
+    expect(rollbackResult).toEqual(
+      expect.objectContaining({
+        mode: 'legacy',
+      })
+    );
+    expect(loadSpy).toHaveBeenCalled();
+  });
+
+  it('rejects invalid canary percent', async () => {
+    jest.spyOn(runtimeConfig, 'loadRuntimeConfig').mockReturnValue(runtimeConfig.DEFAULT_RUNTIME_CONFIG);
+
+    await expect(
+      rpc.handle('system.runtime.rollout.update', { canaryPercent: 101 }, createSession(['admin']))
+    ).rejects.toMatchObject<Partial<GatewayError>>({
+      code: ErrorCodes.INVALID_PARAMS,
+    });
+  });
+
+  it('reports canary mode when lane percent is enabled', async () => {
+    jest.spyOn(runtimeConfig, 'loadRuntimeConfig').mockReturnValue({
+      ...runtimeConfig.DEFAULT_RUNTIME_CONFIG,
+      scheduler: {
+        ...runtimeConfig.DEFAULT_RUNTIME_CONFIG.scheduler,
+        runtimeRollout: {
+          shadowModeEnabled: false,
+          canaryPercent: 0,
+          rollbackOnFailure: true,
+          lanePercents: {
+            dryRun: 0,
+            compile: 25,
+            replay: 0,
+          },
+        },
+      },
+    });
+
+    const result = await rpc.handle('system.runtime.rollout.status', {}, createSession(['read']));
+    expect(result).toEqual(
+      expect.objectContaining({
+        mode: 'canary',
       })
     );
   });

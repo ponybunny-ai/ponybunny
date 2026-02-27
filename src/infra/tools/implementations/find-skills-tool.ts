@@ -3,7 +3,7 @@
  * Search and install skills from skills.sh marketplace
  */
 
-import type { ToolDefinition, ToolContext } from '../tool-registry.js';
+import type { ToolDefinition, ToolContext, ToolManifestV1 } from '../tool-registry.js';
 import { getSkillsShClient } from '../../skills/skills-sh-client.js';
 import { getSkillInstaller } from '../../skills/skill-installer.js';
 import { getManagedSkillsDir } from '../../config/config-paths.js';
@@ -14,6 +14,33 @@ export const findSkillsTool: ToolDefinition = {
   riskLevel: 'safe',
   requiresApproval: false,
   description: 'Search for skills on skills.sh marketplace and optionally install them',
+  manifest: {
+    tool_ref: 'skills://find_skills',
+    display_name: 'Find Skills',
+    description: 'Search and optionally install skills from marketplace',
+    version: 'v1',
+    tags: ['skills', 'marketplace'],
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Skill search query' },
+        install: { type: 'boolean', description: 'Install first result if true' },
+        limit: { type: 'number', description: 'Max result count' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Tags filter' },
+        author: { type: 'string', description: 'Author filter' },
+      },
+      required: ['query'],
+    },
+    output_schema: {
+      type: 'string',
+    },
+    side_effect: 'idempotent',
+    supports_idempotency_key: true,
+    default_timeout_ms: 60000,
+    permissions: {
+      network: 'allow',
+    },
+  } as ToolManifestV1,
 
   async execute(args: Record<string, any>, context: ToolContext): Promise<string> {
     const { query, install = false, limit = 10, tags, author } = args;

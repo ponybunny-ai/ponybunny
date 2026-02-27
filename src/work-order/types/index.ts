@@ -368,6 +368,7 @@ export interface GoalRow {
   success_criteria: string; // JSON
   status: GoalStatus;
   priority: number;
+  allowed_actions: string | null; // JSON
   budget_tokens: number | null;
   budget_time_minutes: number | null;
   budget_cost_usd: number | null;

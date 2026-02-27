@@ -5,7 +5,7 @@
  */
 
 import type { ToolSummary } from '../prompts/types.js';
-import type { ToolRegistry, ToolEnforcer } from './tool-registry.js';
+import type { ToolRegistry, ToolEnforcer, ToolDefinition as RegistryToolDefinition, ToolManifestV1 } from './tool-registry.js';
 import type { ToolDefinition as LLMToolDefinition } from '../llm/llm-provider.js';
 import type { MCPToolDefinition } from '../mcp/client/types.js';
 
@@ -233,6 +233,17 @@ export class ToolProvider {
     return this.getStaticToolDefinitions(phase);
   }
 
+  getToolManifests(): ToolManifestV1[] {
+    if (!this._registry) {
+      return [];
+    }
+
+    return this._registry
+      .getAllTools()
+      .map((tool) => tool.manifest)
+      .filter((manifest): manifest is ToolManifestV1 => manifest !== undefined);
+  }
+
   /**
    * Build LLM tool definitions dynamically from ToolRegistry
    */
@@ -271,11 +282,8 @@ export class ToolProvider {
   /**
    * Build LLM tool definition for a built-in tool from ToolRegistry
    */
-  private buildBuiltinToolDefinition(tool: import('./tool-registry.js').ToolDefinition): LLMToolDefinition {
-    const parameters = BUILTIN_PARAMETER_SCHEMAS[tool.name] ?? {
-      type: 'object' as const,
-      properties: {},
-    };
+  private buildBuiltinToolDefinition(tool: RegistryToolDefinition): LLMToolDefinition {
+    const parameters = this.resolveToolParameters(tool);
 
     return {
       name: tool.name,
@@ -288,16 +296,40 @@ export class ToolProvider {
    * Build LLM tool definition for an MCP tool
    * MCP tools carry their own inputSchema cached during registration
    */
-  private buildMCPToolDefinition(tool: import('./tool-registry.js').ToolDefinition): LLMToolDefinition {
+  private buildMCPToolDefinition(tool: RegistryToolDefinition): LLMToolDefinition {
+    const manifestParameters = tool.manifest?.input_schema;
     const mcpSchema = mcpToolSchemaCache.get(tool.name);
 
     return {
       name: tool.name,
       description: tool.description,
-      parameters: mcpSchema ?? {
-        type: 'object' as const,
-        properties: {},
-      },
+      parameters: manifestParameters
+        ? this.normalizeSchemaParameters(manifestParameters)
+        : mcpSchema ?? {
+          type: 'object' as const,
+          properties: {},
+        },
+    };
+  }
+
+  private resolveToolParameters(tool: RegistryToolDefinition): LLMToolDefinition['parameters'] {
+    if (tool.manifest?.input_schema) {
+      return this.normalizeSchemaParameters(tool.manifest.input_schema);
+    }
+
+    return BUILTIN_PARAMETER_SCHEMAS[tool.name] ?? {
+      type: 'object',
+      properties: {},
+    };
+  }
+
+  private normalizeSchemaParameters(
+    schema: Pick<ToolManifestV1['input_schema'], 'type' | 'properties' | 'required'>
+  ): LLMToolDefinition['parameters'] {
+    return {
+      type: 'object',
+      properties: (schema.properties ?? {}) as Record<string, import('../llm/llm-provider.js').ParameterSchema>,
+      required: schema.required,
     };
   }
 

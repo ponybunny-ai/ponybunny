@@ -52,6 +52,9 @@ describe('SchemaDrivenAgentRunner', () => {
       tickIntervalMs: 1000,
       maxConcurrentGoals: 5,
       agentsEnabled: true,
+      deterministicRuntimeEnabled: false,
+      planCompilerEnabled: false,
+      toolRoutingMode: 'legacy',
     },
     agent: {
       mainAgentId: 'lead',

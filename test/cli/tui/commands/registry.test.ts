@@ -9,7 +9,7 @@ describe('TUI command registry', () => {
   it('registers refresh command for slash menu', () => {
     const refresh = commands.find((command) => command.name === 'refresh');
     expect(refresh).toBeDefined();
-    expect(refresh?.usage).toBe('/refresh');
+    expect(refresh?.usage).toBe('/refresh [runtime] [goalId]');
   });
 
   it('resolves refresh by alias', () => {
@@ -21,6 +21,18 @@ describe('TUI command registry', () => {
     const categories = getCommandsByCategory();
     const systemCommands = categories.System.map((command) => command.name);
     expect(systemCommands).toContain('refresh');
+    expect(systemCommands).toContain('rollout');
+    expect(systemCommands).toContain('replay');
+  });
+
+  it('resolves rollout by alias', () => {
+    const rollout = findCommand('ro');
+    expect(rollout?.name).toBe('rollout');
+  });
+
+  it('resolves replay by alias', () => {
+    const replay = findCommand('rp');
+    expect(replay?.name).toBe('replay');
   });
 
   it('parses /refresh command input', () => {

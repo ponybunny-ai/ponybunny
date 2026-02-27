@@ -53,4 +53,16 @@ describe('ToolRegistry and Execution', () => {
     expect(check.allowed).toBe(false);
     expect(check.reason).toContain('not found in registry');
   });
+
+  test('should store and expose v2 manifest metadata for registered tools', () => {
+    const readFileTool = new ReadFileTool();
+    registry.register(readFileTool);
+
+    const tool = registry.getTool('read_file');
+    expect(tool).toBeDefined();
+    expect(tool?.manifest).toBeDefined();
+    expect(tool?.manifest?.tool_ref).toBe('local://read_file');
+    expect(tool?.manifest?.input_schema.required).toContain('path');
+    expect(tool?.manifest?.permissions.network).toBe('deny');
+  });
 });

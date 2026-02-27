@@ -3,7 +3,7 @@
  */
 
 import type { Goal, WorkItem, Escalation } from '../../../work-order/types/index.js';
-import type { ConnectionStatus, ViewType, ModalType, GatewayEvent, SimpleMessage } from './types.js';
+import type { ConnectionStatus, ViewType, ModalType, GatewayEvent, RuntimeSnapshot, SimpleMessage } from './types.js';
 import type { SchedulerCapabilitiesResponse } from '../../gateway/tui-gateway-client.js';
 
 // Simple message actions
@@ -136,6 +136,11 @@ export interface ClearEventsAction {
   type: 'CLEAR_EVENTS';
 }
 
+export interface AddRuntimeSnapshotAction {
+  type: 'ADD_RUNTIME_SNAPSHOT';
+  payload: RuntimeSnapshot;
+}
+
 // Activity actions
 export interface SetActivityStatusAction {
   type: 'SET_ACTIVITY_STATUS';
@@ -201,6 +206,7 @@ export type AppAction =
   | AddEventAction
   | AddEventsAction
   | ClearEventsAction
+  | AddRuntimeSnapshotAction
   | SetActivityStatusAction
   | OpenModalAction
   | CloseModalAction
@@ -330,6 +336,11 @@ export const actions = {
 
   clearEvents: (): ClearEventsAction => ({
     type: 'CLEAR_EVENTS',
+  }),
+
+  addRuntimeSnapshot: (snapshot: RuntimeSnapshot): AddRuntimeSnapshotAction => ({
+    type: 'ADD_RUNTIME_SNAPSHOT',
+    payload: snapshot,
   }),
 
   setActivityStatus: (status: string): SetActivityStatusAction => ({

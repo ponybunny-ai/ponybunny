@@ -1,0 +1,256 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ponybunny.ai/schemas/plan.v1.json",
+  "title": "PonyBunny Plan DSL v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "plan_id",
+    "goal",
+    "steps"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "plan.v1"
+    },
+    "plan_id": {
+      "type": "string",
+      "minLength": 8
+    },
+    "goal": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tool_routing": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": [
+            "system_only",
+            "system_preferred",
+            "model_preferred"
+          ]
+        },
+        "allow_model_native_tools": {
+          "type": "boolean"
+        },
+        "resolution_order": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "skills",
+              "mcp",
+              "local_tools",
+              "sandbox_scripts"
+            ]
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "variables": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "stepId": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_\\-]+$"
+    },
+    "toolRef": {
+      "type": "string",
+      "pattern": "^(skills|mcp|local|script)://.+$"
+    },
+    "artifactRef": {
+      "type": "string",
+      "pattern": "^(artifact|file)://.+$"
+    },
+    "rwList": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "capture": {
+      "type": "object",
+      "properties": {
+        "stdout": {
+          "type": "boolean"
+        },
+        "stderr": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "retryPolicy": {
+      "type": "object",
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "backoff_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 600000
+        }
+      },
+      "additionalProperties": false
+    },
+    "step": {
+      "type": "object",
+      "required": [
+        "id",
+        "type"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/stepId"
+        },
+        "type": {
+          "enum": [
+            "tool_call",
+            "transform",
+            "human_confirm",
+            "script_generate",
+            "script_execute"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/stepId"
+          },
+          "uniqueItems": true
+        },
+        "reads": {
+          "$ref": "#/$defs/rwList"
+        },
+        "writes": {
+          "$ref": "#/$defs/rwList"
+        },
+        "retry_policy": {
+          "$ref": "#/$defs/retryPolicy"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 600000
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "tool_ref": {
+          "$ref": "#/$defs/toolRef"
+        },
+        "args": {
+          "type": "object"
+        },
+        "message": {
+          "type": "string"
+        },
+        "language": {
+          "enum": [
+            "applescript",
+            "bash"
+          ]
+        },
+        "goal": {
+          "type": "string"
+        },
+        "constraints": {
+          "type": "object"
+        },
+        "script_ref": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/artifactRef"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "capture": {
+          "$ref": "#/$defs/capture"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "tool_call"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "tool_ref",
+              "args"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "human_confirm"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "message"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "script_generate"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "language",
+              "goal"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "script_execute"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "script_ref"
+            ]
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  }
+}

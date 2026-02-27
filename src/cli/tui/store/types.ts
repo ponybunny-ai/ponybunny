@@ -41,6 +41,51 @@ export interface GatewayEvent {
   timestamp: number;
 }
 
+export interface RuntimeSnapshot {
+  id: string;
+  timestamp: number;
+  goalId: string;
+  runId?: string;
+  source: 'runtime_refresh' | 'replay_command';
+  config: {
+    deterministicRuntimeEnabled: boolean;
+    planCompilerEnabled: boolean;
+    toolRoutingMode: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
+    runtimeRollout: {
+      shadowModeEnabled: boolean;
+      canaryPercent: number;
+      rollbackOnFailure: boolean;
+      lanePercents: {
+        dryRun: number;
+        compile: number;
+        replay: number;
+      };
+    };
+  };
+  dryRun: {
+    ok: boolean;
+    status?: string;
+    compileRunId?: string;
+    runtimeRunId?: string;
+    totalEvents?: number;
+    factsCount?: number;
+    artifactsCount?: number;
+    reexecution?: {
+      attemptedSteps: number;
+      eligibleSteps: number;
+      executedSteps: number;
+      skippedSteps: number;
+    };
+    replayPage?: {
+      returned: number;
+      offset: number;
+      cursor?: string;
+      nextOffset?: number;
+      nextCursor?: string;
+    };
+  };
+}
+
 export interface AppState {
   // Message stream
   simpleMessages: SimpleMessage[];
@@ -73,6 +118,8 @@ export interface AppState {
   // Events
   events: GatewayEvent[];
   maxEvents: number;
+
+  runtimeSnapshots: RuntimeSnapshot[];
 
   // Activity
   activityStatus: string;
@@ -124,6 +171,7 @@ export const initialState: AppState = {
   schedulerCapabilities: null,
   events: [],
   maxEvents: 100,
+  runtimeSnapshots: [],
   activityStatus: 'idle',
   activeModal: null,
   modalData: null,

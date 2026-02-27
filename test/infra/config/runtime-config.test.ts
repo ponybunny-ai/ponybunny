@@ -31,4 +31,45 @@ describe('runtime-config memory user profile id', () => {
     expect(config.persona.defaultPersonaId).toBe('pony-pro');
     expect(config.persona.promptOverrides.personalityDescription).toBe('Custom personality block');
   });
+
+  it('loads scheduler deterministic runtime flags from environment', () => {
+    const config = resolveRuntimeConfigFromEnvironment({
+      PONY_SCHEDULER_DETERMINISTIC_RUNTIME_ENABLED: 'true',
+      PONY_SCHEDULER_PLAN_COMPILER_ENABLED: '1',
+      PONY_SCHEDULER_TOOL_ROUTING_MODE: 'system_only',
+      PONY_SCHEDULER_ROLLOUT_SHADOW_ENABLED: 'true',
+      PONY_SCHEDULER_ROLLOUT_CANARY_PERCENT: '30',
+      PONY_SCHEDULER_ROLLOUT_CANARY_PERCENT_DRY_RUN: '40',
+      PONY_SCHEDULER_ROLLOUT_CANARY_PERCENT_COMPILE: '20',
+      PONY_SCHEDULER_ROLLOUT_CANARY_PERCENT_REPLAY: '10',
+      PONY_SCHEDULER_ROLLOUT_ROLLBACK_ON_FAILURE: '0',
+    });
+
+    expect(config.scheduler.deterministicRuntimeEnabled).toBe(true);
+    expect(config.scheduler.planCompilerEnabled).toBe(true);
+    expect(config.scheduler.toolRoutingMode).toBe('system_only');
+    expect(config.scheduler.runtimeRollout.shadowModeEnabled).toBe(true);
+    expect(config.scheduler.runtimeRollout.canaryPercent).toBe(30);
+    expect(config.scheduler.runtimeRollout.rollbackOnFailure).toBe(false);
+    expect(config.scheduler.runtimeRollout.lanePercents).toEqual({
+      dryRun: 40,
+      compile: 20,
+      replay: 10,
+    });
+  });
+
+  it('falls back to default tool routing mode for invalid values', () => {
+    const config = resolveRuntimeConfigFromEnvironment({
+      PONY_SCHEDULER_TOOL_ROUTING_MODE: 'invalid-mode',
+      PONY_SCHEDULER_ROLLOUT_CANARY_PERCENT: '200',
+      PONY_SCHEDULER_ROLLOUT_CANARY_PERCENT_DRY_RUN: '-1',
+      PONY_SCHEDULER_ROLLOUT_CANARY_PERCENT_COMPILE: '150',
+    });
+
+    expect(config.scheduler.toolRoutingMode).toBe('legacy');
+    expect(config.scheduler.runtimeRollout.canaryPercent).toBe(100);
+    expect(config.scheduler.runtimeRollout.lanePercents.dryRun).toBe(0);
+    expect(config.scheduler.runtimeRollout.lanePercents.compile).toBe(100);
+    expect(config.scheduler.runtimeRollout.lanePercents.replay).toBe(0);
+  });
 });

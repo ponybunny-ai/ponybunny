@@ -5,6 +5,7 @@
 import type { AppContextValue } from '../context/app-context.js';
 import type { GatewayContextValue } from '../context/gateway-context.js';
 import { parseCommand, findCommand, type ParsedCommand } from './registry.js';
+import type { RuntimeSnapshot } from '../store/types.js';
 
 export interface CommandContext {
   app: AppContextValue;
@@ -22,6 +23,160 @@ type CommandHandler = (
   cmd: ParsedCommand,
   ctx: CommandContext
 ) => Promise<CommandResult> | CommandResult;
+
+function parseBooleanValue(value: string): boolean | undefined {
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+
+  return undefined;
+}
+
+function parseRolloutSetArgs(args: string[]): {
+  shadowModeEnabled?: boolean;
+  canaryPercent?: number;
+  rollbackOnFailure?: boolean;
+} {
+  const payload: {
+    shadowModeEnabled?: boolean;
+    canaryPercent?: number;
+    rollbackOnFailure?: boolean;
+  } = {};
+
+  for (const token of args) {
+    const [rawKey, rawValue] = token.split('=');
+    const key = rawKey?.trim().toLowerCase();
+    const value = rawValue?.trim();
+
+    if (!key || !value) {
+      throw new Error(`Invalid rollout argument: ${token}. Use key=value format.`);
+    }
+
+    if (key === 'shadow') {
+      const parsed = parseBooleanValue(value);
+      if (parsed === undefined) {
+        throw new Error('shadow must be true or false');
+      }
+      payload.shadowModeEnabled = parsed;
+      continue;
+    }
+
+    if (key === 'canary') {
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isInteger(parsed) || parsed < 0 || parsed > 100) {
+        throw new Error('canary must be an integer between 0 and 100');
+      }
+      payload.canaryPercent = parsed;
+      continue;
+    }
+
+    if (key === 'rollback') {
+      const parsed = parseBooleanValue(value);
+      if (parsed === undefined) {
+        throw new Error('rollback must be true or false');
+      }
+      payload.rollbackOnFailure = parsed;
+      continue;
+    }
+
+    throw new Error(`Unsupported rollout key: ${key}`);
+  }
+
+  if (Object.keys(payload).length === 0) {
+    throw new Error('No valid rollout parameters provided');
+  }
+
+  return payload;
+}
+
+function parseReplayOptions(tokens: string[]): {
+  mode?: 'facts_only' | 'reexecute_tools';
+  allowTools?: string[];
+  maxAttempts?: number;
+  enableExecution?: boolean;
+  eventsLimit?: number;
+  cursor?: string;
+} {
+  const options: {
+    mode?: 'facts_only' | 'reexecute_tools';
+    allowTools?: string[];
+    maxAttempts?: number;
+    enableExecution?: boolean;
+    eventsLimit?: number;
+    cursor?: string;
+  } = {};
+
+  for (const token of tokens) {
+    const [rawKey, rawValue] = token.split('=');
+    const key = rawKey?.trim().toLowerCase();
+    const value = rawValue?.trim();
+
+    if (!key || !value) {
+      throw new Error(`Invalid replay option: ${token}. Use key=value format.`);
+    }
+
+    if (key === 'mode') {
+      if (value !== 'facts_only' && value !== 'reexecute_tools') {
+        throw new Error('mode must be facts_only or reexecute_tools');
+      }
+      options.mode = value;
+      continue;
+    }
+
+    if (key === 'allowtools') {
+      const tools = value.split(',').map((part) => part.trim()).filter(Boolean);
+      if (tools.length === 0) {
+        throw new Error('allowTools must include at least one tool name');
+      }
+      options.allowTools = tools;
+      continue;
+    }
+
+    if (key === 'maxattempts') {
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 200) {
+        throw new Error('maxAttempts must be an integer between 1 and 200');
+      }
+      options.maxAttempts = parsed;
+      continue;
+    }
+
+    if (key === 'enableexecution') {
+      const parsed = parseBooleanValue(value);
+      if (parsed === undefined) {
+        throw new Error('enableExecution must be true or false');
+      }
+      options.enableExecution = parsed;
+      continue;
+    }
+
+    if (key === 'eventslimit') {
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 500) {
+        throw new Error('eventsLimit must be an integer between 1 and 500');
+      }
+      options.eventsLimit = parsed;
+      continue;
+    }
+
+    if (key === 'cursor') {
+      if (value.length === 0) {
+        throw new Error('cursor must be a non-empty string');
+      }
+      options.cursor = value;
+      continue;
+    }
+
+    throw new Error(`Unsupported replay option: ${key}`);
+  }
+
+  return options;
+}
 
 async function refreshSchedulerData(ctx: CommandContext): Promise<CommandResult> {
   const client = ctx.gateway.client;
@@ -55,6 +210,172 @@ async function refreshSchedulerData(ctx: CommandContext): Promise<CommandResult>
     };
   } catch (err) {
     return { success: false, error: `Refresh failed: ${(err as Error).message}` };
+  } finally {
+    ctx.app.setActivityStatus('idle');
+  }
+}
+
+async function refreshRuntimeData(ctx: CommandContext, goalId?: string): Promise<CommandResult> {
+  const client = ctx.gateway.client;
+  if (!client) {
+    return { success: false, error: 'Not connected to gateway' };
+  }
+
+  ctx.app.setActivityStatus('refreshing runtime data...');
+  try {
+    const [runtimeConfig, rolloutStatus, goalsResult] = await Promise.all([
+      client.getInternalRuntimeConfig(),
+      client.getRuntimeRolloutStatus(),
+      client.listGoals({ limit: 20 }),
+    ]);
+
+    const targetGoalId = goalId ?? goalsResult.goals[0]?.id;
+    if (!targetGoalId) {
+      ctx.app.addEvent('runtime.refreshed', {
+        schedulerMode: runtimeConfig.toolRoutingMode,
+        deterministicRuntimeEnabled: runtimeConfig.deterministicRuntimeEnabled,
+        planCompilerEnabled: runtimeConfig.planCompilerEnabled,
+        rolloutMode: rolloutStatus.mode,
+        shadowModeEnabled: rolloutStatus.rollout.shadowModeEnabled,
+        canaryPercent: rolloutStatus.rollout.canaryPercent,
+        dryRunStats: {
+          total: rolloutStatus.metrics.dryRunsTotal,
+          succeeded: rolloutStatus.metrics.dryRunsSucceeded,
+          failed: rolloutStatus.metrics.dryRunsFailed,
+        },
+        dryRun: false,
+      });
+
+      return {
+        success: true,
+        message: 'Runtime config refreshed (no goals available for dry run)',
+      };
+    }
+
+    const dryRun = await client.executeInternalRuntimeDryRun({ goalId: targetGoalId });
+    const replaySummary = dryRun.replay?.summary as {
+      compile_run_id?: string;
+      runtime_run_id?: string;
+      total_events?: number;
+      facts_count?: number;
+      artifacts_count?: number;
+    } | undefined;
+    const compileRunId = replaySummary?.compile_run_id;
+    const runtimeRunId = replaySummary?.runtime_run_id;
+
+    let timelineStatus: string | undefined;
+    if (runtimeRunId) {
+      try {
+        const timeline = await client.getInternalRunTimeline(runtimeRunId, compileRunId);
+        timelineStatus = timeline.status;
+      } catch {
+        timelineStatus = undefined;
+      }
+    }
+
+    let returnedEvents = 0;
+    if (runtimeRunId) {
+      try {
+        const events = await client.getInternalRunEvents({
+          runId: runtimeRunId,
+          relatedRunId: compileRunId,
+          limit: 50,
+          offset: 0,
+        });
+        returnedEvents = events.returned;
+      } catch {
+        returnedEvents = 0;
+      }
+    }
+
+    let reexecutionSummary:
+      | {
+        attemptedSteps: number;
+        eligibleSteps: number;
+        executedSteps: number;
+        skippedSteps: number;
+      }
+      | undefined;
+
+    if (runtimeRunId || compileRunId) {
+      try {
+        const replayRunId = runtimeRunId ?? compileRunId;
+        const replayRelatedRunId = runtimeRunId ? compileRunId : undefined;
+        if (replayRunId) {
+          const reexecutionReplay = await client.replayInternalRun(
+            replayRunId,
+            replayRelatedRunId,
+            'reexecute_tools',
+            { maxAttempts: 20 }
+          );
+
+          if (reexecutionReplay.reexecution) {
+            reexecutionSummary = {
+              attemptedSteps: reexecutionReplay.reexecution.attempted_steps,
+              eligibleSteps: reexecutionReplay.reexecution.eligible_steps,
+              executedSteps: reexecutionReplay.reexecution.executed_steps,
+              skippedSteps: reexecutionReplay.reexecution.skipped.length,
+            };
+          }
+        }
+      } catch {
+        reexecutionSummary = undefined;
+      }
+    }
+
+    const snapshot: RuntimeSnapshot = {
+      id: `runtime-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: Date.now(),
+      goalId: targetGoalId,
+      runId: runtimeRunId ?? compileRunId,
+      source: 'runtime_refresh',
+      config: {
+        deterministicRuntimeEnabled: runtimeConfig.deterministicRuntimeEnabled,
+        planCompilerEnabled: runtimeConfig.planCompilerEnabled,
+        toolRoutingMode: runtimeConfig.toolRoutingMode,
+        runtimeRollout: runtimeConfig.runtimeRollout,
+      },
+      dryRun: {
+        ok: dryRun.ok,
+        status: dryRun.report?.status as string | undefined,
+        compileRunId,
+        runtimeRunId,
+        totalEvents: replaySummary?.total_events,
+        factsCount: replaySummary?.facts_count,
+        artifactsCount: replaySummary?.artifacts_count,
+        reexecution: reexecutionSummary,
+      },
+    };
+    ctx.app.addRuntimeSnapshot(snapshot);
+
+    ctx.app.addEvent('runtime.refreshed', {
+      schedulerMode: runtimeConfig.toolRoutingMode,
+      deterministicRuntimeEnabled: runtimeConfig.deterministicRuntimeEnabled,
+      planCompilerEnabled: runtimeConfig.planCompilerEnabled,
+      rolloutMode: rolloutStatus.mode,
+      shadowModeEnabled: rolloutStatus.rollout.shadowModeEnabled,
+      canaryPercent: rolloutStatus.rollout.canaryPercent,
+      dryRunStats: {
+        total: rolloutStatus.metrics.dryRunsTotal,
+        succeeded: rolloutStatus.metrics.dryRunsSucceeded,
+        failed: rolloutStatus.metrics.dryRunsFailed,
+      },
+      dryRunGoalId: targetGoalId,
+      dryRunOk: dryRun.ok,
+      dryRunStatus: dryRun.report?.status,
+      timelineStatus,
+      returnedEvents,
+      replayReexecution: reexecutionSummary,
+      compileRunId,
+      runtimeRunId,
+    });
+
+    return {
+      success: true,
+      message: `Runtime refreshed (goal: ${targetGoalId}, dryRun: ${dryRun.ok ? 'ok' : 'failed'})`,
+    };
+  } catch (err) {
+    return { success: false, error: `Runtime refresh failed: ${(err as Error).message}` };
   } finally {
     ctx.app.setActivityStatus('idle');
   }
@@ -232,7 +553,185 @@ const handlers: Record<string, CommandHandler> = {
   },
 
   refresh: async (_cmd, ctx) => {
+    const [mode, goalId] = _cmd.args;
+    if (mode === 'runtime') {
+      return refreshRuntimeData(ctx, goalId);
+    }
+
     return refreshSchedulerData(ctx);
+  },
+
+  rollout: async (cmd, ctx) => {
+    const client = ctx.gateway.client;
+    if (!client) {
+      return { success: false, error: 'Not connected to gateway' };
+    }
+
+    const [action, ...rest] = cmd.args;
+    if (!action) {
+      return {
+        success: false,
+        error: 'Rollout action is required. Usage: /rollout <status|set|rollback>',
+      };
+    }
+
+    const normalizedAction = action.toLowerCase();
+
+    try {
+      if (normalizedAction === 'status') {
+        const status = await client.getRuntimeRolloutStatus();
+        ctx.app.addEvent('runtime.rollout.status', status);
+        return {
+          success: true,
+          message: `Rollout mode=${status.mode}, shadow=${String(status.rollout.shadowModeEnabled)}, canary=${status.rollout.canaryPercent}% dryRuns=${status.metrics.dryRunsTotal}`,
+        };
+      }
+
+      if (normalizedAction === 'rollback') {
+        const status = await client.updateRuntimeRollout({ rollbackToLegacy: true });
+        ctx.app.addEvent('runtime.rollout.updated', {
+          action: 'rollback',
+          status,
+        });
+        return {
+          success: true,
+          message: 'Rollout rolled back to legacy mode',
+        };
+      }
+
+      if (normalizedAction === 'set') {
+        const payload = parseRolloutSetArgs(rest);
+        const status = await client.updateRuntimeRollout(payload);
+        ctx.app.addEvent('runtime.rollout.updated', {
+          action: 'set',
+          payload,
+          status,
+        });
+        return {
+          success: true,
+          message: `Rollout updated: mode=${status.mode}, shadow=${String(status.rollout.shadowModeEnabled)}, canary=${status.rollout.canaryPercent}%`,
+        };
+      }
+
+      return {
+        success: false,
+        error: 'Unsupported rollout action. Use status, set, or rollback.',
+      };
+    } catch (err) {
+      return { success: false, error: `Rollout command failed: ${(err as Error).message}` };
+    }
+  },
+
+  replay: async (cmd, ctx) => {
+    const client = ctx.gateway.client;
+    if (!client) {
+      return { success: false, error: 'Not connected to gateway' };
+    }
+
+    const [runId, secondArg, ...restArgs] = cmd.args;
+    if (!runId) {
+      return { success: false, error: 'Run ID is required. Usage: /replay <runId> [relatedRunId] [key=value...]' };
+    }
+
+    const hasRelatedRun = Boolean(secondArg) && !secondArg!.includes('=');
+    const relatedRunId = hasRelatedRun ? secondArg : undefined;
+    const optionTokens = hasRelatedRun ? restArgs : cmd.args.slice(1);
+
+    try {
+      const options = parseReplayOptions(optionTokens);
+      const mode = options.mode ?? 'reexecute_tools';
+      const [runtimeConfig, replay, replayEventsPage] = await Promise.all([
+        client.getInternalRuntimeConfig(),
+        client.replayInternalRun(runId, relatedRunId, mode, {
+          allowTools: options.allowTools,
+          maxAttempts: options.maxAttempts,
+          enableExecution: options.enableExecution,
+        }),
+        client.getInternalRunEvents({
+          runId,
+          ...(relatedRunId ? { relatedRunId } : {}),
+          limit: options.eventsLimit ?? 50,
+          ...(options.cursor !== undefined ? { cursor: options.cursor } : { offset: 0 }),
+        }),
+      ]);
+
+      const replaySummary = replay.summary as {
+        compile_run_id?: string;
+        runtime_run_id?: string;
+        total_events?: number;
+        facts_count?: number;
+        artifacts_count?: number;
+      };
+
+      ctx.app.addRuntimeSnapshot({
+        id: `replay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: Date.now(),
+        goalId: `replay:${runId}`,
+        runId,
+        source: 'replay_command',
+        config: {
+          deterministicRuntimeEnabled: runtimeConfig.deterministicRuntimeEnabled,
+          planCompilerEnabled: runtimeConfig.planCompilerEnabled,
+          toolRoutingMode: runtimeConfig.toolRoutingMode,
+          runtimeRollout: runtimeConfig.runtimeRollout,
+        },
+        dryRun: {
+          ok: replay.status !== 'failed',
+          status: replay.status,
+          compileRunId: replaySummary.compile_run_id,
+          runtimeRunId: replaySummary.runtime_run_id,
+          totalEvents: replaySummary.total_events,
+          factsCount: replaySummary.facts_count,
+          artifactsCount: replaySummary.artifacts_count,
+          reexecution: replay.reexecution
+            ? {
+              attemptedSteps: replay.reexecution.attempted_steps,
+              eligibleSteps: replay.reexecution.eligible_steps,
+              executedSteps: replay.reexecution.executed_steps,
+              skippedSteps: replay.reexecution.skipped.length,
+            }
+            : undefined,
+          replayPage: {
+            returned: replayEventsPage.returned,
+            offset: replayEventsPage.offset,
+            cursor: replayEventsPage.cursor,
+            nextOffset: replayEventsPage.nextOffset,
+            nextCursor: replayEventsPage.nextCursor,
+          },
+        },
+      });
+
+      ctx.app.addEvent('runtime.replay.executed', {
+        runId,
+        relatedRunId,
+        mode,
+        summary: replay.summary,
+        reexecution: replay.reexecution,
+        replayEventsPage: {
+          returned: replayEventsPage.returned,
+          offset: replayEventsPage.offset,
+          cursor: replayEventsPage.cursor,
+          nextOffset: replayEventsPage.nextOffset,
+          nextCursor: replayEventsPage.nextCursor,
+        },
+      });
+
+      const reexecution = replay.reexecution;
+      const reexecutionMessage = reexecution
+        ? ` attempted=${reexecution.attempted_steps} eligible=${reexecution.eligible_steps} executed=${reexecution.executed_steps} skipped=${reexecution.skipped.length}`
+        : '';
+
+      const paginationMessage = replayEventsPage.nextCursor
+        ? ` nextCursor=${replayEventsPage.nextCursor}`
+        : '';
+
+      return {
+        success: true,
+        message: `Replay ${mode} status=${replay.status} events=${replay.summary.total_events}${reexecutionMessage} pageReturned=${replayEventsPage.returned}${paginationMessage}`,
+      };
+    } catch (err) {
+      return { success: false, error: `Replay command failed: ${(err as Error).message}` };
+    }
   },
 
   // Navigation commands
@@ -275,6 +774,8 @@ const aliasMap: Record<string, string> = {
   s: 'status',
   rc: 'reconnect',
   rf: 'refresh',
+  ro: 'rollout',
+  rp: 'replay',
   d: 'dashboard',
   home: 'dashboard',
   ev: 'events',

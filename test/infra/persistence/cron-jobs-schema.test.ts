@@ -24,6 +24,35 @@ describe('WorkOrderDatabase schema', () => {
     expect(row).toBeDefined();
   });
 
+  it('includes goals.allowed_actions column in base schema', () => {
+    const row = db
+      .prepare("SELECT name FROM pragma_table_info('goals') WHERE name = 'allowed_actions'")
+      .get();
+
+    expect(row).toBeDefined();
+  });
+
+  it('creates run_events table and required indexes', () => {
+    const runEventsTable = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'run_events'")
+      .get();
+
+    const idxRunSequence = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_run_events_run_sequence'")
+      .get();
+    const idxRunTs = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_run_events_run_ts'")
+      .get();
+    const idxType = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_run_events_type'")
+      .get();
+
+    expect(runEventsTable).toBeDefined();
+    expect(idxRunSequence).toBeDefined();
+    expect(idxRunTs).toBeDefined();
+    expect(idxType).toBeDefined();
+  });
+
   it('enforces unique agent schedule per run', () => {
     const insert = db.prepare(`
       INSERT INTO cron_job_runs (

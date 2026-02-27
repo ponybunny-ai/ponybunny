@@ -957,11 +957,24 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
     },
     scheduler: {
       type: 'object',
-      required: ['tickIntervalMs', 'maxConcurrentGoals', 'agentsEnabled'],
+      required: [
+        'tickIntervalMs',
+        'maxConcurrentGoals',
+        'agentsEnabled',
+        'deterministicRuntimeEnabled',
+        'planCompilerEnabled',
+        'toolRoutingMode',
+      ],
       properties: {
         tickIntervalMs: { type: 'integer', minimum: 1 },
         maxConcurrentGoals: { type: 'integer', minimum: 1 },
         agentsEnabled: { type: 'boolean' },
+        deterministicRuntimeEnabled: { type: 'boolean' },
+        planCompilerEnabled: { type: 'boolean' },
+        toolRoutingMode: {
+          type: 'string',
+          enum: ['legacy', 'system_only', 'system_preferred', 'model_preferred'],
+        },
       },
       additionalProperties: false,
     },

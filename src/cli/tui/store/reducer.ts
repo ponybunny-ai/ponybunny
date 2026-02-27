@@ -137,6 +137,12 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case 'CLEAR_EVENTS':
       return { ...state, events: [] };
 
+    case 'ADD_RUNTIME_SNAPSHOT': {
+      const maxSnapshots = 20;
+      const runtimeSnapshots = [...state.runtimeSnapshots, action.payload].slice(-maxSnapshots);
+      return { ...state, runtimeSnapshots };
+    }
+
     case 'SET_ACTIVITY_STATUS':
       return { ...state, activityStatus: action.payload };
 

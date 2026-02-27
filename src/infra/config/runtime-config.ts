@@ -18,6 +18,19 @@ export interface PonyBunnyRuntimeConfig {
     tickIntervalMs: number;
     maxConcurrentGoals: number;
     agentsEnabled: boolean;
+    deterministicRuntimeEnabled: boolean;
+    planCompilerEnabled: boolean;
+    toolRoutingMode: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
+    runtimeRollout: {
+      shadowModeEnabled: boolean;
+      canaryPercent: number;
+      rollbackOnFailure: boolean;
+      lanePercents: {
+        dryRun: number;
+        compile: number;
+        replay: number;
+      };
+    };
   };
   agent: {
     mainAgentId: string;
@@ -68,6 +81,19 @@ export const DEFAULT_RUNTIME_CONFIG: PonyBunnyRuntimeConfig = {
     tickIntervalMs: 1000,
     maxConcurrentGoals: 5,
     agentsEnabled: true,
+    deterministicRuntimeEnabled: false,
+    planCompilerEnabled: false,
+    toolRoutingMode: 'legacy',
+    runtimeRollout: {
+      shadowModeEnabled: false,
+      canaryPercent: 0,
+      rollbackOnFailure: true,
+      lanePercents: {
+        dryRun: 0,
+        compile: 0,
+        replay: 0,
+      },
+    },
   },
   agent: {
     mainAgentId: 'lead',
@@ -141,9 +167,38 @@ function toStringValue(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim().length > 0 ? value : fallback;
 }
 
+function toToolRoutingMode(
+  value: unknown,
+  fallback: PonyBunnyRuntimeConfig['scheduler']['toolRoutingMode']
+): PonyBunnyRuntimeConfig['scheduler']['toolRoutingMode'] {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'legacy'
+    || normalized === 'system_only'
+    || normalized === 'system_preferred'
+    || normalized === 'model_preferred'
+  ) {
+    return normalized;
+  }
+
+  return fallback;
+}
+
 function toNumberInRange(value: unknown, fallback: number, min: number, max: number): number {
   const parsed = typeof value === 'number' ? value : Number(value);
   if (Number.isFinite(parsed)) {
+    return Math.min(max, Math.max(min, parsed));
+  }
+  return fallback;
+}
+
+function toIntegerInRange(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
+  if (Number.isInteger(parsed)) {
     return Math.min(max, Math.max(min, parsed));
   }
   return fallback;
@@ -210,6 +265,54 @@ export function resolveRuntimeConfigFromEnvironment(
         DEFAULT_RUNTIME_CONFIG.scheduler.maxConcurrentGoals
       ),
       agentsEnabled: toBoolean(env.PONY_SCHEDULER_AGENTS_ENABLED, DEFAULT_RUNTIME_CONFIG.scheduler.agentsEnabled),
+      deterministicRuntimeEnabled: toBoolean(
+        env.PONY_SCHEDULER_DETERMINISTIC_RUNTIME_ENABLED,
+        DEFAULT_RUNTIME_CONFIG.scheduler.deterministicRuntimeEnabled
+      ),
+      planCompilerEnabled: toBoolean(
+        env.PONY_SCHEDULER_PLAN_COMPILER_ENABLED,
+        DEFAULT_RUNTIME_CONFIG.scheduler.planCompilerEnabled
+      ),
+      toolRoutingMode: toToolRoutingMode(
+        env.PONY_SCHEDULER_TOOL_ROUTING_MODE,
+        DEFAULT_RUNTIME_CONFIG.scheduler.toolRoutingMode
+      ),
+      runtimeRollout: {
+        shadowModeEnabled: toBoolean(
+          env.PONY_SCHEDULER_ROLLOUT_SHADOW_ENABLED,
+          DEFAULT_RUNTIME_CONFIG.scheduler.runtimeRollout.shadowModeEnabled
+        ),
+        canaryPercent: toIntegerInRange(
+          env.PONY_SCHEDULER_ROLLOUT_CANARY_PERCENT,
+          DEFAULT_RUNTIME_CONFIG.scheduler.runtimeRollout.canaryPercent,
+          0,
+          100
+        ),
+        rollbackOnFailure: toBoolean(
+          env.PONY_SCHEDULER_ROLLOUT_ROLLBACK_ON_FAILURE,
+          DEFAULT_RUNTIME_CONFIG.scheduler.runtimeRollout.rollbackOnFailure
+        ),
+        lanePercents: {
+          dryRun: toIntegerInRange(
+            env.PONY_SCHEDULER_ROLLOUT_CANARY_PERCENT_DRY_RUN,
+            DEFAULT_RUNTIME_CONFIG.scheduler.runtimeRollout.lanePercents.dryRun,
+            0,
+            100
+          ),
+          compile: toIntegerInRange(
+            env.PONY_SCHEDULER_ROLLOUT_CANARY_PERCENT_COMPILE,
+            DEFAULT_RUNTIME_CONFIG.scheduler.runtimeRollout.lanePercents.compile,
+            0,
+            100
+          ),
+          replay: toIntegerInRange(
+            env.PONY_SCHEDULER_ROLLOUT_CANARY_PERCENT_REPLAY,
+            DEFAULT_RUNTIME_CONFIG.scheduler.runtimeRollout.lanePercents.replay,
+            0,
+            100
+          ),
+        },
+      },
     },
     agent: {
       mainAgentId: toStringValue(env.PONY_MAIN_AGENT_ID, DEFAULT_RUNTIME_CONFIG.agent.mainAgentId),
@@ -290,6 +393,11 @@ function deepMerge<T extends Record<string, unknown>>(base: T, value: unknown): 
 function normalizeConfig(raw: PonyBunnyRuntimeConfig): PonyBunnyRuntimeConfig {
   const memoryInput = (raw as unknown as { memory?: Record<string, unknown> }).memory ?? {};
   const personaInput = (raw as unknown as { persona?: Record<string, unknown> }).persona ?? {};
+  const schedulerInput = (raw as unknown as { scheduler?: Record<string, unknown> }).scheduler ?? {};
+  const runtimeRolloutInput =
+    (schedulerInput.runtimeRollout as Record<string, unknown> | undefined)
+    ?? (schedulerInput.runtime_rollout as Record<string, unknown> | undefined)
+    ?? {};
   const promptOverrideInput =
     (personaInput.promptOverrides as Record<string, unknown> | undefined)
     ?? (personaInput.prompt_overrides as Record<string, unknown> | undefined)
@@ -323,6 +431,57 @@ function normalizeConfig(raw: PonyBunnyRuntimeConfig): PonyBunnyRuntimeConfig {
         DEFAULT_RUNTIME_CONFIG.scheduler.maxConcurrentGoals
       ),
       agentsEnabled: toBoolean(raw.scheduler?.agentsEnabled, DEFAULT_RUNTIME_CONFIG.scheduler.agentsEnabled),
+      deterministicRuntimeEnabled: toBoolean(
+        raw.scheduler?.deterministicRuntimeEnabled,
+        DEFAULT_RUNTIME_CONFIG.scheduler.deterministicRuntimeEnabled
+      ),
+      planCompilerEnabled: toBoolean(
+        raw.scheduler?.planCompilerEnabled,
+        DEFAULT_RUNTIME_CONFIG.scheduler.planCompilerEnabled
+      ),
+      toolRoutingMode: toToolRoutingMode(
+        raw.scheduler?.toolRoutingMode,
+        DEFAULT_RUNTIME_CONFIG.scheduler.toolRoutingMode
+      ),
+      runtimeRollout: {
+        shadowModeEnabled: toBoolean(
+          runtimeRolloutInput.shadowModeEnabled ?? runtimeRolloutInput.shadow_mode_enabled,
+          DEFAULT_RUNTIME_CONFIG.scheduler.runtimeRollout.shadowModeEnabled
+        ),
+        canaryPercent: toIntegerInRange(
+          runtimeRolloutInput.canaryPercent ?? runtimeRolloutInput.canary_percent,
+          DEFAULT_RUNTIME_CONFIG.scheduler.runtimeRollout.canaryPercent,
+          0,
+          100
+        ),
+        rollbackOnFailure: toBoolean(
+          runtimeRolloutInput.rollbackOnFailure ?? runtimeRolloutInput.rollback_on_failure,
+          DEFAULT_RUNTIME_CONFIG.scheduler.runtimeRollout.rollbackOnFailure
+        ),
+        lanePercents: {
+          dryRun: toIntegerInRange(
+            (runtimeRolloutInput.lanePercents as Record<string, unknown> | undefined)?.dryRun
+              ?? (runtimeRolloutInput.lane_percents as Record<string, unknown> | undefined)?.dry_run,
+            DEFAULT_RUNTIME_CONFIG.scheduler.runtimeRollout.lanePercents.dryRun,
+            0,
+            100
+          ),
+          compile: toIntegerInRange(
+            (runtimeRolloutInput.lanePercents as Record<string, unknown> | undefined)?.compile
+              ?? (runtimeRolloutInput.lane_percents as Record<string, unknown> | undefined)?.compile,
+            DEFAULT_RUNTIME_CONFIG.scheduler.runtimeRollout.lanePercents.compile,
+            0,
+            100
+          ),
+          replay: toIntegerInRange(
+            (runtimeRolloutInput.lanePercents as Record<string, unknown> | undefined)?.replay
+              ?? (runtimeRolloutInput.lane_percents as Record<string, unknown> | undefined)?.replay,
+            DEFAULT_RUNTIME_CONFIG.scheduler.runtimeRollout.lanePercents.replay,
+            0,
+            100
+          ),
+        },
+      },
     },
     agent: {
       mainAgentId: toStringValue(raw.agent?.mainAgentId, DEFAULT_RUNTIME_CONFIG.agent.mainAgentId),

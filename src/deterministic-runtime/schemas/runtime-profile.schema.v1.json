@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ponybunny.ai/schemas/runtime-profile.v1.json",
+  "title": "PonyBunny Runtime Profile v1",
+  "type": "object",
+  "required": [
+    "profile_id",
+    "tool_routing",
+    "policy"
+  ],
+  "properties": {
+    "profile_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "display_name": {
+      "type": "string"
+    },
+    "tool_routing": {
+      "type": "object",
+      "required": [
+        "mode",
+        "resolution_order",
+        "allow_model_native_tools"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "system_only",
+            "system_preferred",
+            "model_preferred"
+          ]
+        },
+        "allow_model_native_tools": {
+          "type": "boolean"
+        },
+        "resolution_order": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "skills",
+              "mcp",
+              "local_tools",
+              "sandbox_scripts"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "policy": {
+      "type": "object",
+      "required": [
+        "default_network",
+        "default_filesystem_scope"
+      ],
+      "properties": {
+        "default_network": {
+          "enum": [
+            "deny",
+            "allow"
+          ]
+        },
+        "default_filesystem_scope": {
+          "type": "object",
+          "properties": {
+            "read": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "write": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "tool_allowlist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "tool_denylist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "require_human_approval_for": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "script_sandbox": {
+          "type": "object",
+          "properties": {
+            "allowed_languages": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "applescript",
+                  "bash"
+                ]
+              },
+              "uniqueItems": true
+            },
+            "no_network": {
+              "type": "boolean"
+            },
+            "allowed_apps": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            },
+            "max_runtime_ms": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 600000
+            },
+            "max_output_bytes": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 10485760
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

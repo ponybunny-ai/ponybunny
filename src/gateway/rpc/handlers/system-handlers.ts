@@ -13,6 +13,9 @@ import {
   getSchedulerCapabilities,
   type SchedulerCapabilities,
 } from '../../../infra/scheduler/capabilities.js';
+import { GatewayError } from '../../errors.js';
+import { loadRuntimeConfig, saveRuntimeConfig } from '../../../infra/config/runtime-config.js';
+import type { RuntimeRolloutMetricsSnapshot } from '../../runtime/runtime-rollout-telemetry.js';
 
 export interface SystemStatusResponse {
   timestamp: number;
@@ -62,12 +65,105 @@ export interface SystemStatusResponse {
     };
     capabilities?: SchedulerCapabilities;
   };
+  runtimeRollout: RuntimeRolloutStatusResponse;
 }
 
 export interface SystemCapabilitiesResponse {
   timestamp: number;
   schedulerConnected: boolean;
   capabilities: SchedulerCapabilities;
+}
+
+export interface RuntimeRolloutStatusResponse {
+  mode: 'legacy' | 'shadow' | 'canary';
+  schedulerFlags: {
+    deterministicRuntimeEnabled: boolean;
+    planCompilerEnabled: boolean;
+    toolRoutingMode: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
+  };
+  rollout: {
+    shadowModeEnabled: boolean;
+    canaryPercent: number;
+    rollbackOnFailure: boolean;
+    lanePercents: {
+      dryRun: number;
+      compile: number;
+      replay: number;
+    };
+  };
+  metrics: RuntimeRolloutMetricsSnapshot;
+}
+
+export interface RuntimeRolloutUpdateParams {
+  shadowModeEnabled?: boolean;
+  canaryPercent?: number;
+  lanePercents?: {
+    dryRun?: number;
+    compile?: number;
+    replay?: number;
+  };
+  rollbackOnFailure?: boolean;
+  rollbackToLegacy?: boolean;
+}
+
+export interface SystemHandlersOptions {
+  getRuntimeRolloutMetrics?: () => RuntimeRolloutMetricsSnapshot;
+}
+
+const EMPTY_RUNTIME_ROLLOUT_METRICS: RuntimeRolloutMetricsSnapshot = {
+  dryRunsTotal: 0,
+  dryRunsSucceeded: 0,
+  dryRunsFailed: 0,
+  successRate: 0,
+  averagePlanStepCount: 0,
+  averageChangedStepCount: 0,
+  failureCodeCounts: {},
+};
+
+function determineRolloutMode(
+  shadowModeEnabled: boolean,
+  canaryPercent: number,
+  lanePercents: RuntimeRolloutStatusResponse['rollout']['lanePercents']
+): RuntimeRolloutStatusResponse['mode'] {
+  if (shadowModeEnabled) {
+    return 'shadow';
+  }
+
+  const laneMax = Math.max(lanePercents.dryRun, lanePercents.compile, lanePercents.replay);
+  if (canaryPercent > 0 || laneMax > 0) {
+    return 'canary';
+  }
+
+  return 'legacy';
+}
+
+function toCanaryPercent(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100) {
+    return value;
+  }
+
+  throw GatewayError.invalidParams(`canaryPercent must be an integer between 0 and 100 (current=${fallback})`);
+}
+
+function buildRuntimeRolloutStatus(options?: SystemHandlersOptions): RuntimeRolloutStatusResponse {
+  const runtime = loadRuntimeConfig();
+  const rollout = runtime.scheduler.runtimeRollout;
+
+  return {
+    mode: determineRolloutMode(rollout.shadowModeEnabled, rollout.canaryPercent, rollout.lanePercents),
+    schedulerFlags: {
+      deterministicRuntimeEnabled: runtime.scheduler.deterministicRuntimeEnabled,
+      planCompilerEnabled: runtime.scheduler.planCompilerEnabled,
+      toolRoutingMode: runtime.scheduler.toolRoutingMode,
+    },
+    rollout: {
+      shadowModeEnabled: rollout.shadowModeEnabled,
+      canaryPercent: rollout.canaryPercent,
+      rollbackOnFailure: rollout.rollbackOnFailure,
+      lanePercents: rollout.lanePercents,
+    },
+    metrics: options?.getRuntimeRolloutMetrics?.() ?? EMPTY_RUNTIME_ROLLOUT_METRICS,
+  };
 }
 
 export function registerSystemHandlers(
@@ -79,7 +175,8 @@ export function registerSystemHandlers(
     daemonConnected: boolean;
     schedulerConnected: boolean;
   },
-  getToolRegistry?: () => ToolRegistry | undefined
+  getToolRegistry?: () => ToolRegistry | undefined,
+  options?: SystemHandlersOptions
 ): void {
   rpcHandler.register<Record<string, never>, SystemCapabilitiesResponse>(
     'system.capabilities',
@@ -125,6 +222,7 @@ export function registerSystemHandlers(
         scheduler: {
           isConnected: scheduler !== null || processInfo.scheduler.status === 'running',
         },
+        runtimeRollout: buildRuntimeRolloutStatus(options),
       };
 
       if (scheduler) {
@@ -152,6 +250,80 @@ export function registerSystemHandlers(
       }
 
       return response;
+    }
+  );
+
+  rpcHandler.register<Record<string, never>, RuntimeRolloutStatusResponse>(
+    'system.runtime.rollout.status',
+    ['read'],
+    async () => buildRuntimeRolloutStatus(options)
+  );
+
+  rpcHandler.register<RuntimeRolloutUpdateParams, RuntimeRolloutStatusResponse>(
+    'system.runtime.rollout.update',
+    ['admin'],
+    async (params) => {
+      const runtime = loadRuntimeConfig();
+
+      if (params.rollbackToLegacy === true) {
+        runtime.scheduler.deterministicRuntimeEnabled = false;
+        runtime.scheduler.planCompilerEnabled = false;
+        runtime.scheduler.toolRoutingMode = 'legacy';
+        runtime.scheduler.runtimeRollout.shadowModeEnabled = false;
+        runtime.scheduler.runtimeRollout.canaryPercent = 0;
+        runtime.scheduler.runtimeRollout.lanePercents = {
+          dryRun: 0,
+          compile: 0,
+          replay: 0,
+        };
+      }
+
+      if (params.shadowModeEnabled !== undefined) {
+        runtime.scheduler.runtimeRollout.shadowModeEnabled = params.shadowModeEnabled;
+      }
+
+      if (params.canaryPercent !== undefined) {
+        runtime.scheduler.runtimeRollout.canaryPercent = toCanaryPercent(
+          params.canaryPercent,
+          runtime.scheduler.runtimeRollout.canaryPercent
+        );
+      }
+
+      if (params.lanePercents) {
+        const nextLanePercents = {
+          ...runtime.scheduler.runtimeRollout.lanePercents,
+        };
+
+        if (params.lanePercents.dryRun !== undefined) {
+          nextLanePercents.dryRun = toCanaryPercent(
+            params.lanePercents.dryRun,
+            nextLanePercents.dryRun
+          );
+        }
+
+        if (params.lanePercents.compile !== undefined) {
+          nextLanePercents.compile = toCanaryPercent(
+            params.lanePercents.compile,
+            nextLanePercents.compile
+          );
+        }
+
+        if (params.lanePercents.replay !== undefined) {
+          nextLanePercents.replay = toCanaryPercent(
+            params.lanePercents.replay,
+            nextLanePercents.replay
+          );
+        }
+
+        runtime.scheduler.runtimeRollout.lanePercents = nextLanePercents;
+      }
+
+      if (params.rollbackOnFailure !== undefined) {
+        runtime.scheduler.runtimeRollout.rollbackOnFailure = params.rollbackOnFailure;
+      }
+
+      saveRuntimeConfig(runtime);
+      return buildRuntimeRolloutStatus(options);
     }
   );
 }

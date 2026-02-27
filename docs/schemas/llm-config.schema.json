@@ -331,6 +331,19 @@
             }
           ]
         },
+        "parameterSupport": {
+          "type": "object",
+          "properties": {
+            "temperature": { "type": "boolean" },
+            "topP": { "type": "boolean" },
+            "topK": { "type": "boolean" },
+            "topN": { "type": "boolean" }
+          }
+        },
+        "disallowedParams": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "features": {
           "type": "array",
           "items": {

@@ -116,8 +116,33 @@ export const commands: CommandDefinition[] = [
   {
     name: 'refresh',
     aliases: ['rf'],
-    description: 'Refresh scheduler data from gateway',
-    usage: '/refresh',
+    description: 'Refresh scheduler data or runtime diagnostics',
+    usage: '/refresh [runtime] [goalId]',
+    args: [
+      { name: 'mode', required: false, description: 'Use runtime to run deterministic runtime refresh' },
+      { name: 'goalId', required: false, description: 'Optional goal ID for runtime dry run' },
+    ],
+  },
+  {
+    name: 'rollout',
+    aliases: ['ro'],
+    description: 'Inspect or update runtime rollout settings',
+    usage: '/rollout <status|set|rollback> [key=value ...]',
+    args: [
+      { name: 'action', required: true, description: 'status, set, or rollback' },
+      { name: 'params', required: false, description: 'For set: shadow=<true|false> canary=<0-100> rollback=<true|false>' },
+    ],
+  },
+  {
+    name: 'replay',
+    aliases: ['rp'],
+    description: 'Run internal replay diagnostics for a run',
+    usage: '/replay <runId> [relatedRunId] [mode=reexecute_tools|facts_only] [allowTools=a,b] [maxAttempts=n] [enableExecution=true|false] [eventsLimit=n] [cursor=x]',
+    args: [
+      { name: 'runId', required: true, description: 'Primary run ID' },
+      { name: 'relatedRunId', required: false, description: 'Optional related run ID' },
+      { name: 'options', required: false, description: 'Optional key=value overrides' },
+    ],
   },
 
   // Navigation commands
@@ -205,7 +230,7 @@ export function getCommandsByCategory(): Record<string, CommandDefinition[]> {
       ['escalations', 'approvals', 'approve', 'reject'].includes(c.name)
     ),
     'System': commands.filter(c =>
-      ['status', 'ping', 'reconnect', 'refresh'].includes(c.name)
+      ['status', 'ping', 'reconnect', 'refresh', 'rollout', 'replay'].includes(c.name)
     ),
     'Navigation': commands.filter(c =>
       ['dashboard', 'events', 'help'].includes(c.name)

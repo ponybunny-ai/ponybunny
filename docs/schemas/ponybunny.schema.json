@@ -54,7 +54,11 @@
       "required": [
         "tickIntervalMs",
         "maxConcurrentGoals",
-        "agentsEnabled"
+        "agentsEnabled",
+        "deterministicRuntimeEnabled",
+        "planCompilerEnabled",
+        "toolRoutingMode",
+        "runtimeRollout"
       ],
       "properties": {
         "tickIntervalMs": {
@@ -67,6 +71,70 @@
         },
         "agentsEnabled": {
           "type": "boolean"
+        },
+        "deterministicRuntimeEnabled": {
+          "type": "boolean"
+        },
+        "planCompilerEnabled": {
+          "type": "boolean"
+        },
+        "toolRoutingMode": {
+          "type": "string",
+          "enum": [
+            "legacy",
+            "system_only",
+            "system_preferred",
+            "model_preferred"
+          ]
+        },
+        "runtimeRollout": {
+          "type": "object",
+          "required": [
+            "shadowModeEnabled",
+            "canaryPercent",
+            "rollbackOnFailure",
+            "lanePercents"
+          ],
+          "properties": {
+            "shadowModeEnabled": {
+              "type": "boolean"
+            },
+            "canaryPercent": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "rollbackOnFailure": {
+              "type": "boolean"
+            },
+            "lanePercents": {
+              "type": "object",
+              "required": [
+                "dryRun",
+                "compile",
+                "replay"
+              ],
+              "properties": {
+                "dryRun": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "compile": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "replay": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

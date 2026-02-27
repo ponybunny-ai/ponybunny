@@ -6,7 +6,7 @@ import * as React from 'react';
 import { createContext, useContext, useReducer, useCallback, useMemo, useEffect, useRef } from 'react';
 import { appReducer } from '../store/reducer.js';
 import { actions, type AppAction } from '../store/actions.js';
-import { initialState, type AppState, type ViewType, type ModalType, type SimpleMessage } from '../store/types.js';
+import { initialState, type AppState, type RuntimeSnapshot, type ViewType, type ModalType, type SimpleMessage } from '../store/types.js';
 import type { Goal, WorkItem, Escalation } from '../../../work-order/types/index.js';
 import type { SchedulerCapabilitiesResponse } from '../../gateway/tui-gateway-client.js';
 
@@ -24,6 +24,7 @@ export interface AppContextValue {
   setActivityStatus: (status: string) => void;
   addEvent: (event: string, data: unknown) => void;
   clearEvents: () => void;
+  addRuntimeSnapshot: (snapshot: RuntimeSnapshot) => void;
 
   // Goal methods
   setGoals: (goals: Goal[]) => void;
@@ -131,6 +132,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     dispatch(actions.clearEvents());
   }, []);
 
+  const addRuntimeSnapshot = useCallback((snapshot: RuntimeSnapshot) => {
+    dispatch(actions.addRuntimeSnapshot(snapshot));
+  }, []);
+
   // Goal methods
   const setGoals = useCallback((goals: Goal[]) => {
     dispatch(actions.setGoals(goals));
@@ -198,6 +203,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     setActivityStatus,
     addEvent,
     clearEvents,
+    addRuntimeSnapshot,
     setGoals,
     addGoal,
     updateGoal,
@@ -221,6 +227,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     setActivityStatus,
     addEvent,
     clearEvents,
+    addRuntimeSnapshot,
     setGoals,
     addGoal,
     updateGoal,

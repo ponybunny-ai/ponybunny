@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { useAppContext } from '../../context/app-context.js';
 import { useGatewayContext } from '../../context/gateway-context.js';
-import type { SimpleMessage } from '../../store/types.js';
+import type { RuntimeSnapshot, SimpleMessage } from '../../store/types.js';
 
 type RunRecord = {
   id: string;
@@ -61,6 +61,29 @@ function latestSummary(message: SimpleMessage, runs: RunRecord[]): string {
   return line || latestRun.execution_log.slice(0, 180);
 }
 
+function findRuntimeSnapshot(
+  runtimeSnapshots: RuntimeSnapshot[],
+  goalId?: string,
+  runId?: string
+): RuntimeSnapshot | undefined {
+  if (runId) {
+    for (let i = runtimeSnapshots.length - 1; i >= 0; i -= 1) {
+      if (runtimeSnapshots[i].runId === runId) {
+        return runtimeSnapshots[i];
+      }
+    }
+  }
+
+  if (goalId) {
+    for (let i = runtimeSnapshots.length - 1; i >= 0; i -= 1) {
+      if (runtimeSnapshots[i].goalId === goalId) {
+        return runtimeSnapshots[i];
+      }
+    }
+  }
+  return runtimeSnapshots[runtimeSnapshots.length - 1];
+}
+
 export const TasksView: React.FC = () => {
   const { state } = useAppContext();
   const gateway = useGatewayContext();
@@ -70,6 +93,7 @@ export const TasksView: React.FC = () => {
   const tasks = useMemo(() => {
     return [...state.simpleMessages].sort((a, b) => b.timestamp - a.timestamp);
   }, [state.simpleMessages]);
+  const runtimeSnapshots = state.runtimeSnapshots;
 
   useEffect(() => {
     if (selectedIndex >= tasks.length) {
@@ -113,6 +137,8 @@ export const TasksView: React.FC = () => {
     }
   });
 
+  const selectedRuntimeSnapshot = findRuntimeSnapshot(runtimeSnapshots, selected?.goalId, selected?.runId);
+
   if (tasks.length === 0) {
     return (
       <Box flexDirection="column" flexGrow={1}>
@@ -120,6 +146,16 @@ export const TasksView: React.FC = () => {
         <Box marginTop={1}>
           <Text dimColor>No tasks yet. Submit a request in the input bar to create one.</Text>
         </Box>
+        {runtimeSnapshots.length > 0 && (
+          <Box marginTop={1} flexDirection="column">
+            <Text bold color="cyan">Runtime Diagnostics ({runtimeSnapshots.length})</Text>
+            {runtimeSnapshots.slice(-4).reverse().map((snapshot) => (
+              <Text key={snapshot.id} dimColor>
+                - {fmtTs(snapshot.timestamp)} goal={snapshot.goalId} dryRun={snapshot.dryRun.ok ? 'ok' : 'failed'} status={snapshot.dryRun.status || '-'} events={snapshot.dryRun.totalEvents ?? '-'}
+              </Text>
+            ))}
+          </Box>
+        )}
       </Box>
     );
   }
@@ -199,6 +235,28 @@ export const TasksView: React.FC = () => {
                     - {action.label}
                   </Text>
                 ))
+              )}
+            </Box>
+
+            <Box marginTop={1} flexDirection="column">
+              <Text bold>Runtime Diagnostics</Text>
+              {!selectedRuntimeSnapshot ? (
+                <Text dimColor>- No runtime dry-run snapshot yet. Use /refresh runtime [goalId].</Text>
+              ) : (
+                <>
+                  <Text dimColor>- Snapshot: {fmtTs(selectedRuntimeSnapshot.timestamp)}</Text>
+                  <Text dimColor>- Source: {selectedRuntimeSnapshot.source === 'runtime_refresh' ? 'runtime refresh' : 'replay command'}</Text>
+                  <Text dimColor>- Goal: {selectedRuntimeSnapshot.goalId}</Text>
+                <Text dimColor>- Mode: {selectedRuntimeSnapshot.config.toolRoutingMode}</Text>
+                <Text dimColor>- Flags: deterministic={String(selectedRuntimeSnapshot.config.deterministicRuntimeEnabled)} compiler={String(selectedRuntimeSnapshot.config.planCompilerEnabled)}</Text>
+                <Text dimColor>- Rollout: shadow={String(selectedRuntimeSnapshot.config.runtimeRollout.shadowModeEnabled)} canary={selectedRuntimeSnapshot.config.runtimeRollout.canaryPercent}% rollback={String(selectedRuntimeSnapshot.config.runtimeRollout.rollbackOnFailure)}</Text>
+                <Text dimColor>- LaneCanary: dryRun={selectedRuntimeSnapshot.config.runtimeRollout.lanePercents.dryRun}% compile={selectedRuntimeSnapshot.config.runtimeRollout.lanePercents.compile}% replay={selectedRuntimeSnapshot.config.runtimeRollout.lanePercents.replay}%</Text>
+                <Text dimColor>- DryRun: {selectedRuntimeSnapshot.dryRun.ok ? 'ok' : 'failed'} status={selectedRuntimeSnapshot.dryRun.status || '-'}</Text>
+                  <Text dimColor>- Runs: compile={selectedRuntimeSnapshot.dryRun.compileRunId || '-'} runtime={selectedRuntimeSnapshot.dryRun.runtimeRunId || '-'}</Text>
+                  <Text dimColor>- Replay: events={selectedRuntimeSnapshot.dryRun.totalEvents ?? '-'} facts={selectedRuntimeSnapshot.dryRun.factsCount ?? '-'} artifacts={selectedRuntimeSnapshot.dryRun.artifactsCount ?? '-'}</Text>
+                  <Text dimColor>- ReplayPage: returned={selectedRuntimeSnapshot.dryRun.replayPage?.returned ?? '-'} offset={selectedRuntimeSnapshot.dryRun.replayPage?.offset ?? '-'} nextCursor={selectedRuntimeSnapshot.dryRun.replayPage?.nextCursor ?? '-'}</Text>
+                  <Text dimColor>- Reexecute: attempted={selectedRuntimeSnapshot.dryRun.reexecution?.attemptedSteps ?? '-'} eligible={selectedRuntimeSnapshot.dryRun.reexecution?.eligibleSteps ?? '-'} executed={selectedRuntimeSnapshot.dryRun.reexecution?.executedSteps ?? '-'} skipped={selectedRuntimeSnapshot.dryRun.reexecution?.skippedSteps ?? '-'}</Text>
+                </>
               )}
             </Box>
           </>

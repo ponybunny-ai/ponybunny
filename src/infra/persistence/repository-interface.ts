@@ -1,4 +1,5 @@
 import type { Goal, WorkItem, Run, Artifact, Decision, Escalation, ContextPack } from '../../domain/types.js';
+import type { DeterministicRunEvent, DeterministicRunEventType } from '../../deterministic-runtime/run-events.js';
 
 export interface IWorkOrderRepository {
   initialize(): Promise<void>;
@@ -19,6 +20,22 @@ export interface IWorkOrderRepository {
   getRun(id: string): Run | undefined;
   completeRun(id: string, params: CompleteRunParams): void;
   getRunsByWorkItem(workItemId: string): Run[];
+
+  appendRunEvent?(event: {
+    run_id: string;
+    plan_id?: string;
+    event_type: DeterministicRunEventType;
+    payload: Record<string, unknown>;
+    ts_ms?: number;
+    event_id?: string;
+  }): DeterministicRunEvent;
+  listRunEvents?(params: {
+    run_id?: string;
+    run_ids?: string[];
+    event_types?: DeterministicRunEventType[];
+    limit?: number;
+    offset?: number;
+  }): DeterministicRunEvent[];
   
   updateGoalSpending(goalId: string, tokens: number, timeMinutes: number, costUsd: number): void;
   incrementWorkItemRetry(workItemId: string): void;
@@ -47,6 +64,7 @@ export interface CreateGoalParams {
   description: string;
   success_criteria: Goal['success_criteria'];
   priority?: number;
+  allowed_actions?: Goal['allowed_actions'];
   budget_tokens?: number;
   budget_time_minutes?: number;
   budget_cost_usd?: number;

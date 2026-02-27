@@ -81,6 +81,21 @@ describe('OpenAIProtocolAdapter', () => {
       expect(result.max_output_tokens).toBe(900);
       expect(Array.isArray(result.input)).toBe(true);
     });
+
+    it('should omit temperature for gpt-5 family requests', () => {
+      const messages: LLMMessage[] = [{ role: 'user', content: 'Hello' }];
+
+      for (const model of ['gpt-5', 'gpt-5-mini', 'gpt-5-nano']) {
+        const result = adapter.formatRequest(messages, {
+          model,
+          maxTokens: 900,
+          openaiOperation: 'responses',
+        }) as Record<string, unknown>;
+
+        expect(result.temperature).toBeUndefined();
+        expect(result.max_output_tokens).toBe(900);
+      }
+    });
   });
 
   describe('parseResponse', () => {

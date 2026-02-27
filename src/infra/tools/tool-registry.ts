@@ -8,12 +8,51 @@ export interface ToolContext {
   workspaceRoot?: string;
 }
 
+export type ToolRefScheme = 'skills' | 'mcp' | 'local' | 'script';
+
+export type ToolRoutingMode = 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
+
+export type ToolManifestSideEffect = 'none' | 'idempotent' | 'non_idempotent' | 'ui_automation';
+
+export interface ToolManifestPermissions {
+  network?: 'deny' | 'allow';
+  filesystem?: {
+    read?: string[];
+    write?: string[];
+  };
+  apps?: string[];
+}
+
+export interface ToolManifestV1 {
+  tool_ref: `${ToolRefScheme}://${string}`;
+  display_name: string;
+  description?: string;
+  version?: string;
+  tags?: string[];
+  input_schema: {
+    type: 'object';
+    properties?: Record<string, unknown>;
+    required?: string[];
+  };
+  output_schema: {
+    type?: string;
+    properties?: Record<string, unknown>;
+    required?: string[];
+    [key: string]: unknown;
+  };
+  side_effect: ToolManifestSideEffect;
+  supports_idempotency_key?: boolean;
+  default_timeout_ms?: number;
+  permissions: ToolManifestPermissions;
+}
+
 export interface ToolDefinition {
   name: string;
   category: 'filesystem' | 'shell' | 'network' | 'database' | 'git' | 'code';
   riskLevel: 'safe' | 'moderate' | 'dangerous';
   requiresApproval: boolean;
   description: string;
+  manifest?: ToolManifestV1;
   execute(args: Record<string, any>, context: ToolContext): Promise<string>;
 }
 

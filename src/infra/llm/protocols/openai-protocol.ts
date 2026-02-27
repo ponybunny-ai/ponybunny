@@ -23,6 +23,10 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
     return normalized.startsWith('gpt-5');
   }
 
+  private shouldSendTemperature(model: string): boolean {
+    return !this.shouldUseMaxCompletionTokens(model);
+  }
+
   /**
    * Reset streaming state (call before each new stream)
    */
@@ -89,8 +93,11 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
         model: config.model,
         input: inputItems,
         max_output_tokens: config.maxTokens || 4000,
-        temperature: config.temperature ?? 0.7,
       };
+
+      if (this.shouldSendTemperature(config.model)) {
+        requestBody.temperature = config.temperature ?? 0.7;
+      }
 
       if (config.tools && config.tools.length > 0) {
         requestBody.tools = config.tools.map(tool => ({
@@ -115,8 +122,11 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
     const requestBody: any = {
       model: config.model,
       messages: openaiMessages,
-      temperature: config.temperature ?? 0.7,
     };
+
+    if (this.shouldSendTemperature(config.model)) {
+      requestBody.temperature = config.temperature ?? 0.7;
+    }
 
     if (this.shouldUseMaxCompletionTokens(config.model)) {
       requestBody.max_completion_tokens = config.maxTokens || 4000;

@@ -1,5 +1,6 @@
 import type {
   IWorkOrderRepository,
+  CreateGoalParams,
   CronJob,
   CronJobRun,
   CronJobRunStatus,
@@ -22,6 +23,7 @@ import type {
   GoalStatus, WorkItemStatus, SuccessCriterion, VerificationPlan, ContextSnapshot,
   EscalationContext, DecisionOption
 } from '../../work-order/types/index.js';
+import type { DeterministicRunEvent, DeterministicRunEventType } from '../../deterministic-runtime/run-events.js';
 
 interface CronJobRow {
   agent_id: string;
@@ -49,6 +51,16 @@ interface CronJobRunRow {
   created_at_ms: number;
   goal_id: string | null;
   status: CronJobRunStatus;
+}
+
+interface RunEventRow {
+  sequence: number;
+  event_id: string;
+  run_id: string;
+  plan_id: string | null;
+  event_type: string;
+  ts_ms: number;
+  payload_json: string;
 }
 
 export class WorkOrderDatabase implements IWorkOrderRepository {
@@ -91,7 +103,34 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     const schema = readFileSync(resolvedSchemaPath, 'utf-8');
     
     this.db.exec(schema);
+    this.applySchemaMigrationV2();
     this.isInitialized = true;
+  }
+
+  private applySchemaMigrationV2(): void {
+    if (this.hasColumn('goals', 'allowed_actions')) {
+      return;
+    }
+
+    const migrationCandidates = [
+      join(WorkOrderDatabase.MODULE_DIR, 'schema-migration-v2.sql'),
+      join(process.cwd(), 'src', 'infra', 'persistence', 'schema-migration-v2.sql'),
+    ];
+
+    const migrationPath = migrationCandidates.find((candidatePath) => existsSync(candidatePath));
+    if (!migrationPath) {
+      this.db.exec('ALTER TABLE goals ADD COLUMN allowed_actions TEXT');
+      this.db.exec("UPDATE goals SET allowed_actions = '[\"read_file\",\"write_file\",\"run_command\"]' WHERE allowed_actions IS NULL");
+      return;
+    }
+
+    const migrationSql = readFileSync(migrationPath, 'utf-8');
+    this.db.exec(migrationSql);
+  }
+
+  private hasColumn(tableName: string, columnName: string): boolean {
+    const rows = this.db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+    return rows.some((row) => row.name === columnName);
   }
 
   close(): void {
@@ -102,6 +141,7 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     return {
       ...row,
       success_criteria: JSON.parse(row.success_criteria),
+      allowed_actions: row.allowed_actions ? JSON.parse(row.allowed_actions) : undefined,
       tags: row.tags ? JSON.parse(row.tags) : undefined,
       context: row.context ? JSON.parse(row.context) : undefined,
       parent_goal_id: row.parent_goal_id || undefined,
@@ -208,14 +248,19 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     };
   }
 
-  createGoal(params: {
-    title: string;
-    description: string;
-    success_criteria: SuccessCriterion[];
-    priority?: number;
-    budget_tokens?: number;
-    budget_time_minutes?: number;
-    budget_cost_usd?: number;
+  private parseRunEventRow(row: RunEventRow): DeterministicRunEvent {
+    return {
+      event_id: row.event_id,
+      sequence: row.sequence,
+      run_id: row.run_id,
+      plan_id: row.plan_id ?? undefined,
+      event_type: row.event_type as DeterministicRunEventType,
+      ts_ms: row.ts_ms,
+      payload: JSON.parse(row.payload_json) as Record<string, unknown>,
+    };
+  }
+
+  createGoal(params: CreateGoalParams & {
     parent_goal_id?: string;
     tags?: string[];
     context?: Record<string, any>;
@@ -230,6 +275,7 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
       success_criteria: params.success_criteria,
       status: 'queued',
       priority: params.priority ?? 50,
+      allowed_actions: params.allowed_actions,
       budget_tokens: params.budget_tokens,
       budget_time_minutes: params.budget_time_minutes,
       budget_cost_usd: params.budget_cost_usd,
@@ -244,9 +290,9 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     const stmt = this.db.prepare(`
       INSERT INTO goals (
         id, created_at, updated_at, title, description, success_criteria,
-        status, priority, budget_tokens, budget_time_minutes, budget_cost_usd,
+        status, priority, allowed_actions, budget_tokens, budget_time_minutes, budget_cost_usd,
         spent_tokens, spent_time_minutes, spent_cost_usd, parent_goal_id, tags, context
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -258,6 +304,7 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
       JSON.stringify(goal.success_criteria),
       goal.status,
       goal.priority,
+      goal.allowed_actions ? JSON.stringify(goal.allowed_actions) : null,
       goal.budget_tokens ?? null,
       goal.budget_time_minutes ?? null,
       goal.budget_cost_usd ?? null,
@@ -551,6 +598,95 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     const stmt = this.db.prepare('SELECT * FROM runs WHERE work_item_id = ? ORDER BY run_sequence ASC');
     const rows = stmt.all(work_item_id) as RunRow[];
     return rows.map(r => this.parseRunRow(r));
+  }
+
+  appendRunEvent(event: {
+    run_id: string;
+    plan_id?: string;
+    event_type: DeterministicRunEventType;
+    payload: Record<string, unknown>;
+    ts_ms?: number;
+    event_id?: string;
+  }): DeterministicRunEvent {
+    const materialized = {
+      event_id: event.event_id ?? randomUUID(),
+      run_id: event.run_id,
+      plan_id: event.plan_id,
+      event_type: event.event_type,
+      ts_ms: event.ts_ms ?? Date.now(),
+      payload: event.payload,
+    };
+
+    const stmt = this.db.prepare(`
+      INSERT INTO run_events (
+        event_id, run_id, plan_id, event_type, ts_ms, payload_json
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      materialized.event_id,
+      materialized.run_id,
+      materialized.plan_id ?? null,
+      materialized.event_type,
+      materialized.ts_ms,
+      JSON.stringify(materialized.payload)
+    );
+
+    const row = this.db
+      .prepare('SELECT * FROM run_events WHERE event_id = ?')
+      .get(materialized.event_id) as RunEventRow;
+
+    return this.parseRunEventRow(row);
+  }
+
+  listRunEvents(params: {
+    run_id?: string;
+    run_ids?: string[];
+    event_types?: DeterministicRunEventType[];
+    limit?: number;
+    offset?: number;
+  }): DeterministicRunEvent[] {
+    if (!params.run_id && (!params.run_ids || params.run_ids.length === 0)) {
+      return [];
+    }
+
+    const queryParams: Array<string | number> = [];
+    let query = 'SELECT * FROM run_events WHERE 1=1';
+
+    if (params.run_id) {
+      query += ' AND run_id = ?';
+      queryParams.push(params.run_id);
+    }
+
+    if (params.run_ids && params.run_ids.length > 0) {
+      const uniqueRunIds = [...new Set(params.run_ids)];
+      const placeholders = uniqueRunIds.map(() => '?').join(', ');
+      query += ` AND run_id IN (${placeholders})`;
+      queryParams.push(...uniqueRunIds);
+    }
+
+    if (params.event_types && params.event_types.length > 0) {
+      const placeholders = params.event_types.map(() => '?').join(', ');
+      query += ` AND event_type IN (${placeholders})`;
+      queryParams.push(...params.event_types);
+    }
+
+    query += ' ORDER BY ts_ms ASC, sequence ASC';
+
+    if (params.limit && params.limit > 0) {
+      query += ' LIMIT ?';
+      queryParams.push(params.limit);
+      if (params.offset !== undefined && params.offset > 0) {
+        query += ' OFFSET ?';
+        queryParams.push(params.offset);
+      }
+    } else if (params.offset !== undefined && params.offset > 0) {
+      query += ' LIMIT -1 OFFSET ?';
+      queryParams.push(params.offset);
+    }
+
+    const rows = this.db.prepare(query).all(...queryParams) as RunEventRow[];
+    return rows.map((row) => this.parseRunEventRow(row));
   }
 
   getRepeatedErrorSignatures(work_item_id: string, threshold = 3): string[] {

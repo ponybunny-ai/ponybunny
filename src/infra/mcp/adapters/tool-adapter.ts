@@ -28,6 +28,27 @@ export function adaptMCPTool(
     riskLevel: 'moderate', // External tools are moderate risk
     requiresApproval: false, // Can be overridden by allowlist
     description: `[MCP:${serverName}] ${mcpTool.description}`,
+    manifest: {
+      tool_ref: `mcp://${serverName}/${mcpTool.name}`,
+      display_name: mcpTool.name,
+      description: mcpTool.description,
+      version: 'v1',
+      tags: ['mcp', serverName],
+      input_schema: {
+        type: 'object',
+        properties: mcpTool.inputSchema.properties,
+        required: mcpTool.inputSchema.required,
+      },
+      output_schema: {
+        type: 'string',
+      },
+      side_effect: 'idempotent',
+      supports_idempotency_key: true,
+      default_timeout_ms: 60000,
+      permissions: {
+        network: 'allow',
+      },
+    },
 
     async execute(args: Record<string, any>, context: ToolContext): Promise<string> {
       const connectionManager = getMCPConnectionManager();

@@ -18,6 +18,9 @@ export interface SchedulerConfig {
   autoStart: boolean;
   /** Enable debug logging */
   debug: boolean;
+  deterministicRuntimeEnabled: boolean;
+  planCompilerEnabled: boolean;
+  toolRoutingMode: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
 }
 
 export interface GoalExecutionState {
