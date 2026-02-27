@@ -1,16 +1,21 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-let cachedBanner: string | null | undefined;
+const cachedBanners = new Map<number, string | null>();
 
-export function getAsciiArtBanner(): string | null {
-  if (cachedBanner !== undefined) {
-    return cachedBanner;
+const DARK_GREEN = '\u001b[38;2;11;107;11m';
+const LIGHT_GREEN = '\u001b[38;2;111;230;111m';
+const COLOR_RESET = '\u001b[0m';
+
+export function getAsciiArtBanner(width?: number): string | null {
+  const cacheKey = width ?? -1;
+  if (cachedBanners.has(cacheKey)) {
+    return cachedBanners.get(cacheKey) ?? null;
   }
 
   const candidates = [
-    path.join(process.cwd(), 'docs', 'ascii-art-pagga.txt'),
-    path.join(process.cwd(), '..', 'docs', 'ascii-art-pagga.txt'),
+    path.join(process.cwd(), 'docs', 'ascii-art-draw.txt'),
+    path.join(process.cwd(), '..', 'docs', 'ascii-art-draw.txt'),
   ];
 
   for (const filePath of candidates) {
@@ -21,14 +26,32 @@ export function getAsciiArtBanner(): string | null {
 
       const content = fs.readFileSync(filePath, 'utf-8').trimEnd();
       if (content.length > 0) {
-        cachedBanner = content;
-        return cachedBanner;
+        const centered = width ? centerAsciiArt(content, width) : content;
+        const colored = colorizeAsciiArt(centered);
+        cachedBanners.set(cacheKey, colored);
+        return colored;
       }
     } catch {
       continue;
     }
   }
 
-  cachedBanner = null;
+  cachedBanners.set(cacheKey, null);
   return null;
+}
+
+function colorizeAsciiArt(content: string): string {
+  return content
+    .replace(/█+/g, (match) => `${DARK_GREEN}${match}${COLOR_RESET}`)
+    .replace(/░+/g, (match) => `${LIGHT_GREEN}${match}${COLOR_RESET}`);
+}
+
+function centerAsciiArt(content: string, width: number): string {
+  return content
+    .split('\n')
+    .map((line) => {
+      const padSize = Math.max(0, Math.floor((width - line.length) / 2));
+      return `${' '.repeat(padSize)}${line}`;
+    })
+    .join('\n');
 }

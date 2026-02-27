@@ -32,6 +32,7 @@ import { registerConversationHandlers } from './rpc/handlers/conversation-handle
 import { registerPersonaHandlers } from './rpc/handlers/persona-handlers.js';
 import { registerAuditHandlers } from './rpc/handlers/audit-handlers.js';
 import { registerSystemHandlers } from './rpc/handlers/system-handlers.js';
+import { registerInternalRuntimeHandlers } from './rpc/handlers/internal-runtime-handlers.js';
 import { setupDebugBroadcaster } from './debug-broadcaster.js';
 
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
@@ -371,6 +372,20 @@ export class GatewayServer {
       () => this.toolRegistry
     );
 
+    registerInternalRuntimeHandlers(
+      this.rpcHandler,
+      this.repository,
+      () => {
+        const runtime = loadRuntimeConfig();
+        return {
+          deterministicRuntimeEnabled: runtime.scheduler.deterministicRuntimeEnabled,
+          planCompilerEnabled: runtime.scheduler.planCompilerEnabled,
+          toolRoutingMode: runtime.scheduler.toolRoutingMode,
+        };
+      },
+      () => this.toolRegistry
+    );
+
     this.rpcHandler.register('system.ping', [], async () => ({ pong: Date.now() }));
     this.rpcHandler.register('system.methods', ['read'], async (_, session) => ({
       methods: this.rpcHandler.listAccessibleMethods(session),
@@ -430,13 +445,14 @@ export class GatewayServer {
           }
 
           // Display startup configuration
-          console.log('═══════════════════════════════════════════════════════');
-          const asciiArt = getAsciiArtBanner();
+          const bannerSeparator = '═══════════════════════════════════════════════════════';
+          console.log(bannerSeparator);
+          const asciiArt = getAsciiArtBanner(bannerSeparator.length);
           if (asciiArt) {
             console.log(asciiArt);
           }
           console.log('🌐 PonyBunny Gateway Server Started');
-          console.log('═══════════════════════════════════════════════════════');
+          console.log(bannerSeparator);
           console.log(`  Address: ws://${this.config.host}:${this.config.port}`);
           if (this.dbPath) {
             console.log(`  Database: ${this.dbPath}`);
@@ -451,7 +467,7 @@ export class GatewayServer {
           console.log(`  Auth Timeout: ${this.config.authTimeoutMs}ms`);
           console.log(`  TLS: ${this.config.enableTls ? 'Enabled' : 'Disabled'}`);
           console.log(`  Debug Mode: ${this.debugMode ? 'Enabled' : 'Disabled'}`);
-          console.log('═══════════════════════════════════════════════════════\n');
+          console.log(`${bannerSeparator}\n`);
 
           resolve();
         });

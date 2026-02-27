@@ -191,6 +191,9 @@ async function runScheduler(
         debug: debugMode,
         tickIntervalMs,
         maxConcurrentGoals,
+        deterministicRuntimeEnabled: runtimeConfig.scheduler.deterministicRuntimeEnabled,
+        planCompilerEnabled: runtimeConfig.scheduler.planCompilerEnabled,
+        toolRoutingMode: runtimeConfig.scheduler.toolRoutingMode,
         agentsEnabled,
         mainAgentId,
         personaEnabled,
@@ -224,18 +227,22 @@ async function runScheduler(
       mode,
     });
 
-    console.log('═══════════════════════════════════════════════════════');
-    const asciiArt = getAsciiArtBanner();
+    const bannerSeparator = '═══════════════════════════════════════════════════════';
+    console.log(bannerSeparator);
+    const asciiArt = getAsciiArtBanner(bannerSeparator.length);
     if (asciiArt) {
       console.log(asciiArt);
     }
     console.log('⚙️  PonyBunny Scheduler Daemon Started');
-    console.log('═══════════════════════════════════════════════════════');
+    console.log(bannerSeparator);
     console.log(`  PID: ${process.pid}`);
     console.log(`  Database: ${dbPath}`);
     console.log(`  IPC Socket: ${socketPath}`);
     console.log(`  Tick Interval: ${tickIntervalMs}ms`);
     console.log(`  Max Concurrent Goals: ${maxConcurrentGoals}`);
+    console.log(`  Deterministic Runtime: ${runtimeConfig.scheduler.deterministicRuntimeEnabled ? 'Enabled' : 'Disabled'}`);
+    console.log(`  Plan Compiler: ${runtimeConfig.scheduler.planCompilerEnabled ? 'Enabled' : 'Disabled'}`);
+    console.log(`  Tool Routing Mode: ${runtimeConfig.scheduler.toolRoutingMode}`);
     console.log(`  Debug Mode: ${debugMode ? 'Enabled' : 'Disabled'}`);
     console.log(`  Agent Scheduler: ${agentsEnabled ? 'Enabled' : 'Disabled'}`);
     console.log(`  Main Agent: ${mainAgentId}`);
@@ -244,7 +251,7 @@ async function runScheduler(
       `  LLM Providers: ${availableProviders.length > 0 ? availableProviders.join(', ') : 'mock-provider'}`
     );
     console.log(`  Skills Loaded: ${loadedSkills.length}`);
-    console.log('═══════════════════════════════════════════════════════\n');
+    console.log(`${bannerSeparator}\n`);
 
     log(`Scheduler started successfully (PID: ${process.pid})`);
 
