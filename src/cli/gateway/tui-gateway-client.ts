@@ -32,6 +32,10 @@ export interface WorkItemListParams {
   offset?: number;
 }
 
+export interface WorkItemRetryParams {
+  workItemId: string;
+}
+
 export interface GatewayStatus {
   isRunning: boolean;
   address: string | null;
@@ -390,6 +394,10 @@ export class TuiGatewayClient {
    */
   async getWorkItemRuns(workItemId: string): Promise<{ runs: unknown[] }> {
     return this.client.request('workitem.runs', { workItemId });
+  }
+
+  async retryWorkItem(params: WorkItemRetryParams): Promise<{ success: boolean; workItem: WorkItem }> {
+    return this.client.request('workitem.retry', params);
   }
 
   // ============================================================================

@@ -12,6 +12,7 @@ const SLASH_COMMANDS = [
   { cmd: '/goal <id>', desc: 'Show goal details' },
   { cmd: '/cancel <id> [reason]', desc: 'Cancel a goal' },
   { cmd: '/workitems [goalId]', desc: 'List work items' },
+  { cmd: '/retry <workItemId>', desc: 'Retry failed work item' },
   { cmd: '/dashboard', desc: 'Show the main overview' },
   { cmd: '/events', desc: 'Show recent events' },
   { cmd: '/escalations', desc: 'List pending escalations' },

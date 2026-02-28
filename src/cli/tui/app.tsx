@@ -49,6 +49,13 @@ function firstMeaningfulLine(log?: string): string | undefined {
     .find((line) => line.length > 0 && !line.startsWith('[POLICY_AUDIT]') && !line.startsWith('[ROUTE_CONTEXT]'));
 }
 
+function deriveMessageStatusFromGoalStatus(status: string): 'pending' | 'processing' | 'completed' | 'failed' {
+  if (status === 'completed') return 'completed';
+  if (status === 'blocked' || status === 'cancelled') return 'failed';
+  if (status === 'active') return 'processing';
+  return 'pending';
+}
+
 const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
   const app = useAppContext();
   const gateway = useGatewayContext();
@@ -183,6 +190,24 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
       // Load goals
       client.listGoals().then(result => {
         appRef.current.setGoals(result.goals);
+
+        for (const goal of result.goals) {
+          appRef.current.addSimpleMessage({
+            id: `history-goal-${goal.id}`,
+            input: goal.description || goal.title,
+            status: deriveMessageStatusFromGoalStatus(goal.status),
+            statusText: `Goal status: ${goal.status}`,
+            goalId: goal.id,
+            timeline: [
+              {
+                timestamp: goal.updated_at || goal.created_at,
+                stage: 'History loaded',
+                detail: `Persisted goal ${goal.id} loaded from storage.`,
+              },
+            ],
+            timestamp: goal.created_at,
+          });
+        }
       }).catch(err => {
         appRef.current.addEvent('error', { message: `Failed to load goals: ${err.message}` });
       });

@@ -567,6 +567,27 @@ const handlers: Record<string, CommandHandler> = {
     return { success: true };
   },
 
+  retry: async (cmd, ctx) => {
+    const [workItemId] = cmd.args;
+    if (!workItemId) {
+      return { success: false, error: 'Work item ID is required. Usage: /retry <workItemId>' };
+    }
+
+    const client = ctx.gateway.client;
+    if (!client) {
+      return { success: false, error: 'Not connected to gateway' };
+    }
+
+    try {
+      const result = await client.retryWorkItem({ workItemId });
+      ctx.app.updateWorkItem(result.workItem);
+      ctx.app.addEvent('workitem.retry_requested', { workItemId, status: result.workItem.status });
+      return { success: true, message: `Retry requested for ${workItemId}` };
+    } catch (err) {
+      return { success: false, error: (err as Error).message };
+    }
+  },
+
   // Escalation commands
   escalations: (_cmd, ctx) => {
     const escalations = ctx.app.state.escalations;
@@ -915,6 +936,7 @@ const aliasMap: Record<string, string> = {
   list: 'goals',
   wi: 'workitems',
   items: 'workitems',
+  rt: 'retry',
   esc: 'escalations',
   e: 'escalations',
   app: 'approvals',

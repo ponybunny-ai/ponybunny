@@ -22,6 +22,25 @@ export interface WorkItemsByGoalParams {
   goalId: string;
 }
 
+export interface WorkItemRetryParams {
+  workItemId: string;
+}
+
+function listAllWorkItems(repository: IWorkOrderRepository): WorkItem[] {
+  const goals = repository.listGoals();
+  const byId = new Map<string, WorkItem>();
+
+  for (const goal of goals) {
+    const workItems = repository.getWorkItemsByGoal(goal.id);
+    for (const workItem of workItems) {
+      byId.set(workItem.id, workItem);
+    }
+  }
+
+  return Array.from(byId.values())
+    .sort((a, b) => b.updated_at - a.updated_at);
+}
+
 export function registerWorkItemHandlers(
   rpcHandler: RpcHandler,
   repository: IWorkOrderRepository
@@ -52,11 +71,9 @@ export function registerWorkItemHandlers(
       let workItems: WorkItem[];
 
       if (params.goalId) {
-        // Get work items for a specific goal
-        workItems = repository.getReadyWorkItems(params.goalId);
+        workItems = repository.getWorkItemsByGoal(params.goalId);
       } else {
-        // Get all ready work items
-        workItems = repository.getReadyWorkItems();
+        workItems = listAllWorkItems(repository);
       }
 
       // Filter by status if provided
@@ -91,7 +108,7 @@ export function registerWorkItemHandlers(
         throw GatewayError.notFound('goal', params.goalId);
       }
 
-      const workItems = repository.getReadyWorkItems(params.goalId);
+      const workItems = repository.getWorkItemsByGoal(params.goalId);
 
       return { workItems };
     }
@@ -114,6 +131,37 @@ export function registerWorkItemHandlers(
       const runs = repository.getRunsByWorkItem(params.workItemId);
 
       return { runs };
+    }
+  );
+
+  rpcHandler.register<WorkItemRetryParams, { success: boolean; workItem: WorkItem }>(
+    'workitem.retry',
+    ['write'],
+    async (params) => {
+      if (!params.workItemId) {
+        throw GatewayError.invalidParams('workItemId is required');
+      }
+
+      const workItem = repository.getWorkItem(params.workItemId);
+      if (!workItem) {
+        throw GatewayError.notFound('workitem', params.workItemId);
+      }
+
+      if (workItem.status !== 'failed' && workItem.status !== 'blocked') {
+        throw GatewayError.invalidParams(`workitem.retry only supports failed/blocked items. Current status: ${workItem.status}`);
+      }
+
+      repository.incrementWorkItemRetry(workItem.id);
+      repository.updateWorkItemStatus(workItem.id, 'queued');
+      repository.updateWorkItemStatusIfDependenciesMet(workItem.id);
+      repository.updateGoalStatus(workItem.goal_id, 'queued');
+
+      const updated = repository.getWorkItem(workItem.id);
+      if (!updated) {
+        throw GatewayError.notFound('workitem', workItem.id);
+      }
+
+      return { success: true, workItem: updated };
     }
   );
 }

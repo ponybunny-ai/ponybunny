@@ -65,6 +65,13 @@ export const commands: CommandDefinition[] = [
     usage: '/workitems [goalId]',
     args: [{ name: 'goalId', required: false, description: 'Filter by goal ID' }],
   },
+  {
+    name: 'retry',
+    aliases: ['rt'],
+    description: 'Retry a failed work item',
+    usage: '/retry <workItemId>',
+    args: [{ name: 'workItemId', required: true, description: 'Work item ID to retry' }],
+  },
 
   // Escalation/Approval commands
   {
@@ -233,7 +240,7 @@ export function getCommandsByCategory(): Record<string, CommandDefinition[]> {
       ['new', 'goals', 'goal', 'cancel'].includes(c.name)
     ),
     'Work Items': commands.filter(c =>
-      ['workitems'].includes(c.name)
+      ['workitems', 'retry'].includes(c.name)
     ),
     'Escalations & Approvals': commands.filter(c =>
       ['escalations', 'approvals', 'approve', 'reject'].includes(c.name)
