@@ -233,8 +233,10 @@ export class ExecutionService implements IExecutionService {
       run_sequence: runSequence,
     });
 
+    let agentResult: Awaited<ReturnType<ReActIntegration['executeWorkCycle']>>;
+
     try {
-      const agentResult = await this.reactIntegration.executeWorkCycle({
+      agentResult = await this.reactIntegration.executeWorkCycle({
         workItem,
         run,
         goal,
@@ -242,43 +244,6 @@ export class ExecutionService implements IExecutionService {
         model: workItem.context?.model,
         toolEnforcer: scopedToolEnforcer,
       });
-
-      const timeSeconds = Math.floor((Date.now() - startTime) / 1000);
-
-      const executionLog = this.buildExecutionLogWithPolicyAudit(
-        agentResult.log,
-        scopedToolConfig?.policyAudit,
-        routeContext
-      );
-
-      this.repository.completeRun(run.id, {
-        status: agentResult.success ? 'success' : 'failure',
-        error_message: agentResult.error,
-        tokens_used: agentResult.tokensUsed,
-        time_seconds: timeSeconds,
-        cost_usd: agentResult.costUsd,
-        artifacts: agentResult.artifactIds || [],
-        execution_log: executionLog,
-      });
-
-      this.persistToolPolicyDecision(run, workItem, scopedToolConfig?.policyAudit, routeContext);
-
-      this.repository.updateGoalSpending(
-        workItem.goal_id,
-        agentResult.tokensUsed,
-        Math.ceil(timeSeconds / 60),
-        agentResult.costUsd
-      );
-
-      const needsRetry = !agentResult.success && !this.shouldEscalateError(workItem);
-      const errorSignature = this.generateErrorSignature(agentResult.error);
-
-      return {
-        run: this.repository.getRun(run.id)!,
-        success: agentResult.success,
-        needsRetry,
-        errorSignature,
-      };
     } catch (error) {
       const timeSeconds = Math.floor((Date.now() - startTime) / 1000);
 
@@ -305,6 +270,48 @@ export class ExecutionService implements IExecutionService {
         errorSignature: this.generateErrorSignature(String(error)),
       };
     }
+
+    const timeSeconds = Math.floor((Date.now() - startTime) / 1000);
+
+    const executionLog = this.buildExecutionLogWithPolicyAudit(
+      agentResult.log,
+      scopedToolConfig?.policyAudit,
+      routeContext
+    );
+
+    this.repository.completeRun(run.id, {
+      status: agentResult.success ? 'success' : 'failure',
+      error_message: agentResult.error,
+      tokens_used: agentResult.tokensUsed,
+      time_seconds: timeSeconds,
+      cost_usd: agentResult.costUsd,
+      artifacts: agentResult.artifactIds || [],
+      execution_log: executionLog,
+    });
+
+    this.persistToolPolicyDecision(run, workItem, scopedToolConfig?.policyAudit, routeContext);
+
+    try {
+      this.repository.updateGoalSpending(
+        workItem.goal_id,
+        agentResult.tokensUsed,
+        Math.ceil(timeSeconds / 60),
+        agentResult.costUsd
+      );
+    } catch (error) {
+      console.warn('[ExecutionService] Failed to update goal spending after run completion:', error);
+    }
+
+    const persistedRun = this.repository.getRun(run.id) ?? run;
+    const needsRetry = !agentResult.success && !this.shouldEscalateError(workItem);
+    const errorSignature = this.generateErrorSignature(agentResult.error);
+
+    return {
+      run: persistedRun,
+      success: agentResult.success,
+      needsRetry,
+      errorSignature,
+    };
   }
 
   private evaluateHumanApprovalGate(

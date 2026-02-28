@@ -359,4 +359,36 @@ describe('ExecutionService per-work-item tool allowlist', () => {
     expect(allowedResult.run.execution_log).not.toContain('Action denied');
     expect(existsSync(allowPath)).toBe(true);
   });
+
+  it('keeps successful run status when post-completion goal spending update fails', async () => {
+    const goal = createGoal('goal-post-completion-error');
+    const repository = createRepository(goal) as unknown as {
+      [key: string]: jest.Mock;
+    };
+    repository.updateGoalSpending.mockImplementation(() => {
+      throw new Error('spending write failed');
+    });
+
+    const service = new ExecutionService(
+      repository as unknown as IWorkOrderRepository,
+      { maxConsecutiveErrors: 3 },
+      new ScriptedWriteToolLLMProvider()
+    );
+
+    const item = createWorkItem({
+      id: 'work-item-post-completion-error',
+      goal_id: goal.id,
+      title: 'ALLOW_WRITE post completion error run',
+      context: {
+        tool_allowlist: ['write_file'],
+      },
+    });
+
+    const result = await service.executeWorkItem(item);
+
+    expect(result.success).toBe(true);
+    expect(result.run.status).toBe('success');
+    expect(repository.completeRun).toHaveBeenCalledTimes(1);
+    expect(repository.completeRun.mock.calls[0][1].status).toBe('success');
+  });
 });
