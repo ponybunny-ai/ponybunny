@@ -115,12 +115,12 @@
   - 支持 goal/workItem overrides（仅内存）
   - 提供 `diff` + `report(KPI)` 用于 shadow 对比
 
-### 仍待完成（后续批次）
+### 本轮收尾（2026-02-28）
 
-- ⏳ WS-B/WS-C 深化：compiler policy/sandbox/human_confirm 全量规则
-- ⏳ WS-D 持久化：run_events 从内存落到持久层（含分页/归档）
-- ⏳ WS-E 深化：`reexecute_tools` 模式与幂等回放
-- ⏳ WS-F 真正切流：gateway/scheduler 双通道 shadow/canary/default 运营化
+- ✅ WS-B/WS-C 深化：补齐 default_network、tool_routing 收敛检查、风险工具 human_confirm 依赖与 filesystem 声明约束。
+- ✅ WS-D 运营化收尾：scheduler-daemon 新增 run_events retention 定时清理循环，并通过 IPC 回传 retention telemetry。
+- ✅ WS-E 深化：`reexecute_tools` 增加请求级 `reexecutionIdempotencyKey` 与稳定参数 canonicalization（stable stringify），避免重复执行。
+- ✅ WS-F 真正切流：rollout 更新可实时下发到 scheduler-daemon（`apply_runtime_rollout`），并在 dry-run 失败且 `rollbackOnFailure=true` 时自动回滚到 legacy。
 
 ## M0：开关与骨架（1 周）
 

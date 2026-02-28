@@ -23,6 +23,7 @@ describe('TUI command registry', () => {
     expect(systemCommands).toContain('refresh');
     expect(systemCommands).toContain('rollout');
     expect(systemCommands).toContain('replay');
+    expect(systemCommands).toContain('pruneevents');
   });
 
   it('resolves rollout by alias', () => {
@@ -33,6 +34,11 @@ describe('TUI command registry', () => {
   it('resolves replay by alias', () => {
     const replay = findCommand('rp');
     expect(replay?.name).toBe('replay');
+  });
+
+  it('resolves pruneevents by alias', () => {
+    const prune = findCommand('pe');
+    expect(prune?.name).toBe('pruneevents');
   });
 
   it('parses /refresh command input', () => {

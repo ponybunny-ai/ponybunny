@@ -31,6 +31,16 @@ const DEFAULT_CONFIG: SchedulerConfig = {
   deterministicRuntimeEnabled: false,
   planCompilerEnabled: false,
   toolRoutingMode: 'legacy',
+  runtimeRollout: {
+    shadowModeEnabled: false,
+    canaryPercent: 0,
+    rollbackOnFailure: true,
+    lanePercents: {
+      dryRun: 0,
+      compile: 0,
+      replay: 0,
+    },
+  },
 };
 
 const INITIAL_LANE_STATUS: LaneStatus = {
@@ -245,6 +255,27 @@ export class SchedulerCore implements ISchedulerCore {
       ...this.metrics,
       currentActiveGoals: this.state.activeGoals.length,
       currentActiveWorkItems: this.activeExecutions.size,
+    };
+  }
+
+  applyRuntimeRollout(config: {
+    deterministicRuntimeEnabled: boolean;
+    planCompilerEnabled: boolean;
+    toolRoutingMode: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
+    runtimeRollout: SchedulerConfig['runtimeRollout'];
+  }): void {
+    this.config.deterministicRuntimeEnabled = config.deterministicRuntimeEnabled;
+    this.config.planCompilerEnabled = config.planCompilerEnabled;
+    this.config.toolRoutingMode = config.toolRoutingMode;
+    this.config.runtimeRollout = {
+      shadowModeEnabled: config.runtimeRollout.shadowModeEnabled,
+      canaryPercent: config.runtimeRollout.canaryPercent,
+      rollbackOnFailure: config.runtimeRollout.rollbackOnFailure,
+      lanePercents: {
+        dryRun: config.runtimeRollout.lanePercents.dryRun,
+        compile: config.runtimeRollout.lanePercents.compile,
+        replay: config.runtimeRollout.lanePercents.replay,
+      },
     };
   }
 

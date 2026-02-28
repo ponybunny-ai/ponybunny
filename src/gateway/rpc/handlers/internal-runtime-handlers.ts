@@ -116,6 +116,18 @@ export interface InternalRunEventsResponse {
   events: DeterministicRunEvent[];
 }
 
+export interface InternalRunEventsPruneParams {
+  beforeTsMs: number;
+  runId?: string;
+  runIds?: string[];
+  eventTypes?: DeterministicRunEventType[];
+  keepLatestPerRun?: number;
+}
+
+export interface InternalRunEventsPruneResponse {
+  deleted: number;
+}
+
 export interface InternalRunsTimelineParams {
   runId: string;
   relatedRunId?: string;
@@ -152,6 +164,7 @@ export interface InternalRunsReplayParams {
   allowTools?: string[];
   maxAttempts?: number;
   enableExecution?: boolean;
+  reexecutionIdempotencyKey?: string;
 }
 
 export interface InternalRunsReplayResponse {
@@ -533,6 +546,56 @@ function validateEventTypes(eventTypes: DeterministicRunEventType[] | undefined)
   return unique;
 }
 
+function toPruneBeforeTsMs(beforeTsMs: number | undefined): number {
+  if (beforeTsMs === undefined || !Number.isInteger(beforeTsMs) || beforeTsMs < 0) {
+    throw GatewayError.invalidParams('beforeTsMs must be a non-negative integer');
+  }
+
+  return beforeTsMs;
+}
+
+function toPruneKeepLatestPerRun(keepLatestPerRun: number | undefined): number {
+  if (keepLatestPerRun === undefined) {
+    return 0;
+  }
+
+  if (!Number.isInteger(keepLatestPerRun) || keepLatestPerRun < 0) {
+    throw GatewayError.invalidParams('keepLatestPerRun must be a non-negative integer');
+  }
+
+  return keepLatestPerRun;
+}
+
+function normalizeRunIds(runId: string | undefined, runIds: string[] | undefined): {
+  runId?: string;
+  runIds?: string[];
+} {
+  if (runId !== undefined) {
+    if (typeof runId !== 'string' || runId.trim().length === 0) {
+      throw GatewayError.invalidParams('runId must be a non-empty string when provided');
+    }
+  }
+
+  if (runIds !== undefined) {
+    if (!Array.isArray(runIds) || runIds.length === 0) {
+      throw GatewayError.invalidParams('runIds must be a non-empty array when provided');
+    }
+
+    if (runIds.some((entry) => typeof entry !== 'string' || entry.trim().length === 0)) {
+      throw GatewayError.invalidParams('runIds must contain only non-empty strings');
+    }
+  }
+
+  const normalizedRunIds = runIds
+    ? Array.from(new Set(runIds.map((entry) => entry.trim())))
+    : undefined;
+
+  return {
+    runId: runId?.trim(),
+    runIds: normalizedRunIds,
+  };
+}
+
 function mergeRunEvents(
   repository: IWorkOrderRepository,
   eventStore: DeterministicRunEventStore,
@@ -721,6 +784,32 @@ function toReplayEnableExecution(value: unknown): boolean {
   return value;
 }
 
+function toReplayIdempotencyKey(value: unknown): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw GatewayError.invalidParams('reexecutionIdempotencyKey must be a non-empty string when provided');
+  }
+
+  return value.trim();
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableStringify(entry)).join(',')}]`;
+  }
+
+  const objectValue = value as Record<string, unknown>;
+  const keys = Object.keys(objectValue).sort((a, b) => a.localeCompare(b));
+  return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(objectValue[key])}`).join(',')}}`;
+}
+
 interface ReplayToolInvocation {
   tool: string;
   args: Record<string, unknown>;
@@ -771,7 +860,8 @@ function extractReplayToolCandidates(events: DeterministicRunEvent[]): ReplayToo
 
   const deduped = new Map<string, ReplayToolInvocation>();
   for (const candidate of candidates) {
-    const key = `${candidate.tool}:${JSON.stringify(candidate.args)}`;
+    const normalizedTool = normalizeReplayToolName(candidate.tool);
+    const key = `${normalizedTool}:${stableStringify(candidate.args)}`;
     if (!deduped.has(key)) {
       deduped.set(key, candidate);
     }
@@ -1097,6 +1187,29 @@ export function registerInternalRuntimeHandlers(
     }
   );
 
+  rpcHandler.register<InternalRunEventsPruneParams, InternalRunEventsPruneResponse>(
+    'internal.runs.events.prune',
+    ['admin'],
+    async (params) => {
+      if (!repository.pruneRunEvents) {
+        throw GatewayError.internalError('run event prune is not available in current repository');
+      }
+
+      const beforeTsMs = toPruneBeforeTsMs(params.beforeTsMs);
+      const keepLatestPerRun = toPruneKeepLatestPerRun(params.keepLatestPerRun);
+      const eventTypes = validateEventTypes(params.eventTypes);
+      const normalizedRunFilters = normalizeRunIds(params.runId, params.runIds);
+
+      return repository.pruneRunEvents({
+        before_ts_ms: beforeTsMs,
+        run_id: normalizedRunFilters.runId,
+        run_ids: normalizedRunFilters.runIds,
+        event_types: eventTypes,
+        keep_latest_per_run: keepLatestPerRun,
+      });
+    }
+  );
+
   rpcHandler.register<InternalRunsTimelineParams, InternalRunsTimelineResponse>(
     'internal.runs.timeline',
     ['admin'],
@@ -1139,6 +1252,11 @@ export function registerInternalRuntimeHandlers(
       const allowTools = toReplayAllowTools(params.allowTools);
       const maxAttempts = toReplayMaxAttempts(params.maxAttempts);
       const enableExecution = toReplayEnableExecution(params.enableExecution);
+      const reexecutionIdempotencyKey = toReplayIdempotencyKey(params.reexecutionIdempotencyKey);
+
+      if (mode === 'reexecute_tools' && enableExecution && !reexecutionIdempotencyKey) {
+        throw GatewayError.invalidParams('reexecutionIdempotencyKey is required when mode=reexecute_tools and enableExecution=true');
+      }
 
       if (params.relatedRunId !== undefined && params.relatedRunId.trim().length === 0) {
         throw GatewayError.invalidParams('relatedRunId cannot be empty when provided');
@@ -1177,6 +1295,34 @@ export function registerInternalRuntimeHandlers(
       const executedToolNames: string[] = [];
 
       if (mode === 'reexecute_tools') {
+        if (enableExecution && reexecutionIdempotencyKey) {
+          const priorCompleted = mergedEvents.find((event) => (
+            event.event_type === 'REPLAY_REEXECUTION_COMPLETED'
+            && typeof (event.payload as Record<string, unknown>)?.idempotency_key === 'string'
+            && (event.payload as Record<string, unknown>).idempotency_key === reexecutionIdempotencyKey
+          ));
+          if (priorCompleted) {
+            const payload = priorCompleted.payload as Record<string, unknown>;
+            return {
+              runId: params.runId,
+              relatedRunId: params.relatedRunId,
+              mode,
+              status: deriveTimelineStatus(mergedEvents),
+              summary,
+              indexes,
+              phases,
+              reexecution: {
+                status: 'dry_run_only',
+                attempted_steps: typeof payload.attempted_steps === 'number' ? payload.attempted_steps : candidateTools.length,
+                eligible_steps: typeof payload.eligible_steps === 'number' ? payload.eligible_steps : 0,
+                executed_steps: typeof payload.executed_steps === 'number' ? payload.executed_steps : 0,
+                skipped,
+                message: 'reexecute_tools request reused existing idempotent execution result',
+              },
+            };
+          }
+        }
+
         for (const invocation of candidateTools) {
           const toolName = invocation.tool;
           const normalizedToolName = normalizeReplayToolName(toolName);
@@ -1227,6 +1373,7 @@ export function registerInternalRuntimeHandlers(
             related_run_id: params.relatedRunId,
             mode,
             enable_execution: enableExecution,
+            idempotency_key: reexecutionIdempotencyKey,
             attempted_steps: candidateTools.length,
             eligible_steps: eligibleSteps,
           },
@@ -1238,6 +1385,7 @@ export function registerInternalRuntimeHandlers(
             event_type: 'REPLAY_REEXECUTION_STEP_EXECUTED',
             payload: {
               tool: toolName,
+              idempotency_key: reexecutionIdempotencyKey,
             },
           });
         }
@@ -1249,6 +1397,7 @@ export function registerInternalRuntimeHandlers(
             payload: {
               tool: entry.tool,
               reason: entry.reason,
+              idempotency_key: reexecutionIdempotencyKey,
             },
           });
         }
@@ -1257,6 +1406,7 @@ export function registerInternalRuntimeHandlers(
           run_id: params.runId,
           event_type: 'REPLAY_REEXECUTION_COMPLETED',
           payload: {
+            idempotency_key: reexecutionIdempotencyKey,
             attempted_steps: candidateTools.length,
             eligible_steps: eligibleSteps,
             executed_steps: executedSteps,

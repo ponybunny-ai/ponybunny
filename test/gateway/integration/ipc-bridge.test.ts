@@ -94,6 +94,43 @@ describe('IPCBridge scheduler commands', () => {
     await expect(cancelPromise).rejects.toThrow('cancel failed');
   });
 
+  it('sends apply_runtime_rollout command', async () => {
+    const applyPromise = bridge.applyRuntimeRollout({
+      deterministicRuntimeEnabled: true,
+      planCompilerEnabled: true,
+      toolRoutingMode: 'system_only',
+      runtimeRollout: {
+        shadowModeEnabled: true,
+        canaryPercent: 10,
+        rollbackOnFailure: true,
+        lanePercents: {
+          dryRun: 10,
+          compile: 10,
+          replay: 0,
+        },
+      },
+    });
+
+    expect(mockServer.sendToClient).toHaveBeenCalledTimes(1);
+    const message = (mockServer.sendToClient as jest.Mock).mock.calls[0][1];
+    expect(message.type).toBe('scheduler_command');
+    expect(message.data.command).toBe('apply_runtime_rollout');
+
+    serverMessageHandler?.(
+      {
+        type: 'scheduler_command_result',
+        timestamp: Date.now(),
+        data: {
+          requestId: message.data.requestId,
+          success: true,
+        },
+      },
+      'client-1'
+    );
+
+    await expect(applyPromise).resolves.toBeUndefined();
+  });
+
   it('rejects immediately when scheduler daemon is not connected', async () => {
     (mockServer.getClients as jest.Mock).mockReturnValueOnce([]);
     await expect(bridge.submitGoal('goal-x')).rejects.toThrow('Scheduler daemon is not connected');
@@ -193,6 +230,27 @@ describe('IPCBridge scheduler event routing', () => {
       outcome: 'failure',
       error: 'x',
       timestamp: 456,
+    });
+  });
+
+  it('routes run_event_retention messages to gateway event bus', () => {
+    serverMessageHandler?.(
+      {
+        type: 'run_event_retention',
+        timestamp: Date.now(),
+        data: {
+          deleted: 3,
+          ok: true,
+          timestamp: 123,
+        },
+      },
+      'client-1'
+    );
+
+    expect(mockEventBus.emit).toHaveBeenCalledWith('runtime.retention.run', {
+      deleted: 3,
+      ok: true,
+      timestamp: 123,
     });
   });
 });

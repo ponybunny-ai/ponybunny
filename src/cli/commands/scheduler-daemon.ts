@@ -194,6 +194,8 @@ async function runScheduler(
         deterministicRuntimeEnabled: runtimeConfig.scheduler.deterministicRuntimeEnabled,
         planCompilerEnabled: runtimeConfig.scheduler.planCompilerEnabled,
         toolRoutingMode: runtimeConfig.scheduler.toolRoutingMode,
+        runtimeRollout: runtimeConfig.scheduler.runtimeRollout,
+        runEventRetention: runtimeConfig.scheduler.runEventRetention,
         agentsEnabled,
         mainAgentId,
         personaEnabled,

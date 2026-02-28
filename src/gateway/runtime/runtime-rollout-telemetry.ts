@@ -15,6 +15,16 @@ export interface RuntimeRolloutMetricsSnapshot {
   averageChangedStepCount: number;
   failureCodeCounts: Record<string, number>;
   lastDryRunAt?: number;
+  retentionRunsTotal: number;
+  retentionDeletedTotal: number;
+  retentionFailedTotal: number;
+  lastRetentionRunAt?: number;
+}
+
+export interface RunEventRetentionTelemetrySample {
+  deleted: number;
+  ok: boolean;
+  timestamp: number;
 }
 
 export class RuntimeRolloutTelemetry {
@@ -25,6 +35,10 @@ export class RuntimeRolloutTelemetry {
   private changedStepTotal = 0;
   private failureCodeCounts: Record<string, number> = {};
   private lastDryRunAt: number | undefined;
+  private retentionRunsTotal = 0;
+  private retentionDeletedTotal = 0;
+  private retentionFailedTotal = 0;
+  private lastRetentionRunAt: number | undefined;
 
   recordDryRun(sample: RuntimeDryRunTelemetrySample): void {
     this.dryRunsTotal += 1;
@@ -42,6 +56,15 @@ export class RuntimeRolloutTelemetry {
     for (const code of codes) {
       this.failureCodeCounts[code] = (this.failureCodeCounts[code] ?? 0) + 1;
     }
+  }
+
+  recordRetentionRun(sample: RunEventRetentionTelemetrySample): void {
+    this.retentionRunsTotal += 1;
+    this.retentionDeletedTotal += sample.deleted;
+    if (!sample.ok) {
+      this.retentionFailedTotal += 1;
+    }
+    this.lastRetentionRunAt = sample.timestamp;
   }
 
   snapshot(): RuntimeRolloutMetricsSnapshot {
@@ -64,6 +87,10 @@ export class RuntimeRolloutTelemetry {
       averageChangedStepCount,
       failureCodeCounts: { ...this.failureCodeCounts },
       lastDryRunAt: this.lastDryRunAt,
+      retentionRunsTotal: this.retentionRunsTotal,
+      retentionDeletedTotal: this.retentionDeletedTotal,
+      retentionFailedTotal: this.retentionFailedTotal,
+      lastRetentionRunAt: this.lastRetentionRunAt,
     };
   }
 }

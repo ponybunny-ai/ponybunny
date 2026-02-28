@@ -84,6 +84,10 @@ export class IPCBridge {
     await this.sendSchedulerCommand('cancel_goal', { goalId, reason });
   }
 
+  async applyRuntimeRollout(rollout: NonNullable<SchedulerCommandRequest['rollout']>): Promise<void> {
+    await this.sendSchedulerCommand('apply_runtime_rollout', { rollout });
+  }
+
   /**
    * Handle incoming IPC message and route to appropriate subsystem.
    */
@@ -97,6 +101,10 @@ export class IPCBridge {
         this.handleDebugEvent(message, clientId);
         break;
 
+      case 'run_event_retention':
+        this.handleRunEventRetention(message);
+        break;
+
       case 'scheduler_command_result':
         this.handleSchedulerCommandResult(message);
         break;
@@ -105,6 +113,24 @@ export class IPCBridge {
         // Ignore ping/pong/connect/disconnect messages
         break;
     }
+  }
+
+  private handleRunEventRetention(message: AnyIPCMessage): void {
+    if (message.type !== 'run_event_retention' || !message.data) {
+      return;
+    }
+
+    const sample = message.data as {
+      deleted?: number;
+      ok?: boolean;
+      timestamp?: number;
+    };
+
+    this.eventBus.emit('runtime.retention.run', {
+      deleted: typeof sample.deleted === 'number' ? sample.deleted : 0,
+      ok: sample.ok === true,
+      timestamp: typeof sample.timestamp === 'number' ? sample.timestamp : Date.now(),
+    });
   }
 
   /**

@@ -689,6 +689,103 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     return rows.map((row) => this.parseRunEventRow(row));
   }
 
+  pruneRunEvents(params: {
+    before_ts_ms: number;
+    run_id?: string;
+    run_ids?: string[];
+    event_types?: DeterministicRunEventType[];
+    keep_latest_per_run?: number;
+  }): {
+    deleted: number;
+  } {
+    const queryParams: Array<string | number> = [];
+    let query = 'SELECT sequence, run_id, ts_ms FROM run_events WHERE ts_ms < ?';
+    queryParams.push(params.before_ts_ms);
+
+    if (params.run_id) {
+      query += ' AND run_id = ?';
+      queryParams.push(params.run_id);
+    }
+
+    if (params.run_ids && params.run_ids.length > 0) {
+      const uniqueRunIds = [...new Set(params.run_ids)];
+      const placeholders = uniqueRunIds.map(() => '?').join(', ');
+      query += ` AND run_id IN (${placeholders})`;
+      queryParams.push(...uniqueRunIds);
+    }
+
+    if (params.event_types && params.event_types.length > 0) {
+      const placeholders = params.event_types.map(() => '?').join(', ');
+      query += ` AND event_type IN (${placeholders})`;
+      queryParams.push(...params.event_types);
+    }
+
+    const candidateRows = this.db.prepare(query).all(...queryParams) as Array<{
+      sequence: number;
+      run_id: string;
+      ts_ms: number;
+    }>;
+
+    if (candidateRows.length === 0) {
+      return { deleted: 0 };
+    }
+
+    const keepLatestPerRun = params.keep_latest_per_run ?? 0;
+    let deleteSequences = candidateRows.map((row) => row.sequence);
+
+    if (keepLatestPerRun > 0) {
+      const byRun = new Map<string, Array<{ sequence: number; ts_ms: number }>>();
+      for (const row of candidateRows) {
+        const existing = byRun.get(row.run_id);
+        if (existing) {
+          existing.push({ sequence: row.sequence, ts_ms: row.ts_ms });
+        } else {
+          byRun.set(row.run_id, [{ sequence: row.sequence, ts_ms: row.ts_ms }]);
+        }
+      }
+
+      const retained = new Set<number>();
+      for (const rows of byRun.values()) {
+        rows.sort((a, b) => {
+          if (a.ts_ms !== b.ts_ms) {
+            return b.ts_ms - a.ts_ms;
+          }
+          return b.sequence - a.sequence;
+        });
+
+        for (let index = 0; index < Math.min(keepLatestPerRun, rows.length); index += 1) {
+          retained.add(rows[index].sequence);
+        }
+      }
+
+      deleteSequences = deleteSequences.filter((sequence) => !retained.has(sequence));
+    }
+
+    if (deleteSequences.length === 0) {
+      return { deleted: 0 };
+    }
+
+    const deleteInChunks = this.db.transaction((sequences: number[]) => {
+      let deleted = 0;
+      const chunkSize = 500;
+
+      for (let offset = 0; offset < sequences.length; offset += chunkSize) {
+        const chunk = sequences.slice(offset, offset + chunkSize);
+        const placeholders = chunk.map(() => '?').join(', ');
+        const result = this.db
+          .prepare(`DELETE FROM run_events WHERE sequence IN (${placeholders})`)
+          .run(...chunk);
+        deleted += result.changes;
+      }
+
+      return deleted;
+    });
+
+    return {
+      deleted: deleteInChunks(deleteSequences),
+    };
+  }
+
   getRepeatedErrorSignatures(work_item_id: string, threshold = 3): string[] {
     const stmt = this.db.prepare(`
       SELECT error_signature, COUNT(*) as count

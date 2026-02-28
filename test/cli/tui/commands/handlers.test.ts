@@ -46,6 +46,7 @@ function createCommandContext(options?: {
     replayInternalRun: jest.Mock;
     getInternalRunTimeline: jest.Mock;
     getInternalRunEvents: jest.Mock;
+    pruneInternalRunEvents: jest.Mock;
   };
 } {
   const app = {
@@ -155,6 +156,7 @@ function createCommandContext(options?: {
     }),
     getInternalRunTimeline: jest.fn().mockResolvedValue({ status: 'completed' }),
     getInternalRunEvents: jest.fn().mockResolvedValue({ returned: 6, offset: 0, nextCursor: '6' }),
+    pruneInternalRunEvents: jest.fn().mockResolvedValue({ deleted: 2 }),
   };
 
   const ctx = {
@@ -445,7 +447,7 @@ describe('TUI command handlers - replay', () => {
     });
 
     const result = await executeCommand(
-      '/replay run-1 run-2 mode=facts_only allowTools=local://read_file maxAttempts=5 enableExecution=true',
+      '/replay run-1 run-2 mode=facts_only allowTools=local://read_file maxAttempts=5 enableExecution=true reexecutionIdempotencyKey=idem-xyz',
       ctx
     );
 
@@ -454,6 +456,7 @@ describe('TUI command handlers - replay', () => {
       allowTools: ['local://read_file'],
       maxAttempts: 5,
       enableExecution: true,
+      reexecutionIdempotencyKey: 'idem-xyz',
     });
     expect(client.getInternalRunEvents).toHaveBeenCalledWith({
       runId: 'run-1',
@@ -496,5 +499,47 @@ describe('TUI command handlers - replay', () => {
     const badEventsLimit = await executeCommand('/replay run-1 eventsLimit=0', ctx);
     expect(badEventsLimit.success).toBe(false);
     expect(badEventsLimit.error).toContain('Replay command failed');
+  });
+});
+
+describe('TUI command handlers - pruneevents', () => {
+  it('prunes runtime events with key=value options', async () => {
+    const { ctx, app, client } = createCommandContext();
+
+    const result = await executeCommand(
+      '/pruneevents beforeTsMs=1700000000000 runId=run-1 eventTypes=PLAN_COMPILE_REQUESTED keepLatestPerRun=1',
+      ctx
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain('Pruned 2 runtime events');
+    expect(client.pruneInternalRunEvents).toHaveBeenCalledWith({
+      beforeTsMs: 1700000000000,
+      runId: 'run-1',
+      eventTypes: ['PLAN_COMPILE_REQUESTED'],
+      keepLatestPerRun: 1,
+    });
+    expect(app.addEvent).toHaveBeenCalledWith('runtime.events.pruned', expect.objectContaining({
+      deleted: 2,
+      runId: 'run-1',
+    }));
+  });
+
+  it('returns errors for missing or malformed prune options', async () => {
+    const { ctx, client } = createCommandContext();
+
+    const missingOptions = await executeCommand('/pruneevents', ctx);
+    expect(missingOptions.success).toBe(false);
+    expect(missingOptions.error).toContain('Prune options are required');
+
+    const missingBefore = await executeCommand('/pruneevents runId=run-1', ctx);
+    expect(missingBefore.success).toBe(false);
+    expect(missingBefore.error).toContain('Prune command failed');
+
+    const badEventType = await executeCommand('/pruneevents beforeTsMs=100 eventTypes=INVALID_EVENT', ctx);
+    expect(badEventType.success).toBe(false);
+    expect(badEventType.error).toContain('Prune command failed');
+
+    expect(client.pruneInternalRunEvents).not.toHaveBeenCalled();
   });
 });

@@ -72,4 +72,20 @@ describe('runtime-config memory user profile id', () => {
     expect(config.scheduler.runtimeRollout.lanePercents.compile).toBe(100);
     expect(config.scheduler.runtimeRollout.lanePercents.replay).toBe(0);
   });
+
+  it('loads run-event retention settings from environment', () => {
+    const config = resolveRuntimeConfigFromEnvironment({
+      PONY_RUN_EVENTS_RETENTION_ENABLED: 'false',
+      PONY_RUN_EVENTS_RETENTION_INTERVAL_MS: '900000',
+      PONY_RUN_EVENTS_RETENTION_MAX_AGE_MS: '86400000',
+      PONY_RUN_EVENTS_RETENTION_KEEP_LATEST_PER_RUN: '12',
+    });
+
+    expect(config.scheduler.runEventRetention).toEqual({
+      enabled: false,
+      intervalMs: 900000,
+      maxAgeMs: 86400000,
+      keepLatestPerRun: 12,
+    });
+  });
 });

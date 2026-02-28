@@ -66,6 +66,7 @@ describe('system handlers', () => {
       getGoalState: jest.fn(),
       getAllGoalStates: jest.fn(),
       tick: jest.fn(),
+      applyRuntimeRollout: jest.fn(),
     } as unknown as ISchedulerCore;
 
     getSchedulerCapabilitiesMock.mockReset();
@@ -104,6 +105,9 @@ describe('system handlers', () => {
             ERR_TOOL_NOT_FOUND: 1,
           },
           lastDryRunAt: 1710000000000,
+          retentionRunsTotal: 0,
+          retentionDeletedTotal: 0,
+          retentionFailedTotal: 0,
         }),
       }
     );

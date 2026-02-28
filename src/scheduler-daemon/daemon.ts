@@ -36,6 +36,22 @@ export interface SchedulerDaemonConfig {
   deterministicRuntimeEnabled?: boolean;
   planCompilerEnabled?: boolean;
   toolRoutingMode?: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
+  runtimeRollout?: {
+    shadowModeEnabled: boolean;
+    canaryPercent: number;
+    rollbackOnFailure: boolean;
+    lanePercents: {
+      dryRun: number;
+      compile: number;
+      replay: number;
+    };
+  };
+  runEventRetention?: {
+    enabled: boolean;
+    intervalMs: number;
+    maxAgeMs: number;
+    keepLatestPerRun: number;
+  };
   agentsEnabled?: boolean;
   mainAgentId?: string;
   personaEnabled?: boolean;
@@ -65,6 +81,8 @@ export class SchedulerDaemon {
   private agentScheduler: AgentScheduler | null = null;
   private agentSchedulerInterval: NodeJS.Timeout | null = null;
   private agentSchedulerDispatchActive = false;
+  private retentionInterval: NodeJS.Timeout | null = null;
+  private retentionDispatchActive = false;
 
   constructor(
     repository: IWorkOrderRepository,
@@ -161,6 +179,16 @@ export class SchedulerDaemon {
           deterministicRuntimeEnabled: this.config.deterministicRuntimeEnabled ?? false,
           planCompilerEnabled: this.config.planCompilerEnabled ?? false,
           toolRoutingMode: this.config.toolRoutingMode ?? 'legacy',
+          runtimeRollout: this.config.runtimeRollout ?? {
+            shadowModeEnabled: false,
+            canaryPercent: 0,
+            rollbackOnFailure: true,
+            lanePercents: {
+              dryRun: 0,
+              compile: 0,
+              replay: 0,
+            },
+          },
         }
       );
 
@@ -225,12 +253,19 @@ export class SchedulerDaemon {
         console.log('[SchedulerDaemon] AgentScheduler loop enabled');
       }
 
+      this.startRunEventRetentionLoop();
+
       console.log('[SchedulerDaemon] Started successfully');
     } catch (error) {
       if (this.agentSchedulerInterval) {
         clearInterval(this.agentSchedulerInterval);
         this.agentSchedulerInterval = null;
       }
+      if (this.retentionInterval) {
+        clearInterval(this.retentionInterval);
+        this.retentionInterval = null;
+      }
+      this.retentionDispatchActive = false;
       this.agentScheduler = null;
       if (this.hasPidLock) {
         releaseSchedulerDaemonLock();
@@ -256,6 +291,11 @@ export class SchedulerDaemon {
       clearInterval(this.agentSchedulerInterval);
       this.agentSchedulerInterval = null;
     }
+    if (this.retentionInterval) {
+      clearInterval(this.retentionInterval);
+      this.retentionInterval = null;
+    }
+    this.retentionDispatchActive = false;
     this.agentScheduler = null;
 
     // Stop scheduler
@@ -356,6 +396,11 @@ export class SchedulerDaemon {
 
     try {
       if (command.command === 'submit_goal') {
+        if (!command.goalId) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'goalId is required for submit_goal');
+          return;
+        }
+
         const goal = this.repository.getGoal(command.goalId);
         if (!goal) {
           await this.sendSchedulerCommandResult(command.requestId, false, `Goal not found: ${command.goalId}`);
@@ -368,7 +413,27 @@ export class SchedulerDaemon {
       }
 
       if (command.command === 'cancel_goal') {
+        if (!command.goalId) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'goalId is required for cancel_goal');
+          return;
+        }
+
         await scheduler.cancelGoal(command.goalId);
+        await this.sendSchedulerCommandResult(command.requestId, true);
+        return;
+      }
+
+      if (command.command === 'apply_runtime_rollout') {
+        if (!command.rollout) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'rollout payload is required for apply_runtime_rollout');
+          return;
+        }
+
+        this.config.deterministicRuntimeEnabled = command.rollout.deterministicRuntimeEnabled;
+        this.config.planCompilerEnabled = command.rollout.planCompilerEnabled;
+        this.config.toolRoutingMode = command.rollout.toolRoutingMode;
+        this.config.runtimeRollout = command.rollout.runtimeRollout;
+        scheduler.applyRuntimeRollout(command.rollout);
         await this.sendSchedulerCommandResult(command.requestId, true);
         return;
       }
@@ -424,5 +489,53 @@ export class SchedulerDaemon {
     }
 
     console.log(`[SchedulerDaemon] Recovered ${recovered}/${queuedGoals.length} queued goals`);
+  }
+
+  private startRunEventRetentionLoop(): void {
+    const retention = this.config.runEventRetention;
+    const pruneRunEvents = this.repository.pruneRunEvents;
+    if (!retention?.enabled || !pruneRunEvents) {
+      return;
+    }
+
+    const runRetention = async (): Promise<void> => {
+      if (this.retentionDispatchActive) {
+        return;
+      }
+
+      this.retentionDispatchActive = true;
+      const timestamp = Date.now();
+      let ok = false;
+      let deleted = 0;
+      try {
+        const beforeTsMs = timestamp - retention.maxAgeMs;
+        const result = pruneRunEvents({
+          before_ts_ms: beforeTsMs,
+          keep_latest_per_run: retention.keepLatestPerRun,
+        });
+        deleted = result.deleted;
+        ok = true;
+      } catch (error) {
+        console.error('[SchedulerDaemon] Run event retention failed:', error);
+      } finally {
+        this.retentionDispatchActive = false;
+        await this.ipcClient.send({
+          type: 'run_event_retention',
+          timestamp,
+          data: {
+            deleted,
+            ok,
+            timestamp,
+          },
+        }).catch((error) => {
+          console.error('[SchedulerDaemon] Failed to send retention telemetry:', error);
+        });
+      }
+    };
+
+    this.retentionInterval = setInterval(() => {
+      void runRetention();
+    }, retention.intervalMs);
+    void runRetention();
   }
 }

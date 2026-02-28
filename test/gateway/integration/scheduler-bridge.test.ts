@@ -39,6 +39,7 @@ describe('SchedulerBridge', () => {
       getAllGoalStates: jest.fn(),
       getMetrics: jest.fn(),
       tick: jest.fn(),
+      applyRuntimeRollout: jest.fn(),
     } as unknown as ISchedulerCore;
 
     bridge = new SchedulerBridge(mockEventBus);

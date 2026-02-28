@@ -86,6 +86,26 @@ describe('TuiGatewayClient internal runtime API wrappers', () => {
     });
   });
 
+  it('calls internal.runs.events.prune wrapper', async () => {
+    const client = new TuiGatewayClient({ reconnect: false });
+    const requestMock = getRequestMock(client);
+    requestMock.mockClear();
+
+    await client.pruneInternalRunEvents({
+      beforeTsMs: 1_700_000_000_000,
+      runId: 'run-1',
+      eventTypes: ['PLAN_COMPILE_REQUESTED'],
+      keepLatestPerRun: 1,
+    });
+
+    expect(requestMock).toHaveBeenCalledWith('internal.runs.events.prune', {
+      beforeTsMs: 1_700_000_000_000,
+      runId: 'run-1',
+      eventTypes: ['PLAN_COMPILE_REQUESTED'],
+      keepLatestPerRun: 1,
+    });
+  });
+
   it('passes cursor field through internal runs events wrapper', async () => {
     const client = new TuiGatewayClient({ reconnect: false });
     const requestMock = getRequestMock(client);
@@ -123,6 +143,7 @@ describe('TuiGatewayClient internal runtime API wrappers', () => {
       allowTools: ['local://read_file'],
       maxAttempts: 5,
       enableExecution: true,
+      reexecutionIdempotencyKey: 'idem-001',
     });
 
     expect(requestMock).toHaveBeenCalledWith('internal.runs.replay', {
@@ -132,6 +153,7 @@ describe('TuiGatewayClient internal runtime API wrappers', () => {
       allowTools: ['local://read_file'],
       maxAttempts: 5,
       enableExecution: true,
+      reexecutionIdempotencyKey: 'idem-001',
     });
   });
 });

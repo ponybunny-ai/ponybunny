@@ -36,6 +36,15 @@ export interface IWorkOrderRepository {
     limit?: number;
     offset?: number;
   }): DeterministicRunEvent[];
+  pruneRunEvents?(params: {
+    before_ts_ms: number;
+    run_id?: string;
+    run_ids?: string[];
+    event_types?: DeterministicRunEventType[];
+    keep_latest_per_run?: number;
+  }): {
+    deleted: number;
+  };
   
   updateGoalSpending(goalId: string, tokens: number, timeMinutes: number, costUsd: number): void;
   incrementWorkItemRetry(workItemId: string): void;

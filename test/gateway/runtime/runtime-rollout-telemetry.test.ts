@@ -31,6 +31,9 @@ describe('RuntimeRolloutTelemetry', () => {
         ERR_TOOL_NOT_FOUND: 2,
       },
       lastDryRunAt: 1700000001000,
+      retentionRunsTotal: 0,
+      retentionDeletedTotal: 0,
+      retentionFailedTotal: 0,
     });
   });
 
@@ -49,5 +52,18 @@ describe('RuntimeRolloutTelemetry', () => {
     expect(snapshot.failureCodeCounts).toEqual({
       UNKNOWN: 1,
     });
+  });
+
+  it('aggregates run-event retention telemetry', () => {
+    const telemetry = new RuntimeRolloutTelemetry();
+
+    telemetry.recordRetentionRun({ deleted: 7, ok: true, timestamp: 1700000003000 });
+    telemetry.recordRetentionRun({ deleted: 2, ok: false, timestamp: 1700000004000 });
+
+    const snapshot = telemetry.snapshot();
+    expect(snapshot.retentionRunsTotal).toBe(2);
+    expect(snapshot.retentionDeletedTotal).toBe(9);
+    expect(snapshot.retentionFailedTotal).toBe(1);
+    expect(snapshot.lastRetentionRunAt).toBe(1700000004000);
   });
 });

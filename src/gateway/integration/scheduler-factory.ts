@@ -37,6 +37,7 @@ export interface SchedulerFactoryConfig {
   deterministicRuntimeEnabled?: boolean;
   planCompilerEnabled?: boolean;
   toolRoutingMode?: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
+  runtimeRollout?: SchedulerConfig['runtimeRollout'];
 }
 
 export interface SchedulerFactoryDependencies {
@@ -169,6 +170,7 @@ export function createScheduler(
     deterministicRuntimeEnabled: config?.deterministicRuntimeEnabled ?? false,
     planCompilerEnabled: config?.planCompilerEnabled ?? false,
     toolRoutingMode: config?.toolRoutingMode ?? 'legacy',
+    runtimeRollout: config?.runtimeRollout,
   };
 
   return new SchedulerCore(schedulerDeps, schedulerConfig);

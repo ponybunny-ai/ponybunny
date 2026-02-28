@@ -294,6 +294,10 @@ GPT-5 家族与其他模型在参数与响应细节上不同（例如采样参�
 - A2（Compiler 深化）已落地第一批策略校验：`PlanCompiler` 支持 runtime profile 驱动的 policy 检查（`require_human_approval_for` 与 `script_sandbox` 语言/运行时/输出限制），并在 internal compile RPC 路径透传生效。
 - A2（Compiler 深化）第二批策略校验已落地：`script_sandbox.no_network` 与 `script_sandbox.allowed_apps` 规则已在 compile 期生效（基于脚本 step args 中的网络/应用请求字段）。
 - A2（Compiler 深化）第三批已落地：`runtime_profile` 在 compile 期接入 schema 校验，非法 profile 统一映射为 `ERR_POLICY_DENIED` 并返回结构化路径，避免策略评估在非法配置下运行。
+- A2（Compiler 深化）第四批已落地：`policy.tool_allowlist/tool_denylist` 在 compile 期生效，`tool_call` 步骤会按 runtime profile 做 allow/deny 判定并返回 `ERR_POLICY_DENIED`。
+- A2（Compiler 深化）第五批已落地：编译期新增 step identity 约束（重复 step id 与 self-dependency 检查），分别输出 `ERR_STEP_ID_DUPLICATE` 与 `ERR_STEP_DEPENDENCY_INVALID`，降低运行期图执行歧义。
+- A2（Compiler 深化）第六批已落地：`tool_call.args` 从“仅 required 字段检查”升级为完整 `manifest.input_schema` 校验（Ajv allErrors），编译期可直接发现类型/结构不匹配并返回结构化 `ERR_TOOL_ARGS_INVALID` 路径。
+- A2（Compiler 深化）第七批已落地：`default_filesystem_scope` 在 compile 期接入 `steps[].reads/writes` 约束校验；越权路径会返回 `ERR_POLICY_DENIED`（含精确 step 字段路径），将路径越界问题前置到运行前。
 - A1（run_events 持久化）默认路径验证已补齐：internal runtime handlers 在 repository 支持 run event API 时默认走 repository-backed store；并增加数据库重开后的事件可读回归测试（验证重启后可追溯）。
 - A1 事件读取接口增强：`internal.runs.events` 新增 `cursor` 分页（与原 `offset/limit` 兼容，含冲突参数校验与 `nextCursor` 返回），并补齐 gateway/client 回归测试。
 - P0 基线修复补充：`src/deterministic-runtime/internal-api.ts` 已与实际 internal runtime RPC surface 对齐（补全 request/response 类型、run events cursor 字段、runtime rollout 配置字段与方法清单），减少类型层与 handler 漂移。
@@ -306,3 +310,10 @@ GPT-5 家族与其他模型在参数与响应细节上不同（例如采样参�
 - P2 命令面补充：`/replay` 现在会写入 runtime snapshot（含 reexecution 指标），Tasks 视图可保留并回看 replay 诊断历史。
 - P2 体验细化：runtime snapshot 新增 `source/runId` 元信息，Tasks 视图优先按选中任务 `runId` 匹配 snapshot，并展示来源标签，减少 runtime/replay 混看歧义。
 - P2 Replay 观察性增强：`/replay` 新增 `eventsLimit/cursor` 选项并拉取分页事件，snapshot/事件中记录分页状态（returned/offset/nextCursor），Tasks 视图可提示“是否还有下一页”。
+- A2（Compiler 深化）第八批已落地：`policy.default_network=deny` 会在 compile 期拒绝 network-capable tool；`tool_routing` 也会校验“plan 不能放宽 runtime profile”。
+- A2（Compiler 深化）第九批已落地：高风险工具（`requiresApproval` 或 `side_effect=non_idempotent/ui_automation`）在 compile 期强制依赖 `human_confirm`。
+- A3（Replay 幂等深化）已落地：`reexecute_tools` 新增 `reexecutionIdempotencyKey`（`enableExecution=true` 必填），重复 key 会复用既有回放执行结果，避免重复副作用。
+- A3（Replay 稳定性深化）已落地：候选工具去重改为稳定 canonicalization（stable stringify），参数键顺序不再导致重复重放。
+- A4/P4（切流运营化）已落地：`system.runtime.rollout.update` 会实时下发 `apply_runtime_rollout` 到 scheduler-daemon，运行中可热更新 deterministic flags/rollout 配置。
+- A4/P4（回滚收敛）已落地：当 dry-run 失败且 `rollbackOnFailure=true` 时，gateway 自动将 runtime 配置回滚到 legacy，并尝试同步下发到 scheduler-daemon。
+- A1/WS-D（运营化）已落地：scheduler-daemon 新增 run_events retention 定时清理任务，并通过 IPC 回传 retention telemetry（runs/deleted/failed/lastRunAt）。

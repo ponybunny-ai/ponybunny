@@ -68,7 +68,7 @@ import { WebSearchTool } from '../infra/tools/implementations/web-search-tool.js
 import { findSkillsTool } from '../infra/tools/implementations/find-skills-tool.js';
 import { ConfigWatcher, createConfigWatcher } from './config/config-watcher.js';
 import { getAsciiArtBanner } from '../infra/ui/ascii-art-banner.js';
-import { loadRuntimeConfig } from '../infra/config/runtime-config.js';
+import { loadRuntimeConfig, saveRuntimeConfig } from '../infra/config/runtime-config.js';
 
 export interface GatewayServerDependencies {
   db: Database.Database;
@@ -172,9 +172,26 @@ export class GatewayServer {
     this.schedulerBridge = new SchedulerBridge(this.eventBus);
 
     // Initialize IPC server and bridge
-    const ipcSocketPath = join(homedir(), '.ponybunny', 'gateway.sock');
+    const runtimeConfig = loadRuntimeConfig();
+    const ipcSocketPath = runtimeConfig.paths.schedulerSocket || join(homedir(), '.ponybunny', 'gateway.sock');
     this.ipcServer = new IPCServer({ socketPath: ipcSocketPath });
     this.ipcBridge = new IPCBridge(this.eventBus);
+    this.eventBus.on('runtime.retention.run', (sample: unknown) => {
+      if (!sample || typeof sample !== 'object') {
+        return;
+      }
+
+      const payload = sample as {
+        deleted?: number;
+        ok?: boolean;
+        timestamp?: number;
+      };
+      this.runtimeRolloutTelemetry.recordRetentionRun({
+        deleted: typeof payload.deleted === 'number' ? payload.deleted : 0,
+        ok: payload.ok === true,
+        timestamp: typeof payload.timestamp === 'number' ? payload.timestamp : Date.now(),
+      });
+    });
 
     // Initialize audit components
     this.auditRepository = new AuditLogRepository(this.db);
@@ -374,6 +391,13 @@ export class GatewayServer {
       () => this.toolRegistry,
       {
         getRuntimeRolloutMetrics: () => this.runtimeRolloutTelemetry.snapshot(),
+        applyRuntimeRollout: async (rollout) => {
+          if (!this.ipcBridge.isSchedulerDaemonConnected()) {
+            return;
+          }
+
+          await this.ipcBridge.applyRuntimeRollout(rollout);
+        },
       }
     );
 
@@ -394,6 +418,9 @@ export class GatewayServer {
       {
         onDryRunComplete: (sample) => {
           this.runtimeRolloutTelemetry.recordDryRun(sample);
+          if (!sample.ok) {
+            void this.rollbackRuntimeRolloutOnFailure();
+          }
         },
       }
     );
@@ -623,6 +650,62 @@ export class GatewayServer {
    */
   getAuditService(): AuditService {
     return this.auditService;
+  }
+
+  private async rollbackRuntimeRolloutOnFailure(): Promise<void> {
+    const runtime = loadRuntimeConfig();
+    if (!runtime.scheduler.runtimeRollout.rollbackOnFailure) {
+      return;
+    }
+
+    if (
+      runtime.scheduler.deterministicRuntimeEnabled === false
+      && runtime.scheduler.planCompilerEnabled === false
+      && runtime.scheduler.toolRoutingMode === 'legacy'
+      && runtime.scheduler.runtimeRollout.shadowModeEnabled === false
+      && runtime.scheduler.runtimeRollout.canaryPercent === 0
+      && runtime.scheduler.runtimeRollout.lanePercents.dryRun === 0
+      && runtime.scheduler.runtimeRollout.lanePercents.compile === 0
+      && runtime.scheduler.runtimeRollout.lanePercents.replay === 0
+    ) {
+      return;
+    }
+
+    runtime.scheduler.deterministicRuntimeEnabled = false;
+    runtime.scheduler.planCompilerEnabled = false;
+    runtime.scheduler.toolRoutingMode = 'legacy';
+    runtime.scheduler.runtimeRollout.shadowModeEnabled = false;
+    runtime.scheduler.runtimeRollout.canaryPercent = 0;
+    runtime.scheduler.runtimeRollout.lanePercents = {
+      dryRun: 0,
+      compile: 0,
+      replay: 0,
+    };
+    saveRuntimeConfig(runtime);
+
+    if (!this.ipcBridge.isSchedulerDaemonConnected()) {
+      return;
+    }
+
+    try {
+      await this.ipcBridge.applyRuntimeRollout({
+        deterministicRuntimeEnabled: runtime.scheduler.deterministicRuntimeEnabled,
+        planCompilerEnabled: runtime.scheduler.planCompilerEnabled,
+        toolRoutingMode: runtime.scheduler.toolRoutingMode,
+        runtimeRollout: {
+          shadowModeEnabled: runtime.scheduler.runtimeRollout.shadowModeEnabled,
+          canaryPercent: runtime.scheduler.runtimeRollout.canaryPercent,
+          rollbackOnFailure: runtime.scheduler.runtimeRollout.rollbackOnFailure,
+          lanePercents: {
+            dryRun: runtime.scheduler.runtimeRollout.lanePercents.dryRun,
+            compile: runtime.scheduler.runtimeRollout.lanePercents.compile,
+            replay: runtime.scheduler.runtimeRollout.lanePercents.replay,
+          },
+        },
+      });
+    } catch (error) {
+      console.error('[GatewayServer] Failed to apply rollback rollout to scheduler daemon:', error);
+    }
   }
 
   private setupSchedulerEventAudit(): void {

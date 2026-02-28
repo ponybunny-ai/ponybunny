@@ -144,6 +144,15 @@ export const commands: CommandDefinition[] = [
       { name: 'options', required: false, description: 'Optional key=value overrides' },
     ],
   },
+  {
+    name: 'pruneevents',
+    aliases: ['pe'],
+    description: 'Prune internal runtime run events',
+    usage: '/pruneevents beforeTsMs=<ms> [runId=<id>] [runIds=a,b] [eventTypes=a,b] [keepLatestPerRun=n]',
+    args: [
+      { name: 'options', required: true, description: 'Prune key=value options' },
+    ],
+  },
 
   // Navigation commands
   {
@@ -230,7 +239,7 @@ export function getCommandsByCategory(): Record<string, CommandDefinition[]> {
       ['escalations', 'approvals', 'approve', 'reject'].includes(c.name)
     ),
     'System': commands.filter(c =>
-      ['status', 'ping', 'reconnect', 'refresh', 'rollout', 'replay'].includes(c.name)
+      ['status', 'ping', 'reconnect', 'refresh', 'rollout', 'replay', 'pruneevents'].includes(c.name)
     ),
     'Navigation': commands.filter(c =>
       ['dashboard', 'events', 'help'].includes(c.name)

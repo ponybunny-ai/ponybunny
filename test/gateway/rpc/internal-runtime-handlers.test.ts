@@ -148,6 +148,7 @@ describe('internal runtime handlers', () => {
       createContextPack: jest.fn(),
       appendRunEvent: jest.fn(),
       listRunEvents: jest.fn(),
+      pruneRunEvents: jest.fn(),
       upsertCronJob: jest.fn(),
       getCronJob: jest.fn(),
       listCronJobs: jest.fn(() => []),
@@ -226,6 +227,82 @@ describe('internal runtime handlers', () => {
         events = events.slice(0, params.limit);
       }
       return events;
+    });
+    (repository.pruneRunEvents as jest.Mock).mockImplementation((params: {
+      before_ts_ms: number;
+      run_id?: string;
+      run_ids?: string[];
+      event_types?: DeterministicRunEvent['event_type'][];
+      keep_latest_per_run?: number;
+    }) => {
+      const runIdSet = params.run_ids ? new Set(params.run_ids) : undefined;
+      const eventTypeSet = params.event_types ? new Set(params.event_types) : undefined;
+
+      const candidates = inMemoryEvents.filter((event) => {
+        if (event.ts_ms >= params.before_ts_ms) {
+          return false;
+        }
+        if (params.run_id && event.run_id !== params.run_id) {
+          return false;
+        }
+        if (runIdSet && !runIdSet.has(event.run_id)) {
+          return false;
+        }
+        if (eventTypeSet && !eventTypeSet.has(event.event_type)) {
+          return false;
+        }
+        return true;
+      });
+
+      const keepLatestPerRun = params.keep_latest_per_run ?? 0;
+      const retainedIds = new Set<string>();
+      if (keepLatestPerRun > 0) {
+        const byRun = new Map<string, DeterministicRunEvent[]>();
+        for (const event of candidates) {
+          const existing = byRun.get(event.run_id);
+          if (existing) {
+            existing.push(event);
+          } else {
+            byRun.set(event.run_id, [event]);
+          }
+        }
+
+        for (const events of byRun.values()) {
+          events.sort((a, b) => {
+            if (a.ts_ms !== b.ts_ms) {
+              return b.ts_ms - a.ts_ms;
+            }
+            return (b.sequence ?? 0) - (a.sequence ?? 0);
+          });
+          for (let index = 0; index < Math.min(keepLatestPerRun, events.length); index += 1) {
+            retainedIds.add(events[index].event_id);
+          }
+        }
+      }
+
+      const deleteIds = new Set(
+        candidates
+          .filter((event) => !retainedIds.has(event.event_id))
+          .map((event) => event.event_id)
+      );
+
+      if (deleteIds.size === 0) {
+        return { deleted: 0 };
+      }
+
+      let deleted = 0;
+      const keptEvents: DeterministicRunEvent[] = [];
+      for (const event of inMemoryEvents) {
+        if (deleteIds.has(event.event_id)) {
+          deleted += 1;
+        } else {
+          keptEvents.push(event);
+        }
+      }
+
+      inMemoryEvents.length = 0;
+      inMemoryEvents.push(...keptEvents);
+      return { deleted };
     });
   });
 
@@ -840,6 +917,85 @@ describe('internal runtime handlers', () => {
     ).rejects.toMatchObject({ code: ErrorCodes.INVALID_PARAMS });
   });
 
+  it('prunes run events via internal.runs.events.prune', async () => {
+    await rpc.handle(
+      'internal.plan.compile',
+      {
+        plan: {
+          schema_version: 'plan.v1',
+          plan_id: 'plan-rpc-prune-1001',
+          goal: 'Prune events',
+          steps: [
+            {
+              id: 'prune_step',
+              type: 'tool_call',
+              tool_ref: 'local://read_file',
+              args: { path: '/tmp/prune.txt' },
+            },
+          ],
+        },
+      },
+      createSession(['admin'])
+    );
+
+    const runBefore = await rpc.handle(
+      'internal.runs.events',
+      { runId: 'compile-plan-rpc-prune-1001' },
+      createSession(['admin'])
+    ) as { events: Array<{ event_type: string }> };
+    expect(runBefore.events).toHaveLength(2);
+
+    const pruneResult = await rpc.handle(
+      'internal.runs.events.prune',
+      {
+        beforeTsMs: Date.now() + 60_000,
+        runId: 'compile-plan-rpc-prune-1001',
+        eventTypes: ['PLAN_COMPILE_REQUESTED'],
+      },
+      createSession(['admin'])
+    ) as { deleted: number };
+
+    expect(pruneResult.deleted).toBe(1);
+
+    const runAfter = await rpc.handle(
+      'internal.runs.events',
+      { runId: 'compile-plan-rpc-prune-1001' },
+      createSession(['admin'])
+    ) as { events: Array<{ event_type: string }> };
+    expect(runAfter.events).toHaveLength(1);
+    expect(runAfter.events[0].event_type).toBe('PLAN_COMPILE_COMPLETED');
+  });
+
+  it('returns invalid params when internal.runs.events.prune params are invalid', async () => {
+    await expect(
+      rpc.handle('internal.runs.events.prune', { beforeTsMs: -1 }, createSession(['admin']))
+    ).rejects.toMatchObject({ code: ErrorCodes.INVALID_PARAMS });
+
+    await expect(
+      rpc.handle(
+        'internal.runs.events.prune',
+        { beforeTsMs: Date.now(), keepLatestPerRun: -1 },
+        createSession(['admin'])
+      )
+    ).rejects.toMatchObject({ code: ErrorCodes.INVALID_PARAMS });
+
+    await expect(
+      rpc.handle(
+        'internal.runs.events.prune',
+        { beforeTsMs: Date.now(), runIds: [] },
+        createSession(['admin'])
+      )
+    ).rejects.toMatchObject({ code: ErrorCodes.INVALID_PARAMS });
+
+    await expect(
+      rpc.handle(
+        'internal.runs.events.prune',
+        { beforeTsMs: Date.now(), eventTypes: ['INVALID_EVENT'] as unknown as string[] },
+        createSession(['admin'])
+      )
+    ).rejects.toMatchObject({ code: ErrorCodes.INVALID_PARAMS });
+  });
+
   it('creates runtime run marker via internal.run.create and records RUN_CREATED event', async () => {
     const result = await rpc.handle(
       'internal.run.create',
@@ -1264,6 +1420,14 @@ describe('internal runtime handlers', () => {
         createSession(['admin'])
       )
     ).rejects.toMatchObject({ code: ErrorCodes.INVALID_PARAMS });
+
+    await expect(
+      rpc.handle(
+        'internal.runs.replay',
+        { runId: 'compile-plan-rpc-0001', mode: 'reexecute_tools', enableExecution: true },
+        createSession(['admin'])
+      )
+    ).rejects.toMatchObject({ code: ErrorCodes.INVALID_PARAMS });
   });
 
   it('executes safe idempotent replay tools when enableExecution is true', async () => {
@@ -1292,6 +1456,7 @@ describe('internal runtime handlers', () => {
           allowTools: ['local://read_file'],
           maxAttempts: 10,
           enableExecution: true,
+          reexecutionIdempotencyKey: 'idem-replay-1',
         },
         createSession(['admin'])
       ) as {
@@ -1327,6 +1492,27 @@ describe('internal runtime handlers', () => {
       expect(replayEventTypes).toContain('REPLAY_REEXECUTION_REQUESTED');
       expect(replayEventTypes).toContain('REPLAY_REEXECUTION_STEP_EXECUTED');
       expect(replayEventTypes).toContain('REPLAY_REEXECUTION_COMPLETED');
+
+      const replaySecond = await rpc.handle(
+        'internal.runs.replay',
+        {
+          runId: 'compile-plan-replay-empty-1001',
+          mode: 'reexecute_tools',
+          allowTools: ['local://read_file'],
+          maxAttempts: 10,
+          enableExecution: true,
+          reexecutionIdempotencyKey: 'idem-replay-1',
+        },
+        createSession(['admin'])
+      ) as {
+        reexecution?: {
+          executed_steps: number;
+          message: string;
+        };
+      };
+
+      expect(replaySecond.reexecution?.executed_steps).toBeGreaterThanOrEqual(1);
+      expect(replaySecond.reexecution?.message).toContain('reused existing idempotent execution result');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

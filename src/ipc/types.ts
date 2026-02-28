@@ -17,6 +17,7 @@ export interface IPCMessage {
   type:
     | 'scheduler_event'
     | 'debug_event'
+    | 'run_event_retention'
     | 'scheduler_command'
     | 'scheduler_command_result'
     | 'ping'
@@ -47,13 +48,37 @@ export interface IPCDebugEventMessage extends IPCMessage {
   data: DebugEvent;
 }
 
-export type SchedulerCommandType = 'submit_goal' | 'cancel_goal';
+export interface IPCRunEventRetentionMessage extends IPCMessage {
+  type: 'run_event_retention';
+  data: {
+    deleted: number;
+    ok: boolean;
+    timestamp: number;
+  };
+}
+
+export type SchedulerCommandType = 'submit_goal' | 'cancel_goal' | 'apply_runtime_rollout';
 
 export interface SchedulerCommandRequest {
   requestId: string;
   command: SchedulerCommandType;
-  goalId: string;
+  goalId?: string;
   reason?: string;
+  rollout?: {
+    deterministicRuntimeEnabled: boolean;
+    planCompilerEnabled: boolean;
+    toolRoutingMode: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
+    runtimeRollout: {
+      shadowModeEnabled: boolean;
+      canaryPercent: number;
+      rollbackOnFailure: boolean;
+      lanePercents: {
+        dryRun: number;
+        compile: number;
+        replay: number;
+      };
+    };
+  };
 }
 
 export interface SchedulerCommandResponse {
@@ -120,6 +145,7 @@ export interface IPCDisconnectMessage extends IPCMessage {
 export type AnyIPCMessage =
   | IPCSchedulerEventMessage
   | IPCDebugEventMessage
+  | IPCRunEventRetentionMessage
   | IPCSchedulerCommandMessage
   | IPCSchedulerCommandResultMessage
   | IPCPingMessage

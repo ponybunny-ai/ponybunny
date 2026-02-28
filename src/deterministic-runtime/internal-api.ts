@@ -101,6 +101,18 @@ export interface InternalRunEventsResponse {
   events: InternalRunEvent[];
 }
 
+export interface InternalRunEventsPruneParams {
+  beforeTsMs: number;
+  runId?: string;
+  runIds?: string[];
+  eventTypes?: InternalRunEventType[];
+  keepLatestPerRun?: number;
+}
+
+export interface InternalRunEventsPruneResponse {
+  deleted: number;
+}
+
 export interface InternalRunsTimelineParams {
   runId: string;
   relatedRunId?: string;
@@ -128,6 +140,7 @@ export interface InternalRunReplayParams {
   allowTools?: string[];
   maxAttempts?: number;
   enableExecution?: boolean;
+  reexecutionIdempotencyKey?: string;
 }
 
 export interface InternalRunsReplayResponse {
@@ -286,6 +299,10 @@ export interface InternalApiSurface {
   'internal.runs.events': {
     params: InternalRunEventsParams;
     response: InternalRunEventsResponse;
+  };
+  'internal.runs.events.prune': {
+    params: InternalRunEventsPruneParams;
+    response: InternalRunEventsPruneResponse;
   };
   'internal.runs.timeline': {
     params: InternalRunsTimelineParams;

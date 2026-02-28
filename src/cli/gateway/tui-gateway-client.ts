@@ -107,6 +107,28 @@ export interface InternalRuntimeRunEventsResponse {
   }>;
 }
 
+export interface InternalRuntimeRunEventsPruneParams {
+  beforeTsMs: number;
+  runId?: string;
+  runIds?: string[];
+  eventTypes?: Array<
+    | 'PLAN_COMPILE_REQUESTED'
+    | 'PLAN_COMPILE_COMPLETED'
+    | 'PLAN_COMPILE_FAILED'
+    | 'RUN_CREATED'
+    | 'RUN_LINKED'
+    | 'REPLAY_REEXECUTION_REQUESTED'
+    | 'REPLAY_REEXECUTION_STEP_EXECUTED'
+    | 'REPLAY_REEXECUTION_STEP_SKIPPED'
+    | 'REPLAY_REEXECUTION_COMPLETED'
+  >;
+  keepLatestPerRun?: number;
+}
+
+export interface InternalRuntimeRunEventsPruneResponse {
+  deleted: number;
+}
+
 export interface InternalRuntimeTimelineResponse {
   runId: string;
   relatedRunId?: string;
@@ -455,6 +477,12 @@ export class TuiGatewayClient {
     return this.client.request('internal.runs.events', params);
   }
 
+  async pruneInternalRunEvents(
+    params: InternalRuntimeRunEventsPruneParams
+  ): Promise<InternalRuntimeRunEventsPruneResponse> {
+    return this.client.request('internal.runs.events.prune', params);
+  }
+
   async getInternalRunTimeline(runId: string, relatedRunId?: string): Promise<InternalRuntimeTimelineResponse> {
     return this.client.request('internal.runs.timeline', { runId, relatedRunId });
   }
@@ -467,6 +495,7 @@ export class TuiGatewayClient {
       allowTools?: string[];
       maxAttempts?: number;
       enableExecution?: boolean;
+      reexecutionIdempotencyKey?: string;
     }
   ): Promise<InternalRuntimeReplayResponse> {
     return this.client.request('internal.runs.replay', {
@@ -476,6 +505,9 @@ export class TuiGatewayClient {
       ...(options?.allowTools ? { allowTools: options.allowTools } : {}),
       ...(options?.maxAttempts !== undefined ? { maxAttempts: options.maxAttempts } : {}),
       ...(options?.enableExecution !== undefined ? { enableExecution: options.enableExecution } : {}),
+      ...(options?.reexecutionIdempotencyKey
+        ? { reexecutionIdempotencyKey: options.reexecutionIdempotencyKey }
+        : {}),
     });
   }
 

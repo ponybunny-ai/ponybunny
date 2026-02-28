@@ -108,6 +108,12 @@ export interface RuntimeRolloutUpdateParams {
 
 export interface SystemHandlersOptions {
   getRuntimeRolloutMetrics?: () => RuntimeRolloutMetricsSnapshot;
+  applyRuntimeRollout?: (rollout: {
+    deterministicRuntimeEnabled: boolean;
+    planCompilerEnabled: boolean;
+    toolRoutingMode: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
+    runtimeRollout: RuntimeRolloutStatusResponse['rollout'];
+  }) => Promise<void>;
 }
 
 const EMPTY_RUNTIME_ROLLOUT_METRICS: RuntimeRolloutMetricsSnapshot = {
@@ -118,7 +124,33 @@ const EMPTY_RUNTIME_ROLLOUT_METRICS: RuntimeRolloutMetricsSnapshot = {
   averagePlanStepCount: 0,
   averageChangedStepCount: 0,
   failureCodeCounts: {},
+  retentionRunsTotal: 0,
+  retentionDeletedTotal: 0,
+  retentionFailedTotal: 0,
 };
+
+function toRuntimeRolloutUpdatePayload(runtime: ReturnType<typeof loadRuntimeConfig>): {
+  deterministicRuntimeEnabled: boolean;
+  planCompilerEnabled: boolean;
+  toolRoutingMode: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
+  runtimeRollout: RuntimeRolloutStatusResponse['rollout'];
+} {
+  return {
+    deterministicRuntimeEnabled: runtime.scheduler.deterministicRuntimeEnabled,
+    planCompilerEnabled: runtime.scheduler.planCompilerEnabled,
+    toolRoutingMode: runtime.scheduler.toolRoutingMode,
+    runtimeRollout: {
+      shadowModeEnabled: runtime.scheduler.runtimeRollout.shadowModeEnabled,
+      canaryPercent: runtime.scheduler.runtimeRollout.canaryPercent,
+      rollbackOnFailure: runtime.scheduler.runtimeRollout.rollbackOnFailure,
+      lanePercents: {
+        dryRun: runtime.scheduler.runtimeRollout.lanePercents.dryRun,
+        compile: runtime.scheduler.runtimeRollout.lanePercents.compile,
+        replay: runtime.scheduler.runtimeRollout.lanePercents.replay,
+      },
+    },
+  };
+}
 
 function determineRolloutMode(
   shadowModeEnabled: boolean,
@@ -323,6 +355,9 @@ export function registerSystemHandlers(
       }
 
       saveRuntimeConfig(runtime);
+      if (options?.applyRuntimeRollout) {
+        await options.applyRuntimeRollout(toRuntimeRolloutUpdatePayload(runtime));
+      }
       return buildRuntimeRolloutStatus(options);
     }
   );

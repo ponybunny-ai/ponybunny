@@ -6,6 +6,7 @@ import type { AppContextValue } from '../context/app-context.js';
 import type { GatewayContextValue } from '../context/gateway-context.js';
 import { parseCommand, findCommand, type ParsedCommand } from './registry.js';
 import type { RuntimeSnapshot } from '../store/types.js';
+import type { InternalRuntimeRunEventsPruneParams } from '../../gateway/tui-gateway-client.js';
 
 export interface CommandContext {
   app: AppContextValue;
@@ -99,6 +100,7 @@ function parseReplayOptions(tokens: string[]): {
   allowTools?: string[];
   maxAttempts?: number;
   enableExecution?: boolean;
+  reexecutionIdempotencyKey?: string;
   eventsLimit?: number;
   cursor?: string;
 } {
@@ -107,6 +109,7 @@ function parseReplayOptions(tokens: string[]): {
     allowTools?: string[];
     maxAttempts?: number;
     enableExecution?: boolean;
+    reexecutionIdempotencyKey?: string;
     eventsLimit?: number;
     cursor?: string;
   } = {};
@@ -155,6 +158,15 @@ function parseReplayOptions(tokens: string[]): {
       continue;
     }
 
+    if (key === 'reexecutionidempotencykey') {
+      if (value.length === 0) {
+        throw new Error('reexecutionIdempotencyKey must be a non-empty string');
+      }
+
+      options.reexecutionIdempotencyKey = value;
+      continue;
+    }
+
     if (key === 'eventslimit') {
       const parsed = Number.parseInt(value, 10);
       if (!Number.isInteger(parsed) || parsed < 1 || parsed > 500) {
@@ -176,6 +188,110 @@ function parseReplayOptions(tokens: string[]): {
   }
 
   return options;
+}
+
+function parsePruneEventsOptions(tokens: string[]): {
+  beforeTsMs: number;
+  runId?: string;
+  runIds?: string[];
+  eventTypes?: InternalRuntimeRunEventsPruneParams['eventTypes'];
+  keepLatestPerRun?: number;
+} {
+  const allowedEventTypes: Array<NonNullable<InternalRuntimeRunEventsPruneParams['eventTypes']>[number]> = [
+    'PLAN_COMPILE_REQUESTED',
+    'PLAN_COMPILE_COMPLETED',
+    'PLAN_COMPILE_FAILED',
+    'RUN_CREATED',
+    'RUN_LINKED',
+    'REPLAY_REEXECUTION_REQUESTED',
+    'REPLAY_REEXECUTION_STEP_EXECUTED',
+    'REPLAY_REEXECUTION_STEP_SKIPPED',
+    'REPLAY_REEXECUTION_COMPLETED',
+  ];
+
+  const options: {
+    beforeTsMs?: number;
+    runId?: string;
+    runIds?: string[];
+    eventTypes?: InternalRuntimeRunEventsPruneParams['eventTypes'];
+    keepLatestPerRun?: number;
+  } = {};
+
+  for (const token of tokens) {
+    const [rawKey, rawValue] = token.split('=');
+    const key = rawKey?.trim().toLowerCase();
+    const value = rawValue?.trim();
+
+    if (!key || !value) {
+      throw new Error(`Invalid prune option: ${token}. Use key=value format.`);
+    }
+
+    if (key === 'beforetsms') {
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        throw new Error('beforeTsMs must be a non-negative integer');
+      }
+      options.beforeTsMs = parsed;
+      continue;
+    }
+
+    if (key === 'runid') {
+      options.runId = value;
+      continue;
+    }
+
+    if (key === 'runids') {
+      const runIds = value.split(',').map((part) => part.trim()).filter(Boolean);
+      if (runIds.length === 0) {
+        throw new Error('runIds must include at least one run ID');
+      }
+      options.runIds = runIds;
+      continue;
+    }
+
+    if (key === 'eventtypes') {
+      const eventTypes = value
+        .split(',')
+        .map((part) => part.trim())
+        .filter((part): part is NonNullable<InternalRuntimeRunEventsPruneParams['eventTypes']>[number] =>
+          allowedEventTypes.includes(part as NonNullable<InternalRuntimeRunEventsPruneParams['eventTypes']>[number])
+        );
+      if (eventTypes.length === 0) {
+        throw new Error('eventTypes must include at least one event type');
+      }
+
+      const rawTypes = value.split(',').map((part) => part.trim()).filter(Boolean);
+      if (rawTypes.length !== eventTypes.length) {
+        throw new Error('eventTypes contains unsupported event type values');
+      }
+
+      options.eventTypes = eventTypes;
+      continue;
+    }
+
+    if (key === 'keeplatestperrun') {
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        throw new Error('keepLatestPerRun must be a non-negative integer');
+      }
+      options.keepLatestPerRun = parsed;
+      continue;
+    }
+
+    throw new Error(`Unsupported prune option: ${key}`);
+  }
+
+  if (options.beforeTsMs === undefined) {
+    throw new Error('beforeTsMs is required');
+  }
+
+  return {
+    beforeTsMs: options.beforeTsMs,
+    runId: options.runId,
+    runIds: options.runIds,
+    eventTypes: options.eventTypes,
+    keepLatestPerRun: options.keepLatestPerRun,
+  };
 }
 
 async function refreshSchedulerData(ctx: CommandContext): Promise<CommandResult> {
@@ -646,6 +762,9 @@ const handlers: Record<string, CommandHandler> = {
           allowTools: options.allowTools,
           maxAttempts: options.maxAttempts,
           enableExecution: options.enableExecution,
+          ...(options.reexecutionIdempotencyKey
+            ? { reexecutionIdempotencyKey: options.reexecutionIdempotencyKey }
+            : {}),
         }),
         client.getInternalRunEvents({
           runId,
@@ -734,6 +853,35 @@ const handlers: Record<string, CommandHandler> = {
     }
   },
 
+  pruneevents: async (cmd, ctx) => {
+    const client = ctx.gateway.client;
+    if (!client) {
+      return { success: false, error: 'Not connected to gateway' };
+    }
+
+    if (cmd.args.length === 0) {
+      return {
+        success: false,
+        error: 'Prune options are required. Usage: /pruneevents beforeTsMs=<ms> [runId=<id>] [runIds=a,b] [eventTypes=a,b] [keepLatestPerRun=n]',
+      };
+    }
+
+    try {
+      const options = parsePruneEventsOptions(cmd.args);
+      const result = await client.pruneInternalRunEvents(options);
+      ctx.app.addEvent('runtime.events.pruned', {
+        ...options,
+        deleted: result.deleted,
+      });
+      return {
+        success: true,
+        message: `Pruned ${result.deleted} runtime events`,
+      };
+    } catch (err) {
+      return { success: false, error: `Prune command failed: ${(err as Error).message}` };
+    }
+  },
+
   // Navigation commands
   dashboard: (_cmd, ctx) => {
     ctx.app.setView('dashboard');
@@ -776,6 +924,7 @@ const aliasMap: Record<string, string> = {
   rf: 'refresh',
   ro: 'rollout',
   rp: 'replay',
+  pe: 'pruneevents',
   d: 'dashboard',
   home: 'dashboard',
   ev: 'events',

@@ -31,6 +31,12 @@ export interface PonyBunnyRuntimeConfig {
         replay: number;
       };
     };
+    runEventRetention: {
+      enabled: boolean;
+      intervalMs: number;
+      maxAgeMs: number;
+      keepLatestPerRun: number;
+    };
   };
   agent: {
     mainAgentId: string;
@@ -93,6 +99,12 @@ export const DEFAULT_RUNTIME_CONFIG: PonyBunnyRuntimeConfig = {
         compile: 0,
         replay: 0,
       },
+    },
+    runEventRetention: {
+      enabled: true,
+      intervalMs: 60 * 60 * 1000,
+      maxAgeMs: 7 * 24 * 60 * 60 * 1000,
+      keepLatestPerRun: 50,
     },
   },
   agent: {
@@ -313,6 +325,26 @@ export function resolveRuntimeConfigFromEnvironment(
           ),
         },
       },
+      runEventRetention: {
+        enabled: toBoolean(
+          env.PONY_RUN_EVENTS_RETENTION_ENABLED,
+          DEFAULT_RUNTIME_CONFIG.scheduler.runEventRetention.enabled
+        ),
+        intervalMs: toPositiveInt(
+          env.PONY_RUN_EVENTS_RETENTION_INTERVAL_MS,
+          DEFAULT_RUNTIME_CONFIG.scheduler.runEventRetention.intervalMs
+        ),
+        maxAgeMs: toPositiveInt(
+          env.PONY_RUN_EVENTS_RETENTION_MAX_AGE_MS,
+          DEFAULT_RUNTIME_CONFIG.scheduler.runEventRetention.maxAgeMs
+        ),
+        keepLatestPerRun: toIntegerInRange(
+          env.PONY_RUN_EVENTS_RETENTION_KEEP_LATEST_PER_RUN,
+          DEFAULT_RUNTIME_CONFIG.scheduler.runEventRetention.keepLatestPerRun,
+          0,
+          10000
+        ),
+      },
     },
     agent: {
       mainAgentId: toStringValue(env.PONY_MAIN_AGENT_ID, DEFAULT_RUNTIME_CONFIG.agent.mainAgentId),
@@ -398,6 +430,10 @@ function normalizeConfig(raw: PonyBunnyRuntimeConfig): PonyBunnyRuntimeConfig {
     (schedulerInput.runtimeRollout as Record<string, unknown> | undefined)
     ?? (schedulerInput.runtime_rollout as Record<string, unknown> | undefined)
     ?? {};
+  const runEventRetentionInput =
+    (schedulerInput.runEventRetention as Record<string, unknown> | undefined)
+    ?? (schedulerInput.run_event_retention as Record<string, unknown> | undefined)
+    ?? {};
   const promptOverrideInput =
     (personaInput.promptOverrides as Record<string, unknown> | undefined)
     ?? (personaInput.prompt_overrides as Record<string, unknown> | undefined)
@@ -481,6 +517,26 @@ function normalizeConfig(raw: PonyBunnyRuntimeConfig): PonyBunnyRuntimeConfig {
             100
           ),
         },
+      },
+      runEventRetention: {
+        enabled: toBoolean(
+          runEventRetentionInput.enabled,
+          DEFAULT_RUNTIME_CONFIG.scheduler.runEventRetention.enabled
+        ),
+        intervalMs: toPositiveInt(
+          runEventRetentionInput.intervalMs ?? runEventRetentionInput.interval_ms,
+          DEFAULT_RUNTIME_CONFIG.scheduler.runEventRetention.intervalMs
+        ),
+        maxAgeMs: toPositiveInt(
+          runEventRetentionInput.maxAgeMs ?? runEventRetentionInput.max_age_ms,
+          DEFAULT_RUNTIME_CONFIG.scheduler.runEventRetention.maxAgeMs
+        ),
+        keepLatestPerRun: toIntegerInRange(
+          runEventRetentionInput.keepLatestPerRun ?? runEventRetentionInput.keep_latest_per_run,
+          DEFAULT_RUNTIME_CONFIG.scheduler.runEventRetention.keepLatestPerRun,
+          0,
+          10000
+        ),
       },
     },
     agent: {

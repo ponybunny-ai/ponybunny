@@ -122,4 +122,96 @@ describe('WorkOrderDatabase run events persistence', () => {
 
     reader.close();
   });
+
+  it('prunes events older than threshold with run/event filters', async () => {
+    const dbPath = createTempDbPath();
+    const repository = new WorkOrderDatabase(dbPath);
+    await repository.initialize();
+
+    repository.appendRunEvent!({
+      run_id: 'run-prune-1',
+      event_type: 'PLAN_COMPILE_REQUESTED',
+      ts_ms: 100,
+      payload: {},
+    });
+    repository.appendRunEvent!({
+      run_id: 'run-prune-1',
+      event_type: 'PLAN_COMPILE_COMPLETED',
+      ts_ms: 200,
+      payload: {},
+    });
+    repository.appendRunEvent!({
+      run_id: 'run-prune-2',
+      event_type: 'PLAN_COMPILE_REQUESTED',
+      ts_ms: 150,
+      payload: {},
+    });
+
+    const pruneResult = repository.pruneRunEvents!({
+      before_ts_ms: 180,
+      run_ids: ['run-prune-1', 'run-prune-2'],
+      event_types: ['PLAN_COMPILE_REQUESTED'],
+    });
+
+    expect(pruneResult.deleted).toBe(2);
+    expect(repository.listRunEvents!({ run_id: 'run-prune-1' }).map((event) => event.event_type)).toEqual([
+      'PLAN_COMPILE_COMPLETED',
+    ]);
+    expect(repository.listRunEvents!({ run_id: 'run-prune-2' })).toEqual([]);
+
+    repository.close();
+  });
+
+  it('keeps latest N per run while pruning old events', async () => {
+    const dbPath = createTempDbPath();
+    const repository = new WorkOrderDatabase(dbPath);
+    await repository.initialize();
+
+    repository.appendRunEvent!({
+      run_id: 'run-keep-1',
+      event_type: 'PLAN_COMPILE_REQUESTED',
+      ts_ms: 100,
+      payload: {},
+    });
+    repository.appendRunEvent!({
+      run_id: 'run-keep-1',
+      event_type: 'PLAN_COMPILE_COMPLETED',
+      ts_ms: 200,
+      payload: {},
+    });
+    repository.appendRunEvent!({
+      run_id: 'run-keep-1',
+      event_type: 'RUN_CREATED',
+      ts_ms: 300,
+      payload: {},
+    });
+    repository.appendRunEvent!({
+      run_id: 'run-keep-2',
+      event_type: 'PLAN_COMPILE_REQUESTED',
+      ts_ms: 110,
+      payload: {},
+    });
+    repository.appendRunEvent!({
+      run_id: 'run-keep-2',
+      event_type: 'PLAN_COMPILE_COMPLETED',
+      ts_ms: 210,
+      payload: {},
+    });
+
+    const pruneResult = repository.pruneRunEvents!({
+      before_ts_ms: 1000,
+      run_ids: ['run-keep-1', 'run-keep-2'],
+      keep_latest_per_run: 1,
+    });
+
+    expect(pruneResult.deleted).toBe(3);
+    expect(repository.listRunEvents!({ run_id: 'run-keep-1' }).map((event) => event.event_type)).toEqual([
+      'RUN_CREATED',
+    ]);
+    expect(repository.listRunEvents!({ run_id: 'run-keep-2' }).map((event) => event.event_type)).toEqual([
+      'PLAN_COMPILE_COMPLETED',
+    ]);
+
+    repository.close();
+  });
 });

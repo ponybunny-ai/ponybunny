@@ -21,6 +21,23 @@ export interface SchedulerConfig {
   deterministicRuntimeEnabled: boolean;
   planCompilerEnabled: boolean;
   toolRoutingMode: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
+  runtimeRollout: {
+    shadowModeEnabled: boolean;
+    canaryPercent: number;
+    rollbackOnFailure: boolean;
+    lanePercents: {
+      dryRun: number;
+      compile: number;
+      replay: number;
+    };
+  };
+}
+
+export interface SchedulerRuntimeRolloutConfig {
+  deterministicRuntimeEnabled: boolean;
+  planCompilerEnabled: boolean;
+  toolRoutingMode: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
+  runtimeRollout: SchedulerConfig['runtimeRollout'];
 }
 
 export interface GoalExecutionState {
@@ -91,6 +108,8 @@ export interface ISchedulerCore {
 
   /** Process a single tick (for testing) */
   tick(): Promise<void>;
+
+  applyRuntimeRollout(config: SchedulerRuntimeRolloutConfig): void;
 }
 
 export interface SchedulerDependencies {
