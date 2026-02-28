@@ -132,7 +132,7 @@ describe('Tool Calling Protocol Adapters', () => {
 
       expect(request).toHaveProperty('tools');
       expect((request as any).tools[0].type).toBe('function');
-      expect((request as any).tools[0].function.name).toBe('web_search');
+      expect((request as any).tools[0].name).toBe('web_search');
     });
 
     it('should parse tool calls from response', () => {
@@ -140,26 +140,17 @@ describe('Tool Calling Protocol Adapters', () => {
         status: 200,
         statusText: 'OK',
         data: {
-          choices: [
+          output: [
             {
-              message: {
-                role: 'assistant',
-                content: null,
-                tool_calls: [
-                  {
-                    id: 'call_123',
-                    type: 'function',
-                    function: {
-                      name: 'web_search',
-                      arguments: '{"query":"weather in Shanghai"}',
-                    },
-                  },
-                ],
-              },
-              finish_reason: 'tool_calls',
+              type: 'function_call',
+              id: 'fc_123',
+              call_id: 'call_123',
+              name: 'web_search',
+              arguments: '{"query":"weather in Shanghai"}',
             },
           ],
-          usage: { total_tokens: 150 },
+          usage: { input_tokens: 100, output_tokens: 50 },
+          status: 'completed',
         },
       };
 

@@ -22,27 +22,27 @@ export const DEFAULT_ROUTING_CONFIG: ModelRoutingConfig[] = [
   {
     pattern: 'claude-*',
     protocol: 'anthropic',
-    endpoints: ['anthropic-direct', 'aws-bedrock'],
+    endpoints: ['anthropic', 'aws-bedrock'],
   },
   {
     pattern: 'gpt-*-codex',
     protocol: 'codex',
-    endpoints: ['codex'],
+    endpoints: ['openai-codex'],
   },
   {
     pattern: 'gpt-*',
     protocol: 'openai',
-    endpoints: ['openai-direct', 'azure-openai', 'openai-compatible'],
+    endpoints: ['openai', 'azure-openai', 'openai-compatible'],
   },
   {
     pattern: 'o1*',
     protocol: 'openai',
-    endpoints: ['openai-direct', 'azure-openai'],
+    endpoints: ['openai', 'azure-openai'],
   },
   {
     pattern: 'o3*',
     protocol: 'openai',
-    endpoints: ['openai-direct', 'azure-openai'],
+    endpoints: ['openai', 'azure-openai'],
   },
   {
     pattern: 'gemini-*',
@@ -53,7 +53,7 @@ export const DEFAULT_ROUTING_CONFIG: ModelRoutingConfig[] = [
 
 /**
  * Load endpoint priority overrides from environment
- * Format: PONY_ENDPOINT_PRIORITY_CLAUDE=aws-bedrock,anthropic-direct
+ * Format: PONY_ENDPOINT_PRIORITY_CLAUDE=aws-bedrock,anthropic
  */
 export function loadEndpointPriorityOverrides(): Map<string, EndpointId[]> {
   const overrides = new Map<string, EndpointId[]>();

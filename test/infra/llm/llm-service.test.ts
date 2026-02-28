@@ -120,14 +120,14 @@ describe('LLMService', () => {
       process.env.ANTHROPIC_API_KEY = 'test-key';
       const service = new LLMService();
       const providers = service.getAvailableProviders();
-      expect(providers).toContain('anthropic-direct');
+      expect(providers).toContain('anthropic');
     });
 
     it('should return openai when OPENAI_API_KEY is set', () => {
       process.env.OPENAI_API_KEY = 'test-key';
       const service = new LLMService();
       const providers = service.getAvailableProviders();
-      expect(providers).toContain('openai-direct');
+      expect(providers).toContain('openai');
     });
 
     it('should return gemini when GEMINI_API_KEY is set', () => {
@@ -145,8 +145,8 @@ describe('LLMService', () => {
       const service = new LLMService();
       const providers = service.getAvailableProviders();
 
-      expect(providers).toContain('anthropic-direct');
-      expect(providers).toContain('openai-direct');
+      expect(providers).toContain('anthropic');
+      expect(providers).toContain('openai');
       expect(providers).toContain('google-ai-studio');
     });
   });

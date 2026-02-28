@@ -53,7 +53,7 @@ describe('ModelSelector', () => {
       const result = selector.selectModel(workItem);
 
       expect(result.tier).toBe('simple');
-      expect(result.model).toBe('claude-haiku-4-5-20251001');
+      expect(result.model).toBe('anthropic.claude-haiku-4-5-20251001');
     });
 
     test('should select medium model for medium complexity work items', () => {
@@ -70,7 +70,7 @@ describe('ModelSelector', () => {
       const result = selector.selectModel(workItem);
 
       expect(result.tier).toBe('medium');
-      expect(result.model).toBe('claude-sonnet-4-5-20250929');
+      expect(result.model).toBe('anthropic.claude-sonnet-4-5-20250929');
     });
 
     test('should select complex model for high complexity work items', () => {
@@ -87,7 +87,7 @@ describe('ModelSelector', () => {
       const result = selector.selectModel(workItem);
 
       expect(result.tier).toBe('complex');
-      expect(result.model).toBe('claude-opus-4-5-20251101');
+      expect(result.model).toBe('anthropic.claude-opus-4-5-20251101');
     });
 
     test('should include reasoning in result', () => {
@@ -118,7 +118,7 @@ describe('ModelSelector', () => {
     });
 
     test('should fall back to any globally available model when tier chain has no available models', () => {
-      const isModelAvailable = (model: string): boolean => model === 'gpt-5.2-codex';
+      const isModelAvailable = (model: string): boolean => model === 'openai-codex.gpt-5.2-codex';
       const selector = new ModelSelector(undefined, undefined, isModelAvailable);
       const workItem = createWorkItem({
         item_type: 'analysis',
@@ -130,7 +130,7 @@ describe('ModelSelector', () => {
 
       const result = selector.selectModel(workItem);
 
-      expect(result.model).toBe('gpt-5.2-codex');
+      expect(result.model).toBe('openai-codex.gpt-5.2-codex');
     });
   });
 
@@ -147,7 +147,7 @@ describe('ModelSelector', () => {
       const result = selector.selectModelForPlanning(goal);
 
       expect(result.tier).toBe('simple');
-      expect(result.model).toBe('claude-haiku-4-5-20251001');
+      expect(result.model).toBe('anthropic.claude-haiku-4-5-20251001');
     });
 
     test('should select complex model for complex goals', () => {
@@ -169,7 +169,7 @@ describe('ModelSelector', () => {
       const result = selector.selectModelForPlanning(goal);
 
       expect(result.tier).toBe('complex');
-      expect(result.model).toBe('claude-opus-4-5-20251101');
+      expect(result.model).toBe('anthropic.claude-opus-4-5-20251101');
     });
 
     test('should consider success_criteria count', () => {
@@ -231,7 +231,7 @@ describe('ModelSelector', () => {
       const result = selector.selectModel(workItem);
 
       expect(result.tier).toBe('complex');
-      expect(result.model).toBe('claude-opus-4-5-20251101');
+      expect(result.model).toBe('anthropic.claude-opus-4-5-20251101');
     });
   });
 
