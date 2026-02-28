@@ -28,6 +28,8 @@ export interface ProtocolRequestConfig {
   temperature?: number;
   timeout?: number;
   tools?: ToolDefinition[];
+  modelNativeTools?: Array<Record<string, unknown>>;
+  allowModelNativeTools?: boolean;
   tool_choice?: 'auto' | 'none' | 'required' | { type: 'function'; function: { name: string } };
   thinking?: boolean;
   stream?: boolean;

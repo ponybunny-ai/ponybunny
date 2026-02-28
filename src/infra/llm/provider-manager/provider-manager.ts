@@ -18,6 +18,7 @@ import { gatewayEventBus } from '../../../gateway/events/event-bus.js';
 import { isPonyBunnyDebugEnabled } from '../../config/debug-flags.js';
 import { randomUUID } from 'crypto';
 import type { OpenAIOperation, ProtocolRequestConfig } from '../protocols/protocol-adapter.js';
+import { resolveProviderRequestModel as resolveProviderRequestModelId } from './model-resolution.js';
 
 /**
  * LLM Provider Manager
@@ -255,6 +256,8 @@ export class LLMProviderManager implements ILLMProviderManager {
       maxTokens,
       temperature: this.resolveTemperature(providerRequestModel, modelConfig, options?.temperature),
       tools: options?.tools,
+      modelNativeTools: options?.modelNativeTools,
+      allowModelNativeTools: options?.allowModelNativeTools,
       tool_choice: options?.tool_choice,
       thinking: options?.thinking,
       openaiOperation: selectedOpenAIEndpoint?.name,
@@ -704,21 +707,7 @@ export class LLMProviderManager implements ILLMProviderManager {
   }
 
   private resolveProviderRequestModel(modelId: string, config: LLMConfig): string {
-    const dotIndex = modelId.indexOf('.');
-    if (dotIndex <= 0 || dotIndex === modelId.length - 1) {
-      return modelId;
-    }
-
-    const candidatePrefix = modelId.slice(0, dotIndex);
-    const suffix = modelId.slice(dotIndex + 1);
-    const isProviderPrefix = Boolean(config.providers[candidatePrefix]);
-    const isAliasPrefix = Boolean(config.providerAliases?.[candidatePrefix]);
-
-    if (!isProviderPrefix && !isAliasPrefix) {
-      return modelId;
-    }
-
-    return suffix;
+    return resolveProviderRequestModelId(modelId, config);
   }
 
   /**

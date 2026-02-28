@@ -6,6 +6,7 @@ import { loadLLMConfig, saveLLMConfig, clearConfigCache } from './config-loader.
 import { EndpointManager, getEndpointManager } from './endpoint-manager.js';
 import { LLMProviderError } from '../llm-provider.js';
 import { parseProviderFromModelSelector } from './model-resolution.js';
+import { resolveProviderRequestModel } from './model-resolution.js';
 import type { LLMModelConfig } from './types.js';
 
 export interface ProbeOptions {
@@ -188,24 +189,6 @@ function resolveProbeMaxTokens(config: LLMConfig, modelConfig: LLMModelConfig): 
   return Math.max(16, bounded);
 }
 
-function resolveProbeRequestModel(modelId: string, config: LLMConfig): string {
-  const dotIndex = modelId.indexOf('.');
-  if (dotIndex <= 0 || dotIndex === modelId.length - 1) {
-    return modelId;
-  }
-
-  const candidatePrefix = modelId.slice(0, dotIndex);
-  const suffix = modelId.slice(dotIndex + 1);
-  const isProviderPrefix = Boolean(config.providers[candidatePrefix]);
-  const isAliasPrefix = Boolean(config.providerAliases?.[candidatePrefix]);
-
-  if (!isProviderPrefix && !isAliasPrefix) {
-    return modelId;
-  }
-
-  return suffix;
-}
-
 export async function probeAndPersistAvailability(options: ProbeOptions = {}): Promise<ProbeSummary> {
   const timeoutMs = options.timeoutMs ?? 10000;
   const maxModelsPerEndpoint = options.maxModelsPerEndpoint ?? 20;
@@ -231,7 +214,7 @@ export async function probeAndPersistAvailability(options: ProbeOptions = {}): P
 
     for (const modelId of candidateModels) {
       modelEndpointChecks += 1;
-      const requestModelId = resolveProbeRequestModel(modelId, config);
+      const requestModelId = resolveProviderRequestModel(modelId, config);
       const modelConfig = config.models[modelId];
 
       const result = await probeEndpointModel(

@@ -82,6 +82,52 @@ describe('OpenAIProtocolAdapter', () => {
       expect(Array.isArray(result.input)).toBe(true);
     });
 
+    it('should serialize assistant tool calls and tool outputs for responses API', () => {
+      const messages: LLMMessage[] = [
+        { role: 'user', content: 'create file' },
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'call_123',
+              type: 'function',
+              function: {
+                name: 'write_file',
+                arguments: '{"path":"/tmp/hello.txt","content":"hello"}',
+              },
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          tool_call_id: 'call_123',
+          content: 'ok',
+        },
+      ];
+
+      const result = adapter.formatRequest(messages, {
+        model: 'gpt-5.2',
+        openaiOperation: 'responses',
+      }) as Record<string, unknown>;
+
+      const input = result.input as Array<Record<string, unknown>>;
+      expect(input).toEqual([
+        { role: 'user', content: 'create file' },
+        {
+          type: 'function_call',
+          call_id: 'call_123',
+          name: 'write_file',
+          arguments: '{"path":"/tmp/hello.txt","content":"hello"}',
+        },
+        {
+          type: 'function_call_output',
+          call_id: 'call_123',
+          output: 'ok',
+        },
+      ]);
+    });
+
     it('should omit temperature for gpt-5 family requests', () => {
       const messages: LLMMessage[] = [{ role: 'user', content: 'Hello' }];
 

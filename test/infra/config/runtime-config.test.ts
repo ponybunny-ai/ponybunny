@@ -37,6 +37,7 @@ describe('runtime-config memory user profile id', () => {
       PONY_SCHEDULER_DETERMINISTIC_RUNTIME_ENABLED: 'true',
       PONY_SCHEDULER_PLAN_COMPILER_ENABLED: '1',
       PONY_SCHEDULER_TOOL_ROUTING_MODE: 'system_only',
+      PONY_SCHEDULER_ALLOW_MODEL_NATIVE_TOOLS: 'true',
       PONY_SCHEDULER_ROLLOUT_SHADOW_ENABLED: 'true',
       PONY_SCHEDULER_ROLLOUT_CANARY_PERCENT: '30',
       PONY_SCHEDULER_ROLLOUT_CANARY_PERCENT_DRY_RUN: '40',
@@ -48,6 +49,7 @@ describe('runtime-config memory user profile id', () => {
     expect(config.scheduler.deterministicRuntimeEnabled).toBe(true);
     expect(config.scheduler.planCompilerEnabled).toBe(true);
     expect(config.scheduler.toolRoutingMode).toBe('system_only');
+    expect(config.scheduler.allowModelNativeTools).toBe(true);
     expect(config.scheduler.runtimeRollout.shadowModeEnabled).toBe(true);
     expect(config.scheduler.runtimeRollout.canaryPercent).toBe(30);
     expect(config.scheduler.runtimeRollout.rollbackOnFailure).toBe(false);

@@ -6,6 +6,8 @@ import { getProtocolAdapter } from './protocols/index.js';
 import type { EndpointConfig } from './endpoints/index.js';
 import { resolveCredentials } from './endpoints/index.js';
 import { ModelRouter, getModelRouter } from './routing/index.js';
+import { getCachedConfig } from './provider-manager/config-loader.js';
+import { resolveProviderRequestModel } from './provider-manager/model-resolution.js';
 import { authManagerV2 } from '../../cli/lib/auth-manager-v2.js';
 
 /**
@@ -163,12 +165,18 @@ export class UnifiedLLMProvider implements ILLMProvider {
       }
     }
 
+    const llmConfig = getCachedConfig();
+    const providerRequestModel = resolveProviderRequestModel(model, llmConfig);
+    this.assertNoProviderPrefixLeak(providerRequestModel, llmConfig);
+
     // Build request
     const requestConfig: ProtocolRequestConfig = {
-      model,
+      model: providerRequestModel,
       maxTokens: options?.maxTokens || this.config.defaultMaxTokens || 4000,
       temperature: options?.temperature ?? 0.7,
       tools: options?.tools,
+      modelNativeTools: options?.modelNativeTools,
+      allowModelNativeTools: options?.allowModelNativeTools,
       tool_choice: options?.tool_choice,
       thinking: options?.thinking,
       stream: options?.stream,
@@ -181,7 +189,7 @@ export class UnifiedLLMProvider implements ILLMProvider {
 
     // Build URL and headers (prefer credentials file baseUrl override)
     const baseUrl = credentials.baseUrl || credentials.endpoint || endpoint.baseUrl;
-    const url = adapter.buildUrl(baseUrl, model, endpointCreds, requestConfig);
+    const url = adapter.buildUrl(baseUrl, providerRequestModel, endpointCreds, requestConfig);
 
     const baseUrlSource = credentials.baseUrl || credentials.endpoint
       ? 'credentials'
@@ -503,6 +511,22 @@ export class UnifiedLLMProvider implements ILLMProvider {
     };
 
     console.log(`[UnifiedProvider][#${requestId}] Inbound parsed message from ${endpointId}:`, JSON.stringify(inboundMessage, null, 2));
+  }
+
+  private assertNoProviderPrefixLeak(modelId: string, config: import('./provider-manager/types.js').LLMConfig): void {
+    const dotIndex = modelId.indexOf('.');
+    if (dotIndex <= 0 || dotIndex === modelId.length - 1) {
+      return;
+    }
+
+    const prefix = modelId.slice(0, dotIndex);
+    if (config.providers[prefix] || config.providerAliases?.[prefix]) {
+      throw new LLMProviderError(
+        `Provider-qualified model leaked to provider request payload: ${modelId}`,
+        'unified-provider',
+        false
+      );
+    }
   }
 }
 

@@ -12,6 +12,7 @@ import type { IPersonaEngine } from './persona-engine.js';
 import type { LLMMessage, ToolCall } from '../../infra/llm/llm-provider.js';
 import type { ToolEnforcer } from '../../infra/tools/tool-registry.js';
 import { getGlobalToolProvider } from '../../infra/tools/tool-provider.js';
+import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
 import { debug } from '../../debug/index.js';
 
 export interface IResponseGenerator {
@@ -116,12 +117,14 @@ export class ResponseGenerator implements IResponseGenerator {
     let accumulatedContent = '';
 
     while (maxIterations > 0) {
+      const runtimeConfig = loadRuntimeConfig();
       const response = await this.llmService.completeForWorkload(
         'conversation',
         messages,
         {
           maxTokens: 1000,
           tools: conversationTools,
+          allowModelNativeTools: runtimeConfig.scheduler.allowModelNativeTools,
           tool_choice: 'auto',
           thinking: true,
           stream: !!onChunk,

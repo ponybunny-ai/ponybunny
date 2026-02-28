@@ -9,6 +9,7 @@ import type { ToolEnforcer } from '../infra/tools/tool-registry.js';
 import { getGlobalPromptProvider } from '../infra/prompts/prompt-provider.js';
 import { ToolProvider, getGlobalToolProvider } from '../infra/tools/tool-provider.js';
 import { routeContextFromWorkItemContext } from '../infra/routing/route-context.js';
+import { loadRuntimeConfig } from '../infra/config/runtime-config.js';
 
 export interface ReActCycleParams {
   workItem: WorkItem;
@@ -1087,8 +1088,10 @@ Respond with at most 2 short planning lines, then immediately issue the first co
       throw new Error('No LLM provider configured');
     }
 
+    const runtimeConfig = loadRuntimeConfig();
     const options: any = {
       tools,
+      allowModelNativeTools: runtimeConfig.scheduler.allowModelNativeTools,
       tool_choice: requireToolCall && tools.length > 0 ? 'required' : 'auto',
       thinking: true, // Enable thinking mode if supported
     };

@@ -65,6 +65,8 @@ export interface LLMProviderConfig {
   temperature?: number;
   timeout?: number;
   tools?: ToolDefinition[];      // Available tools
+  modelNativeTools?: Array<Record<string, unknown>>;
+  allowModelNativeTools?: boolean;
   tool_choice?: 'auto' | 'none' | 'required' | { type: 'function'; function: { name: string } };
   thinking?: boolean;            // Enable thinking mode (default based on model config)
   stream?: boolean;              // Enable streaming (default based on model config)

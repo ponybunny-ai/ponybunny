@@ -195,6 +195,8 @@ export interface LLMCompletionOptions {
   stream?: boolean;
   /** Tool definitions for function calling */
   tools?: import('../llm-provider.js').ToolDefinition[];
+  modelNativeTools?: Array<Record<string, unknown>>;
+  allowModelNativeTools?: boolean;
   /** Tool choice strategy */
   tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } };
   /** Enable extended thinking mode */

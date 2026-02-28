@@ -134,6 +134,33 @@ describe('UnifiedLLMProvider', () => {
       );
     });
 
+    it('should normalize provider-prefixed openai model before request', async () => {
+      process.env.OPENAI_API_KEY = 'sk-test-key';
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          output_text: 'ok',
+          usage: { total_tokens: 10 },
+          model: 'gpt-5.2',
+          status: 'completed',
+        }),
+      });
+
+      const provider = new UnifiedLLMProvider();
+      const messages: LLMMessage[] = [{ role: 'user', content: 'Hello' }];
+
+      const result = await provider.complete(messages, { model: 'openai.gpt-5.2' });
+
+      expect(result.content).toBe('ok');
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      const request = mockFetch.mock.calls[0]?.[1] as { body?: string } | undefined;
+      const payload = request?.body ? JSON.parse(request.body) as { model?: string } : {};
+      expect(payload.model).toBe('gpt-5.2');
+      expect(payload.model).not.toBe('openai.gpt-5.2');
+    });
+
     it('should fallback to next endpoint on failure', async () => {
       process.env.ANTHROPIC_API_KEY = 'test-key';
       process.env.AWS_ACCESS_KEY_ID = 'aws-id';

@@ -964,6 +964,7 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
         'deterministicRuntimeEnabled',
         'planCompilerEnabled',
         'toolRoutingMode',
+        'allowModelNativeTools',
       ],
       properties: {
         tickIntervalMs: { type: 'integer', minimum: 1 },
@@ -975,6 +976,7 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
           type: 'string',
           enum: ['legacy', 'system_only', 'system_preferred', 'model_preferred'],
         },
+        allowModelNativeTools: { type: 'boolean' },
       },
       additionalProperties: false,
     },

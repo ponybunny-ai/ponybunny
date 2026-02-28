@@ -21,6 +21,7 @@ export interface PonyBunnyRuntimeConfig {
     deterministicRuntimeEnabled: boolean;
     planCompilerEnabled: boolean;
     toolRoutingMode: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
+    allowModelNativeTools: boolean;
     runtimeRollout: {
       shadowModeEnabled: boolean;
       canaryPercent: number;
@@ -90,6 +91,7 @@ export const DEFAULT_RUNTIME_CONFIG: PonyBunnyRuntimeConfig = {
     deterministicRuntimeEnabled: false,
     planCompilerEnabled: false,
     toolRoutingMode: 'legacy',
+    allowModelNativeTools: false,
     runtimeRollout: {
       shadowModeEnabled: false,
       canaryPercent: 0,
@@ -289,6 +291,10 @@ export function resolveRuntimeConfigFromEnvironment(
         env.PONY_SCHEDULER_TOOL_ROUTING_MODE,
         DEFAULT_RUNTIME_CONFIG.scheduler.toolRoutingMode
       ),
+      allowModelNativeTools: toBoolean(
+        env.PONY_SCHEDULER_ALLOW_MODEL_NATIVE_TOOLS,
+        DEFAULT_RUNTIME_CONFIG.scheduler.allowModelNativeTools
+      ),
       runtimeRollout: {
         shadowModeEnabled: toBoolean(
           env.PONY_SCHEDULER_ROLLOUT_SHADOW_ENABLED,
@@ -478,6 +484,10 @@ function normalizeConfig(raw: PonyBunnyRuntimeConfig): PonyBunnyRuntimeConfig {
       toolRoutingMode: toToolRoutingMode(
         raw.scheduler?.toolRoutingMode,
         DEFAULT_RUNTIME_CONFIG.scheduler.toolRoutingMode
+      ),
+      allowModelNativeTools: toBoolean(
+        raw.scheduler?.allowModelNativeTools,
+        DEFAULT_RUNTIME_CONFIG.scheduler.allowModelNativeTools
       ),
       runtimeRollout: {
         shadowModeEnabled: toBoolean(

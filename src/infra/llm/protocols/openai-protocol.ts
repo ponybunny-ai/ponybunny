@@ -74,6 +74,25 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
       const inputItems: Array<Record<string, unknown>> = [];
 
       for (const message of messages) {
+        if (message.role === 'assistant' && message.tool_calls && message.tool_calls.length > 0) {
+          if (typeof message.content === 'string' && message.content.length > 0) {
+            inputItems.push({
+              role: 'assistant',
+              content: message.content,
+            });
+          }
+
+          for (const toolCall of message.tool_calls) {
+            inputItems.push({
+              type: 'function_call',
+              call_id: toolCall.id,
+              name: toolCall.function.name,
+              arguments: toolCall.function.arguments,
+            });
+          }
+          continue;
+        }
+
         if (message.role === 'tool' && message.tool_call_id) {
           inputItems.push({
             type: 'function_call_output',
@@ -100,12 +119,17 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
       }
 
       if (config.tools && config.tools.length > 0) {
-        requestBody.tools = config.tools.map(tool => ({
+        const localTools = config.tools.map(tool => ({
           type: 'function',
           name: tool.name,
           description: tool.description,
           parameters: tool.parameters,
         }));
+
+        const nativeTools = config.allowModelNativeTools && Array.isArray(config.modelNativeTools)
+          ? config.modelNativeTools
+          : [];
+        requestBody.tools = [...localTools, ...nativeTools];
       }
 
       if (config.tool_choice) {
