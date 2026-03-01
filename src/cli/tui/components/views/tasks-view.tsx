@@ -85,7 +85,7 @@ function findRuntimeSnapshot(
 }
 
 export const TasksView: React.FC = () => {
-  const { state, addSimpleMessage, removeSimpleMessage, removeGoal, setWorkItems } = useAppContext();
+  const { state, addSimpleMessage, removeSimpleMessage, removeGoal, setWorkItems, setView, selectGoal, openModal } = useAppContext();
   const gateway = useGatewayContext();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [runsByWorkItem, setRunsByWorkItem] = useState<Record<string, RunRecord[]>>({});
@@ -141,6 +141,14 @@ export const TasksView: React.FC = () => {
   }, [gateway.client, selectedWorkItemId, runsByWorkItem]);
 
   useInput((input, key) => {
+    if (state.inputFocused) {
+      return;
+    }
+
+    if (state.activeModal) {
+      return;
+    }
+
     if (actionBusy) {
       return;
     }
@@ -161,6 +169,12 @@ export const TasksView: React.FC = () => {
     if (key.rightArrow || input === 'l') {
       setCurrentPage((p) => Math.min(totalPages - 1, p + 1));
       setSelectedIndex(0);
+      return;
+    }
+
+    if (input === 'g' && selected?.goalId) {
+      selectGoal(selected.goalId);
+      setView('goals');
       return;
     }
 
@@ -210,20 +224,30 @@ export const TasksView: React.FC = () => {
     if (input === 'd' && selected?.goalId) {
       const client = gateway.client;
       if (!client) return;
-      setActionBusy(true);
-      void (async () => {
-        try {
-          await client.deleteGoal(selected.goalId!);
-          removeGoal(selected.goalId!);
-          const linked = state.simpleMessages.filter((m) => m.goalId === selected.goalId);
-          for (const msg of linked) {
-            removeSimpleMessage(msg.id);
-          }
-          setWorkItems(state.workItems.filter((wi) => wi.goal_id !== selected.goalId));
-        } finally {
-          setActionBusy(false);
-        }
-      })();
+
+      openModal('confirm', {
+        title: 'Delete task?',
+        message: `Delete this task and all related goal/work item data?\nGoal: ${selected.goalId}`,
+        confirmLabel: 'delete',
+        cancelLabel: 'keep',
+        onConfirm: () => {
+          setActionBusy(true);
+          void (async () => {
+            try {
+              await client.deleteGoal(selected.goalId!);
+              removeGoal(selected.goalId!);
+              const linked = state.simpleMessages.filter((m) => m.goalId === selected.goalId);
+              for (const msg of linked) {
+                removeSimpleMessage(msg.id);
+              }
+              setWorkItems(state.workItems.filter((wi) => wi.goal_id !== selected.goalId));
+            } finally {
+              setActionBusy(false);
+            }
+          })();
+        },
+      });
+      return;
     }
   });
 
@@ -260,7 +284,7 @@ export const TasksView: React.FC = () => {
     <Box flexDirection="row" flexGrow={1}>
       <Box flexDirection="column" width="42%" borderStyle="round" borderColor="gray" paddingX={1} marginRight={1}>
         <Text bold color="cyan">Task List ({tasks.length})</Text>
-        <Text dimColor>j/k or ↑/↓ select · h/l or ←/→ page · r retry failed · d delete</Text>
+        <Text dimColor>j/k or ↑/↓ select · h/l or ←/→ page · g open goal · r retry failed · d delete</Text>
         <Text dimColor>Page {Math.min(currentPage + 1, totalPages)} / {totalPages}</Text>
         <Box flexDirection="column" marginTop={1}>
           {pageTasks.map((task, idx) => {
