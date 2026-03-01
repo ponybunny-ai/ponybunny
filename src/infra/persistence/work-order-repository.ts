@@ -330,6 +330,11 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     stmt.run(status, Date.now(), id);
   }
 
+  deleteGoal(id: string): void {
+    const stmt = this.db.prepare('DELETE FROM goals WHERE id = ?');
+    stmt.run(id);
+  }
+
   updateGoalSpending(id: string, tokens: number, time_minutes: number, cost_usd: number): void {
     const stmt = this.db.prepare(`
       UPDATE goals 

@@ -350,6 +350,10 @@ export class TuiGatewayClient {
     return this.client.request('goal.list', params || {});
   }
 
+  async deleteGoal(goalId: string): Promise<{ success: boolean }> {
+    return this.client.request('goal.delete', { goalId });
+  }
+
   /**
    * Subscribe to goal events
    */

@@ -40,6 +40,10 @@ export interface GoalCancelParams {
   reason?: string;
 }
 
+export interface GoalDeleteParams {
+  goalId: string;
+}
+
 export interface GoalListParams {
   status?: GoalStatus;
   limit?: number;
@@ -314,6 +318,30 @@ export function registerGoalHandlers(
         goalId: params.goalId,
         reason: params.reason,
         cancelledBy: session.publicKey,
+      });
+
+      return { success: true };
+    }
+  );
+
+  rpcHandler.register<GoalDeleteParams, { success: boolean }>(
+    'goal.delete',
+    ['write'],
+    async (params, session) => {
+      if (!params.goalId) {
+        throw GatewayError.invalidParams('goalId is required');
+      }
+
+      const goal = repository.getGoal(params.goalId);
+      if (!goal) {
+        throw GatewayError.notFound('goal', params.goalId);
+      }
+
+      repository.deleteGoal(params.goalId);
+
+      eventBus.emit('goal.deleted', {
+        goalId: params.goalId,
+        deletedBy: session.publicKey,
       });
 
       return { success: true };

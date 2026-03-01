@@ -8,6 +8,7 @@ export interface IWorkOrderRepository {
   createGoal(params: CreateGoalParams): Goal;
   getGoal(id: string): Goal | undefined;
   updateGoalStatus(id: string, status: Goal['status']): void;
+  deleteGoal(id: string): void;
   listGoals(filters?: GoalFilters): Goal[];
   
   createWorkItem(params: CreateWorkItemParams): WorkItem;
