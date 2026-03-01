@@ -19,6 +19,12 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         ),
       };
 
+    case 'REMOVE_SIMPLE_MESSAGE':
+      return {
+        ...state,
+        simpleMessages: state.simpleMessages.filter(msg => msg.id !== action.payload),
+      };
+
     case 'SET_CONNECTION_STATUS':
       return { ...state, connectionStatus: action.payload };
 

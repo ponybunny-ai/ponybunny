@@ -16,6 +16,7 @@ export interface AppContextValue {
 
   addSimpleMessage: (message: SimpleMessage) => void;
   updateSimpleMessage: (id: string, updates: Partial<Omit<SimpleMessage, 'id'>>) => void;
+  removeSimpleMessage: (id: string) => void;
 
   // Convenience methods
   setView: (view: ViewType) => void;
@@ -70,6 +71,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
 
   const updateSimpleMessage = useCallback((id: string, updates: Partial<Omit<SimpleMessage, 'id'>>) => {
     dispatch(actions.updateSimpleMessage(id, updates));
+  }, []);
+
+  const removeSimpleMessage = useCallback((id: string) => {
+    dispatch(actions.removeSimpleMessage(id));
   }, []);
 
   // View methods
@@ -197,6 +202,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     dispatch,
     addSimpleMessage,
     updateSimpleMessage,
+    removeSimpleMessage,
     setView,
     openModal,
     closeModal,
@@ -221,6 +227,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     state,
     addSimpleMessage,
     updateSimpleMessage,
+    removeSimpleMessage,
     setView,
     openModal,
     closeModal,

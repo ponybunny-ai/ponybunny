@@ -20,6 +20,11 @@ export interface UpdateSimpleMessageAction {
   };
 }
 
+export interface RemoveSimpleMessageAction {
+  type: 'REMOVE_SIMPLE_MESSAGE';
+  payload: string;
+}
+
 // Connection actions
 export interface SetConnectionStatusAction {
   type: 'SET_CONNECTION_STATUS';
@@ -184,6 +189,7 @@ export interface ResetStateAction {
 export type AppAction =
   | AddSimpleMessageAction
   | UpdateSimpleMessageAction
+  | RemoveSimpleMessageAction
   | SetConnectionStatusAction
   | SetGatewayUrlAction
   | SetCurrentViewAction
@@ -225,6 +231,11 @@ export const actions = {
   updateSimpleMessage: (id: string, updates: Partial<Omit<SimpleMessage, 'id'>>): UpdateSimpleMessageAction => ({
     type: 'UPDATE_SIMPLE_MESSAGE',
     payload: { id, updates },
+  }),
+
+  removeSimpleMessage: (id: string): RemoveSimpleMessageAction => ({
+    type: 'REMOVE_SIMPLE_MESSAGE',
+    payload: id,
   }),
 
   setConnectionStatus: (status: ConnectionStatus): SetConnectionStatusAction => ({

@@ -482,6 +482,16 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
         }
         break;
 
+      case 'goal.deleted':
+        if (typeof data?.goalId === 'string') {
+          app.removeGoal(data.goalId);
+          const linkedMessages = app.state.simpleMessages.filter((m) => m.goalId === data.goalId);
+          for (const message of linkedMessages) {
+            app.removeSimpleMessage(message.id);
+          }
+        }
+        break;
+
       case 'goal.started':
         if (data?.goal) {
           updateGoal(data.goal as Parameters<typeof updateGoal>[0]);
