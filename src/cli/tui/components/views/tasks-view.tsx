@@ -85,23 +85,36 @@ function findRuntimeSnapshot(
 }
 
 export const TasksView: React.FC = () => {
-  const { state } = useAppContext();
+  const { state, addSimpleMessage, removeSimpleMessage, removeGoal, setWorkItems } = useAppContext();
   const gateway = useGatewayContext();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [runsByWorkItem, setRunsByWorkItem] = useState<Record<string, RunRecord[]>>({});
+  const [currentPage, setCurrentPage] = useState(0);
+  const [actionBusy, setActionBusy] = useState(false);
+
+  const pageSize = 12;
 
   const tasks = useMemo(() => {
     return [...state.simpleMessages].sort((a, b) => b.timestamp - a.timestamp);
   }, [state.simpleMessages]);
+  const totalPages = Math.max(1, Math.ceil(tasks.length / pageSize));
+  const pageStart = currentPage * pageSize;
+  const pageTasks = tasks.slice(pageStart, pageStart + pageSize);
+  const selected = pageTasks[selectedIndex];
+  const absoluteSelectedIndex = pageStart + selectedIndex;
   const runtimeSnapshots = state.runtimeSnapshots;
 
   useEffect(() => {
-    if (selectedIndex >= tasks.length) {
-      setSelectedIndex(Math.max(0, tasks.length - 1));
+    if (currentPage >= totalPages) {
+      setCurrentPage(Math.max(0, totalPages - 1));
     }
-  }, [tasks.length, selectedIndex]);
+  }, [currentPage, totalPages]);
 
-  const selected = tasks[selectedIndex];
+  useEffect(() => {
+    if (selectedIndex >= pageTasks.length) {
+      setSelectedIndex(Math.max(0, pageTasks.length - 1));
+    }
+  }, [pageTasks.length, selectedIndex]);
   const relatedWorkItems = useMemo(() => {
     if (!selected?.goalId) return [];
     return state.workItems
@@ -128,12 +141,89 @@ export const TasksView: React.FC = () => {
   }, [gateway.client, selectedWorkItemId, runsByWorkItem]);
 
   useInput((input, key) => {
+    if (actionBusy) {
+      return;
+    }
+
     if (key.upArrow || input === 'k') {
       setSelectedIndex((i) => Math.max(0, i - 1));
       return;
     }
     if (key.downArrow || input === 'j') {
-      setSelectedIndex((i) => Math.min(tasks.length - 1, i + 1));
+      setSelectedIndex((i) => Math.min(pageTasks.length - 1, i + 1));
+      return;
+    }
+    if (key.leftArrow || input === 'h') {
+      setCurrentPage((p) => Math.max(0, p - 1));
+      setSelectedIndex(0);
+      return;
+    }
+    if (key.rightArrow || input === 'l') {
+      setCurrentPage((p) => Math.min(totalPages - 1, p + 1));
+      setSelectedIndex(0);
+      return;
+    }
+
+    if (input === 'r' && selected && selected.status === 'failed') {
+      const client = gateway.client;
+      if (!client) return;
+      setActionBusy(true);
+      void (async () => {
+        try {
+          const prompt = selected.input.trim();
+          const goal = await client.submitGoal({
+            title: prompt.length > 60 ? `${prompt.slice(0, 60)}...` : prompt,
+            description: prompt,
+            success_criteria: [{
+              description: 'Task completed as described',
+              type: 'heuristic',
+              verification_method: 'human review',
+              required: true,
+            }],
+            priority: 50,
+          });
+          addSimpleMessage({
+            id: `msg-retry-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            input: prompt,
+            status: 'processing',
+            statusText: 'Retry queued...',
+            goalId: goal.id,
+            timeline: [{ timestamp: Date.now(), stage: 'Retry requested', detail: `Retried from task ${selected.id}` }],
+            timestamp: Date.now(),
+          });
+        } catch (error) {
+          addSimpleMessage({
+            id: `msg-retry-error-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            input: `Retry failed: ${selected.input}`,
+            status: 'failed',
+            error: error instanceof Error ? error.message : String(error),
+            timeline: [{ timestamp: Date.now(), stage: 'Retry failed', detail: error instanceof Error ? error.message : String(error) }],
+            timestamp: Date.now(),
+          });
+        } finally {
+          setActionBusy(false);
+        }
+      })();
+      return;
+    }
+
+    if (input === 'd' && selected?.goalId) {
+      const client = gateway.client;
+      if (!client) return;
+      setActionBusy(true);
+      void (async () => {
+        try {
+          await client.deleteGoal(selected.goalId!);
+          removeGoal(selected.goalId!);
+          const linked = state.simpleMessages.filter((m) => m.goalId === selected.goalId);
+          for (const msg of linked) {
+            removeSimpleMessage(msg.id);
+          }
+          setWorkItems(state.workItems.filter((wi) => wi.goal_id !== selected.goalId));
+        } finally {
+          setActionBusy(false);
+        }
+      })();
     }
   });
 
@@ -170,15 +260,16 @@ export const TasksView: React.FC = () => {
     <Box flexDirection="row" flexGrow={1}>
       <Box flexDirection="column" width="42%" borderStyle="round" borderColor="gray" paddingX={1} marginRight={1}>
         <Text bold color="cyan">Task List ({tasks.length})</Text>
-        <Text dimColor>j/k or ↑/↓ to select</Text>
+        <Text dimColor>j/k or ↑/↓ select · h/l or ←/→ page · r retry failed · d delete</Text>
+        <Text dimColor>Page {Math.min(currentPage + 1, totalPages)} / {totalPages}</Text>
         <Box flexDirection="column" marginTop={1}>
-          {tasks.slice(0, 16).map((task, idx) => {
+          {pageTasks.map((task, idx) => {
             const active = idx === selectedIndex;
             const marker = task.status === 'completed' ? '✓' : task.status === 'failed' ? '✗' : '•';
             return (
               <Box key={task.id}>
                 <Text color={active ? 'cyan' : undefined}>{active ? '>' : ' '} {marker} </Text>
-                <Text dimColor={!active}>{task.input.slice(0, 56)}</Text>
+                <Text dimColor={!active}>{`${String(pageStart + idx + 1).padStart(3, ' ')}. ${task.input.slice(0, 50)}`}</Text>
               </Box>
             );
           })}
@@ -190,6 +281,7 @@ export const TasksView: React.FC = () => {
         {selected && (
           <>
             <Text>- Status: {selected.status}{selected.statusText ? ` (${selected.statusText})` : ''}</Text>
+            <Text>- Index: #{absoluteSelectedIndex + 1}</Text>
             <Text>- Created: {fmtTs(selected.timestamp)}</Text>
             <Text>- Goal: {selected.goalId || '-'}</Text>
             <Text>- Work Item: {selectedWorkItemId || '-'}</Text>
