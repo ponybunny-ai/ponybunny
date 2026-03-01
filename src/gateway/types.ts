@@ -136,6 +136,7 @@ export type GatewayEventType =
   | 'goal.completed'
   | 'goal.failed'
   | 'goal.cancelled'
+  | 'goal.deleted'
   | 'workitem.created'
   | 'workitem.started'
   | 'workitem.in_progress'

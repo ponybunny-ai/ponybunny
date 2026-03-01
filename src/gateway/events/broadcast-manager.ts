@@ -27,6 +27,7 @@ export class BroadcastManager {
     this.subscribeAndBroadcast('goal.completed', 'goal.completed');
     this.subscribeAndBroadcast('goal.failed', 'goal.failed');
     this.subscribeAndBroadcast('goal.cancelled', 'goal.cancelled');
+    this.subscribeAndBroadcast('goal.deleted', 'goal.deleted');
 
     // Work item events
     this.subscribeAndBroadcast('workitem.created', 'workitem.created');
