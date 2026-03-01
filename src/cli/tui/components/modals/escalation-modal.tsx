@@ -51,12 +51,14 @@ export const EscalationModal: React.FC<EscalationModalProps> = ({ escalationId }
     return (
       <Box
         flexDirection="column"
-        borderStyle="round"
-        borderColor="yellow"
-        padding={1}
+        padding={0}
       >
-        <Text color="yellow">Escalation not found</Text>
-        <Text dimColor>Press ESC to close</Text>
+        <Box flexDirection="column" backgroundColor="gray" padding={1}>
+          <Box justifyContent="space-between">
+            <Text color="yellow">Escalation not found</Text>
+            <Text bold color="cyan">Esc</Text>
+          </Box>
+        </Box>
       </Box>
     );
   }
@@ -97,81 +99,90 @@ export const EscalationModal: React.FC<EscalationModalProps> = ({ escalationId }
   return (
     <Box
       flexDirection="column"
-      borderStyle="round"
-      borderColor="yellow"
-      padding={1}
+      padding={0}
     >
-      <Box justifyContent="space-between">
-        <Text bold color="yellow">⚠ Escalation</Text>
-        <Text color={severityColor}>{formatEscalationSeverity(escalation.severity)}</Text>
-      </Box>
-      <Text dimColor>Press ESC to go back</Text>
-
-      <Box marginTop={1} flexDirection="column">
-        <Text bold>{escalation.title}</Text>
-        <Text dimColor>Type: {escalation.escalation_type}</Text>
-        <Text dimColor>Created: {formatDateTime(escalation.created_at)}</Text>
-      </Box>
-
-      <Box marginTop={1} flexDirection="column">
-        <Text bold>Description:</Text>
-        <Text>{truncate(escalation.description, 220)}</Text>
-      </Box>
-
-      {escalation.context_data && (
-        <Box marginTop={1} flexDirection="column">
-          <Text bold>Context:</Text>
-          {escalation.context_data.last_error && (
-            <Text dimColor>  Last Error: {truncate(escalation.context_data.last_error, 180)}</Text>
-          )}
-          {escalation.context_data.retry_count !== undefined && (
-            <Text dimColor>  Retry Count: {escalation.context_data.retry_count}</Text>
-          )}
-          {escalation.context_data.attempted_solutions && (
-            <Text dimColor>  Attempted: {truncate(escalation.context_data.attempted_solutions.join(', '), 180)}</Text>
-          )}
+      <Box flexDirection="column" backgroundColor="gray" padding={1}>
+        <Box justifyContent="space-between">
+          <Text bold color="yellow">⚠ Escalation</Text>
+          <Text bold color="cyan">Esc</Text>
         </Box>
-      )}
+        <Box justifyContent="space-between">
+          <Text dimColor>Resolve escalation flow</Text>
+          <Text color={severityColor}>{formatEscalationSeverity(escalation.severity)}</Text>
+        </Box>
 
-      {step === 'view' && (
-        <Box marginTop={1}>
-          <Text color="cyan">Press Enter to resolve this escalation</Text>
+        <Box marginTop={1} flexDirection="column">
+          <Text bold>{escalation.title}</Text>
+          <Text dimColor>Type: {escalation.escalation_type}</Text>
+          <Text dimColor>Created: {formatDateTime(escalation.created_at)}</Text>
+        </Box>
+
+        <Box marginTop={1} flexDirection="column">
+          <Text bold>Description:</Text>
+          <Text>{truncate(escalation.description, 220)}</Text>
+        </Box>
+
+        {escalation.context_data && (
+          <Box marginTop={1} flexDirection="column">
+            <Text bold>Context:</Text>
+            {escalation.context_data.last_error && (
+              <Text dimColor>  Last Error: {truncate(escalation.context_data.last_error, 180)}</Text>
+            )}
+            {escalation.context_data.retry_count !== undefined && (
+              <Text dimColor>  Retry Count: {escalation.context_data.retry_count}</Text>
+            )}
+            {escalation.context_data.attempted_solutions && (
+              <Text dimColor>  Attempted: {truncate(escalation.context_data.attempted_solutions.join(', '), 180)}</Text>
+            )}
+          </Box>
+        )}
+
+        {step === 'view' && (
           <Box marginTop={1}>
+            <Text color="cyan">Press <Text bold color="green">Enter</Text> to resolve this escalation</Text>
+            <Box marginTop={1}>
+              <SelectInput
+                items={[{ label: 'Resolve...', value: 'resolve' }]}
+                onSelect={() => setStep('action')}
+              />
+            </Box>
+          </Box>
+        )}
+
+        {step === 'action' && (
+          <Box marginTop={1} flexDirection="column">
+            <Text bold>Select resolution action:</Text>
             <SelectInput
-              items={[{ label: 'Resolve...', value: 'resolve' }]}
-              onSelect={() => setStep('action')}
+              items={RESOLUTION_OPTIONS}
+              onSelect={handleActionSelect}
             />
           </Box>
-        </Box>
-      )}
+        )}
 
-      {step === 'action' && (
-        <Box marginTop={1} flexDirection="column">
-          <Text bold>Select resolution action:</Text>
-          <SelectInput
-            items={RESOLUTION_OPTIONS}
-            onSelect={handleActionSelect}
-          />
-        </Box>
-      )}
-
-      {step === 'input' && (
-        <Box marginTop={1} flexDirection="column">
-          <Text bold>
-            {selectedAction === 'user_input' ? 'Enter your input:' : 'Describe the alternative approach:'}
-          </Text>
-          <Box marginTop={1}>
-            <Text color="green">➤ </Text>
-            <TextInput value={input} onChange={setInput} onSubmit={handleInputSubmit} />
+        {step === 'input' && (
+          <Box marginTop={1} flexDirection="column">
+            <Text bold>
+              {selectedAction === 'user_input' ? 'Enter your input:' : 'Describe the alternative approach:'}
+            </Text>
+            <Box marginTop={1}>
+              <Text color="green">➤ </Text>
+              <TextInput value={input} onChange={setInput} onSubmit={handleInputSubmit} />
+            </Box>
           </Box>
-        </Box>
-      )}
+        )}
 
-      {error && (
         <Box marginTop={1}>
-          <Text color="red">{error}</Text>
+          <Text dimColor>
+            Keys: <Text bold color="green">Enter</Text> continue · <Text bold color="cyan">Esc</Text> back/close
+          </Text>
         </Box>
-      )}
+
+        {error && (
+          <Box marginTop={1}>
+            <Text color="red">{error}</Text>
+          </Box>
+        )}
+      </Box>
     </Box>
   );
 };

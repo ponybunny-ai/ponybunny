@@ -209,21 +209,30 @@ export const GoalCreateModal: React.FC = () => {
   return (
     <Box
       flexDirection="column"
-      borderStyle="round"
-      borderColor="cyan"
-      padding={1}
+      padding={0}
     >
-      <Text bold color="cyan">Create New Goal</Text>
-      <Text dimColor>Press ESC to cancel</Text>
-      <Box marginTop={1} />
-
-      {renderStep()}
-
-      {error && (
-        <Box marginTop={1}>
-          <Text color="red">{error}</Text>
+      <Box flexDirection="column" backgroundColor="gray" padding={1}>
+        <Box justifyContent="space-between">
+          <Text bold color="cyan">Create New Goal</Text>
+          <Text bold color="cyan">Esc</Text>
         </Box>
-      )}
+
+        <Box marginTop={1} />
+
+        {renderStep()}
+
+        <Box marginTop={1}>
+          <Text dimColor>
+            Keys: <Text bold color="green">Enter</Text> submit · <Text bold color="cyan">Esc</Text> cancel
+          </Text>
+        </Box>
+
+        {error && (
+          <Box marginTop={1}>
+            <Text color="red">{error}</Text>
+          </Box>
+        )}
+      </Box>
     </Box>
   );
 };

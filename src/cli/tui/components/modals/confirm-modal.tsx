@@ -37,19 +37,22 @@ export const ConfirmModal: React.FC = () => {
   return (
     <Box
       flexDirection="column"
-      borderStyle="round"
-      borderColor="yellow"
-      padding={1}
+      padding={0}
     >
-      <Text bold color="yellow">{data.title}</Text>
-      <Box marginTop={1}>
-        <Text>{data.message}</Text>
-      </Box>
-      <Box marginTop={1}>
-        <Text dimColor>
-          Press <Text color="green">Y</Text> to {data.confirmLabel || 'confirm'} or{' '}
-          <Text color="red">N</Text> to {data.cancelLabel || 'cancel'}
-        </Text>
+      <Box flexDirection="column" backgroundColor="#2d2d2d" paddingX={2} paddingY={1}>
+        <Box justifyContent="space-between">
+          <Text bold color="yellow">{data.title}</Text>
+          <Text bold color="cyan">Esc</Text>
+        </Box>
+        <Box marginTop={1}>
+          <Text>{data.message}</Text>
+        </Box>
+        <Box marginTop={1}>
+          <Text dimColor>
+            Press <Text bold color="green">Y</Text> to {data.confirmLabel || 'confirm'} or{' '}
+            <Text bold color="red">N</Text> to {data.cancelLabel || 'cancel'}
+          </Text>
+        </Box>
       </Box>
     </Box>
   );
