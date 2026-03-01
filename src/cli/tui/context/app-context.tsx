@@ -48,6 +48,7 @@ export interface AppContextValue {
   // Input methods
   setInputValue: (value: string) => void;
   addToInputHistory: (value: string) => void;
+  setInputFocused: (focused: boolean) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -197,6 +198,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     dispatch(actions.addToInputHistory(value));
   }, []);
 
+  const setInputFocused = useCallback((focused: boolean) => {
+    dispatch(actions.setInputFocused(focused));
+  }, []);
+
   const value = useMemo<AppContextValue>(() => ({
     state,
     dispatch,
@@ -223,6 +228,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     setSchedulerCapabilities,
     setInputValue,
     addToInputHistory,
+    setInputFocused,
   }), [
     state,
     addSimpleMessage,
@@ -248,6 +254,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     setSchedulerCapabilities,
     setInputValue,
     addToInputHistory,
+    setInputFocused,
   ]);
 
   return (

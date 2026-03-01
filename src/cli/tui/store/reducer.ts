@@ -177,6 +177,9 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case 'SET_INPUT_HISTORY_INDEX':
       return { ...state, inputHistoryIndex: action.payload };
 
+    case 'SET_INPUT_FOCUSED':
+      return { ...state, inputFocused: action.payload };
+
     case 'RESET_STATE':
       return { ...initialState, gatewayUrl: state.gatewayUrl };
 

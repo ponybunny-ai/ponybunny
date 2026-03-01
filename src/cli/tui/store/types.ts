@@ -132,6 +132,7 @@ export interface AppState {
   inputValue: string;
   inputHistory: string[];
   inputHistoryIndex: number;
+  inputFocused: boolean;
 }
 
 export type ModalType =
@@ -151,6 +152,8 @@ export interface ModalData {
     message: string;
     onConfirm: () => void;
     onCancel?: () => void;
+    confirmLabel?: string;
+    cancelLabel?: string;
   };
 }
 
@@ -178,4 +181,5 @@ export const initialState: AppState = {
   inputValue: '',
   inputHistory: [],
   inputHistoryIndex: -1,
+  inputFocused: true,
 };

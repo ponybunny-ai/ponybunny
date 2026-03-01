@@ -59,7 +59,7 @@ function deriveMessageStatusFromGoalStatus(status: string): 'pending' | 'process
 const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
   const app = useAppContext();
   const gateway = useGatewayContext();
-  const { state, setView, addEvent, setInputValue } = app;
+  const { state, setView, addEvent, setInputValue, setInputFocused: setGlobalInputFocused } = app;
 
   // Input focus state - default to focused for better UX
   const [inputFocused, setInputFocused] = useState(true);
@@ -88,6 +88,7 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
     if (key.escape) {
       if (inputFocused) {
         setInputFocused(false);
+        setGlobalInputFocused(false);
       }
       return;
     }
@@ -100,6 +101,7 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
     // Focus input with / or i
     if (input === '/' || input === 'i') {
       setInputFocused(true);
+      setGlobalInputFocused(true);
       if (input === '/') {
         setInputValue('/');
       }
@@ -177,6 +179,14 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
     // Unfocus input after submission
     setInputFocused(false);
   }, [commandContext]);
+
+  useEffect(() => {
+    setInputFocused(state.inputFocused);
+  }, [state.inputFocused]);
+
+  useEffect(() => {
+    setGlobalInputFocused(inputFocused);
+  }, [inputFocused, setGlobalInputFocused]);
 
   // Track if initial data has been loaded
   const initialLoadDone = useRef(false);

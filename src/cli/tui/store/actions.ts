@@ -181,6 +181,11 @@ export interface SetInputHistoryIndexAction {
   payload: number;
 }
 
+export interface SetInputFocusedAction {
+  type: 'SET_INPUT_FOCUSED';
+  payload: boolean;
+}
+
 // Reset action
 export interface ResetStateAction {
   type: 'RESET_STATE';
@@ -219,6 +224,7 @@ export type AppAction =
   | SetInputValueAction
   | AddToInputHistoryAction
   | SetInputHistoryIndexAction
+  | SetInputFocusedAction
   | ResetStateAction;
 
 // Action creators
@@ -381,6 +387,11 @@ export const actions = {
   setInputHistoryIndex: (index: number): SetInputHistoryIndexAction => ({
     type: 'SET_INPUT_HISTORY_INDEX',
     payload: index,
+  }),
+
+  setInputFocused: (focused: boolean): SetInputFocusedAction => ({
+    type: 'SET_INPUT_FOCUSED',
+    payload: focused,
   }),
 
   resetState: (): ResetStateAction => ({
