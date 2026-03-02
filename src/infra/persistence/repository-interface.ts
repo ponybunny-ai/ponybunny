@@ -78,6 +78,7 @@ export interface CreateGoalParams {
   budget_tokens?: number;
   budget_time_minutes?: number;
   budget_cost_usd?: number;
+  context?: Goal['context'];
 }
 
 export interface GoalFilters {
@@ -93,6 +94,7 @@ export interface CreateWorkItemParams {
   priority?: number;
   dependencies?: string[];
   verification_plan?: WorkItem['verification_plan'];
+  context?: WorkItem['context'];
 }
 
 export interface CreateRunParams {
@@ -100,6 +102,7 @@ export interface CreateRunParams {
   goal_id: string;
   agent_type: string;
   run_sequence: number;
+  context?: Record<string, unknown>;
 }
 
 export interface CompleteRunParams {
@@ -111,6 +114,7 @@ export interface CompleteRunParams {
   cost_usd: number;
   artifacts: string[];
   execution_log?: string;
+  context?: Record<string, unknown>;
 }
 
 export interface CreateArtifactParams {

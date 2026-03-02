@@ -20,7 +20,7 @@ interface GoalFormState {
 }
 
 export const GoalCreateModal: React.FC = () => {
-  const { closeModal, addEvent } = useAppContext();
+  const { closeModal, addEvent, state } = useAppContext();
   const { submitGoal } = useGateway();
 
   const [step, setStep] = useState<Step>('title');
@@ -108,6 +108,12 @@ export const GoalCreateModal: React.FC = () => {
                 required: true,
               })),
               priority: form.priority,
+              context: state.selectedModel
+                ? {
+                    selected_model: state.selectedModel,
+                    model_source: 'tui_selected',
+                  }
+                : undefined,
             };
             await submitGoal(params);
             addEvent('goal.created', { title: form.title });

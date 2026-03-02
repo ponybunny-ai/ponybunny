@@ -10,7 +10,7 @@ import { AppProvider, useAppContext } from './context/app-context.js';
 import { useGatewayContext } from './context/gateway-context.js';
 import { MainLayout } from './components/layout/index.js';
 import { DashboardView, TasksView, GoalsView, EventsView, HelpView } from './components/views/index.js';
-import { GoalCreateModal, EscalationModal, ConfirmModal, CommandPaletteModal, ViewSwitcherModal } from './components/modals/index.js';
+import { GoalCreateModal, EscalationModal, ConfirmModal, CommandPaletteModal, ViewSwitcherModal, ModelSelectorModal } from './components/modals/index.js';
 import { executeCommand, handleNaturalInput, isCommand, type CommandContext } from './commands/index.js';
 import type { GatewayEvent as ClientGatewayEvent, TuiGatewayClient } from '../gateway/index.js';
 import { useTerminalSize } from './hooks/use-terminal-size.js';
@@ -61,7 +61,7 @@ function deriveMessageStatusFromGoalStatus(status: string): 'pending' | 'process
 const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
   const app = useAppContext();
   const gateway = useGatewayContext();
-  const { state, setView, addEvent, setInputFocused: setGlobalInputFocused } = app;
+  const { state, setView, addEvent, setInputFocused: setGlobalInputFocused, setSelectedModel } = app;
   const [selectedAgentIndex, setSelectedAgentIndex] = useState(0);
   const [selectedReasoningEffortIndex, setSelectedReasoningEffortIndex] = useState(0);
 
@@ -187,7 +187,8 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
 
     const activeAgent = agents.length > 0 ? agents[selectedAgentIndex % agents.length] : null;
     const activeModel = models.length > 0 ? models[0] : null;
-    const modelLabel = activeModel ? activeModel.name : 'model.unknown';
+    const selectedModel = state.selectedModel;
+    const modelLabel = selectedModel || (activeModel ? activeModel.name : 'model.unknown');
     const activeVariant = activeModel?.reasoningEfforts?.[
       selectedReasoningEffortIndex % Math.max(activeModel?.reasoningEfforts?.length || 1, 1)
     ];
@@ -196,7 +197,7 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
       : '';
     const variantHint = activeModel?.reasoningEfforts && activeModel.reasoningEfforts.length > 1 ? 'ctrl-t variants ' : '';
     return `${activeAgent?.id || 'guard'} │ ${modelLabel}${variantSegment} │ ${variantHint}tab agents ctrl-v views ctrl-p commands`;
-  }, [state.schedulerCapabilities, selectedAgentIndex, selectedReasoningEffortIndex]);
+  }, [state.schedulerCapabilities, state.selectedModel, selectedAgentIndex, selectedReasoningEffortIndex]);
 
   // Track if initial data has been loaded
   const initialLoadDone = useRef(false);
@@ -289,6 +290,8 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
         return <CommandPaletteModal />;
       case 'view-switcher':
         return <ViewSwitcherModal />;
+      case 'model-selector':
+        return <ModelSelectorModal />;
       default:
         return null;
     }
@@ -664,12 +667,18 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
             runId: typeof data?.runId === 'string' ? data.runId : undefined,
             workItemId: typeof data?.workItemId === 'string' ? data.workItemId : undefined,
           });
+          if (typeof data?.selectedModel === 'string') {
+            app.setSelectedModel(data.selectedModel);
+          }
           appendTimelineByGoalId(data.goalId, 'Collecting results', typeof data?.runId === 'string' ? `Run ${data.runId} started.` : 'Run started.');
         }
         break;
 
       case 'run.completed':
         if (typeof data?.goalId === 'string') {
+          if (typeof data?.actualModel === 'string') {
+            app.setSelectedModel(data.actualModel);
+          }
           appendTimelineByGoalId(data.goalId, 'Tool results collected', 'Run completed, building final summary.');
           void attachRunResultByGoalId(
             data.goalId,

@@ -16,7 +16,7 @@ export function buildSuggestionRows(
   mode: SuggestionSortMode
 ): SuggestionRow[] {
   void sourceCommands;
-  return buildCommandCatalogRows(query, 'alpha');
+  return buildCommandCatalogRows(query, mode);
 }
 
 export function getCommandRows(rows: SuggestionRow[]): SuggestionCommandRow[] {

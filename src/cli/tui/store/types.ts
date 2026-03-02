@@ -114,6 +114,7 @@ export interface AppState {
   // Approvals
   pendingApprovalCount: number;
   schedulerCapabilities: SchedulerCapabilitiesResponse | null;
+  selectedModel: string | null;
 
   // Events
   events: GatewayEvent[];
@@ -142,7 +143,8 @@ export type ModalType =
   | 'approval'
   | 'confirm'
   | 'command-palette'
-  | 'view-switcher';
+  | 'view-switcher'
+  | 'model-selector';
 
 export interface ModalData {
   'goal-create': undefined;
@@ -163,6 +165,10 @@ export interface ModalData {
   'view-switcher': {
     onSelect: (view: ViewType) => void;
   };
+  'model-selector': {
+    selectedModel: string | null;
+    onSelect: (model: string) => void;
+  };
 }
 
 export const initialState: AppState = {
@@ -180,6 +186,7 @@ export const initialState: AppState = {
   pendingEscalationCount: 0,
   pendingApprovalCount: 0,
   schedulerCapabilities: null,
+  selectedModel: null,
   events: [],
   maxEvents: 100,
   runtimeSnapshots: [],

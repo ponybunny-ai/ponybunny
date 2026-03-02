@@ -18,6 +18,7 @@ export interface LLMResponse {
   content: string | null;
   tokensUsed: number;
   model: string;
+  endpointId?: string;
   finishReason: 'stop' | 'length' | 'tool_calls' | 'error';
   toolCalls?: ToolCall[];  // LLM's requested tool calls
   thinking?: string;       // Reasoning process (if model supports)

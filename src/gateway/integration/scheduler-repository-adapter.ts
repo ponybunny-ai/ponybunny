@@ -45,6 +45,7 @@ export class SchedulerRepositoryAdapter implements ISchedulerRepository {
     goal_id: string;
     agent_type: string;
     run_sequence: number;
+    context?: Record<string, unknown>;
   }): Run {
     return this.repository.createRun(params);
   }
@@ -58,6 +59,7 @@ export class SchedulerRepositoryAdapter implements ISchedulerRepository {
       cost_usd: number;
       artifacts: string[];
       error_message?: string;
+      context?: Record<string, unknown>;
     }
   ): void {
     this.repository.completeRun(id, params);

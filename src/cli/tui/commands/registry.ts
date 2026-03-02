@@ -147,6 +147,13 @@ export const commands: CommandDefinition[] = [
     ],
   },
   {
+    name: 'models',
+    aliases: ['modelpicker'],
+    group: 'System',
+    description: 'Open model selector for new goals',
+    usage: '/models',
+  },
+  {
     name: 'rollout',
     aliases: ['ro'],
     group: 'System',

@@ -547,7 +547,16 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     cost_usd: number;
     artifacts: string[];
     execution_log?: string;
+    context?: Record<string, any>;
   }): void {
+    const existingRun = this.getRun(id);
+    const mergedContext = params.context
+      ? {
+          ...(existingRun?.context ?? {}),
+          ...params.context,
+        }
+      : existingRun?.context;
+
     const stmt = this.db.prepare(`
       UPDATE runs SET
         completed_at = ?,
@@ -559,7 +568,8 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
         time_seconds = ?,
         cost_usd = ?,
         artifacts = ?,
-        execution_log = ?
+        execution_log = ?,
+        context = ?
       WHERE id = ?
     `);
 
@@ -578,6 +588,7 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
       params.cost_usd,
       JSON.stringify(params.artifacts),
       params.execution_log ?? null,
+      mergedContext ? JSON.stringify(mergedContext) : null,
       id
     );
   }

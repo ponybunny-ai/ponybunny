@@ -25,6 +25,8 @@ export interface ReActCycleResult {
   error?: string;
   tokensUsed: number;
   costUsd: number;
+  actualModel?: string;
+  endpointId?: string;
   artifactIds?: string[];
   log?: string;
 }
@@ -90,6 +92,8 @@ export class ReActIntegration {
       systemPrompt,
     };
 
+    let lastEndpointId: string | undefined;
+
     try {
       // Build conversation with native tool calling
       const initialTools = activeToolProvider.getToolDefinitions('execution');
@@ -110,6 +114,8 @@ export class ReActIntegration {
         const directAnswer = await this.synthesizeSimpleAnswer(params.workItem, params.model);
         context.totalTokens += directAnswer.tokensUsed;
         context.totalCost += this.llmProvider?.estimateCost(directAnswer.tokensUsed) || 0;
+        context.model = directAnswer.model || context.model;
+        lastEndpointId = directAnswer.endpointId || lastEndpointId;
 
         const content = typeof directAnswer.content === 'string' ? directAnswer.content.trim() : '';
         if (content.length > 0) {
@@ -118,6 +124,8 @@ export class ReActIntegration {
             success: true,
             tokensUsed: context.totalTokens,
             costUsd: context.totalCost,
+            actualModel: directAnswer.model,
+            endpointId: directAnswer.endpointId,
             artifactIds: await this.collectArtifacts(context),
             log: this.buildExecutionLog(context),
           };
@@ -157,6 +165,8 @@ export class ReActIntegration {
 
         context.totalTokens += response.tokensUsed;
         context.totalCost += this.llmProvider?.estimateCost(response.tokensUsed) || 0;
+        context.model = response.model || context.model;
+        lastEndpointId = response.endpointId || lastEndpointId;
 
         // Record thinking if present
         if (response.thinking) {
@@ -240,6 +250,8 @@ export class ReActIntegration {
                 if (fallbackResult) {
                   context.totalTokens += fallbackResult.tokensUsed;
                   context.totalCost += this.llmProvider?.estimateCost(fallbackResult.tokensUsed) || 0;
+                  context.model = fallbackResult.model || context.model;
+                  lastEndpointId = fallbackResult.endpointId || lastEndpointId;
 
                   const synthesis = typeof fallbackResult.content === 'string' ? fallbackResult.content.trim() : '';
                   if (synthesis.length > 0) {
@@ -308,6 +320,8 @@ export class ReActIntegration {
         success: true,
         tokensUsed: context.totalTokens,
         costUsd: context.totalCost,
+        actualModel: context.model,
+        endpointId: lastEndpointId,
         artifactIds: await this.collectArtifacts(context),
         log: this.buildExecutionLog(context),
       };

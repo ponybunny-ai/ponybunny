@@ -118,6 +118,9 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case 'SET_SCHEDULER_CAPABILITIES':
       return { ...state, schedulerCapabilities: action.payload };
 
+    case 'SET_SELECTED_MODEL':
+      return { ...state, selectedModel: action.payload };
+
     case 'ADD_EVENT': {
       const newEvents = [...state.events, action.payload];
       // Keep only the last maxEvents

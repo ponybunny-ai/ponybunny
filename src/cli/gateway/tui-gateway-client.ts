@@ -17,6 +17,7 @@ export interface GoalSubmitParams {
   budget_tokens?: number;
   budget_time_minutes?: number;
   budget_cost_usd?: number;
+  context?: Record<string, unknown>;
 }
 
 export interface GoalListParams {

@@ -231,6 +231,10 @@ export class ExecutionService implements IExecutionService {
       goal_id: workItem.goal_id,
       agent_type: workItem.assigned_agent || 'default',
       run_sequence: runSequence,
+      context: {
+        selected_model: workItem.context?.selected_model,
+        requested_model: workItem.context?.model,
+      },
     });
 
     let agentResult: Awaited<ReturnType<ReActIntegration['executeWorkCycle']>>;
@@ -287,6 +291,12 @@ export class ExecutionService implements IExecutionService {
       cost_usd: agentResult.costUsd,
       artifacts: agentResult.artifactIds || [],
       execution_log: executionLog,
+      context: {
+        selected_model: workItem.context?.selected_model,
+        requested_model: workItem.context?.model,
+        actual_model: agentResult.actualModel,
+        endpoint_id: agentResult.endpointId,
+      },
     });
 
     this.persistToolPolicyDecision(run, workItem, scopedToolConfig?.policyAudit, routeContext);

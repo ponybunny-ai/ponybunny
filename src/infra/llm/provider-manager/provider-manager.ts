@@ -332,11 +332,14 @@ export class LLMProviderManager implements ILLMProviderManager {
         );
       }
 
-      return adapter.parseResponse(
+      const parsed = adapter.parseResponse(
         { status: response.status, statusText: response.statusText, data },
         modelId,
         requestConfig
       );
+
+      parsed.endpointId = endpointId;
+      return parsed;
     } catch (error) {
       if (error instanceof LLMProviderError) {
         throw error;
@@ -514,6 +517,7 @@ export class LLMProviderManager implements ILLMProviderManager {
         content: fullContent,
         tokensUsed,
         model: modelId,
+        endpointId,
         finishReason,
         toolCalls: accumulatedToolCalls.length > 0 ? accumulatedToolCalls : undefined,
       };

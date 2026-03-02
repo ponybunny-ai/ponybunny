@@ -29,6 +29,7 @@ export interface GoalSubmitParams {
   budget_tokens?: number;
   budget_time_minutes?: number;
   budget_cost_usd?: number;
+  context?: Record<string, unknown>;
 }
 
 export interface GoalStatusParams {
@@ -106,6 +107,7 @@ export function registerGoalHandlers(
         budget_tokens: params.budget_tokens,
         budget_time_minutes: params.budget_time_minutes,
         budget_cost_usd: params.budget_cost_usd,
+        context: params.context as Record<string, any> | undefined,
       };
 
       const goal = repository.createGoal(createParams);
@@ -117,6 +119,14 @@ export function registerGoalHandlers(
         item_type: 'analysis',
         priority: goal.priority,
         dependencies: [],
+        context: goal.context
+          ? {
+              ...goal.context,
+              model: typeof (goal.context as Record<string, unknown>).selected_model === 'string'
+                ? (goal.context as Record<string, unknown>).selected_model
+                : undefined,
+            }
+          : undefined,
       });
 
       // Audit log: goal created

@@ -144,6 +144,7 @@ export class SchedulerBridge {
           runId: event.runId,
           workItemId: event.workItemId,
           goalId: event.goalId,
+          selectedModel: event.data?.selected_model,
           timestamp: event.timestamp,
         });
         break;
@@ -154,6 +155,9 @@ export class SchedulerBridge {
           workItemId: event.workItemId,
           goalId: event.goalId,
           success: event.data?.success,
+          selectedModel: event.data?.selected_model,
+          actualModel: event.data?.actual_model,
+          endpointId: event.data?.endpoint_id,
           timestamp: event.timestamp,
         });
         break;

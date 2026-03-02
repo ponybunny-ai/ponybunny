@@ -126,6 +126,11 @@ export interface SetSchedulerCapabilitiesAction {
   payload: SchedulerCapabilitiesResponse | null;
 }
 
+export interface SetSelectedModelAction {
+  type: 'SET_SELECTED_MODEL';
+  payload: string | null;
+}
+
 // Events actions
 export interface AddEventAction {
   type: 'ADD_EVENT';
@@ -214,6 +219,7 @@ export type AppAction =
   | SetPendingEscalationCountAction
   | SetPendingApprovalCountAction
   | SetSchedulerCapabilitiesAction
+  | SetSelectedModelAction
   | AddEventAction
   | AddEventsAction
   | ClearEventsAction
@@ -339,6 +345,11 @@ export const actions = {
   ): SetSchedulerCapabilitiesAction => ({
     type: 'SET_SCHEDULER_CAPABILITIES',
     payload: capabilities,
+  }),
+
+  setSelectedModel: (model: string | null): SetSelectedModelAction => ({
+    type: 'SET_SELECTED_MODEL',
+    payload: model,
   }),
 
   addEvent: (event: GatewayEvent): AddEventAction => ({

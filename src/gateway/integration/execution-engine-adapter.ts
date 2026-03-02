@@ -25,6 +25,8 @@ interface ExecutionResult {
   timeSeconds: number;
   costUsd: number;
   artifacts: string[];
+  actualModel?: string;
+  endpointId?: string;
   error?: { code: string; message: string; recoverable: boolean };
 }
 
@@ -88,14 +90,16 @@ export class ExecutionEngineAdapter implements IExecutionEngineAdapter {
           },
         };
 
-        const result = await this.executionService.executeWorkItem(executionWorkItem);
-        return {
-          success: result.success,
-          tokensUsed: result.run.tokens_used ?? 0,
-          timeSeconds: result.run.time_seconds ?? 0,
-          costUsd: result.run.cost_usd ?? 0,
-          artifacts: result.run.artifacts,
-          error: result.success
+      const result = await this.executionService.executeWorkItem(executionWorkItem);
+      return {
+        success: result.success,
+        tokensUsed: result.run.tokens_used ?? 0,
+        timeSeconds: result.run.time_seconds ?? 0,
+        costUsd: result.run.cost_usd ?? 0,
+        artifacts: result.run.artifacts,
+        actualModel: typeof result.run.context?.actual_model === 'string' ? result.run.context.actual_model : undefined,
+        endpointId: typeof result.run.context?.endpoint_id === 'string' ? result.run.context.endpoint_id : undefined,
+        error: result.success
             ? undefined
             : {
                 code: result.errorSignature || 'EXECUTION_ERROR',
@@ -210,6 +214,8 @@ export class ExecutionEngineAdapter implements IExecutionEngineAdapter {
         timeSeconds: result.run.time_seconds ?? 0,
         costUsd: result.run.cost_usd ?? 0,
         artifacts: result.run.artifacts,
+        actualModel: typeof result.run.context?.actual_model === 'string' ? result.run.context.actual_model : undefined,
+        endpointId: typeof result.run.context?.endpoint_id === 'string' ? result.run.context.endpoint_id : undefined,
         error: result.success
           ? undefined
           : {

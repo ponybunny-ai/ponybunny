@@ -18,7 +18,7 @@ describe('input suggestion state', () => {
     const commandRows = getCommandRows(rows);
 
     const groupRows = rows.filter((row) => row.type === 'group');
-    expect(groupRows.length).toBe(0);
+    expect(groupRows.length).toBeGreaterThan(0);
     expect(commandRows.length).toBe(commands.length);
   });
 

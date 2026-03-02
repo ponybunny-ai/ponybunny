@@ -389,9 +389,15 @@ export class SchedulerCore implements ISchedulerCore {
       title: workItem.title,
     });
 
-    // Select model
     const modelResult = this.deps.modelSelector.selectModel(workItem, goal);
-    const model = modelResult.model;
+    const goalSelectedModel = typeof goal.context?.selected_model === 'string'
+      ? goal.context.selected_model
+      : undefined;
+    const workItemSelectedModel = typeof workItem.context?.model === 'string'
+      ? workItem.context.model
+      : undefined;
+    const model = workItemSelectedModel || goalSelectedModel || modelResult.model;
+    const modelSource = workItemSelectedModel || goalSelectedModel ? 'tui_selected' : 'scheduler_selector';
 
     // Select lane
     const laneResult = this.deps.laneSelector.selectLane(workItem, goal);
@@ -417,6 +423,10 @@ export class SchedulerCore implements ISchedulerCore {
       goal_id: goal.id,
       agent_type: workItem.item_type,
       run_sequence: existingRuns.length + 1,
+      context: {
+        selected_model: model,
+        model_source: modelSource,
+      },
     });
 
     debug.setContext({ runId: run.id });
@@ -467,6 +477,10 @@ export class SchedulerCore implements ISchedulerCore {
       goalId: goal.id,
       workItemId: workItem.id,
       runId: run.id,
+      data: {
+        selected_model: model,
+        model_source: modelSource,
+      },
     });
 
     this.emitEvent({
@@ -517,6 +531,11 @@ export class SchedulerCore implements ISchedulerCore {
         cost_usd: result.costUsd,
         artifacts: result.artifacts,
         error_message: result.error?.message,
+        context: {
+          selected_model: model,
+          actual_model: result.actualModel ?? model,
+          endpoint_id: result.endpointId,
+        },
       });
 
       this.emitEvent({
@@ -525,7 +544,12 @@ export class SchedulerCore implements ISchedulerCore {
         goalId: goal.id,
         workItemId: workItem.id,
         runId: run.id,
-        data: { success: result.success },
+        data: {
+          success: result.success,
+          selected_model: model,
+          actual_model: result.actualModel ?? model,
+          endpoint_id: result.endpointId,
+        },
       });
 
       this.metrics.totalRunsExecuted++;

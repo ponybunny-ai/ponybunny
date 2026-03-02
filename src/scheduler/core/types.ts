@@ -146,6 +146,7 @@ export interface ISchedulerRepository {
     goal_id: string;
     agent_type: string;
     run_sequence: number;
+    context?: Record<string, unknown>;
   }): Run;
   completeRun(id: string, params: {
     status: Run['status'];
@@ -154,6 +155,7 @@ export interface ISchedulerRepository {
     cost_usd: number;
     artifacts: string[];
     error_message?: string;
+    context?: Record<string, unknown>;
   }): void;
   getRunsByWorkItem(workItemId: string): Run[];
 }
@@ -217,6 +219,8 @@ export interface IExecutionEngineAdapter {
     timeSeconds: number;
     costUsd: number;
     artifacts: string[];
+    actualModel?: string;
+    endpointId?: string;
     error?: { code: string; message: string; recoverable: boolean };
   }>;
   abort(runId: string): Promise<void>;

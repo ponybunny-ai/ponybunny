@@ -27,6 +27,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   const { connectionStatus } = useGatewayContext();
   const { state } = useAppContext();
   const summary = state.schedulerCapabilities?.capabilities.summary;
+  const selectedModel = state.selectedModel;
   const latestEventTs = state.events.length > 0 ? state.events[state.events.length - 1].timestamp : 0;
   const [trafficFrame, setTrafficFrame] = React.useState(0);
   const [isCommunicating, setIsCommunicating] = React.useState(false);
@@ -91,6 +92,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
             Models: {summary?.totalModels ?? 0} | Providers: {summary?.totalProviders ?? 0} | Tools: {summary?.totalTools ?? 0} | MCP: {summary?.totalMCPServers ?? 0} | Skills: {summary?.totalSkills ?? 0} | Agents: {summary?.totalAgents ?? 0}
           </Text>
         </Box>
+        <Text dimColor> | </Text>
+        <Text dimColor>M {selectedModel || 'auto'}</Text>
         <Text dimColor> | </Text>
         <Box>
           {renderConnectionStatus()}

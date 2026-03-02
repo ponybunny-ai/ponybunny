@@ -44,6 +44,7 @@ export interface AppContextValue {
   removeEscalation: (escalationId: string) => void;
 
   setSchedulerCapabilities: (capabilities: SchedulerCapabilitiesResponse | null) => void;
+  setSelectedModel: (model: string | null) => void;
 
   // Input methods
   setInputValue: (value: string) => void;
@@ -189,6 +190,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     dispatch(actions.setSchedulerCapabilities(capabilities));
   }, []);
 
+  const setSelectedModel = useCallback((model: string | null) => {
+    dispatch(actions.setSelectedModel(model));
+  }, []);
+
   // Input methods
   const setInputValue = useCallback((value: string) => {
     dispatch(actions.setInputValue(value));
@@ -226,6 +231,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     addEscalation,
     removeEscalation,
     setSchedulerCapabilities,
+    setSelectedModel,
     setInputValue,
     addToInputHistory,
     setInputFocused,
@@ -252,6 +258,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     addEscalation,
     removeEscalation,
     setSchedulerCapabilities,
+    setSelectedModel,
     setInputValue,
     addToInputHistory,
     setInputFocused,

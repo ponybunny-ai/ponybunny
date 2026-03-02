@@ -698,6 +698,23 @@ const handlers: Record<string, CommandHandler> = {
     return refreshSchedulerData(ctx);
   },
 
+  models: async (_cmd, ctx) => {
+    const models = ctx.app.state.schedulerCapabilities?.capabilities.models ?? [];
+    if (models.length === 0) {
+      return { success: false, error: 'No models available. Try /refresh first.' };
+    }
+
+    ctx.app.openModal('model-selector', {
+      selectedModel: ctx.app.state.selectedModel,
+      onSelect: (model: string) => {
+        ctx.app.setSelectedModel(model);
+        ctx.app.addEvent('model.selected', { model, source: 'slash_command' });
+      },
+    });
+
+    return { success: true, message: 'Opened model selector' };
+  },
+
   rollout: async (cmd, ctx) => {
     const client = ctx.gateway.client;
     if (!client) {
@@ -944,6 +961,7 @@ const aliasMap: Record<string, string> = {
   s: 'status',
   rc: 'reconnect',
   rf: 'refresh',
+  modelpicker: 'models',
   ro: 'rollout',
   rp: 'replay',
   pe: 'pruneevents',
@@ -1038,6 +1056,12 @@ export async function handleNaturalInput(
         required: true,
       }],
       priority: 50,
+      context: ctx.app.state.selectedModel
+        ? {
+            selected_model: ctx.app.state.selectedModel,
+            model_source: 'tui_selected',
+          }
+        : undefined,
     });
 
     ctx.app.addGoal(goal);
