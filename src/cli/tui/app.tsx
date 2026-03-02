@@ -15,6 +15,7 @@ import { executeCommand, handleNaturalInput, isCommand, type CommandContext } fr
 import type { GatewayEvent as ClientGatewayEvent, TuiGatewayClient } from '../gateway/index.js';
 import { useTerminalSize } from './hooks/use-terminal-size.js';
 import type { ViewType } from './store/types.js';
+import { getNextReasoningEffortIndex } from './model-variant.js';
 
 interface AppContentProps {
   onExit: () => void;
@@ -62,7 +63,7 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
   const gateway = useGatewayContext();
   const { state, setView, addEvent, setInputFocused: setGlobalInputFocused } = app;
   const [selectedAgentIndex, setSelectedAgentIndex] = useState(0);
-  const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
+  const [selectedReasoningEffortIndex, setSelectedReasoningEffortIndex] = useState(0);
 
   // Store refs to avoid recreating callbacks
   const appRef = useRef(app);
@@ -145,8 +146,10 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
 
     if (key.ctrl && input === 't') {
       const models = state.schedulerCapabilities?.capabilities.models || [];
-      if (models.length > 0) {
-        setSelectedVariantIndex((index) => (index + 1) % Math.max(models.length, 1));
+      const activeModel = models[0];
+      const reasoningEfforts = activeModel?.reasoningEfforts || [];
+      if (reasoningEfforts.length > 1) {
+        setSelectedReasoningEffortIndex((index) => getNextReasoningEffortIndex(reasoningEfforts, index));
       }
       return;
     }
@@ -183,11 +186,17 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
     const models = state.schedulerCapabilities?.capabilities.models || [];
 
     const activeAgent = agents.length > 0 ? agents[selectedAgentIndex % agents.length] : null;
-    const activeModel = models.length > 0 ? models[selectedVariantIndex % models.length] : null;
+    const activeModel = models.length > 0 ? models[0] : null;
     const modelLabel = activeModel ? activeModel.name : 'model.unknown';
-    const variantHint = models.length > 1 ? 'ctrl-t variants ' : '';
-    return `${activeAgent?.id || 'guard'} │ ${modelLabel}${models.length > 1 ? ` <${selectedVariantIndex + 1}/${models.length}>` : ''} │ ${variantHint}tab agents ctrl-v views ctrl-p commands`;
-  }, [state.schedulerCapabilities, selectedAgentIndex, selectedVariantIndex]);
+    const activeVariant = activeModel?.reasoningEfforts?.[
+      selectedReasoningEffortIndex % Math.max(activeModel?.reasoningEfforts?.length || 1, 1)
+    ];
+    const variantSegment = activeModel?.reasoningEfforts && activeModel.reasoningEfforts.length > 0
+      ? ` ${activeVariant || activeModel.reasoningEfforts[0]} <${(selectedReasoningEffortIndex % activeModel.reasoningEfforts.length) + 1}/${activeModel.reasoningEfforts.length}>`
+      : '';
+    const variantHint = activeModel?.reasoningEfforts && activeModel.reasoningEfforts.length > 1 ? 'ctrl-t variants ' : '';
+    return `${activeAgent?.id || 'guard'} │ ${modelLabel}${variantSegment} │ ${variantHint}tab agents ctrl-v views ctrl-p commands`;
+  }, [state.schedulerCapabilities, selectedAgentIndex, selectedReasoningEffortIndex]);
 
   // Track if initial data has been loaded
   const initialLoadDone = useRef(false);
@@ -287,7 +296,7 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
 
   // Render based on display mode
   const renderContent = () => (
-    <MainLayout onInputSubmit={handleInputSubmit} inputFocus={!state.activeModal} footerStatus={footerStatus}>
+    <MainLayout onInputSubmit={handleInputSubmit} inputFocus={!state.activeModal && state.inputFocused} footerStatus={footerStatus}>
       {renderCurrentView()}
     </MainLayout>
   );

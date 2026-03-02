@@ -66,6 +66,7 @@ export interface SchedulerCapabilitiesResponse {
       displayName: string;
       providers: string[];
       capabilities: string[];
+      reasoningEfforts?: string[];
     }>;
     providers?: Array<{
       name: string;

@@ -15,6 +15,7 @@ export interface ModelInfo {
   displayName: string;
   providers: string[];
   capabilities: string[];
+  reasoningEfforts?: string[];
   costPer1kTokens: {
     input: number;
     output: number;
@@ -109,6 +110,7 @@ export function getModelsInfo(): ModelInfo[] {
         displayName: modelConfig.displayName,
         providers,
         capabilities: modelConfig.capabilities || [],
+        reasoningEfforts: modelConfig.reasoningEfforts,
         costPer1kTokens: modelConfig.costPer1kTokens,
         maxContextTokens: modelConfig.maxContextTokens || 0,
       });
