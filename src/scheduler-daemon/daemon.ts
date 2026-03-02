@@ -493,7 +493,7 @@ export class SchedulerDaemon {
 
   private startRunEventRetentionLoop(): void {
     const retention = this.config.runEventRetention;
-    const pruneRunEvents = this.repository.pruneRunEvents;
+    const pruneRunEvents = this.repository.pruneRunEvents?.bind(this.repository);
     if (!retention?.enabled || !pruneRunEvents) {
       return;
     }
