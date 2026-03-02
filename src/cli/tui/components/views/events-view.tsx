@@ -25,7 +25,7 @@ export const EventsView: React.FC = () => {
 
   // Handle keyboard input
   useInput((input, key) => {
-    if (state.activeModal || state.inputFocused) {
+    if (state.activeModal) {
       return;
     }
 

@@ -141,10 +141,6 @@ export const TasksView: React.FC = () => {
   }, [gateway.client, selectedWorkItemId, runsByWorkItem]);
 
   useInput((input, key) => {
-    if (state.inputFocused) {
-      return;
-    }
-
     if (state.activeModal) {
       return;
     }

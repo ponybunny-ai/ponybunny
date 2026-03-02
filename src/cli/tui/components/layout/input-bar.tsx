@@ -25,6 +25,7 @@ export interface InputBarProps {
   placeholder?: string;
   focus?: boolean;
   footerStatus: string;
+  showTabBar?: boolean;
 }
 
 export const InputBar: React.FC<InputBarProps> = ({
@@ -32,9 +33,11 @@ export const InputBar: React.FC<InputBarProps> = ({
   placeholder = 'Describe your goal or type /help for commands',
   focus = true,
   footerStatus,
+  showTabBar = true,
 }) => {
   const { state, setInputValue } = useAppContext();
   const { activityStatus, inputValue: externalInputValue } = state;
+  const isDashboardView = state.currentView === 'dashboard';
   const runtimeConfig = loadRuntimeConfig();
   const [draftValue, setDraftValue] = useState(externalInputValue);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -139,6 +142,12 @@ export const InputBar: React.FC<InputBarProps> = ({
 
   return (
     <Box flexDirection="column">
+      {!isDashboardView ? (
+        <Box flexDirection="column" paddingX={2}>
+          <TabBar />
+        </Box>
+      ) : (
+        <>
       <Box
         flexDirection="column"
 
@@ -208,9 +217,13 @@ export const InputBar: React.FC<InputBarProps> = ({
         </Box>
       )}
 
-      <Box flexDirection="column" paddingX={2}>
-        <TabBar />
-      </Box>
+      {showTabBar && (
+        <Box flexDirection="column" paddingX={2}>
+          <TabBar />
+        </Box>
+      )}
+        </>
+      )}
     </Box>
   );
 };

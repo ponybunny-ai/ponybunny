@@ -5,6 +5,7 @@
 import * as React from 'react';
 import { Box, Text } from 'ink';
 import { InputBar } from './input-bar.js';
+import { TabBar } from './tab-bar.js';
 import { useGatewayContext } from '../../context/gateway-context.js';
 import { useAppContext } from '../../context/app-context.js';
 
@@ -12,6 +13,7 @@ export interface MainLayoutProps {
   children: React.ReactNode;
   onInputSubmit: (input: string) => void;
   inputFocus?: boolean;
+  showInputBar?: boolean;
   footerStatus: string;
 }
 
@@ -19,6 +21,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   children,
   onInputSubmit,
   inputFocus = true,
+  showInputBar = true,
   footerStatus,
 }) => {
   const { connectionStatus } = useGatewayContext();
@@ -105,7 +108,20 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
       </Box>
 
       {/* Input Bar */}
-      <InputBar onSubmit={onInputSubmit} focus={inputFocus} footerStatus={footerStatus} />
+      {showInputBar && (
+        <InputBar onSubmit={onInputSubmit} focus={inputFocus} footerStatus={footerStatus} showTabBar={true} />
+      )}
+
+      {!showInputBar && (
+        <Box paddingX={1}>
+          <Box flexDirection="column" backgroundColor="#2a2a2a" width="100%" paddingX={1} paddingY={1}>
+            <Text dimColor>{footerStatus}</Text>
+            <Box paddingX={1}>
+              <TabBar />
+            </Box>
+          </Box>
+        </Box>
+      )}
     </Box>
   );
 };

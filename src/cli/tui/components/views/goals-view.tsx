@@ -65,10 +65,6 @@ export const GoalsView: React.FC = () => {
   }, [selectedGoal, state.workItems]);
 
   useInput((input, key) => {
-    if (state.inputFocused) {
-      return;
-    }
-
     if (state.activeModal) {
       return;
     }

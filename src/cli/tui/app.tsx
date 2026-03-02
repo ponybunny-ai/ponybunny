@@ -296,7 +296,12 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
 
   // Render based on display mode
   const renderContent = () => (
-    <MainLayout onInputSubmit={handleInputSubmit} inputFocus={!state.activeModal && state.inputFocused} footerStatus={footerStatus}>
+    <MainLayout
+      onInputSubmit={handleInputSubmit}
+      inputFocus={state.currentView === 'dashboard' && !state.activeModal && state.inputFocused}
+      showInputBar={true}
+      footerStatus={footerStatus}
+    >
       {renderCurrentView()}
     </MainLayout>
   );
