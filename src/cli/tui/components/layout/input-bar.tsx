@@ -172,13 +172,13 @@ export const InputBar: React.FC<InputBarProps> = ({
         width="100%"
       >
         <Box>
-          <Box marginRight={1}>
+          <Box width={2}>
             {isActive ? (
               <Text color="yellow">
                 <Spinner type="dots" />
               </Text>
             ) : (
-              <Text color={focus ? 'green' : 'gray'}>➤</Text>
+              <Text color={focus ? 'green' : 'gray'}>{'> '}</Text>
             )}
           </Box>
           <Box flexGrow={1}>
