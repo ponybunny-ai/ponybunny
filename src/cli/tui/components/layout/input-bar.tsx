@@ -13,6 +13,7 @@ import { normalizeSlashCommandInput } from './input-normalize.js';
 import { TabBar } from './tab-bar.js';
 import { loadRuntimeConfig } from '../../../../infra/config/runtime-config.js';
 import { shouldHandleSuggestionNavigation } from './input-focus-guard.js';
+import { stripMouseEscapeSequences } from './input-mouse-sanitize.js';
 
 export interface InputBarProps {
   onSubmit: (input: string) => void;
@@ -33,6 +34,8 @@ export const InputBar: React.FC<InputBarProps> = ({
   const [draftValue, setDraftValue] = useState(externalInputValue);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [lastQuery, setLastQuery] = useState('');
+  const [paletteScrollOffset, setPaletteScrollOffset] = useState(0);
+  const maxVisibleSuggestions = 8;
 
   useEffect(() => {
     setDraftValue(externalInputValue);
@@ -52,7 +55,8 @@ export const InputBar: React.FC<InputBarProps> = ({
   const showSuggestions = draftValue.startsWith('/') && !draftValue.slice(1).includes(' ');
 
   const handleInputChange = useCallback((value: string) => {
-    setDraftValue((current) => normalizeSlashCommandInput(current, value));
+    const sanitized = stripMouseEscapeSequences(value);
+    setDraftValue((current) => normalizeSlashCommandInput(current, sanitized));
   }, []);
 
   const suggestions = React.useMemo(() => {
@@ -92,6 +96,25 @@ export const InputBar: React.FC<InputBarProps> = ({
       setSelectedIndex(0);
     }
   }, [query, lastQuery, selectedIndex, suggestions.length]);
+
+  React.useEffect(() => {
+    if (!showSuggestions || suggestions.length === 0) {
+      setPaletteScrollOffset(0);
+      return;
+    }
+
+    setPaletteScrollOffset((current) => {
+      let next = current;
+      if (selectedIndex < current) {
+        next = selectedIndex;
+      } else if (selectedIndex >= current + maxVisibleSuggestions) {
+        next = selectedIndex - maxVisibleSuggestions + 1;
+      }
+
+      const maxOffset = Math.max(0, suggestions.length - maxVisibleSuggestions);
+      return Math.max(0, Math.min(next, maxOffset));
+    });
+  }, [showSuggestions, suggestions.length, selectedIndex]);
 
   useInput((_, key) => {
     if (!shouldHandleSuggestionNavigation({
@@ -140,24 +163,38 @@ export const InputBar: React.FC<InputBarProps> = ({
 
   return (
     <Box flexDirection="column">
-      <Box borderStyle="single" borderColor={focus ? 'gray' : 'blackBright'} paddingX={1} backgroundColor={runtimeConfig.tui.inputBackgroundColor}>
-        <Box marginRight={1}>
-          {isActive ? (
-            <Text color="yellow">
-              <Spinner type="dots" />
-            </Text>
-          ) : (
-            <Text color={focus ? 'green' : 'gray'}>➤</Text>
-          )}
+      <Box
+        flexDirection="column"
+        borderStyle="single"
+        borderColor={focus ? 'gray' : 'blackBright'}
+        paddingX={1}
+        backgroundColor={runtimeConfig.tui.inputBackgroundColor}
+        width="100%"
+      >
+        <Box>
+          <Box marginRight={1}>
+            {isActive ? (
+              <Text color="yellow">
+                <Spinner type="dots" />
+              </Text>
+            ) : (
+              <Text color={focus ? 'green' : 'gray'}>➤</Text>
+            )}
+          </Box>
+          <Box flexGrow={1}>
+            <TextInput
+              value={draftValue}
+              onChange={handleInputChange}
+              onSubmit={handleSubmit}
+              placeholder={placeholder}
+              focus={focus}
+            />
+          </Box>
         </Box>
-        <Box flexGrow={1}>
-          <TextInput
-            value={draftValue}
-            onChange={handleInputChange}
-            onSubmit={handleSubmit}
-            placeholder={placeholder}
-            focus={focus}
-          />
+        <Box>
+          <Text color={runtimeConfig.tui.inputBackgroundColor === 'gray' ? 'white' : undefined}>
+            {isActive ? <Text color="yellow">{activityStatus}</Text> : footerStatus}
+          </Text>
         </Box>
       </Box>
 
@@ -168,20 +205,19 @@ export const InputBar: React.FC<InputBarProps> = ({
           borderColor="gray"
           paddingX={1}
         >
-          {suggestions.map(renderSuggestion)}
+          {suggestions.slice(paletteScrollOffset, paletteScrollOffset + maxVisibleSuggestions).map((cmd, idx) => {
+            const absoluteIndex = paletteScrollOffset + idx;
+            return renderSuggestion(cmd, absoluteIndex);
+          })}
+          {suggestions.length > maxVisibleSuggestions && (
+            <Text dimColor>
+              {paletteScrollOffset + 1}-{Math.min(suggestions.length, paletteScrollOffset + maxVisibleSuggestions)} / {suggestions.length}
+            </Text>
+          )}
         </Box>
       )}
 
-      <Box paddingX={2} backgroundColor={runtimeConfig.tui.inputBackgroundColor}>
-        <Box flexGrow={1}>
-          <Text dimColor>
-            {isActive ? (
-              <Text color="yellow">{activityStatus}</Text>
-            ) : (
-              footerStatus
-            )}
-          </Text>
-        </Box>
+      <Box flexDirection="column" paddingX={2}>
         <TabBar />
       </Box>
     </Box>

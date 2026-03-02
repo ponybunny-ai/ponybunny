@@ -142,7 +142,7 @@ export const DEFAULT_RUNTIME_CONFIG: PonyBunnyRuntimeConfig = {
     keywordWeight: 0.3,
   },
   tui: {
-    inputBackgroundColor: 'gray',
+    inputBackgroundColor: 'black',
   },
 };
 
