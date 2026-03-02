@@ -4,6 +4,7 @@ import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import { commands } from '../../commands/registry.js';
 import { useAppContext } from '../../context/app-context.js';
+import { clampSelectedIndex, nextScrollOffset } from './command-palette-state.js';
 
 type CommandPaletteData = {
   onExecute: (command: string) => Promise<void> | void;
@@ -15,6 +16,8 @@ export const CommandPaletteModal: React.FC = () => {
 
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [scrollOffset, setScrollOffset] = useState(0);
+  const maxVisible = 10;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -24,6 +27,34 @@ export const CommandPaletteModal: React.FC = () => {
       return (cmd.aliases || []).some((alias) => alias.toLowerCase().includes(q));
     });
   }, [query]);
+
+  React.useEffect(() => {
+    setSelectedIndex(0);
+    setScrollOffset(0);
+  }, [query]);
+
+  React.useEffect(() => {
+    if (filtered.length === 0) {
+      setSelectedIndex(0);
+      return;
+    }
+
+    setSelectedIndex((current) => clampSelectedIndex(current, filtered.length));
+  }, [filtered.length]);
+
+  React.useEffect(() => {
+    if (filtered.length === 0) {
+      setScrollOffset(0);
+      return;
+    }
+
+    setScrollOffset((current) => nextScrollOffset({
+      selectedIndex,
+      currentOffset: current,
+      maxVisible,
+      total: filtered.length,
+    }));
+  }, [filtered.length, selectedIndex]);
 
   useInput((input, key) => {
     if (key.escape) {
@@ -71,8 +102,9 @@ export const CommandPaletteModal: React.FC = () => {
       </Box>
 
       <Box marginTop={1} flexDirection="column">
-        {filtered.slice(0, 10).map((cmd, idx) => {
-          const active = idx === selectedIndex;
+        {filtered.slice(scrollOffset, scrollOffset + maxVisible).map((cmd, idx) => {
+          const absoluteIndex = scrollOffset + idx;
+          const active = absoluteIndex === selectedIndex;
           return (
             <Box key={cmd.name}>
               <Text color={active ? 'cyan' : undefined} bold={active}>{active ? '>' : ' '} /{cmd.name}</Text>
@@ -80,6 +112,11 @@ export const CommandPaletteModal: React.FC = () => {
             </Box>
           );
         })}
+        {filtered.length > maxVisible && (
+          <Text dimColor>
+            {scrollOffset + 1}-{Math.min(filtered.length, scrollOffset + maxVisible)} / {filtered.length}
+          </Text>
+        )}
       </Box>
 
       <Box marginTop={1}>
