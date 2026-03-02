@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
-import { commands } from '../../commands/registry.js';
+import { buildCommandMatches } from '../../commands/command-catalog.js';
 import { useAppContext } from '../../context/app-context.js';
 import { clampSelectedIndex, nextScrollOffset } from './command-palette-state.js';
 
@@ -20,12 +20,7 @@ export const CommandPaletteModal: React.FC = () => {
   const maxVisible = 10;
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return commands;
-    return commands.filter((cmd) => {
-      if (cmd.name.toLowerCase().includes(q)) return true;
-      return (cmd.aliases || []).some((alias) => alias.toLowerCase().includes(q));
-    });
+    return buildCommandMatches(query.trim());
   }, [query]);
 
   React.useEffect(() => {

@@ -20,7 +20,7 @@ const TABS: Tab[] = [
   { id: 'events', label: 'Events' },
 ];
 
-const TAB_PADDING = 2;
+const TAB_PADDING = 1;
 const TAB_GAP = 1;
 
 function renderTabCell(label: string): string {

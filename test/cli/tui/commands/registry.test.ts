@@ -26,6 +26,25 @@ describe('TUI command registry', () => {
     expect(systemCommands).toContain('pruneevents');
   });
 
+  it('derives categories from command group metadata', () => {
+    const categories = getCommandsByCategory();
+
+    const groupToCategory: Record<string, string> = {
+      Goal: 'Goal Management',
+      'Work Items': 'Work Items',
+      Escalations: 'Escalations & Approvals',
+      System: 'System',
+      Navigation: 'Navigation',
+      Utility: 'Utility',
+    };
+
+    commands.forEach((command) => {
+      const categoryName = groupToCategory[command.group];
+      expect(categoryName).toBeDefined();
+      expect(categories[categoryName]).toContainEqual(command);
+    });
+  });
+
   it('resolves rollout by alias', () => {
     const rollout = findCommand('ro');
     expect(rollout?.name).toBe('rollout');

@@ -8,12 +8,17 @@ import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import Spinner from 'ink-spinner';
 import { useAppContext } from '../../context/app-context.js';
-import { commands, type CommandDefinition } from '../../commands/registry.js';
+import { commands } from '../../commands/registry.js';
 import { normalizeSlashCommandInput } from './input-normalize.js';
 import { TabBar } from './tab-bar.js';
 import { loadRuntimeConfig } from '../../../../infra/config/runtime-config.js';
 import { shouldHandleSuggestionNavigation } from './input-focus-guard.js';
 import { stripMouseEscapeSequences } from './input-mouse-sanitize.js';
+import {
+  buildSuggestionRows,
+  getCommandRows,
+  type SuggestionRow,
+} from './input-suggestion-state.js';
 
 export interface InputBarProps {
   onSubmit: (input: string) => void;
@@ -35,7 +40,7 @@ export const InputBar: React.FC<InputBarProps> = ({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [lastQuery, setLastQuery] = useState('');
   const [paletteScrollOffset, setPaletteScrollOffset] = useState(0);
-  const maxVisibleSuggestions = 8;
+  const maxVisibleSuggestions = 12;
 
   useEffect(() => {
     setDraftValue(externalInputValue);
@@ -59,32 +64,15 @@ export const InputBar: React.FC<InputBarProps> = ({
     setDraftValue((current) => normalizeSlashCommandInput(current, sanitized));
   }, []);
 
-  const suggestions = React.useMemo(() => {
+  const suggestionRows = React.useMemo<SuggestionRow[]>(() => {
     if (!showSuggestions) {
       return [];
     }
 
-    const lowerQuery = query.toLowerCase();
-    const matches = commands.filter(cmd => {
-      if (!lowerQuery) {
-        return true;
-      }
-      const nameMatch = cmd.name.includes(lowerQuery);
-      const aliasMatch = cmd.aliases?.some(alias => alias.includes(lowerQuery)) ?? false;
-      return nameMatch || aliasMatch;
-    });
-
-    const scored = matches.sort((a, b) => {
-      if (!lowerQuery) return 0;
-      const aStarts = a.name.startsWith(lowerQuery);
-      const bStarts = b.name.startsWith(lowerQuery);
-      if (aStarts && !bStarts) return -1;
-      if (!aStarts && bStarts) return 1;
-      return 0;
-    });
-
-    return scored.slice(0, 5);
+    return buildSuggestionRows(commands, query, 'alpha');
   }, [query, showSuggestions]);
+
+  const commandRows = React.useMemo(() => getCommandRows(suggestionRows), [suggestionRows]);
 
   React.useEffect(() => {
     if (query !== lastQuery) {
@@ -92,13 +80,13 @@ export const InputBar: React.FC<InputBarProps> = ({
       setLastQuery(query);
       return;
     }
-    if (selectedIndex >= suggestions.length) {
+    if (selectedIndex >= commandRows.length) {
       setSelectedIndex(0);
     }
-  }, [query, lastQuery, selectedIndex, suggestions.length]);
+  }, [query, lastQuery, selectedIndex, commandRows.length]);
 
   React.useEffect(() => {
-    if (!showSuggestions || suggestions.length === 0) {
+    if (!showSuggestions || commandRows.length === 0) {
       setPaletteScrollOffset(0);
       return;
     }
@@ -111,33 +99,33 @@ export const InputBar: React.FC<InputBarProps> = ({
         next = selectedIndex - maxVisibleSuggestions + 1;
       }
 
-      const maxOffset = Math.max(0, suggestions.length - maxVisibleSuggestions);
+      const maxOffset = Math.max(0, commandRows.length - maxVisibleSuggestions);
       return Math.max(0, Math.min(next, maxOffset));
     });
-  }, [showSuggestions, suggestions.length, selectedIndex]);
+  }, [showSuggestions, commandRows.length, selectedIndex]);
 
   useInput((_, key) => {
     if (!shouldHandleSuggestionNavigation({
       focus,
       hasActiveModal: Boolean(state.activeModal),
       showSuggestions,
-      suggestionCount: suggestions.length,
+      suggestionCount: commandRows.length,
     })) {
       return;
     }
     if (key.downArrow) {
-      setSelectedIndex(prev => (prev + 1) % suggestions.length);
+      setSelectedIndex(prev => (prev + 1) % commandRows.length);
     }
     if (key.upArrow) {
-      setSelectedIndex(prev => (prev - 1 + suggestions.length) % suggestions.length);
+      setSelectedIndex(prev => (prev - 1 + commandRows.length) % commandRows.length);
     }
   });
 
   const handleSubmit = useCallback(() => {
     const trimmed = draftValue.trim();
     if (!trimmed) return;
-    if (showSuggestions && suggestions.length > 0) {
-      const selection = suggestions[Math.max(0, Math.min(selectedIndex, suggestions.length - 1))];
+    if (showSuggestions && commandRows.length > 0) {
+      const selection = commandRows[Math.max(0, Math.min(selectedIndex, commandRows.length - 1))].command;
       const rest = trimmed.replace(/^\/\S*/, '');
       setDraftValue('');
       setInputValue('');
@@ -147,31 +135,19 @@ export const InputBar: React.FC<InputBarProps> = ({
     setDraftValue('');
     setInputValue('');
     onSubmit(trimmed);
-  }, [draftValue, onSubmit, selectedIndex, showSuggestions, suggestions, setInputValue]);
-
-  const renderSuggestion = (cmd: CommandDefinition, index: number) => {
-    const isSelected = index === selectedIndex;
-    return (
-      <Box key={cmd.name}>
-        <Text color={isSelected ? 'cyan' : undefined} bold={isSelected}>
-          {isSelected ? '›' : ' '} /{cmd.name}
-        </Text>
-        <Text dimColor> {cmd.description}</Text>
-      </Box>
-    );
-  };
+  }, [draftValue, onSubmit, selectedIndex, showSuggestions, commandRows, setInputValue]);
 
   return (
     <Box flexDirection="column">
       <Box
         flexDirection="column"
-        borderStyle="single"
-        borderColor={focus ? 'gray' : 'blackBright'}
+
         paddingX={1}
-        backgroundColor={runtimeConfig.tui.inputBackgroundColor}
+        paddingTop={1}
+        backgroundColor="#2a2a2a"
         width="100%"
       >
-        <Box>
+        <Box paddingBottom={1}>
           <Box width={2}>
             {isActive ? (
               <Text color="yellow">
@@ -198,20 +174,35 @@ export const InputBar: React.FC<InputBarProps> = ({
         </Box>
       </Box>
 
-      {showSuggestions && suggestions.length > 0 && (
+      {showSuggestions && commandRows.length > 0 && (
         <Box
           flexDirection="column"
           borderStyle="single"
           borderColor="gray"
           paddingX={1}
         >
-          {suggestions.slice(paletteScrollOffset, paletteScrollOffset + maxVisibleSuggestions).map((cmd, idx) => {
-            const absoluteIndex = paletteScrollOffset + idx;
-            return renderSuggestion(cmd, absoluteIndex);
-          })}
-          {suggestions.length > maxVisibleSuggestions && (
+          {(() => {
+            const visible = commandRows.slice(paletteScrollOffset, paletteScrollOffset + maxVisibleSuggestions);
+
+            return visible.map((row, idx) => {
+              const absoluteIndex = paletteScrollOffset + idx;
+              const isSelected = absoluteIndex === selectedIndex;
+
+              return (
+                <React.Fragment key={row.command.name}>
+                  <Box>
+                    <Text color={isSelected ? 'cyan' : undefined} bold={isSelected}>
+                      {isSelected ? '>' : ' '} /{row.command.name}
+                    </Text>
+                    <Text dimColor wrap="truncate-end"> {row.command.description}</Text>
+                  </Box>
+                </React.Fragment>
+              );
+            });
+          })()}
+          {commandRows.length > maxVisibleSuggestions && (
             <Text dimColor>
-              {paletteScrollOffset + 1}-{Math.min(suggestions.length, paletteScrollOffset + maxVisibleSuggestions)} / {suggestions.length}
+              {paletteScrollOffset + 1}-{Math.min(commandRows.length, paletteScrollOffset + maxVisibleSuggestions)} / {commandRows.length}
             </Text>
           )}
         </Box>
