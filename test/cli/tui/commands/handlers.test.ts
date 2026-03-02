@@ -27,6 +27,7 @@ function createCommandContext(options?: {
   ctx: CommandContext;
   app: {
     setActivityStatus: jest.Mock;
+    setView: jest.Mock;
     setGoals: jest.Mock;
     setWorkItems: jest.Mock;
     setEscalations: jest.Mock;
@@ -51,6 +52,7 @@ function createCommandContext(options?: {
 } {
   const app = {
     setActivityStatus: jest.fn(),
+    setView: jest.fn(),
     setGoals: jest.fn(),
     setWorkItems: jest.fn(),
     setEscalations: jest.fn(),
@@ -178,6 +180,15 @@ function createCommandContext(options?: {
 }
 
 describe('TUI command handlers - refresh', () => {
+  it('routes /help to help view', async () => {
+    const { ctx, app } = createCommandContext();
+
+    const result = await executeCommand('/help', ctx);
+
+    expect(result.success).toBe(true);
+    expect(app.setView).toHaveBeenCalledWith('help');
+  });
+
   it('refreshes scheduler data via gateway and updates app state', async () => {
     const { ctx, app, client } = createCommandContext();
 

@@ -140,7 +140,9 @@ export type ModalType =
   | 'goal-detail'
   | 'escalation'
   | 'approval'
-  | 'confirm';
+  | 'confirm'
+  | 'command-palette'
+  | 'view-switcher';
 
 export interface ModalData {
   'goal-create': undefined;
@@ -154,6 +156,12 @@ export interface ModalData {
     onCancel?: () => void;
     confirmLabel?: string;
     cancelLabel?: string;
+  };
+  'command-palette': {
+    onExecute: (command: string) => Promise<void> | void;
+  };
+  'view-switcher': {
+    onSelect: (view: ViewType) => void;
   };
 }
 

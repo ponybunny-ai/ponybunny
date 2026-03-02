@@ -68,6 +68,9 @@ export interface PonyBunnyRuntimeConfig {
     vectorWeight: number;
     keywordWeight: number;
   };
+  tui: {
+    inputBackgroundColor: 'gray' | 'black' | 'blue' | 'green' | 'yellow' | 'magenta' | 'cyan' | 'white';
+  };
 }
 
 const PONY_DIR = path.join(homedir(), '.ponybunny');
@@ -137,6 +140,9 @@ export const DEFAULT_RUNTIME_CONFIG: PonyBunnyRuntimeConfig = {
     embeddingProvider: 'none',
     vectorWeight: 0.7,
     keywordWeight: 0.3,
+  },
+  tui: {
+    inputBackgroundColor: 'gray',
   },
 };
 
@@ -396,7 +402,38 @@ export function resolveRuntimeConfigFromEnvironment(
       vectorWeight: toNumberInRange(env.PONY_MEMORY_VECTOR_WEIGHT, DEFAULT_RUNTIME_CONFIG.memory.vectorWeight, 0, 1),
       keywordWeight: toNumberInRange(env.PONY_MEMORY_KEYWORD_WEIGHT, DEFAULT_RUNTIME_CONFIG.memory.keywordWeight, 0, 1),
     },
+    tui: {
+      inputBackgroundColor: toInputBackgroundColor(
+        env.PONY_TUI_INPUT_BACKGROUND_COLOR,
+        DEFAULT_RUNTIME_CONFIG.tui.inputBackgroundColor
+      ),
+    },
   };
+}
+
+function toInputBackgroundColor(
+  value: unknown,
+  fallback: PonyBunnyRuntimeConfig['tui']['inputBackgroundColor']
+): PonyBunnyRuntimeConfig['tui']['inputBackgroundColor'] {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'gray'
+    || normalized === 'black'
+    || normalized === 'blue'
+    || normalized === 'green'
+    || normalized === 'yellow'
+    || normalized === 'magenta'
+    || normalized === 'cyan'
+    || normalized === 'white'
+  ) {
+    return normalized;
+  }
+
+  return fallback;
 }
 
 function deepMerge<T extends Record<string, unknown>>(base: T, value: unknown): T {
@@ -594,6 +631,12 @@ function normalizeConfig(raw: PonyBunnyRuntimeConfig): PonyBunnyRuntimeConfig {
       embeddingProvider: toStringValue(embeddingProviderValue, DEFAULT_RUNTIME_CONFIG.memory.embeddingProvider),
       vectorWeight: toNumberInRange(vectorWeightValue, DEFAULT_RUNTIME_CONFIG.memory.vectorWeight, 0, 1),
       keywordWeight: toNumberInRange(keywordWeightValue, DEFAULT_RUNTIME_CONFIG.memory.keywordWeight, 0, 1),
+    },
+    tui: {
+      inputBackgroundColor: toInputBackgroundColor(
+        (raw as unknown as { tui?: { inputBackgroundColor?: unknown } }).tui?.inputBackgroundColor,
+        DEFAULT_RUNTIME_CONFIG.tui.inputBackgroundColor
+      ),
     },
   };
 }

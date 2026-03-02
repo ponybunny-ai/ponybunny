@@ -5,7 +5,6 @@
 import * as React from 'react';
 import { Box, Text } from 'ink';
 import { InputBar } from './input-bar.js';
-import { TabBar } from './tab-bar.js';
 import { useGatewayContext } from '../../context/gateway-context.js';
 import { useAppContext } from '../../context/app-context.js';
 
@@ -13,12 +12,14 @@ export interface MainLayoutProps {
   children: React.ReactNode;
   onInputSubmit: (input: string) => void;
   inputFocus?: boolean;
+  footerStatus: string;
 }
 
 export const MainLayout: React.FC<MainLayoutProps> = ({
   children,
   onInputSubmit,
   inputFocus = true,
+  footerStatus,
 }) => {
   const { connectionStatus } = useGatewayContext();
   const { state } = useAppContext();
@@ -100,12 +101,11 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 
       {/* Main Content */}
       <Box flexDirection="column" flexGrow={1} paddingX={1}>
-        <TabBar />
         {children}
       </Box>
 
       {/* Input Bar */}
-      <InputBar onSubmit={onInputSubmit} focus={inputFocus} />
+      <InputBar onSubmit={onInputSubmit} focus={inputFocus} footerStatus={footerStatus} />
     </Box>
   );
 };

@@ -25,6 +25,10 @@ export const EventsView: React.FC = () => {
 
   // Handle keyboard input
   useInput((input, key) => {
+    if (state.activeModal || state.inputFocused) {
+      return;
+    }
+
     if (key.leftArrow || key.rightArrow) {
       const direction = key.rightArrow ? 1 : -1;
       setFilter(current => {

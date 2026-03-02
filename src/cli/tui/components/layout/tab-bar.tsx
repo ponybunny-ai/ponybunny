@@ -14,11 +14,10 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
-  { id: 'dashboard', label: 'Dashboard', shortcut: '1' },
-  { id: 'tasks', label: 'Tasks', shortcut: '2' },
-  { id: 'goals', label: 'Goals', shortcut: '3' },
-  { id: 'events', label: 'Events', shortcut: '4' },
-  { id: 'help', label: 'Help', shortcut: '5' },
+  { id: 'dashboard', label: 'Dashboard', shortcut: 'Ctrl-V' },
+  { id: 'tasks', label: 'Tasks', shortcut: 'Ctrl-V' },
+  { id: 'goals', label: 'Goals', shortcut: 'Ctrl-V' },
+  { id: 'events', label: 'Events', shortcut: 'Ctrl-V' },
 ];
 
 export const TabBar: React.FC = () => {
@@ -26,25 +25,23 @@ export const TabBar: React.FC = () => {
   const { currentView } = state;
 
   return (
-    <Box paddingX={1} marginBottom={1}>
+    <Box>
       {TABS.map((tab, index) => {
         const isActive = currentView === tab.id;
         return (
           <React.Fragment key={tab.id}>
             {index > 0 && <Text dimColor>  </Text>}
             <Text
-              color={isActive ? 'cyan' : undefined}
+              color={isActive ? 'black' : 'gray'}
+              backgroundColor={isActive ? 'cyan' : undefined}
               bold={isActive}
-              dimColor={!isActive}
               wrap="truncate-end"
             >
-              [{tab.shortcut}] {tab.label}
+              {tab.label}
             </Text>
           </React.Fragment>
         );
       })}
-      <Box flexGrow={1} />
-      <Text dimColor wrap="truncate-end">Tab to switch</Text>
     </Box>
   );
 };

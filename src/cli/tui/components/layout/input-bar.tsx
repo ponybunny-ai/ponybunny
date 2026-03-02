@@ -10,20 +10,26 @@ import Spinner from 'ink-spinner';
 import { useAppContext } from '../../context/app-context.js';
 import { commands, type CommandDefinition } from '../../commands/registry.js';
 import { normalizeSlashCommandInput } from './input-normalize.js';
+import { TabBar } from './tab-bar.js';
+import { loadRuntimeConfig } from '../../../../infra/config/runtime-config.js';
+import { shouldHandleSuggestionNavigation } from './input-focus-guard.js';
 
 export interface InputBarProps {
   onSubmit: (input: string) => void;
   placeholder?: string;
   focus?: boolean;
+  footerStatus: string;
 }
 
 export const InputBar: React.FC<InputBarProps> = ({
   onSubmit,
   placeholder = 'Describe your goal or type /help for commands',
   focus = true,
+  footerStatus,
 }) => {
   const { state, setInputValue } = useAppContext();
   const { activityStatus, inputValue: externalInputValue } = state;
+  const runtimeConfig = loadRuntimeConfig();
   const [draftValue, setDraftValue] = useState(externalInputValue);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [lastQuery, setLastQuery] = useState('');
@@ -88,7 +94,12 @@ export const InputBar: React.FC<InputBarProps> = ({
   }, [query, lastQuery, selectedIndex, suggestions.length]);
 
   useInput((_, key) => {
-    if (!focus || !showSuggestions || suggestions.length === 0) {
+    if (!shouldHandleSuggestionNavigation({
+      focus,
+      hasActiveModal: Boolean(state.activeModal),
+      showSuggestions,
+      suggestionCount: suggestions.length,
+    })) {
       return;
     }
     if (key.downArrow) {
@@ -129,7 +140,7 @@ export const InputBar: React.FC<InputBarProps> = ({
 
   return (
     <Box flexDirection="column">
-      <Box borderStyle="single" borderColor={focus ? 'gray' : 'blackBright'} paddingX={1}>
+      <Box borderStyle="single" borderColor={focus ? 'gray' : 'blackBright'} paddingX={1} backgroundColor={runtimeConfig.tui.inputBackgroundColor}>
         <Box marginRight={1}>
           {isActive ? (
             <Text color="yellow">
@@ -161,16 +172,17 @@ export const InputBar: React.FC<InputBarProps> = ({
         </Box>
       )}
 
-      <Box paddingX={2}>
-        <Text dimColor>
-          {isActive ? (
-            <Text color="yellow">{activityStatus}</Text>
-          ) : focus ? (
-            'ESC unfocus │ Enter submit │ / for commands'
-          ) : (
-            '/ or i to type │ Tab switch view │ Ctrl+N new goal │ Ctrl+E escalations │ Ctrl+R refresh'
-          )}
-        </Text>
+      <Box paddingX={2} backgroundColor={runtimeConfig.tui.inputBackgroundColor}>
+        <Box flexGrow={1}>
+          <Text dimColor>
+            {isActive ? (
+              <Text color="yellow">{activityStatus}</Text>
+            ) : (
+              footerStatus
+            )}
+          </Text>
+        </Box>
+        <TabBar />
       </Box>
     </Box>
   );

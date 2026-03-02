@@ -10,10 +10,11 @@ import { AppProvider, useAppContext } from './context/app-context.js';
 import { useGatewayContext } from './context/gateway-context.js';
 import { MainLayout } from './components/layout/index.js';
 import { DashboardView, TasksView, GoalsView, EventsView, HelpView } from './components/views/index.js';
-import { GoalCreateModal, EscalationModal, ConfirmModal } from './components/modals/index.js';
+import { GoalCreateModal, EscalationModal, ConfirmModal, CommandPaletteModal, ViewSwitcherModal } from './components/modals/index.js';
 import { executeCommand, handleNaturalInput, isCommand, type CommandContext } from './commands/index.js';
 import type { GatewayEvent as ClientGatewayEvent, TuiGatewayClient } from '../gateway/index.js';
 import { useTerminalSize } from './hooks/use-terminal-size.js';
+import type { ViewType } from './store/types.js';
 
 interface AppContentProps {
   onExit: () => void;
@@ -59,10 +60,9 @@ function deriveMessageStatusFromGoalStatus(status: string): 'pending' | 'process
 const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
   const app = useAppContext();
   const gateway = useGatewayContext();
-  const { state, setView, addEvent, setInputValue, setInputFocused: setGlobalInputFocused } = app;
-
-  // Input focus state - default to focused for better UX
-  const [inputFocused, setInputFocused] = useState(true);
+  const { state, setView, addEvent, setInputFocused: setGlobalInputFocused } = app;
+  const [selectedAgentIndex, setSelectedAgentIndex] = useState(0);
+  const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
 
   // Store refs to avoid recreating callbacks
   const appRef = useRef(app);
@@ -84,48 +84,22 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
       return;
     }
 
-    // Escape to unfocus input
-    if (key.escape) {
-      if (inputFocused) {
-        setInputFocused(false);
-        setGlobalInputFocused(false);
-      }
-      return;
-    }
-
-    // When input is focused, only handle escape (above) and let TextInput handle the rest
-    if (inputFocused) {
-      return;
-    }
-
-    // Focus input with / or i
-    if (input === '/' || input === 'i') {
-      setInputFocused(true);
-      setGlobalInputFocused(true);
-      if (input === '/') {
-        setInputValue('/');
-      }
-      return;
-    }
-
-    // Tab to cycle views
     if (key.tab) {
-      const views = ['dashboard', 'tasks', 'goals', 'events', 'help'] as const;
-      const currentIndex = views.indexOf(state.currentView);
-      const nextIndex = (currentIndex + 1) % views.length;
-      setView(views[nextIndex]);
+      const agents = state.schedulerCapabilities?.capabilities.agents || [];
+      if (agents.length > 0) {
+        setSelectedAgentIndex((index) => (index + 1) % agents.length);
+      }
       return;
     }
 
-    const viewByShortcut: Record<string, typeof state.currentView> = {
-      '1': 'dashboard',
-      '2': 'tasks',
-      '3': 'goals',
-      '4': 'events',
-      '5': 'help',
-    };
-    if (viewByShortcut[input]) {
-      setView(viewByShortcut[input]);
+    if (key.ctrl && input === 'v') {
+      app.openModal('view-switcher', {
+        onSelect: (view: ViewType) => setView(view),
+      });
+      return;
+    }
+
+    if (key.ctrl && ['1', '2', '3', '4'].includes(input)) {
       return;
     }
 
@@ -154,6 +128,28 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
       })();
       return;
     }
+
+    if (key.ctrl && input === 'p') {
+      app.openModal('command-palette', {
+        onExecute: async (command: string) => {
+          const result = await executeCommand(command, commandContext);
+          if (result.error) {
+            addEvent('command.error', { command, error: result.error });
+          } else if (result.message) {
+            addEvent('command.success', { command, message: result.message });
+          }
+        },
+      });
+      return;
+    }
+
+    if (key.ctrl && input === 't') {
+      const models = state.schedulerCapabilities?.capabilities.models || [];
+      if (models.length > 0) {
+        setSelectedVariantIndex((index) => (index + 1) % Math.max(models.length, 1));
+      }
+      return;
+    }
   });
 
   // Handle input submission
@@ -176,17 +172,22 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
       await handleNaturalInput(input, commandContext);
     }
 
-    // Unfocus input after submission
-    setInputFocused(false);
   }, [commandContext]);
 
   useEffect(() => {
-    setInputFocused(state.inputFocused);
-  }, [state.inputFocused]);
+    setGlobalInputFocused(true);
+  }, [setGlobalInputFocused]);
 
-  useEffect(() => {
-    setGlobalInputFocused(inputFocused);
-  }, [inputFocused, setGlobalInputFocused]);
+  const footerStatus = useMemo(() => {
+    const agents = state.schedulerCapabilities?.capabilities.agents || [];
+    const models = state.schedulerCapabilities?.capabilities.models || [];
+
+    const activeAgent = agents.length > 0 ? agents[selectedAgentIndex % agents.length] : null;
+    const activeModel = models.length > 0 ? models[selectedVariantIndex % models.length] : null;
+    const modelLabel = activeModel ? activeModel.name : 'model.unknown';
+    const variantHint = models.length > 1 ? 'ctrl-t variants ' : '';
+    return `${activeAgent?.id || 'guard'} │ ${modelLabel}${models.length > 1 ? ` <${selectedVariantIndex + 1}/${models.length}>` : ''} │ ${variantHint}tab agents ctrl-v views ctrl-p commands`;
+  }, [state.schedulerCapabilities, selectedAgentIndex, selectedVariantIndex]);
 
   // Track if initial data has been loaded
   const initialLoadDone = useRef(false);
@@ -275,6 +276,10 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
         return null;
       case 'confirm':
         return <ConfirmModal />;
+      case 'command-palette':
+        return <CommandPaletteModal />;
+      case 'view-switcher':
+        return <ViewSwitcherModal />;
       default:
         return null;
     }
@@ -282,7 +287,7 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
 
   // Render based on display mode
   const renderContent = () => (
-    <MainLayout onInputSubmit={handleInputSubmit} inputFocus={inputFocused}>
+    <MainLayout onInputSubmit={handleInputSubmit} inputFocus={!state.activeModal} footerStatus={footerStatus}>
       {renderCurrentView()}
     </MainLayout>
   );

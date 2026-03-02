@@ -61,6 +61,19 @@ export interface SchedulerCapabilitiesResponse {
   schedulerConnected: boolean;
   capabilities: {
     summary: SchedulerCapabilitiesSummary;
+    models?: Array<{
+      name: string;
+      displayName: string;
+      providers: string[];
+      capabilities: string[];
+    }>;
+    providers?: Array<{
+      name: string;
+      protocol: string;
+      enabled: boolean;
+      priority: number;
+      baseUrl?: string;
+    }>;
     agents?: Array<{
       id: string;
       name: string;

@@ -39,6 +39,10 @@ export function useKeyboard(options: KeyboardOptions = {}): void {
   }) => {
     if (!enabled) return;
 
+    if (state.activeModal && !key.escape) {
+      return;
+    }
+
     // Handle escape
     if (key.escape) {
       if (state.activeModal) {
