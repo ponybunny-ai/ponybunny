@@ -11,6 +11,55 @@ export function getConfigDir(): string {
   return getGlobalConfigDir();
 }
 
+function getConfigTemplateSourceCandidates(fileName: string): string[] {
+  const entryPoint = process.argv[1] ? path.resolve(process.argv[1]) : undefined;
+  const entryDir = entryPoint ? path.dirname(entryPoint) : undefined;
+
+  const entryCandidates = entryDir
+    ? [
+      path.join(entryDir, '..', '..', 'docs', 'config-templates', fileName),
+      path.join(entryDir, '..', 'docs', 'config-templates', fileName),
+      path.join(entryDir, '..', '..', '..', 'docs', 'config-templates', fileName),
+    ]
+    : [];
+
+  return [
+    path.join(process.cwd(), 'docs', 'config-templates', fileName),
+    path.join(process.cwd(), 'dist', 'docs', 'config-templates', fileName),
+    ...entryCandidates,
+  ];
+}
+
+function loadJsonTemplateFromConfigTemplates<T>(
+  fileName: string,
+  isExpectedShape: (value: unknown) => value is T
+): T | undefined {
+  const visited = new Set<string>();
+  const candidates = getConfigTemplateSourceCandidates(fileName);
+
+  for (const candidate of candidates) {
+    if (visited.has(candidate)) {
+      continue;
+    }
+    visited.add(candidate);
+
+    if (!fs.existsSync(candidate)) {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(fs.readFileSync(candidate, 'utf-8'));
+      if (isExpectedShape(parsed)) {
+        return parsed;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return undefined;
+}
+
 /**
  * Template for credentials.schema.json
  */
@@ -56,7 +105,7 @@ export const CREDENTIALS_SCHEMA_TEMPLATE = {
 /**
  * Template for credentials.json (no sensitive data)
  */
-export const CREDENTIALS_TEMPLATE = {
+const MINIMAL_CREDENTIALS_TEMPLATE = {
   $schema: 'https://ponybunny.dho.ai/schemas/credentials.schema.json',
   providers: {
     anthropic: {
@@ -96,6 +145,18 @@ export const CREDENTIALS_TEMPLATE = {
     },
   },
 };
+
+function isCredentialsTemplate(value: unknown): value is typeof MINIMAL_CREDENTIALS_TEMPLATE {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as Partial<typeof MINIMAL_CREDENTIALS_TEMPLATE>;
+  return typeof candidate.$schema === 'string' && typeof candidate.providers === 'object' && candidate.providers !== null;
+}
+
+export const CREDENTIALS_TEMPLATE =
+  loadJsonTemplateFromConfigTemplates('credentials.example.json', isCredentialsTemplate)
+  ?? MINIMAL_CREDENTIALS_TEMPLATE;
 
 /**
  * Template for llm-config.schema.json
@@ -538,24 +599,7 @@ function isLlmConfigTemplate(value: unknown): value is LlmConfigTemplate {
 }
 
 function getLlmConfigTemplateSourceCandidates(): string[] {
-  const entryPoint = process.argv[1] ? path.resolve(process.argv[1]) : undefined;
-  const entryDir = entryPoint ? path.dirname(entryPoint) : undefined;
-
-  const entryCandidates = entryDir
-    ? [
-      path.join(entryDir, '..', 'llm-config.example.json'),
-      path.join(entryDir, '..', '..', 'llm-config.example.json'),
-      path.join(entryDir, '..', '..', '..', 'llm-config.example.json'),
-      path.join(entryDir, '..', 'docs', 'openai-compatible', 'examples', 'llm-config.example.json'),
-      path.join(entryDir, '..', '..', 'docs', 'openai-compatible', 'examples', 'llm-config.example.json'),
-    ]
-    : [];
-
-  return [
-    path.join(process.cwd(), 'llm-config.example.json'),
-    path.join(process.cwd(), 'docs', 'openai-compatible', 'examples', 'llm-config.example.json'),
-    ...entryCandidates,
-  ];
+  return getConfigTemplateSourceCandidates('llm-config.example.json');
 }
 
 function loadLlmConfigTemplateFromExample(): LlmConfigTemplate | undefined {
@@ -585,207 +629,30 @@ function loadLlmConfigTemplateFromExample(): LlmConfigTemplate | undefined {
   return undefined;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function getLlmFactsSourceCandidates(): string[] {
-  const entryPoint = process.argv[1] ? path.resolve(process.argv[1]) : undefined;
-  const entryDir = entryPoint ? path.dirname(entryPoint) : undefined;
-
-  const entryCandidates = entryDir
-    ? [
-      path.join(entryDir, '..', 'docs', 'llm-facts', 'models.json'),
-      path.join(entryDir, '..', '..', 'docs', 'llm-facts', 'models.json'),
-      path.join(entryDir, '..', '..', '..', 'docs', 'llm-facts', 'models.json'),
-    ]
-    : [];
-
-  return [
-    path.join(process.cwd(), 'docs', 'llm-facts', 'models.json'),
-    path.join(process.cwd(), 'dist', 'docs', 'llm-facts', 'models.json'),
-    ...entryCandidates,
-  ];
-}
-
-function sanitizeModelFact(modelId: string, entry: unknown): Record<string, unknown> | undefined {
-  if (!isRecord(entry)) {
-    return undefined;
-  }
-
-  const sanitized: Record<string, unknown> = {
-    displayName: typeof entry.displayName === 'string' ? entry.displayName : modelId,
-    costPer1kTokens: {
-      input: isRecord(entry.costPer1kTokens) && typeof entry.costPer1kTokens.input === 'number'
-        ? entry.costPer1kTokens.input
-        : 0,
-      output: isRecord(entry.costPer1kTokens) && typeof entry.costPer1kTokens.output === 'number'
-        ? entry.costPer1kTokens.output
-        : 0,
-    },
-  };
-
-  if (Array.isArray(entry.providers)) {
-    sanitized.providers = entry.providers.filter((value): value is string => typeof value === 'string');
-  }
-
-  if (Array.isArray(entry.endpoints)) {
-    const allowedEndpointNames = new Set([
-      'responses',
-      'realtime',
-      'assistants',
-      'batch',
-      'fine-tuning',
-      'embeddings',
-      'image-generation',
-      'videos',
-      'image-edit',
-      'speech-generation',
-      'transcription',
-      'translation',
-      'moderation',
-    ]);
-
-    const endpoints = entry.endpoints
-      .filter((item): item is Record<string, unknown> => isRecord(item))
-      .map((item) => ({
-        name: item.name,
-        url: item.url,
-      }))
-      .filter((item): item is { name: string; url: string } => (
-        typeof item.name === 'string'
-        && typeof item.url === 'string'
-        && allowedEndpointNames.has(item.name)
-      ));
-
-    if (endpoints.length > 0) {
-      sanitized.endpoints = endpoints;
-    }
-  }
-
-  if (typeof entry.maxContextTokens === 'number') {
-    sanitized.maxContextTokens = entry.maxContextTokens;
-  } else if (typeof entry.contextWindow === 'number') {
-    sanitized.maxContextTokens = entry.contextWindow;
-  }
-
-  if (typeof entry.maxOutputTokens === 'number') {
-    sanitized.maxOutputTokens = entry.maxOutputTokens;
-  }
-
-  if (typeof entry.contextWindow === 'number') {
-    sanitized.contextWindow = entry.contextWindow;
-  }
-
-  if (typeof entry.reasoningTokenSupport === 'boolean') {
-    sanitized.reasoningTokenSupport = entry.reasoningTokenSupport;
-  }
-
-  if (Array.isArray(entry.reasoningEfforts)) {
-    sanitized.reasoningEfforts = entry.reasoningEfforts.filter((value): value is string => typeof value === 'string');
-  } else if (Array.isArray(entry.resongingEfforts)) {
-    sanitized.reasoningEfforts = entry.resongingEfforts.filter((value): value is string => typeof value === 'string');
-  }
-
-  if (Array.isArray(entry.capabilities)) {
-    sanitized.capabilities = entry.capabilities.filter((value): value is string => typeof value === 'string');
-  } else if (isRecord(entry.capabilities)) {
-    sanitized.capabilities = {
-      input: Array.isArray(entry.capabilities.input)
-        ? entry.capabilities.input.filter((value): value is string => typeof value === 'string')
-        : undefined,
-      output: Array.isArray(entry.capabilities.output)
-        ? entry.capabilities.output.filter((value): value is string => typeof value === 'string')
-        : undefined,
-    };
-  }
-
-  if (Array.isArray(entry.features)) {
-    sanitized.features = entry.features.filter((value): value is string => typeof value === 'string');
-  }
-
-  if (Array.isArray(entry.tools)) {
-    sanitized.tools = entry.tools.filter((value): value is string => typeof value === 'string');
-  }
-
-  return sanitized;
-}
-
-function loadModelsFromFacts(): Record<string, Record<string, Record<string, unknown>>> | undefined {
-  const visited = new Set<string>();
-  const candidates = getLlmFactsSourceCandidates();
-
-  for (const candidate of candidates) {
-    if (visited.has(candidate)) {
-      continue;
-    }
-    visited.add(candidate);
-
-    if (!fs.existsSync(candidate)) {
-      continue;
-    }
-
-    try {
-      const parsed = JSON.parse(fs.readFileSync(candidate, 'utf-8'));
-      if (!isRecord(parsed)) {
-        continue;
-      }
-
-      const grouped: Record<string, Record<string, Record<string, unknown>>> = {};
-      for (const [providerId, providerModelsRaw] of Object.entries(parsed)) {
-        if (!isRecord(providerModelsRaw)) {
-          continue;
-        }
-
-        const providerModels: Record<string, Record<string, unknown>> = {};
-        for (const [modelId, entry] of Object.entries(providerModelsRaw)) {
-          const sanitized = sanitizeModelFact(modelId, entry);
-          if (sanitized) {
-            providerModels[modelId] = sanitized;
-          }
-        }
-
-        if (Object.keys(providerModels).length > 0) {
-          grouped[providerId] = providerModels;
-        }
-      }
-
-      if (Object.keys(grouped).length > 0) {
-        return grouped;
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return undefined;
-}
-
 /**
  * Template for llm-config.json
  */
-const BASE_LLM_CONFIG_TEMPLATE = loadLlmConfigTemplateFromExample() ?? DEFAULT_LLM_CONFIG_TEMPLATE;
-const FACTS_MODELS_TEMPLATE = loadModelsFromFacts();
-const DISABLED_PROVIDERS_TEMPLATE = Object.fromEntries(
-  Object.entries(BASE_LLM_CONFIG_TEMPLATE.providers).map(([providerId, providerConfig]) => [
-    providerId,
-    {
-      ...providerConfig,
-      enabled: false,
-    },
-  ])
-);
+const MINIMAL_LLM_CONFIG_TEMPLATE = {
+  $schema: 'https://ponybunny.dho.ai/schemas/llm-config.schema.json',
+  providers: {},
+  models: {},
+  tiers: {
+    simple: { primary: 'openai.gpt-5.2' },
+    medium: { primary: 'openai.gpt-5.2' },
+    complex: { primary: 'openai.gpt-5.2' },
+  },
+  workloads: {},
+  defaults: {
+    timeout: 120000,
+    maxTokens: 4096,
+    maxRetries: 2,
+    retryDelayMs: 1000,
+    temperature: 0.7,
+  },
+};
 
-export const LLM_CONFIG_TEMPLATE = FACTS_MODELS_TEMPLATE
-  ? {
-    ...BASE_LLM_CONFIG_TEMPLATE,
-    providers: DISABLED_PROVIDERS_TEMPLATE,
-    models: FACTS_MODELS_TEMPLATE,
-  }
-  : {
-    ...BASE_LLM_CONFIG_TEMPLATE,
-    providers: DISABLED_PROVIDERS_TEMPLATE,
-  };
+export const LLM_CONFIG_TEMPLATE =
+  loadLlmConfigTemplateFromExample() ?? MINIMAL_LLM_CONFIG_TEMPLATE;
 
 /**
  * Template for mcp-config.schema.json
@@ -897,7 +764,7 @@ export const MCP_CONFIG_SCHEMA_TEMPLATE = {
 /**
  * Template for mcp-config.json
  */
-export const MCP_CONFIG_TEMPLATE = {
+const MINIMAL_MCP_CONFIG_TEMPLATE = {
   $schema: 'https://ponybunny.dho.ai/schemas/mcp-config.schema.json',
   mcpServers: {
     filesystem: {
@@ -928,6 +795,18 @@ export const MCP_CONFIG_TEMPLATE = {
     },
   },
 };
+
+function isMcpConfigTemplate(value: unknown): value is typeof MINIMAL_MCP_CONFIG_TEMPLATE {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as Partial<typeof MINIMAL_MCP_CONFIG_TEMPLATE>;
+  return typeof candidate.mcpServers === 'object' && candidate.mcpServers !== null;
+}
+
+export const MCP_CONFIG_TEMPLATE =
+  loadJsonTemplateFromConfigTemplates('mcp-config.example.json', isMcpConfigTemplate)
+  ?? MINIMAL_MCP_CONFIG_TEMPLATE;
 
 export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -1102,6 +981,14 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
 };
 
 export function getPonyBunnyConfigTemplate() {
+  const docsTemplate = loadJsonTemplateFromConfigTemplates(
+    'ponybunny.example.json',
+    (value): value is Record<string, unknown> => typeof value === 'object' && value !== null
+  );
+  if (docsTemplate) {
+    return docsTemplate;
+  }
+
   const config = resolveRuntimeConfigFromEnvironment();
   return {
     ...config,

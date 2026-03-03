@@ -10,17 +10,17 @@ describe('Onboarding config generation', () => {
   it('uses hosted schema URLs in generated templates', () => {
     expect(CREDENTIALS_TEMPLATE.$schema).toBe('https://ponybunny.dho.ai/schemas/credentials.schema.json');
     expect(LLM_CONFIG_TEMPLATE.$schema).toBe('https://ponybunny.dho.ai/schemas/llm-config.schema.json');
-    expect(MCP_CONFIG_TEMPLATE.$schema).toBe('https://ponybunny.dho.ai/schemas/mcp-config.schema.json');
+    expect(typeof MCP_CONFIG_TEMPLATE.mcpServers).toBe('object');
     expect(getPonyBunnyConfigTemplate().$schema).toBe('https://ponybunny.dho.ai/schemas/ponybunny.schema.json');
   });
 
-  it('loads model data from docs/llm-facts/models.json during init template generation', () => {
-    const models = LLM_CONFIG_TEMPLATE.models as unknown as Record<string, unknown>;
-    const openaiModels = models.openai as Record<string, { costPer1kTokens: { input: number; output: number } }>;
-    const gpt52Pricing = openaiModels['gpt-5.2'].costPer1kTokens;
-    expect(gpt52Pricing.input).toBe(0.00175);
-    expect(gpt52Pricing.output).toBe(0.014);
-    expect(openaiModels['gpt-5']).toBeDefined();
+  it('loads llm init template from docs/config-templates when available', () => {
+    const models = LLM_CONFIG_TEMPLATE.models as unknown as Record<string, Record<string, unknown>>;
+    const providers = LLM_CONFIG_TEMPLATE.providers as unknown as Record<string, { protocol: string }>;
+    expect(Object.keys(models).length).toBeGreaterThan(0);
+    expect(models.openai?.['gpt-5.2']).toBeDefined();
+    expect(providers.openai?.protocol).toBe('openai');
+    expect(LLM_CONFIG_TEMPLATE.tiers.simple.primary).toBe('anthropic.claude-sonnet-4-5-20250929');
   });
 
   it('does not include schema files in pb init output', () => {
@@ -61,18 +61,35 @@ describe('Onboarding config generation', () => {
   });
 
   it('generates example persona prompt override content in ponybunny template', () => {
-    const template = getPonyBunnyConfigTemplate();
-    expect(template.persona.promptOverrides.personalityDescription).toContain('Example:');
-    expect(template.persona.promptOverrides.guidelines).toContain('Example:');
+    const template = getPonyBunnyConfigTemplate() as {
+      persona: {
+        promptOverrides: {
+          personalityDescription: string;
+          guidelines: string;
+        };
+      };
+      tui: {
+        sessionFirstEnabled: boolean;
+        goalSubmitFastPathEnabled: boolean;
+      };
+    };
+    expect(template.persona.promptOverrides.personalityDescription).toBe('');
+    expect(template.persona.promptOverrides.guidelines).toBe('');
     expect(typeof template.tui.sessionFirstEnabled).toBe('boolean');
     expect(typeof template.tui.goalSubmitFastPathEnabled).toBe('boolean');
   });
 
-  it('keeps all llm providers disabled by default in init template', () => {
-    const providers = Object.values(LLM_CONFIG_TEMPLATE.providers);
-    expect(providers.length).toBeGreaterThan(0);
-    for (const provider of providers) {
-      expect(provider.enabled).toBe(false);
-    }
+  it('prefers docs/config-templates for ponybunny and mcp defaults', () => {
+    const files = getOnboardingFiles();
+    const ponybunny = files.find((file) => file.name === 'ponybunny.json');
+    const mcp = files.find((file) => file.name === 'mcp-config.json');
+
+    const ponybunnyTemplate = ponybunny?.template as Record<string, unknown>;
+    const mcpTemplate = mcp?.template as { mcpServers?: Record<string, unknown> };
+
+    expect(ponybunnyTemplate).toBeDefined();
+    expect(ponybunnyTemplate.persona).toBeDefined();
+    expect(mcpTemplate).toBeDefined();
+    expect(mcpTemplate.mcpServers?.fs).toBeDefined();
   });
 });

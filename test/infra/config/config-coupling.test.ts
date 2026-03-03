@@ -1,6 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {
+  CREDENTIALS_TEMPLATE,
+  LLM_CONFIG_TEMPLATE,
   PONYBUNNY_CONFIG_SCHEMA_TEMPLATE,
   getOnboardingFiles,
   initAllConfigFiles,
@@ -35,6 +37,21 @@ describe('config change coupling invariants', () => {
     expect(typeof tui.inputBackgroundColor).toBe('string');
     expect(typeof tui.sessionFirstEnabled).toBe('boolean');
     expect(typeof tui.goalSubmitFastPathEnabled).toBe('boolean');
+  });
+
+  it('keeps docs credentials and llm templates synchronized with onboarding templates', () => {
+    const docsCredentialsPath = path.join(repoRoot, 'docs', 'config-templates', 'credentials.example.json');
+    const docsLlmPath = path.join(repoRoot, 'docs', 'config-templates', 'llm-config.example.json');
+
+    const docsCredentials = readJson(docsCredentialsPath);
+    const docsLlm = readJson(docsLlmPath);
+
+    expect(docsCredentials).toEqual(CREDENTIALS_TEMPLATE);
+    expect(docsLlm).toEqual(LLM_CONFIG_TEMPLATE);
+
+    const onboardingByName = new Map(getOnboardingFiles().map((file) => [file.name, file.template]));
+    expect(onboardingByName.get('credentials.json')).toEqual(docsCredentials);
+    expect(onboardingByName.get('llm-config.json')).toEqual(docsLlm);
   });
 
   it('keeps pb init dry-run output consistent and excludes schema artifacts', () => {
