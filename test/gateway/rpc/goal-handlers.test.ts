@@ -243,4 +243,50 @@ describe('goal handlers remote scheduler forwarding', () => {
     );
     expect(remoteScheduler.submitGoal).toHaveBeenCalledWith('goal-3');
   });
+
+  it('rejects conversation-created goal submit when sessionId/turnId linkage is missing', async () => {
+    const repository = {
+      createGoal: jest.fn(),
+      createWorkItem: jest.fn(),
+      getGoal: jest.fn(),
+      updateGoalStatus: jest.fn(),
+      listGoals: jest.fn(() => []),
+    } as unknown as IWorkOrderRepository;
+
+    registerGoalHandlers(rpc, repository, new EventBus(), () => null, undefined, undefined);
+
+    await expect(
+      rpc.handle(
+        'goal.submit',
+        {
+          title: 'missing linkage',
+          description: 'created via conversation but missing linkage keys',
+          success_criteria: [],
+          context: {
+            createdViaConversation: true,
+          },
+        },
+        session
+      )
+    ).rejects.toThrow('Conversation goal context requires sessionId');
+  });
+
+  it('forwards sessionId filter to repository on goal.list', async () => {
+    const repository = {
+      listGoals: jest.fn(() => []),
+      createGoal: jest.fn(),
+      createWorkItem: jest.fn(),
+      getGoal: jest.fn(),
+      updateGoalStatus: jest.fn(),
+    } as unknown as IWorkOrderRepository;
+
+    registerGoalHandlers(rpc, repository, new EventBus(), () => null, undefined, undefined);
+
+    const result = await rpc.handle('goal.list', { sessionId: 'ses-123', limit: 20, offset: 0 }, session);
+    expect(result).toEqual({ goals: [], total: 0 });
+    expect(repository.listGoals).toHaveBeenCalledWith({
+      status: undefined,
+      session_id: 'ses-123',
+    });
+  });
 });

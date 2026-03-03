@@ -7,6 +7,7 @@ import type { GatewayContextValue } from '../context/gateway-context.js';
 import { parseCommand, findCommand, type ParsedCommand } from './registry.js';
 import type { RuntimeSnapshot } from '../store/types.js';
 import type { InternalRuntimeRunEventsPruneParams } from '../../gateway/tui-gateway-client.js';
+import { loadRuntimeConfig, saveRuntimeConfig } from '../../../infra/config/runtime-config.js';
 
 export interface CommandContext {
   app: AppContextValue;
@@ -303,7 +304,7 @@ async function refreshSchedulerData(ctx: CommandContext): Promise<CommandResult>
   ctx.app.setActivityStatus('refreshing scheduler data...');
   try {
     const [goalsResult, workItemsResult, escalationsResult, capabilities] = await Promise.all([
-      client.listGoals(),
+      client.listGoals(ctx.app.state.activeSessionId ? { sessionId: ctx.app.state.activeSessionId } : undefined),
       client.listWorkItems(),
       client.listEscalations(),
       client.getSystemCapabilities(),
@@ -342,7 +343,10 @@ async function refreshRuntimeData(ctx: CommandContext, goalId?: string): Promise
     const [runtimeConfig, rolloutStatus, goalsResult] = await Promise.all([
       client.getInternalRuntimeConfig(),
       client.getRuntimeRolloutStatus(),
-      client.listGoals({ limit: 20 }),
+      client.listGoals({
+        limit: 20,
+        ...(ctx.app.state.activeSessionId ? { sessionId: ctx.app.state.activeSessionId } : {}),
+      }),
     ]);
 
     const targetGoalId = goalId ?? goalsResult.goals[0]?.id;
@@ -505,14 +509,428 @@ const handlers: Record<string, CommandHandler> = {
   },
 
   // Goal commands
-  new: (_cmd, ctx) => {
-    ctx.app.openModal('goal-create');
-    return { success: true };
+  new: async (_cmd, ctx) => {
+    const client = ctx.gateway.client;
+    if (!client) {
+      return { success: false, error: 'Not connected to gateway' };
+    }
+
+    try {
+      ctx.app.setActivityStatus('Creating session...');
+      const session = await client.createConversationSession({});
+      ctx.app.setActiveSession(session.sessionId, null);
+      ctx.app.selectGoal(null);
+      ctx.app.addEvent('conversation.new', {
+        sessionId: session.sessionId,
+        state: session.state,
+        lifecycleState: session.lifecycleState,
+      });
+      ctx.app.setActivityStatus('idle');
+      return { success: true, message: `Session created: ${session.sessionId}` };
+    } catch (err) {
+      ctx.app.setActivityStatus('idle');
+      return { success: false, error: `Failed to create session: ${(err as Error).message}` };
+    }
   },
 
   goals: (_cmd, ctx) => {
     ctx.app.setView('goals');
     return { success: true };
+  },
+
+  workstream: (_cmd, ctx) => {
+    ctx.app.setView('tasks');
+    return { success: true };
+  },
+
+  sessions: async (cmd, ctx) => {
+    const client = ctx.gateway.client;
+    if (!client) {
+      return { success: false, error: 'Not connected to gateway' };
+    }
+
+    const archivedOnly = cmd.args.includes('--archived-only');
+    const activeOnly = cmd.args.includes('--active-only');
+    const withoutFlags = cmd.args.filter((arg) => arg !== '--archived-only' && arg !== '--active-only');
+    const stateArg = withoutFlags[0];
+    const lifecycleStateFromArg = stateArg === 'active' || stateArg === 'archived' ? stateArg : undefined;
+    const lifecycleState = archivedOnly ? 'archived' : activeOnly ? 'active' : lifecycleStateFromArg;
+    const normalizedArgs = lifecycleStateFromArg ? withoutFlags.slice(1) : withoutFlags;
+    const limitCandidate = normalizedArgs[0] ? Number.parseInt(normalizedArgs[0], 10) : NaN;
+    const limit = Number.isFinite(limitCandidate) ? Math.max(1, Math.min(100, limitCandidate)) : 20;
+    const queryArg = Number.isFinite(limitCandidate)
+      ? normalizedArgs.slice(1).join(' ').trim()
+      : normalizedArgs.join(' ').trim();
+    try {
+      const result = await client.listConversationSessions(
+        lifecycleState ? { lifecycleState, limit } : { limit }
+      );
+      ctx.app.setSessions(
+        result.sessions.map((session) => ({
+          id: session.id,
+          title: session.title,
+          state: session.state,
+          lifecycleState: session.lifecycleState,
+          archivedAt: session.archivedAt,
+          archiveSummary: session.archiveSummary,
+          turnCount: session.turnCount,
+          lastMessage: session.lastMessage,
+          createdAt: session.createdAt,
+          updatedAt: session.updatedAt,
+        }))
+      );
+
+      ctx.app.addEvent('conversation.sessions.loaded', {
+        count: result.sessions.length,
+        lifecycleState,
+        limit,
+      });
+      ctx.app.setSessionsViewState(lifecycleState ?? ctx.app.state.sessionsLifecycleFilter, queryArg || '');
+      ctx.app.setView('sessions');
+
+      return { success: true, message: `Loaded ${result.sessions.length} sessions (limit ${limit})` };
+    } catch (err) {
+      return { success: false, error: `Failed to load sessions: ${(err as Error).message}` };
+    }
+  },
+
+  use: async (cmd, ctx) => {
+    const [sessionIdArg] = cmd.args;
+    if (!sessionIdArg) {
+      return { success: false, error: 'Session ID is required. Usage: /use <sessionId>' };
+    }
+
+    const client = ctx.gateway.client;
+    if (!client) {
+      return { success: false, error: 'Not connected to gateway' };
+    }
+
+    const sessionId = (() => {
+      const exact = ctx.app.state.sessions.find((session) => session.id === sessionIdArg);
+      if (exact) return exact.id;
+      const prefixMatches = ctx.app.state.sessions.filter((session) => session.id.startsWith(sessionIdArg));
+      if (prefixMatches.length === 1) return prefixMatches[0].id;
+      const titleMatches = ctx.app.state.sessions.filter((session) =>
+        (session.title || '').toLowerCase().includes(sessionIdArg.toLowerCase())
+      );
+      if (titleMatches.length === 1) return titleMatches[0].id;
+      return null;
+    })();
+
+    if (!sessionId) {
+      const prefixMatches = ctx.app.state.sessions.filter((session) => session.id.startsWith(sessionIdArg));
+      if (prefixMatches.length > 1) {
+        return {
+          success: false,
+          error: `Ambiguous session prefix '${sessionIdArg}'. Matches: ${prefixMatches
+            .slice(0, 5)
+            .map((s) => s.id.slice(0, 12))
+            .join(', ')}`,
+        };
+      }
+      const titleMatches = ctx.app.state.sessions.filter((session) =>
+        (session.title || '').toLowerCase().includes(sessionIdArg.toLowerCase())
+      );
+      if (titleMatches.length > 1) {
+        return {
+          success: false,
+          error: `Ambiguous session title '${sessionIdArg}'. Matches: ${titleMatches
+            .slice(0, 5)
+            .map((s) => (s.title || s.id).slice(0, 20))
+            .join(', ')}`,
+        };
+      }
+      return { success: false, error: `Session not found: ${sessionIdArg}` };
+    }
+
+    try {
+      const status = await client.getConversationStatus(sessionId);
+      if (!status.exists) {
+        return { success: false, error: `Session not found: ${sessionId}` };
+      }
+
+      const summary = ctx.app.state.sessions.find((session) => session.id === sessionId);
+      ctx.app.setActiveSession(sessionId, summary?.title ?? null);
+      ctx.app.selectGoal(null);
+      ctx.app.addEvent('conversation.session.selected', {
+        sessionId,
+        state: status.state,
+        lifecycleState: status.lifecycleState,
+      });
+
+      return { success: true, message: `Active session: ${sessionId}` };
+    } catch (err) {
+      return { success: false, error: `Failed to switch session: ${(err as Error).message}` };
+    }
+  },
+
+  'archive-session': async (cmd, ctx) => {
+    const [sessionId] = cmd.args;
+    if (!sessionId) {
+      return { success: false, error: 'Session ID is required. Usage: /archive-session <sessionId>' };
+    }
+
+    const client = ctx.gateway.client;
+    if (!client) {
+      return { success: false, error: 'Not connected to gateway' };
+    }
+
+    try {
+      const result = await client.archiveConversationSession(sessionId);
+      if (!result.success) {
+        return { success: false, error: `Failed to archive session: ${sessionId}` };
+      }
+
+      const sessions = await client.listConversationSessions({ limit: 20, lifecycleState: 'active' });
+      ctx.app.setSessions(sessions.sessions.map((session) => ({
+        id: session.id,
+        title: session.title,
+        state: session.state,
+        lifecycleState: session.lifecycleState,
+        archivedAt: session.archivedAt,
+        archiveSummary: session.archiveSummary,
+        turnCount: session.turnCount,
+        lastMessage: session.lastMessage,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+      })));
+
+      if (ctx.app.state.activeSessionId === sessionId) {
+        ctx.app.setActiveSession(null, null);
+      }
+
+      ctx.app.addEvent('conversation.archived', {
+        sessionId,
+        archivedAt: result.archivedAt,
+      });
+      ctx.app.setSessionsViewState('active', ctx.app.state.sessionsSearchQuery);
+      ctx.app.setView('sessions');
+      return { success: true, message: `Archived session: ${sessionId}` };
+    } catch (err) {
+      return { success: false, error: `Failed to archive session: ${(err as Error).message}` };
+    }
+  },
+
+  'resume-session': async (cmd, ctx) => {
+    const [sessionId] = cmd.args;
+    if (!sessionId) {
+      return { success: false, error: 'Session ID is required. Usage: /resume-session <sessionId>' };
+    }
+
+    const client = ctx.gateway.client;
+    if (!client) {
+      return { success: false, error: 'Not connected to gateway' };
+    }
+
+    try {
+      const result = await client.resumeConversationSession(sessionId);
+      if (!result.success) {
+        return { success: false, error: `Failed to resume session: ${sessionId}` };
+      }
+
+      const sessions = await client.listConversationSessions({ limit: 20, lifecycleState: 'active' });
+      ctx.app.setSessions(sessions.sessions.map((session) => ({
+        id: session.id,
+        title: session.title,
+        state: session.state,
+        lifecycleState: session.lifecycleState,
+        archivedAt: session.archivedAt,
+        archiveSummary: session.archiveSummary,
+        turnCount: session.turnCount,
+        lastMessage: session.lastMessage,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+      })));
+
+      const resumedSummary = sessions.sessions.find((session) => session.id === sessionId);
+      ctx.app.setActiveSession(sessionId, resumedSummary?.title ?? null);
+      ctx.app.addEvent('conversation.resumed', { sessionId });
+      ctx.app.setSessionsViewState('active', ctx.app.state.sessionsSearchQuery);
+      ctx.app.setView('sessions');
+      return { success: true, message: `Resumed session: ${sessionId}` };
+    } catch (err) {
+      return { success: false, error: `Failed to resume session: ${(err as Error).message}` };
+    }
+  },
+
+  'session-history': async (cmd, ctx) => {
+    const args = [...cmd.args];
+    let cursor = 0;
+
+    const maybeSessionArg = args[cursor];
+    const hasSessionShape = !!maybeSessionArg && (
+      maybeSessionArg.includes('-') ||
+      ctx.app.state.sessions.some((session) => session.id.startsWith(maybeSessionArg))
+    );
+
+    const sessionId = hasSessionShape ? maybeSessionArg! : ctx.app.state.activeSessionId;
+    if (hasSessionShape) cursor += 1;
+
+    if (!sessionId) {
+      return { success: false, error: 'Session ID is required. Usage: /session-history [sessionId] [limit] [role] [offset]' };
+    }
+
+    const client = ctx.gateway.client;
+    if (!client) {
+      return { success: false, error: 'Not connected to gateway' };
+    }
+
+    const limitArg = args[cursor];
+    const parsed = limitArg ? Number.parseInt(limitArg, 10) : 20;
+    const limit = Number.isFinite(parsed) ? Math.max(1, Math.min(100, parsed)) : 20;
+    if (Number.isFinite(parsed)) cursor += 1;
+
+    const roleArg = args[cursor];
+    const roleFilter = roleArg === 'user' || roleArg === 'assistant' || roleArg === 'system' ? roleArg : 'all';
+    if (roleFilter !== 'all') cursor += 1;
+
+    const offsetArg = args[cursor];
+    const parsedOffset = offsetArg ? Number.parseInt(offsetArg, 10) : 0;
+    const offset = Number.isFinite(parsedOffset) ? Math.max(0, parsedOffset) : 0;
+    if (Number.isFinite(parsedOffset)) cursor += 1;
+
+    const previewLinesArg = args[cursor];
+    const parsedPreviewLines = previewLinesArg ? Number.parseInt(previewLinesArg, 10) : 8;
+    const previewLines = Number.isFinite(parsedPreviewLines)
+      ? Math.max(1, Math.min(20, parsedPreviewLines))
+      : 8;
+
+    try {
+      const history = await client.getConversationHistory(sessionId, limit);
+      const roleFiltered = roleFilter === 'all'
+        ? history.turns
+        : history.turns.filter((turn) => turn.role === roleFilter);
+      const endExclusive = Math.max(0, roleFiltered.length - offset);
+      const startInclusive = Math.max(0, endExclusive - limit);
+      const windowTurns = roleFiltered.slice(startInclusive, endExclusive);
+      const previewTurns = windowTurns.slice(-previewLines);
+      const historyText = previewTurns
+        .map((turn) => `${turn.role}: ${turn.content.replace(/\s+/g, ' ').slice(0, 140)}`)
+        .join('\n');
+
+      ctx.app.addEvent('conversation.history.loaded', {
+        sessionId,
+        total: history.turns.length,
+        returned: roleFiltered.length,
+        limit,
+        offset,
+        previewLines,
+        roleFilter,
+      });
+
+      ctx.app.setSessionHistoryPreview({
+        sessionId,
+        totalTurns: history.turns.length,
+        returnedTurns: roleFiltered.length,
+        roleFilter,
+        limit,
+        offset,
+        previewLines,
+        generatedAt: Date.now(),
+        source: 'command',
+        previewText: historyText || 'No turns in session history.',
+      });
+
+      ctx.app.addSimpleMessage({
+        id: `session-history-${sessionId}-${Date.now()}`,
+        input: `Session history ${sessionId}`,
+        status: 'completed',
+        statusText: `Loaded ${history.turns.length} turns`,
+        timeline: [
+          {
+            timestamp: Date.now(),
+            stage: 'History',
+            detail: `Fetched ${history.turns.length} turns for session ${sessionId}.`,
+          },
+        ],
+        resultSummary: historyText || 'No turns in session history.',
+        timestamp: Date.now(),
+      });
+
+      return { success: true, message: `Loaded history for session ${sessionId}` };
+    } catch (err) {
+      return { success: false, error: `Failed to load session history: ${(err as Error).message}` };
+    }
+  },
+
+  'sessions-reset': (_cmd, ctx) => {
+    ctx.app.setSessionsViewState('active', '', 'updated');
+    ctx.app.addEvent('conversation.sessions.reset', { source: 'command' });
+    ctx.app.setView('sessions');
+    return { success: true, message: 'Sessions view state reset' };
+  },
+
+  'session-history-clear': (_cmd, ctx) => {
+    ctx.app.clearAllSessionHistoryPreviews();
+    ctx.app.addEvent('conversation.history.cleared', { source: 'command' });
+    return { success: true, message: 'Cleared all session history previews' };
+  },
+
+  'sessions-export': (_cmd, ctx) => {
+    const payload = {
+      exportedAt: Date.now(),
+      count: ctx.app.state.sessions.length,
+      sessions: ctx.app.state.sessions,
+    };
+    ctx.app.addSimpleMessage({
+      id: `sessions-export-${Date.now()}`,
+      input: '/sessions-export',
+      status: 'completed',
+      statusText: `Exported ${payload.count} sessions`,
+      timeline: [{ timestamp: Date.now(), stage: 'Export', detail: 'Exported session summary JSON' }],
+      resultSummary: JSON.stringify(payload, null, 2),
+      timestamp: Date.now(),
+    });
+    return { success: true, message: `Exported ${payload.count} sessions` };
+  },
+
+  'events-export': (cmd, ctx) => {
+    const parsedLimit = cmd.args[0] ? Number.parseInt(cmd.args[0], 10) : 50;
+    const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(500, parsedLimit)) : 50;
+
+    const scoped = (() => {
+      const filter = ctx.app.state.eventsFilter;
+      if (filter === 'all') return ctx.app.state.events;
+      if (filter === 'conversation') return ctx.app.state.events.filter((e) => e.event.startsWith('conversation.'));
+      return ctx.app.state.events.filter((e) => e.event.startsWith(filter));
+    })();
+
+    const query = ctx.app.state.eventsSearchQuery.trim().toLowerCase();
+    const filtered = query
+      ? scoped.filter((e) => {
+          const data = typeof e.data === 'string' ? e.data : JSON.stringify(e.data);
+          return `${e.event} ${data}`.toLowerCase().includes(query);
+        })
+      : scoped;
+
+    const selected = filtered.slice(-limit);
+    const payload = {
+      exportedAt: Date.now(),
+      filter: ctx.app.state.eventsFilter,
+      searchQuery: ctx.app.state.eventsSearchQuery,
+      limit,
+      count: selected.length,
+      events: selected,
+    };
+
+    ctx.app.addSimpleMessage({
+      id: `events-export-${Date.now()}`,
+      input: '/events-export',
+      status: 'completed',
+      statusText: `Exported ${selected.length} events`,
+      timeline: [{ timestamp: Date.now(), stage: 'Export', detail: 'Exported filtered event JSON' }],
+      resultSummary: JSON.stringify(payload, null, 2),
+      timestamp: Date.now(),
+    });
+
+    return { success: true, message: `Exported ${selected.length} events` };
+  },
+
+  'events-reset': (_cmd, ctx) => {
+    ctx.app.setEventsViewState('all', '');
+    ctx.app.addEvent('events.reset', { source: 'command' });
+    ctx.app.setView('events');
+    return { success: true, message: 'Events view state reset' };
   },
 
   goal: async (cmd, ctx) => {
@@ -559,6 +977,10 @@ const handlers: Record<string, CommandHandler> = {
       if (client) {
         const result = await client.listWorkItems(goalId ? { goalId } : undefined);
         ctx.app.setWorkItems(result.workItems);
+        if (goalId) {
+          ctx.app.selectGoal(goalId);
+        }
+        ctx.app.setView('tasks');
         ctx.app.addEvent('workitems.loaded', { count: result.workItems.length });
       }
     } catch (err) {
@@ -715,6 +1137,39 @@ const handlers: Record<string, CommandHandler> = {
     return { success: true, message: 'Opened model selector' };
   },
 
+  'input-mode': (cmd, ctx) => {
+    const runtime = loadRuntimeConfig();
+    const arg = cmd.args[0]?.toLowerCase();
+
+    if (!arg) {
+      const mode = runtime.tui.goalSubmitFastPathEnabled ? 'fast-path' : 'session-first';
+      return {
+        success: true,
+        message: `Current input mode: ${mode} (sessionFirstEnabled=${String(runtime.tui.sessionFirstEnabled)}, goalSubmitFastPathEnabled=${String(runtime.tui.goalSubmitFastPathEnabled)})`,
+      };
+    }
+
+    if (arg !== 'session-first' && arg !== 'fast-path' && arg !== 'toggle') {
+      return { success: false, error: 'Usage: /input-mode [session-first|fast-path|toggle]' };
+    }
+
+    const nextMode = arg === 'toggle'
+      ? (runtime.tui.goalSubmitFastPathEnabled ? 'session-first' : 'fast-path')
+      : arg;
+
+    runtime.tui.sessionFirstEnabled = nextMode === 'session-first';
+    runtime.tui.goalSubmitFastPathEnabled = nextMode === 'fast-path';
+    saveRuntimeConfig(runtime);
+
+    ctx.app.addEvent('tui.input_mode.updated', {
+      mode: nextMode,
+      sessionFirstEnabled: runtime.tui.sessionFirstEnabled,
+      goalSubmitFastPathEnabled: runtime.tui.goalSubmitFastPathEnabled,
+    });
+
+    return { success: true, message: `Input mode switched to ${nextMode}` };
+  },
+
   rollout: async (cmd, ctx) => {
     const client = ctx.gateway.client;
     if (!client) {
@@ -735,9 +1190,13 @@ const handlers: Record<string, CommandHandler> = {
       if (normalizedAction === 'status') {
         const status = await client.getRuntimeRolloutStatus();
         ctx.app.addEvent('runtime.rollout.status', status);
+        const sessionFirst = status.metrics.sessionFirst;
+        const sessionSummary = sessionFirst
+          ? ` sessionCreate=${Math.round(sessionFirst.sessionCreationSuccessRate * 100)}% msgSuccess=${Math.round(sessionFirst.conversationMessageSuccessRate * 100)}% goalCoverage=${Math.round(sessionFirst.goalSessionCoverageRate * 100)}% runSuccess=${Math.round(sessionFirst.runSuccessRate * 100)}%`
+          : '';
         return {
           success: true,
-          message: `Rollout mode=${status.mode}, shadow=${String(status.rollout.shadowModeEnabled)}, canary=${status.rollout.canaryPercent}% dryRuns=${status.metrics.dryRunsTotal}`,
+          message: `Rollout mode=${status.mode}, shadow=${String(status.rollout.shadowModeEnabled)}, canary=${status.rollout.canaryPercent}% dryRuns=${status.metrics.dryRunsTotal}${sessionSummary}`,
         };
       }
 
@@ -949,6 +1408,16 @@ const aliasMap: Record<string, string> = {
   '?': 'help',
   n: 'new',
   create: 'new',
+  ss: 'sessions',
+  session: 'use',
+  as: 'archive-session',
+  rs: 'resume-session',
+  sh: 'session-history',
+  srst: 'sessions-reset',
+  shex: 'sessions-export',
+  eex: 'events-export',
+  erst: 'events-reset',
+  shc: 'session-history-clear',
   g: 'goals',
   list: 'goals',
   wi: 'workitems',
@@ -972,6 +1441,7 @@ const aliasMap: Record<string, string> = {
   c: 'clear',
   quit: 'exit',
   q: 'exit',
+  im: 'input-mode',
 };
 
 /**
@@ -1007,10 +1477,6 @@ export async function executeCommand(
   }
 }
 
-/**
- * Handle natural language input (non-command)
- * Directly creates a goal from the input text
- */
 export async function handleNaturalInput(
   input: string,
   ctx: CommandContext
@@ -1021,6 +1487,8 @@ export async function handleNaturalInput(
   }
 
   const messageId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const runtimeConfig = loadRuntimeConfig();
+  const useFastPath = runtimeConfig.tui.goalSubmitFastPathEnabled;
 
   ctx.app.addSimpleMessage({
     id: messageId,
@@ -1031,23 +1499,147 @@ export async function handleNaturalInput(
   });
 
   try {
-    ctx.app.setActivityStatus('Creating goal...');
+    if (useFastPath) {
+      ctx.app.addEvent('tui.input_mode.used', { mode: 'fast-path' });
+      return await handleNaturalInputFastPath(input, ctx, messageId);
+    }
+
+    ctx.app.addEvent('tui.input_mode.used', { mode: 'session-first' });
+    ctx.app.setActivityStatus('Processing conversation...');
 
     ctx.app.updateSimpleMessage(messageId, {
       status: 'processing',
-      statusText: 'Creating task...',
+      statusText: 'Analyzing intent...',
       timeline: [
         {
           timestamp: Date.now(),
-          stage: 'Creating task',
-          detail: 'Submitting goal to scheduler.',
+          stage: 'Conversation',
+          detail: 'Submitting message to conversation session.',
         },
       ],
     });
 
-    // Create goal directly from natural language input
+    const activeSessionId = ctx.app.state.activeSessionId;
+    const sessionPayload = activeSessionId
+      ? { sessionId: activeSessionId }
+      : await client.createConversationSession({});
+    const sessionId = sessionPayload.sessionId;
+
+    if (!ctx.app.state.activeSessionId) {
+      const inferredTitle = input.length > 60 ? `${input.slice(0, 60)}...` : input;
+      ctx.app.setActiveSession(sessionId, inferredTitle);
+      ctx.app.addEvent('conversation.new', {
+        sessionId,
+        source: 'natural_input_auto_create',
+      });
+    } else if (!ctx.app.state.activeSessionTitle) {
+      const inferredTitle = input.length > 60 ? `${input.slice(0, 60)}...` : input;
+      ctx.app.setActiveSession(sessionId, inferredTitle);
+    }
+
+    const conversationResult = await client.sendConversationMessage({
+      sessionId,
+      message: input,
+      stream: false,
+    });
+
+    ctx.app.addEvent('conversation.response', {
+      sessionId: conversationResult.sessionId,
+      state: conversationResult.state,
+      decision: conversationResult.decision,
+      decisionReason: conversationResult.decisionReason,
+      hasTask: !!conversationResult.taskInfo,
+    });
+
+    ctx.app.setActivityStatus('idle');
+
+    if (conversationResult.taskInfo?.goalId) {
+      ctx.app.selectGoal(conversationResult.taskInfo.goalId);
+      ctx.app.updateSimpleMessage(messageId, {
+        status: 'processing',
+        statusText: 'Task queued...',
+        goalId: conversationResult.taskInfo.goalId,
+        timeline: [
+          {
+            timestamp: Date.now(),
+            stage: 'Task created',
+            detail: `Goal ${conversationResult.taskInfo.goalId} created from conversation intent.`,
+          },
+        ],
+      });
+
+      try {
+        const stats = await client.getStats();
+        if (stats && typeof stats.schedulerConnected === 'boolean' && !stats.schedulerConnected) {
+          ctx.app.updateSimpleMessage(messageId, {
+            statusText: 'Task queued (scheduler not connected)',
+          });
+          ctx.app.addEvent('scheduler.disconnected', { message: 'Scheduler not connected to gateway' });
+        }
+      } catch {
+        // Ignore stats failures
+      }
+    } else {
+      ctx.app.updateSimpleMessage(messageId, {
+        status: 'completed',
+        statusText: 'Conversation response ready',
+        resultSummary: conversationResult.response,
+        actions: extractActionHints(conversationResult.response),
+        timeline: [
+          {
+            timestamp: Date.now(),
+            stage: 'Response',
+            detail: 'No executable goal created for this turn.',
+          },
+        ],
+      });
+    }
+
+    return {
+      success: true,
+      message: conversationResult.taskInfo?.goalId
+        ? `Goal created from session ${conversationResult.sessionId}`
+        : `Response generated in session ${conversationResult.sessionId}`,
+    };
+  } catch (err) {
+    ctx.app.setActivityStatus('idle');
+    const errorMessage = (err as Error).message;
+
+    ctx.app.updateSimpleMessage(messageId, {
+      status: 'failed',
+      error: errorMessage,
+    });
+
+    return { success: false, error: `Conversation failed: ${errorMessage}` };
+  }
+}
+
+async function handleNaturalInputFastPath(
+  input: string,
+  ctx: CommandContext,
+  messageId: string
+): Promise<CommandResult> {
+  const client = ctx.gateway.client;
+  if (!client) {
+    return { success: false, error: 'Not connected to gateway' };
+  }
+
+  ctx.app.setActivityStatus('Creating goal...');
+  ctx.app.updateSimpleMessage(messageId, {
+    status: 'processing',
+    statusText: 'Creating task...',
+    timeline: [
+      {
+        timestamp: Date.now(),
+        stage: 'Fast-path',
+        detail: 'Submitting goal directly to scheduler.',
+      },
+    ],
+  });
+
+  try {
     const goal = await client.submitGoal({
-      title: input.length > 60 ? input.slice(0, 60) + '...' : input,
+      title: input.length > 60 ? `${input.slice(0, 60)}...` : input,
       description: input,
       success_criteria: [{
         description: 'Task completed as described',
@@ -1065,7 +1657,8 @@ export async function handleNaturalInput(
     });
 
     ctx.app.addGoal(goal);
-    ctx.app.addEvent('goal.created', { goalId: goal.id, title: goal.title });
+    ctx.app.addEvent('goal.created', { goalId: goal.id, title: goal.title, source: 'tui_fast_path' });
+    ctx.app.selectGoal(goal.id);
     ctx.app.setActivityStatus('idle');
 
     ctx.app.updateSimpleMessage(messageId, {
@@ -1081,35 +1674,35 @@ export async function handleNaturalInput(
       ],
     });
 
-    try {
-      const stats = await client.getStats();
-      if (stats && typeof stats.schedulerConnected === 'boolean' && !stats.schedulerConnected) {
-        ctx.app.updateSimpleMessage(messageId, {
-          statusText: 'Queued (scheduler not connected)',
-          timeline: [
-            {
-              timestamp: Date.now(),
-              stage: 'Queued',
-              detail: 'Scheduler is not connected yet.',
-            },
-          ],
-        });
-        ctx.app.addEvent('scheduler.disconnected', { message: 'Scheduler not connected to gateway' });
-      }
-    } catch {
-      // Ignore stats failures
-    }
-
     return { success: true, message: `Goal created: ${goal.title}` };
   } catch (err) {
     ctx.app.setActivityStatus('idle');
     const errorMessage = (err as Error).message;
-
     ctx.app.updateSimpleMessage(messageId, {
       status: 'failed',
       error: errorMessage,
     });
-
     return { success: false, error: `Failed to create goal: ${errorMessage}` };
   }
+}
+
+function extractActionHints(text: string): Array<{ label: string; kind: 'file' | 'url' | 'command'; target: string }> {
+  const result: Array<{ label: string; kind: 'file' | 'url' | 'command'; target: string }> = [];
+  const seen = new Set<string>();
+
+  const urls = text.match(/https?:\/\/[^\s)]+/g) || [];
+  for (const url of urls.slice(0, 6)) {
+    if (seen.has(url)) continue;
+    seen.add(url);
+    result.push({ label: `Open URL: ${url}`, kind: 'url', target: url });
+  }
+
+  const files = text.match(/(?:\.|\/|~\/)[\w./-]+\.[\w]+/g) || [];
+  for (const filePath of files.slice(0, 6)) {
+    if (seen.has(filePath)) continue;
+    seen.add(filePath);
+    result.push({ label: `Open file: ${filePath}`, kind: 'file', target: filePath });
+  }
+
+  return result;
 }

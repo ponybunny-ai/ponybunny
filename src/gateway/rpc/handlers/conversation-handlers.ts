@@ -5,7 +5,7 @@
 import type { RpcHandler } from '../rpc-handler.js';
 import { GatewayError } from '../../errors.js';
 import type { EventBus } from '../../events/event-bus.js';
-import type { ISessionManager, IConversationResponse } from '../../../app/conversation/session-manager.js';
+import type { ISessionManager } from '../../../app/conversation/session-manager.js';
 import type { IConversationTurn, IAttachment } from '../../../domain/conversation/session.js';
 import type { ConversationLifecycleState } from '../../../domain/conversation/session.js';
 import type { ConversationState } from '../../../domain/conversation/state-machine-rules.js';
@@ -58,6 +58,8 @@ export interface ConversationMessageResult {
   sessionId: string;
   response: string;
   state: ConversationState;
+  decision?: 'goal_created' | 'clarification_requested' | 'response_only';
+  decisionReason?: string;
   taskInfo?: {
     goalId: string;
     status: string;
@@ -73,11 +75,13 @@ export interface ConversationListResult {
   sessions: Array<{
     id: string;
     personaId: string;
+    title?: string;
     state: ConversationState;
     lifecycleState: ConversationLifecycleState;
     archivedAt?: number;
     archiveSummary?: string;
     turnCount: number;
+    lastMessage?: string;
     createdAt: number;
     updatedAt: number;
   }>;
@@ -92,13 +96,30 @@ export function registerConversationHandlers(
     'conversation.new',
     ['write'],
     async (params) => {
-      const session = sessionManager.createSession(params.personaId, params.userProfileId);
-      return {
-        sessionId: session.id,
-        personaId: session.personaId,
-        state: session.state,
-        lifecycleState: session.lifecycleState ?? 'active',
-      };
+      try {
+        const session = sessionManager.createSession(params.personaId, params.userProfileId);
+        eventBus.emit('conversation.new', {
+          sessionId: session.id,
+          personaId: session.personaId,
+          state: session.state,
+          lifecycleState: session.lifecycleState ?? 'active',
+          timestamp: Date.now(),
+        });
+        return {
+          sessionId: session.id,
+          personaId: session.personaId,
+          state: session.state,
+          lifecycleState: session.lifecycleState ?? 'active',
+        };
+      } catch (error) {
+        eventBus.emit('conversation.new.failed', {
+          personaId: params.personaId,
+          userProfileId: params.userProfileId,
+          error: (error as Error).message,
+          timestamp: Date.now(),
+        });
+        throw GatewayError.internalError(`Failed to create conversation session: ${(error as Error).message}`);
+      }
     }
   );
 
@@ -118,7 +139,7 @@ export function registerConversationHandlers(
   rpcHandler.register<ConversationMessageParams, ConversationMessageResult>(
     'conversation.message',
     ['write'],
-    async (params, session) => {
+    async (params) => {
       if (!params.message || params.message.trim().length === 0) {
         throw GatewayError.invalidParams('message is required');
       }
@@ -131,6 +152,11 @@ export function registerConversationHandlers(
       });
 
       try {
+        eventBus.emit('conversation.message.started', {
+          sessionId: params.sessionId,
+          timestamp: Date.now(),
+        });
+
         // If streaming is requested, handle it differently
         if (params.stream) {
           const streamId = `stream-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -173,6 +199,15 @@ export function registerConversationHandlers(
             state: result.state,
           });
 
+          eventBus.emit('conversation.message.succeeded', {
+            sessionId: result.sessionId,
+            state: result.state,
+            decision: result.decision,
+            hasTask: !!result.taskInfo,
+            stream: true,
+            timestamp: Date.now(),
+          });
+
           return result;
         }
 
@@ -189,7 +224,17 @@ export function registerConversationHandlers(
         eventBus.emit('conversation.response', {
           sessionId: result.sessionId,
           state: result.state,
+          decision: result.decision,
+          decisionReason: result.decisionReason,
           hasTask: !!result.taskInfo,
+        });
+        eventBus.emit('conversation.message.succeeded', {
+          sessionId: result.sessionId,
+          state: result.state,
+          decision: result.decision,
+          hasTask: !!result.taskInfo,
+          stream: false,
+          timestamp: Date.now(),
         });
 
         debug.custom('conversation.message.completed', 'gateway', {
@@ -201,6 +246,12 @@ export function registerConversationHandlers(
 
         return result;
       } catch (error) {
+        eventBus.emit('conversation.message.failed', {
+          sessionId: params.sessionId,
+          stream: params.stream,
+          error: (error as Error).message,
+          timestamp: Date.now(),
+        });
         debug.custom('conversation.message.error', 'gateway', {
           sessionId: params.sessionId,
           error: (error as Error).message,

@@ -6,7 +6,7 @@ import * as React from 'react';
 import { createContext, useContext, useReducer, useCallback, useMemo, useEffect, useRef } from 'react';
 import { appReducer } from '../store/reducer.js';
 import { actions, type AppAction } from '../store/actions.js';
-import { initialState, type AppState, type RuntimeSnapshot, type ViewType, type ModalType, type SimpleMessage } from '../store/types.js';
+import { initialState, type AppState, type RuntimeSnapshot, type ViewType, type ModalType, type SimpleMessage, type SessionSummary, type SessionHistoryPreview } from '../store/types.js';
 import type { Goal, WorkItem, Escalation } from '../../../work-order/types/index.js';
 import type { SchedulerCapabilitiesResponse } from '../../gateway/tui-gateway-client.js';
 
@@ -20,6 +20,20 @@ export interface AppContextValue {
 
   // Convenience methods
   setView: (view: ViewType) => void;
+  setActiveSession: (sessionId: string | null, title?: string | null) => void;
+  setSessions: (sessions: SessionSummary[]) => void;
+  setSessionsViewState: (
+    lifecycleFilter?: 'active' | 'archived',
+    searchQuery?: string,
+    sortMode?: 'updated' | 'history_freshness'
+  ) => void;
+  setSessionHistoryPreview: (preview: SessionHistoryPreview) => void;
+  clearSessionHistoryPreview: (sessionId: string) => void;
+  clearAllSessionHistoryPreviews: () => void;
+  setEventsViewState: (
+    filter?: 'all' | 'goal' | 'workitem' | 'escalation' | 'system' | 'conversation',
+    searchQuery?: string
+  ) => void;
   openModal: (modal: ModalType, data?: unknown) => void;
   closeModal: () => void;
   setActivityStatus: (status: string) => void;
@@ -82,6 +96,41 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
   // View methods
   const setView = useCallback((view: ViewType) => {
     dispatch(actions.setCurrentView(view));
+  }, []);
+
+  const setActiveSession = useCallback((sessionId: string | null, title?: string | null) => {
+    dispatch(actions.setActiveSession(sessionId, title));
+  }, []);
+
+  const setSessions = useCallback((sessions: SessionSummary[]) => {
+    dispatch(actions.setSessions(sessions));
+  }, []);
+
+  const setSessionsViewState = useCallback((
+    lifecycleFilter?: 'active' | 'archived',
+    searchQuery?: string,
+    sortMode?: 'updated' | 'history_freshness'
+  ) => {
+    dispatch(actions.setSessionsViewState(lifecycleFilter, searchQuery, sortMode));
+  }, []);
+
+  const setSessionHistoryPreview = useCallback((preview: SessionHistoryPreview) => {
+    dispatch(actions.setSessionHistoryPreview(preview));
+  }, []);
+
+  const clearSessionHistoryPreview = useCallback((sessionId: string) => {
+    dispatch(actions.clearSessionHistoryPreview(sessionId));
+  }, []);
+
+  const clearAllSessionHistoryPreviews = useCallback(() => {
+    dispatch(actions.clearAllSessionHistoryPreviews());
+  }, []);
+
+  const setEventsViewState = useCallback((
+    filter?: 'all' | 'goal' | 'workitem' | 'escalation' | 'system' | 'conversation',
+    searchQuery?: string
+  ) => {
+    dispatch(actions.setEventsViewState(filter, searchQuery));
   }, []);
 
   // Modal methods
@@ -214,6 +263,13 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     updateSimpleMessage,
     removeSimpleMessage,
     setView,
+    setActiveSession,
+    setSessions,
+    setSessionsViewState,
+    setSessionHistoryPreview,
+    clearSessionHistoryPreview,
+    clearAllSessionHistoryPreviews,
+    setEventsViewState,
     openModal,
     closeModal,
     setActivityStatus,
@@ -241,6 +297,13 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     updateSimpleMessage,
     removeSimpleMessage,
     setView,
+    setActiveSession,
+    setSessions,
+    setSessionsViewState,
+    setSessionHistoryPreview,
+    clearSessionHistoryPreview,
+    clearAllSessionHistoryPreviews,
+    setEventsViewState,
     openModal,
     closeModal,
     setActivityStatus,

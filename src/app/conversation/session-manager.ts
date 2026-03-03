@@ -44,6 +44,8 @@ export interface IConversationResponse {
   sessionId: string;
   response: string;
   state: ConversationState;
+  decision?: 'goal_created' | 'clarification_requested' | 'response_only';
+  decisionReason?: string;
   taskInfo?: {
     goalId: string;
     status: string;
@@ -173,6 +175,13 @@ export class SessionManager implements ISessionManager {
       }
     }
 
+    if (!this.getSessionTitle(session) && message.trim().length > 0) {
+      const metadata = { ...(session.metadata ?? {}) };
+      metadata.title = this.deriveSessionTitle(message);
+      session.metadata = metadata;
+      this.sessionRepository.updateSession(session);
+    }
+
     // Get or create state machine for this session
     let stateMachine = this.stateMachines.get(session.id);
     if (!stateMachine) {
@@ -233,7 +242,7 @@ export class SessionManager implements ISessionManager {
 
     switch (stateMachine.getCurrentState()) {
       case 'executing':
-        const result = await this.handleExecuting(session, analysis, persona, onChunk);
+        const result = await this.handleExecuting(session, analysis, persona, userTurn.id, onChunk);
         response = result.response;
         taskInfo = result.taskInfo;
         break;
@@ -285,10 +294,25 @@ export class SessionManager implements ISessionManager {
       hasTask: !!taskInfo,
     });
 
+    let decision: IConversationResponse['decision'];
+    let decisionReason: string;
+    if (taskInfo) {
+      decision = 'goal_created';
+      decisionReason = 'Task bridge created executable goal from conversation intent.';
+    } else if (stateMachine.getCurrentState() === 'clarifying') {
+      decision = 'clarification_requested';
+      decisionReason = 'Conversation requested clarification before creating an executable goal.';
+    } else {
+      decision = 'response_only';
+      decisionReason = 'Session responded conversationally without creating a goal.';
+    }
+
     return {
       sessionId: session.id,
       response,
       state: stateMachine.getCurrentState(),
+      decision,
+      decisionReason,
       taskInfo,
     };
   }
@@ -297,6 +321,7 @@ export class SessionManager implements ISessionManager {
     session: IConversationSession,
     analysis: IInputAnalysis,
     persona: IPersona,
+    sourceTurnId: string,
     onChunk?: (chunk: string) => void
   ): Promise<{ response: string; taskInfo?: IConversationResponse['taskInfo'] }> {
     // Extract requirements from analysis
@@ -310,7 +335,7 @@ export class SessionManager implements ISessionManager {
     };
 
     // Create goal via task bridge
-    const result = await this.taskBridge.createGoalFromConversation(requirements, session);
+    const result = await this.taskBridge.createGoalFromConversation(requirements, session, sourceTurnId);
 
     // Update session with active goal
     session.activeGoalId = result.goalId;
@@ -567,6 +592,16 @@ export class SessionManager implements ISessionManager {
       return value.trim();
     }
     return this.memoryConfig.defaultUserProfileId;
+  }
+
+  private deriveSessionTitle(message: string): string {
+    const normalized = message.trim();
+    return normalized.length > 64 ? `${normalized.slice(0, 64)}...` : normalized;
+  }
+
+  private getSessionTitle(session: IConversationSession): string | undefined {
+    const value = session.metadata?.title;
+    return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
   }
 
   private mergeTurnContext(

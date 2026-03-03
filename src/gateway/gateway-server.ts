@@ -82,6 +82,13 @@ export interface GatewayServerDependencies {
 }
 
 export class GatewayServer {
+  private static readonly ROLLOUT_THRESHOLD_MIN_CONVERSATION_MESSAGES = 10;
+  private static readonly ROLLOUT_THRESHOLD_MIN_RUNS = 10;
+  private static readonly ROLLOUT_THRESHOLD_MIN_GOALS = 5;
+  private static readonly ROLLOUT_THRESHOLD_CONVERSATION_SUCCESS_RATE = 0.8;
+  private static readonly ROLLOUT_THRESHOLD_RUN_SUCCESS_RATE = 0.75;
+  private static readonly ROLLOUT_THRESHOLD_GOAL_SESSION_COVERAGE = 0.9;
+
   private wss?: WebSocketServer;
   private config: GatewayConfig;
   private db: Database.Database;
@@ -142,6 +149,68 @@ export class GatewayServer {
 
     // Initialize components
     this.eventBus = new EventBus();
+    this.eventBus.on('conversation.new', (sample: unknown) => {
+      const payload = sample as { timestamp?: number } | undefined;
+      this.runtimeRolloutTelemetry.recordSessionCreation({
+        ok: true,
+        timestamp: typeof payload?.timestamp === 'number' ? payload.timestamp : Date.now(),
+      });
+    });
+    this.eventBus.on('conversation.new.failed', (sample: unknown) => {
+      const payload = sample as { timestamp?: number } | undefined;
+      this.runtimeRolloutTelemetry.recordSessionCreation({
+        ok: false,
+        timestamp: typeof payload?.timestamp === 'number' ? payload.timestamp : Date.now(),
+      });
+    });
+    this.eventBus.on('conversation.message.succeeded', (sample: unknown) => {
+      const payload = sample as { timestamp?: number } | undefined;
+      this.runtimeRolloutTelemetry.recordConversationMessage({
+        ok: true,
+        timestamp: typeof payload?.timestamp === 'number' ? payload.timestamp : Date.now(),
+      });
+      void this.evaluateRolloutThresholds();
+    });
+    this.eventBus.on('conversation.message.failed', (sample: unknown) => {
+      const payload = sample as { timestamp?: number } | undefined;
+      this.runtimeRolloutTelemetry.recordConversationMessage({
+        ok: false,
+        timestamp: typeof payload?.timestamp === 'number' ? payload.timestamp : Date.now(),
+      });
+      void this.evaluateRolloutThresholds();
+    });
+    this.eventBus.on('run.started', (sample: unknown) => {
+      const payload = sample as { runId?: string; timestamp?: number } | undefined;
+      if (typeof payload?.runId !== 'string' || payload.runId.length === 0) {
+        return;
+      }
+
+      this.runtimeRolloutTelemetry.recordRunStarted({
+        runId: payload.runId,
+        timestamp: typeof payload.timestamp === 'number' ? payload.timestamp : Date.now(),
+      });
+    });
+    this.eventBus.on('run.completed', (sample: unknown) => {
+      const payload = sample as {
+        runId?: string;
+        success?: boolean;
+        status?: string;
+        timestamp?: number;
+        time_seconds?: number;
+      } | undefined;
+
+      this.runtimeRolloutTelemetry.recordRunCompleted({
+        runId: payload?.runId,
+        success: payload?.success,
+        status: payload?.status,
+        timestamp: typeof payload?.timestamp === 'number' ? payload.timestamp : Date.now(),
+        timeSeconds: typeof payload?.time_seconds === 'number' ? payload.time_seconds : undefined,
+      });
+      void this.evaluateRolloutThresholds();
+    });
+    this.eventBus.on('goal.created', () => {
+      void this.evaluateRolloutThresholds();
+    });
 
     this.connectionManager = new ConnectionManager(
       {
@@ -391,6 +460,7 @@ export class GatewayServer {
       () => this.toolRegistry,
       {
         getRuntimeRolloutMetrics: () => this.runtimeRolloutTelemetry.snapshot(),
+        getSessionGoalCoverage: () => this.collectSessionGoalCoverage(),
         applyRuntimeRollout: async (rollout) => {
           if (!this.ipcBridge.isSchedulerDaemonConnected()) {
             return;
@@ -411,6 +481,10 @@ export class GatewayServer {
           planCompilerEnabled: runtime.scheduler.planCompilerEnabled,
           toolRoutingMode: runtime.scheduler.toolRoutingMode,
           runtimeRollout: runtime.scheduler.runtimeRollout,
+          tui: {
+            sessionFirstEnabled: runtime.tui.sessionFirstEnabled,
+            goalSubmitFastPathEnabled: runtime.tui.goalSubmitFastPathEnabled,
+          },
         };
       },
       () => this.toolRegistry,
@@ -706,6 +780,96 @@ export class GatewayServer {
     } catch (error) {
       console.error('[GatewayServer] Failed to apply rollback rollout to scheduler daemon:', error);
     }
+  }
+
+  private collectSessionGoalCoverage(): {
+    goalsTotal: number;
+    goalsWithSessionLink: number;
+    goalSessionCoverageRate: number;
+  } {
+    const goals = this.repository.listGoals({});
+    const goalsTotal = goals.length;
+    const goalsWithSessionLink = goals.filter((goal) => {
+      const context = goal.context;
+      if (!context || typeof context !== 'object') {
+        return false;
+      }
+
+      const sessionId = (context as Record<string, unknown>).sessionId;
+      return typeof sessionId === 'string' && sessionId.trim().length > 0;
+    }).length;
+    const goalSessionCoverageRate = goalsTotal > 0
+      ? goalsWithSessionLink / goalsTotal
+      : 0;
+
+    this.runtimeRolloutTelemetry.recordGoalSessionCoverage({
+      goalsTotal,
+      goalsWithSessionLink,
+    });
+
+    return {
+      goalsTotal,
+      goalsWithSessionLink,
+      goalSessionCoverageRate,
+    };
+  }
+
+  private async evaluateRolloutThresholds(): Promise<void> {
+    const runtime = loadRuntimeConfig();
+    if (!runtime.scheduler.runtimeRollout.rollbackOnFailure) {
+      return;
+    }
+
+    const isLegacyMode = runtime.scheduler.deterministicRuntimeEnabled === false
+      && runtime.scheduler.planCompilerEnabled === false
+      && runtime.scheduler.toolRoutingMode === 'legacy'
+      && runtime.scheduler.runtimeRollout.shadowModeEnabled === false
+      && runtime.scheduler.runtimeRollout.canaryPercent === 0
+      && runtime.scheduler.runtimeRollout.lanePercents.dryRun === 0
+      && runtime.scheduler.runtimeRollout.lanePercents.compile === 0
+      && runtime.scheduler.runtimeRollout.lanePercents.replay === 0;
+    if (isLegacyMode) {
+      return;
+    }
+
+    this.collectSessionGoalCoverage();
+    const metrics = this.runtimeRolloutTelemetry.snapshot();
+    const sessionFirst = metrics.sessionFirst;
+    const reasons: string[] = [];
+
+    if (
+      sessionFirst.conversationMessagesTotal >= GatewayServer.ROLLOUT_THRESHOLD_MIN_CONVERSATION_MESSAGES
+      && sessionFirst.conversationMessageSuccessRate < GatewayServer.ROLLOUT_THRESHOLD_CONVERSATION_SUCCESS_RATE
+    ) {
+      reasons.push(
+        `conversationMessageSuccessRate=${sessionFirst.conversationMessageSuccessRate.toFixed(3)} < ${GatewayServer.ROLLOUT_THRESHOLD_CONVERSATION_SUCCESS_RATE.toFixed(3)}`
+      );
+    }
+
+    if (
+      sessionFirst.runsTotal >= GatewayServer.ROLLOUT_THRESHOLD_MIN_RUNS
+      && sessionFirst.runSuccessRate < GatewayServer.ROLLOUT_THRESHOLD_RUN_SUCCESS_RATE
+    ) {
+      reasons.push(
+        `runSuccessRate=${sessionFirst.runSuccessRate.toFixed(3)} < ${GatewayServer.ROLLOUT_THRESHOLD_RUN_SUCCESS_RATE.toFixed(3)}`
+      );
+    }
+
+    if (
+      sessionFirst.goalsTotal >= GatewayServer.ROLLOUT_THRESHOLD_MIN_GOALS
+      && sessionFirst.goalSessionCoverageRate < GatewayServer.ROLLOUT_THRESHOLD_GOAL_SESSION_COVERAGE
+    ) {
+      reasons.push(
+        `goalSessionCoverageRate=${sessionFirst.goalSessionCoverageRate.toFixed(3)} < ${GatewayServer.ROLLOUT_THRESHOLD_GOAL_SESSION_COVERAGE.toFixed(3)}`
+      );
+    }
+
+    if (reasons.length === 0) {
+      return;
+    }
+
+    console.warn(`[GatewayServer] Rollout threshold trigger detected: ${reasons.join('; ')}. Rolling back to legacy mode.`);
+    await this.rollbackRuntimeRolloutOnFailure();
   }
 
   private setupSchedulerEventAudit(): void {

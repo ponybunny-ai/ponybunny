@@ -108,6 +108,23 @@ describe('system handlers', () => {
           retentionRunsTotal: 0,
           retentionDeletedTotal: 0,
           retentionFailedTotal: 0,
+          sessionFirst: {
+            sessionCreationsTotal: 3,
+            sessionCreationsSucceeded: 3,
+            sessionCreationSuccessRate: 1,
+            conversationMessagesTotal: 12,
+            conversationMessagesSucceeded: 10,
+            conversationMessagesFailed: 2,
+            conversationMessageSuccessRate: 10 / 12,
+            goalsTotal: 8,
+            goalsWithSessionLink: 7,
+            goalSessionCoverageRate: 0.875,
+            runsTotal: 6,
+            runsSucceeded: 5,
+            runsFailed: 1,
+            runSuccessRate: 5 / 6,
+            averageRunLatencyMs: 1200,
+          },
         }),
       }
     );
@@ -190,6 +207,11 @@ describe('system handlers', () => {
         metrics: expect.objectContaining({
           dryRunsTotal: 8,
           dryRunsSucceeded: 7,
+          sessionFirst: expect.objectContaining({
+            goalsTotal: 8,
+            goalsWithSessionLink: 7,
+            goalSessionCoverageRate: 0.875,
+          }),
         }),
       })
     );
@@ -295,5 +317,60 @@ describe('system handlers', () => {
         mode: 'canary',
       })
     );
+  });
+
+  it('overrides session-goal coverage metrics when callback is provided', async () => {
+    const rpcWithCoverage = new RpcHandler();
+    registerSystemHandlers(
+      rpcWithCoverage,
+      () => mockConnectionManager,
+      () => mockScheduler,
+      () => ({ isRunning: true, daemonConnected: true, schedulerConnected: true }),
+      undefined,
+      {
+        getRuntimeRolloutMetrics: () => ({
+          dryRunsTotal: 1,
+          dryRunsSucceeded: 1,
+          dryRunsFailed: 0,
+          successRate: 1,
+          averagePlanStepCount: 1,
+          averageChangedStepCount: 0,
+          failureCodeCounts: {},
+          retentionRunsTotal: 0,
+          retentionDeletedTotal: 0,
+          retentionFailedTotal: 0,
+          sessionFirst: {
+            sessionCreationsTotal: 1,
+            sessionCreationsSucceeded: 1,
+            sessionCreationSuccessRate: 1,
+            conversationMessagesTotal: 1,
+            conversationMessagesSucceeded: 1,
+            conversationMessagesFailed: 0,
+            conversationMessageSuccessRate: 1,
+            goalsTotal: 1,
+            goalsWithSessionLink: 1,
+            goalSessionCoverageRate: 1,
+            runsTotal: 1,
+            runsSucceeded: 1,
+            runsFailed: 0,
+            runSuccessRate: 1,
+            averageRunLatencyMs: 20,
+          },
+        }),
+        getSessionGoalCoverage: () => ({
+          goalsTotal: 10,
+          goalsWithSessionLink: 6,
+          goalSessionCoverageRate: 0.6,
+        }),
+      }
+    );
+
+    const result = await rpcWithCoverage.handle('system.runtime.rollout.status', {}, createSession(['read'])) as {
+      metrics: { sessionFirst: { goalsTotal: number; goalsWithSessionLink: number; goalSessionCoverageRate: number } };
+    };
+
+    expect(result.metrics.sessionFirst.goalsTotal).toBe(10);
+    expect(result.metrics.sessionFirst.goalsWithSessionLink).toBe(6);
+    expect(result.metrics.sessionFirst.goalSessionCoverageRate).toBe(0.6);
   });
 });

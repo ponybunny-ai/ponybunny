@@ -4,6 +4,10 @@
 
 import type { IWorkOrderRepository } from '../../../infra/persistence/repository-interface.js';
 import type { WorkItem, WorkItemStatus } from '../../../work-order/types/index.js';
+import {
+  buildWorkItemRunResultDTO,
+  type WorkItemRunResultDTO,
+} from '../../../domain/work-order/result-dto.js';
 import type { RpcHandler } from '../rpc-handler.js';
 import { GatewayError } from '../../errors.js';
 
@@ -115,7 +119,7 @@ export function registerWorkItemHandlers(
   );
 
   // workitem.runs - Get runs for a work item
-  rpcHandler.register<WorkItemGetParams, { runs: unknown[] }>(
+  rpcHandler.register<WorkItemGetParams, { runs: WorkItemRunResultDTO[] }>(
     'workitem.runs',
     ['read'],
     async (params) => {
@@ -129,8 +133,24 @@ export function registerWorkItemHandlers(
       }
 
       const runs = repository.getRunsByWorkItem(params.workItemId);
+      const result = runs.map((run) => buildWorkItemRunResultDTO({
+        runId: run.id,
+        workItemId: run.work_item_id,
+        goalId: run.goal_id,
+        status: run.status,
+        createdAt: run.created_at,
+        completedAt: run.completed_at,
+        tokensUsed: run.tokens_used,
+        timeSeconds: run.time_seconds,
+        costUsd: run.cost_usd,
+        executionLog: run.execution_log,
+        errorMessage: run.error_message,
+        artifactIds: run.artifacts,
+        workItemStatus: workItem.status,
+        verificationStatus: workItem.verification_status,
+      }));
 
-      return { runs };
+      return { runs: result };
     }
   );
 

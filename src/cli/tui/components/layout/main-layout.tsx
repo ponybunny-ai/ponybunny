@@ -8,6 +8,7 @@ import { InputBar } from './input-bar.js';
 import { TabBar } from './tab-bar.js';
 import { useGatewayContext } from '../../context/gateway-context.js';
 import { useAppContext } from '../../context/app-context.js';
+import { loadRuntimeConfig } from '../../../../infra/config/runtime-config.js';
 
 export interface MainLayoutProps {
   children: React.ReactNode;
@@ -26,11 +27,16 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 }) => {
   const { connectionStatus } = useGatewayContext();
   const { state } = useAppContext();
+  const runtimeConfig = loadRuntimeConfig();
   const summary = state.schedulerCapabilities?.capabilities.summary;
   const selectedModel = state.selectedModel;
+  const activeSessionLabel = state.activeSessionId
+    ? `${state.activeSessionTitle || 'untitled'} (${state.activeSessionId.slice(0, 8)})`
+    : 'none';
   const latestEventTs = state.events.length > 0 ? state.events[state.events.length - 1].timestamp : 0;
   const [trafficFrame, setTrafficFrame] = React.useState(0);
   const [isCommunicating, setIsCommunicating] = React.useState(false);
+  const inputModeLabel = runtimeConfig.tui.goalSubmitFastPathEnabled ? 'fast-path' : 'session-first';
 
   React.useEffect(() => {
     if (!isCommunicating) {
@@ -93,7 +99,11 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           </Text>
         </Box>
         <Text dimColor> | </Text>
+        <Text dimColor>S {activeSessionLabel}</Text>
+        <Text dimColor> | </Text>
         <Text dimColor>M {selectedModel || 'auto'}</Text>
+        <Text dimColor> | </Text>
+        <Text dimColor>I {inputModeLabel}</Text>
         <Text dimColor> | </Text>
         <Box>
           {renderConnectionStatus()}

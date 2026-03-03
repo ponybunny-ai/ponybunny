@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import Database from 'better-sqlite3';
 import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
+import { buildWorkItemRunResultDTO, type WorkItemRunResultDTO } from '../../domain/work-order/result-dto.js';
 
 type RunRow = {
   id: string;
@@ -68,25 +69,46 @@ function parseArtifacts(run: RunRow): string[] {
   }
 }
 
-function printRunSummary(run: RunRow): void {
-  console.log(chalk.bold('\nRun Summary'));
-  console.log(`- Run ID: ${run.id}`);
-  console.log(`- Status: ${run.status}`);
-  console.log(`- Goal ID: ${run.goal_id}`);
-  console.log(`- Work Item ID: ${run.work_item_id}`);
-  console.log(`- Started: ${fmtTs(run.created_at)}`);
-  console.log(`- Completed: ${fmtTs(run.completed_at)}`);
-  console.log(`- Tokens: ${run.tokens_used}`);
-  console.log(`- Cost: ${fmtCost(run.cost_usd)}`);
-  console.log(`- Time: ${run.time_seconds}s`);
+function toRunResultDTO(run: RunRow, workItem?: WorkItemRow): WorkItemRunResultDTO {
+  return buildWorkItemRunResultDTO({
+    runId: run.id,
+    workItemId: run.work_item_id,
+    goalId: run.goal_id,
+    status: run.status as WorkItemRunResultDTO['status'],
+    createdAt: run.created_at,
+    completedAt: run.completed_at ?? undefined,
+    tokensUsed: run.tokens_used,
+    timeSeconds: run.time_seconds,
+    costUsd: run.cost_usd,
+    executionLog: run.execution_log ?? undefined,
+    errorMessage: run.error_message ?? undefined,
+    artifactIds: parseArtifacts(run),
+    workItemStatus: workItem?.status as WorkItemRunResultDTO['verification']['workItemStatus'] | undefined,
+    verificationStatus: workItem?.status === 'done' ? 'passed' : 'not_started',
+  });
+}
 
-  if (run.error_message) {
-    console.log(chalk.red(`- Error: ${run.error_message}`));
+function printRunSummary(result: WorkItemRunResultDTO): void {
+  console.log(chalk.bold('\nRun Summary'));
+  console.log(`- Run ID: ${result.ids.runId}`);
+  console.log(`- Status: ${result.status}`);
+  console.log(`- Goal ID: ${result.ids.goalId}`);
+  console.log(`- Work Item ID: ${result.ids.workItemId}`);
+  console.log(`- Started: ${fmtTs(result.timing.createdAt)}`);
+  console.log(`- Completed: ${fmtTs(result.timing.completedAt)}`);
+  console.log(`- Tokens: ${result.usage.tokensUsed}`);
+  console.log(`- Cost: ${fmtCost(result.usage.costUsd)}`);
+  console.log(`- Time: ${result.usage.timeSeconds}s`);
+  console.log(`- Verification: ${result.verification.verificationStatus || '-'} / ${result.verification.workItemStatus || '-'}`);
+  console.log(`- Artifacts: ${result.artifacts.count}`);
+
+  if (result.output.errorMessage) {
+    console.log(chalk.red(`- Error: ${result.output.errorMessage}`));
   }
 
-  if (run.execution_log) {
+  if (result.output.executionLog) {
     console.log(chalk.bold('\nNatural Language Output'));
-    const log = String(run.execution_log).trim();
+    const log = String(result.output.executionLog).trim();
     if (log.length > 5000) {
       console.log(log.slice(0, 5000));
       console.log(chalk.gray('\n... output truncated. Use --run <id> and check DB/logs for full content.'));
@@ -122,7 +144,8 @@ export const resultsCommand = new Command('results')
           .prepare('SELECT id, run_id, artifact_type, storage_type, file_path, blob_path, size_bytes, created_at FROM artifacts WHERE run_id = ? ORDER BY created_at ASC')
           .all(run.id) as ArtifactRow[];
 
-        printRunSummary(run);
+        const dto = toRunResultDTO(run, workItem);
+        printRunSummary(dto);
 
         if (goal) {
           console.log(chalk.bold('\nGoal Context'));
@@ -140,7 +163,7 @@ export const resultsCommand = new Command('results')
             console.log(`- ${artifact.id} [${artifact.artifact_type}] ${pointer} (${artifact.size_bytes} bytes)`);
           }
         } else {
-          const artifactIds = parseArtifacts(run);
+        const artifactIds = dto.artifacts.ids;
           if (artifactIds.length > 0) {
             console.log(chalk.bold('\nArtifacts'));
             for (const id of artifactIds) {
@@ -225,11 +248,9 @@ export const resultsCommand = new Command('results')
 
       console.log(chalk.bold(`\nLatest Completed Runs (${runs.length})`));
       for (const run of runs) {
-        const firstLine = run.execution_log
-          ? String(run.execution_log).split('\n').find((line) => line.trim().length > 0) || ''
-          : '';
-        const summary = firstLine.slice(0, 120);
-        console.log(`- ${run.id} [${run.status}] goal=${run.goal_id} completed=${fmtTs(run.completed_at)} tokens=${run.tokens_used} cost=${fmtCost(run.cost_usd)}`);
+        const dto = toRunResultDTO(run);
+        const summary = dto.output.summary.slice(0, 120);
+        console.log(`- ${dto.ids.runId} [${dto.status}] goal=${dto.ids.goalId} completed=${fmtTs(dto.timing.completedAt)} tokens=${dto.usage.tokensUsed} cost=${fmtCost(dto.usage.costUsd)}`);
         if (summary) {
           console.log(`  ${chalk.gray(summary)}${summary.length >= 120 ? '...' : ''}`);
         }

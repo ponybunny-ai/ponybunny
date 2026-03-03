@@ -10,7 +10,8 @@
     "agent",
     "persona",
     "debug",
-    "memory"
+    "memory",
+    "tui"
   ],
   "properties": {
     "$schema": {
@@ -58,7 +59,9 @@
         "deterministicRuntimeEnabled",
         "planCompilerEnabled",
         "toolRoutingMode",
-        "runtimeRollout"
+        "allowModelNativeTools",
+        "runtimeRollout",
+        "runEventRetention"
       ],
       "properties": {
         "tickIntervalMs": {
@@ -86,6 +89,9 @@
             "system_preferred",
             "model_preferred"
           ]
+        },
+        "allowModelNativeTools": {
+          "type": "boolean"
         },
         "runtimeRollout": {
           "type": "object",
@@ -132,6 +138,34 @@
                 }
               },
               "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "runEventRetention": {
+          "type": "object",
+          "required": [
+            "enabled",
+            "intervalMs",
+            "maxAgeMs",
+            "keepLatestPerRun"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "intervalMs": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxAgeMs": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "keepLatestPerRun": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
             }
           },
           "additionalProperties": false
@@ -265,6 +299,36 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "tui": {
+      "type": "object",
+      "required": [
+        "inputBackgroundColor",
+        "sessionFirstEnabled",
+        "goalSubmitFastPathEnabled"
+      ],
+      "properties": {
+        "inputBackgroundColor": {
+          "type": "string",
+          "enum": [
+            "gray",
+            "black",
+            "blue",
+            "green",
+            "yellow",
+            "magenta",
+            "cyan",
+            "white"
+          ]
+        },
+        "sessionFirstEnabled": {
+          "type": "boolean"
+        },
+        "goalSubmitFastPathEnabled": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false

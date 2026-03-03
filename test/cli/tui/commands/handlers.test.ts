@@ -1,5 +1,9 @@
-import { executeCommand, type CommandContext } from '../../../../src/cli/tui/commands/handlers.js';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { executeCommand, handleNaturalInput, type CommandContext } from '../../../../src/cli/tui/commands/handlers.js';
 import type { SchedulerCapabilitiesResponse } from '../../../../src/cli/gateway/tui-gateway-client.js';
+import { DEFAULT_RUNTIME_CONFIG } from '../../../../src/infra/config/runtime-config.js';
 
 function buildCapabilitiesResponse(): SchedulerCapabilitiesResponse {
   return {
@@ -34,8 +38,11 @@ function createCommandContext(options?: {
     setSchedulerCapabilities: jest.Mock;
     addEvent: jest.Mock;
     addRuntimeSnapshot: jest.Mock;
+    setActiveSession: jest.Mock;
+    selectGoal: jest.Mock;
   };
   client: {
+    createConversationSession: jest.Mock;
     listGoals: jest.Mock;
     listWorkItems: jest.Mock;
     listEscalations: jest.Mock;
@@ -59,9 +66,16 @@ function createCommandContext(options?: {
     setSchedulerCapabilities: jest.fn(),
     addEvent: jest.fn(),
     addRuntimeSnapshot: jest.fn(),
+    setActiveSession: jest.fn(),
+    selectGoal: jest.fn(),
   };
 
   const client = {
+    createConversationSession: jest.fn().mockResolvedValue({
+      sessionId: 'ses-new-1',
+      state: 'chatting',
+      lifecycleState: 'active',
+    }),
     listGoals: options?.listGoalsError
       ? jest.fn().mockRejectedValue(options.listGoalsError)
       : jest.fn().mockResolvedValue({ goals: options?.emptyGoals ? [] : [{ id: 'goal-1' }] }),
@@ -81,6 +95,10 @@ function createCommandContext(options?: {
           compile: 0,
           replay: 0,
         },
+      },
+      tui: {
+        sessionFirstEnabled: true,
+        goalSubmitFastPathEnabled: false,
       },
     }),
     getRuntimeRolloutStatus: jest.fn().mockResolvedValue({
@@ -187,6 +205,28 @@ describe('TUI command handlers - refresh', () => {
 
     expect(result.success).toBe(true);
     expect(app.setView).toHaveBeenCalledWith('help');
+  });
+
+  it('creates and activates a session via /new', async () => {
+    const { ctx, app, client } = createCommandContext();
+
+    const result = await executeCommand('/new', ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain('Session created: ses-new-1');
+    expect(client.createConversationSession).toHaveBeenCalledWith({});
+    expect(app.setActiveSession).toHaveBeenCalledWith('ses-new-1', null);
+    expect(app.selectGoal).toHaveBeenCalledWith(null);
+    expect(app.addEvent).toHaveBeenCalledWith(
+      'conversation.new',
+      expect.objectContaining({
+        sessionId: 'ses-new-1',
+        state: 'chatting',
+        lifecycleState: 'active',
+      })
+    );
+    expect(app.setActivityStatus).toHaveBeenNthCalledWith(1, 'Creating session...');
+    expect(app.setActivityStatus).toHaveBeenLastCalledWith('idle');
   });
 
   it('refreshes scheduler data via gateway and updates app state', async () => {
@@ -552,5 +592,157 @@ describe('TUI command handlers - pruneevents', () => {
     expect(badEventType.error).toContain('Prune command failed');
 
     expect(client.pruneInternalRunEvents).not.toHaveBeenCalled();
+  });
+});
+
+describe('TUI command handlers - input mode routing', () => {
+  let tempConfigDir: string;
+  let previousConfigDir: string | undefined;
+
+  beforeEach(() => {
+    tempConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-tui-input-mode-'));
+    previousConfigDir = process.env.PONYBUNNY_CONFIG_DIR;
+    process.env.PONYBUNNY_CONFIG_DIR = tempConfigDir;
+    fs.writeFileSync(
+      path.join(tempConfigDir, 'ponybunny.json'),
+      JSON.stringify(DEFAULT_RUNTIME_CONFIG, null, 2),
+      'utf-8'
+    );
+  });
+
+  afterEach(() => {
+    if (previousConfigDir === undefined) {
+      delete process.env.PONYBUNNY_CONFIG_DIR;
+    } else {
+      process.env.PONYBUNNY_CONFIG_DIR = previousConfigDir;
+    }
+    fs.rmSync(tempConfigDir, { recursive: true, force: true });
+  });
+
+  it('switches routing mode with /input-mode fast-path and persists config', async () => {
+    const { ctx, app } = createCommandContext();
+
+    const result = await executeCommand('/input-mode fast-path', ctx);
+    expect(result.success).toBe(true);
+    expect(result.message).toContain('Input mode switched to fast-path');
+    expect(app.addEvent).toHaveBeenCalledWith(
+      'tui.input_mode.updated',
+      expect.objectContaining({
+        mode: 'fast-path',
+        sessionFirstEnabled: false,
+        goalSubmitFastPathEnabled: true,
+      })
+    );
+
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(tempConfigDir, 'ponybunny.json'), 'utf-8')
+    ) as { tui: { sessionFirstEnabled: boolean; goalSubmitFastPathEnabled: boolean } };
+    expect(persisted.tui.sessionFirstEnabled).toBe(false);
+    expect(persisted.tui.goalSubmitFastPathEnabled).toBe(true);
+  });
+
+  it('routes natural input through fast-path when enabled and emits mode usage event', async () => {
+    const fastPathConfig = {
+      ...DEFAULT_RUNTIME_CONFIG,
+      tui: {
+        ...DEFAULT_RUNTIME_CONFIG.tui,
+        sessionFirstEnabled: false,
+        goalSubmitFastPathEnabled: true,
+      },
+    };
+    fs.writeFileSync(
+      path.join(tempConfigDir, 'ponybunny.json'),
+      JSON.stringify(fastPathConfig, null, 2),
+      'utf-8'
+    );
+
+    const submitGoal = jest.fn().mockResolvedValue({ id: 'goal-fast', title: 'Fast Goal' });
+    const sendConversationMessage = jest.fn();
+
+    const app = {
+      state: { selectedModel: undefined, activeSessionId: undefined, activeSessionTitle: undefined },
+      addSimpleMessage: jest.fn(),
+      updateSimpleMessage: jest.fn(),
+      setActivityStatus: jest.fn(),
+      addGoal: jest.fn(),
+      addEvent: jest.fn(),
+      selectGoal: jest.fn(),
+      setActiveSession: jest.fn(),
+    };
+    const ctx = {
+      app,
+      gateway: {
+        client: {
+          submitGoal,
+          sendConversationMessage,
+          getStats: jest.fn().mockResolvedValue({ schedulerConnected: true }),
+        },
+      },
+    } as unknown as CommandContext;
+
+    const result = await handleNaturalInput('Build a quick script', ctx);
+    expect(result.success).toBe(true);
+    expect(submitGoal).toHaveBeenCalledTimes(1);
+    expect(sendConversationMessage).not.toHaveBeenCalled();
+    expect(app.addEvent).toHaveBeenCalledWith('tui.input_mode.used', { mode: 'fast-path' });
+  });
+
+  it('routes natural input through session-first pipeline when fast-path is disabled', async () => {
+    const sessionFirstConfig = {
+      ...DEFAULT_RUNTIME_CONFIG,
+      tui: {
+        ...DEFAULT_RUNTIME_CONFIG.tui,
+        sessionFirstEnabled: true,
+        goalSubmitFastPathEnabled: false,
+      },
+    };
+    fs.writeFileSync(
+      path.join(tempConfigDir, 'ponybunny.json'),
+      JSON.stringify(sessionFirstConfig, null, 2),
+      'utf-8'
+    );
+
+    const submitGoal = jest.fn();
+    const sendConversationMessage = jest.fn().mockResolvedValue({
+      sessionId: 'ses-1',
+      state: 'chatting',
+      response: 'Need more detail before execution.',
+      decision: 'clarification_requested',
+      decisionReason: 'Conversation requested clarification before creating an executable goal.',
+    });
+
+    const app = {
+      state: { selectedModel: undefined, activeSessionId: undefined, activeSessionTitle: undefined },
+      addSimpleMessage: jest.fn(),
+      updateSimpleMessage: jest.fn(),
+      setActivityStatus: jest.fn(),
+      addGoal: jest.fn(),
+      addEvent: jest.fn(),
+      selectGoal: jest.fn(),
+      setActiveSession: jest.fn(),
+    };
+    const ctx = {
+      app,
+      gateway: {
+        client: {
+          submitGoal,
+          createConversationSession: jest.fn().mockResolvedValue({ sessionId: 'ses-1' }),
+          sendConversationMessage,
+          getStats: jest.fn().mockResolvedValue({ schedulerConnected: true }),
+        },
+      },
+    } as unknown as CommandContext;
+
+    const result = await handleNaturalInput('Can you help me design this?', ctx);
+    expect(result.success).toBe(true);
+    expect(sendConversationMessage).toHaveBeenCalledTimes(1);
+    expect(submitGoal).not.toHaveBeenCalled();
+    expect(app.addEvent).toHaveBeenCalledWith('tui.input_mode.used', { mode: 'session-first' });
+    expect(app.addEvent).toHaveBeenCalledWith(
+      'conversation.response',
+      expect.objectContaining({
+        decision: 'clarification_requested',
+      })
+    );
   });
 });

@@ -194,6 +194,14 @@ All in `~/.ponybunny/`:
 - `mcp-config.json` - Model Context Protocol servers
 - `gateway.pid`, `scheduler.pid` - Process info
 
+### Configuration Change Coupling (MANDATORY)
+When changing runtime config structure (add/remove/rename fields), update all three in the same PR:
+- Schema: `docs/schemas/ponybunny.schema.json` and onboarding schema template
+- Example template: `docs/config-templates/ponybunny.example.json`
+- `pb init` behavior and dry-run coverage (`src/infra/config/onboarding.ts` + tests)
+
+If any one of the three is missing, the change is incomplete and should not be merged.
+
 ---
 
 ## Key Files Reference

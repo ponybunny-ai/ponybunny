@@ -10,8 +10,9 @@ type ViewSwitcherData = {
 
 const VIEWS: Array<{ id: ViewType; label: string }> = [
   { id: 'dashboard', label: 'Dashboard' },
-  { id: 'tasks', label: 'Tasks' },
+  { id: 'tasks', label: 'Workstream' },
   { id: 'goals', label: 'Goals' },
+  { id: 'sessions', label: 'Sessions' },
   { id: 'events', label: 'Events' },
 ];
 

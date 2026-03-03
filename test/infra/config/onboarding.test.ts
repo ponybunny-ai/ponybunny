@@ -23,13 +23,13 @@ describe('Onboarding config generation', () => {
     expect(openaiModels['gpt-5']).toBeDefined();
   });
 
-  it('does not include local schema files in pb init output', () => {
+  it('includes schema files in pb init output', () => {
     const names = new Set(getOnboardingFiles().map((file) => file.name));
 
-    expect(names.has('ponybunny.schema.json')).toBe(false);
-    expect(names.has('credentials.schema.json')).toBe(false);
-    expect(names.has('llm-config.schema.json')).toBe(false);
-    expect(names.has('mcp-config.schema.json')).toBe(false);
+    expect(names.has('ponybunny.schema.json')).toBe(true);
+    expect(names.has('credentials.schema.json')).toBe(true);
+    expect(names.has('llm-config.schema.json')).toBe(true);
+    expect(names.has('mcp-config.schema.json')).toBe(true);
 
     expect(names.has('ponybunny.json')).toBe(true);
     expect(names.has('credentials.json')).toBe(true);
@@ -64,6 +64,8 @@ describe('Onboarding config generation', () => {
     const template = getPonyBunnyConfigTemplate();
     expect(template.persona.promptOverrides.personalityDescription).toContain('Example:');
     expect(template.persona.promptOverrides.guidelines).toContain('Example:');
+    expect(typeof template.tui.sessionFirstEnabled).toBe('boolean');
+    expect(typeof template.tui.goalSubmitFastPathEnabled).toBe('boolean');
   });
 
   it('keeps all llm providers disabled by default in init template', () => {

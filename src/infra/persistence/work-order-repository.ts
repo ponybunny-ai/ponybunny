@@ -347,7 +347,7 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     stmt.run(tokens, time_minutes, cost_usd, Date.now(), id);
   }
 
-  listGoals(filters?: { status?: GoalStatus; parent_goal_id?: string }): Goal[] {
+  listGoals(filters?: { status?: GoalStatus; parent_goal_id?: string; session_id?: string; turn_id?: string }): Goal[] {
     let query = 'SELECT * FROM goals WHERE 1=1';
     const params: any[] = [];
 
@@ -362,6 +362,16 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
         query += ' AND parent_goal_id = ?';
         params.push(filters.parent_goal_id);
       }
+    }
+
+    if (filters?.session_id) {
+      query += ' AND json_extract(context, ?) = ?';
+      params.push('$.sessionId', filters.session_id);
+    }
+
+    if (filters?.turn_id) {
+      query += ' AND json_extract(context, ?) = ?';
+      params.push('$.turnId', filters.turn_id);
     }
 
     query += ' ORDER BY priority DESC, created_at ASC';

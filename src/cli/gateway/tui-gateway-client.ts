@@ -4,6 +4,7 @@
 
 import { GatewayClient, type GatewayClientOptions } from './gateway-client.js';
 import type { Goal, GoalStatus, WorkItem } from '../../work-order/types/index.js';
+import type { WorkItemRunResultDTO } from '../../domain/work-order/result-dto.js';
 
 export interface TuiGatewayClientOptions extends GatewayClientOptions {
   // Additional TUI-specific options can be added here
@@ -24,6 +25,7 @@ export interface GoalListParams {
   status?: GoalStatus;
   limit?: number;
   offset?: number;
+  sessionId?: string;
 }
 
 export interface WorkItemListParams {
@@ -87,6 +89,86 @@ export interface SchedulerCapabilitiesResponse {
 export interface GatewayEvent {
   event: string;
   data: unknown;
+}
+
+export interface ConversationNewParams {
+  personaId?: string;
+  userProfileId?: string;
+}
+
+export interface ConversationNewResult {
+  sessionId: string;
+  personaId: string;
+  state: string;
+  lifecycleState: string;
+}
+
+export interface ConversationMessageParams {
+  sessionId?: string;
+  personaId?: string;
+  userProfileId?: string;
+  message: string;
+  stream?: boolean;
+}
+
+export interface ConversationMessageResult {
+  sessionId: string;
+  response: string;
+  state: string;
+  decision?: 'goal_created' | 'clarification_requested' | 'response_only';
+  decisionReason?: string;
+  taskInfo?: {
+    goalId: string;
+    status: string;
+    progress?: number;
+  };
+}
+
+export interface ConversationListParams {
+  limit?: number;
+  lifecycleState?: 'active' | 'archived';
+}
+
+export interface ConversationListResult {
+  sessions: Array<{
+    id: string;
+    personaId: string;
+    title?: string;
+    state: string;
+    lifecycleState: string;
+    archivedAt?: number;
+    archiveSummary?: string;
+    turnCount: number;
+    lastMessage?: string;
+    createdAt: number;
+    updatedAt: number;
+  }>;
+}
+
+export interface ConversationStatusResult {
+  exists: boolean;
+  state?: string;
+  lifecycleState?: string;
+  archivedAt?: number;
+  turnCount?: number;
+}
+
+export interface ConversationArchiveResult {
+  success: boolean;
+  archivedAt?: number;
+  summary?: string;
+}
+
+export interface ConversationResumeResult {
+  success: boolean;
+}
+
+export interface ConversationHistoryResult {
+  turns: Array<{
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    timestamp: number;
+  }>;
 }
 
 export interface InternalRuntimeRunEventsParams {
@@ -251,6 +333,24 @@ export interface RuntimeRolloutStatusResponse {
     averageChangedStepCount: number;
     failureCodeCounts: Record<string, number>;
     lastDryRunAt?: number;
+    sessionFirst?: {
+      sessionCreationsTotal: number;
+      sessionCreationsSucceeded: number;
+      sessionCreationSuccessRate: number;
+      conversationMessagesTotal: number;
+      conversationMessagesSucceeded: number;
+      conversationMessagesFailed: number;
+      conversationMessageSuccessRate: number;
+      goalsTotal: number;
+      goalsWithSessionLink: number;
+      goalSessionCoverageRate: number;
+      runsTotal: number;
+      runsSucceeded: number;
+      runsFailed: number;
+      runSuccessRate: number;
+      averageRunLatencyMs: number;
+      lastRunCompletedAt?: number;
+    };
   };
 }
 
@@ -333,6 +433,34 @@ export class TuiGatewayClient {
     return this.client.request('system.capabilities');
   }
 
+  async createConversationSession(params: ConversationNewParams = {}): Promise<ConversationNewResult> {
+    return this.client.request('conversation.new', params);
+  }
+
+  async sendConversationMessage(params: ConversationMessageParams): Promise<ConversationMessageResult> {
+    return this.client.request('conversation.message', params);
+  }
+
+  async listConversationSessions(params: ConversationListParams = {}): Promise<ConversationListResult> {
+    return this.client.request('conversation.list', params);
+  }
+
+  async getConversationStatus(sessionId: string): Promise<ConversationStatusResult> {
+    return this.client.request('conversation.status', { sessionId });
+  }
+
+  async archiveConversationSession(sessionId: string): Promise<ConversationArchiveResult> {
+    return this.client.request('conversation.archive', { sessionId });
+  }
+
+  async resumeConversationSession(sessionId: string): Promise<ConversationResumeResult> {
+    return this.client.request('conversation.resume', { sessionId });
+  }
+
+  async getConversationHistory(sessionId: string, limit = 20): Promise<ConversationHistoryResult> {
+    return this.client.request('conversation.history', { sessionId, limit });
+  }
+
   // ============================================================================
   // Goal Methods
   // ============================================================================
@@ -411,7 +539,7 @@ export class TuiGatewayClient {
   /**
    * Get runs for a work item
    */
-  async getWorkItemRuns(workItemId: string): Promise<{ runs: unknown[] }> {
+  async getWorkItemRuns(workItemId: string): Promise<{ runs: WorkItemRunResultDTO[] }> {
     return this.client.request('workitem.runs', { workItemId });
   }
 
@@ -475,6 +603,10 @@ export class TuiGatewayClient {
         compile: number;
         replay: number;
       };
+    };
+    tui: {
+      sessionFirstEnabled: boolean;
+      goalSubmitFastPathEnabled: boolean;
     };
   }> {
     return this.client.request('internal.runtime.config', {});

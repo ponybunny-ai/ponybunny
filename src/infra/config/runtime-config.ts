@@ -70,6 +70,8 @@ export interface PonyBunnyRuntimeConfig {
   };
   tui: {
     inputBackgroundColor: 'gray' | 'black' | 'blue' | 'green' | 'yellow' | 'magenta' | 'cyan' | 'white';
+    sessionFirstEnabled: boolean;
+    goalSubmitFastPathEnabled: boolean;
   };
 }
 
@@ -143,6 +145,8 @@ export const DEFAULT_RUNTIME_CONFIG: PonyBunnyRuntimeConfig = {
   },
   tui: {
     inputBackgroundColor: 'black',
+    sessionFirstEnabled: true,
+    goalSubmitFastPathEnabled: false,
   },
 };
 
@@ -407,6 +411,14 @@ export function resolveRuntimeConfigFromEnvironment(
         env.PONY_TUI_INPUT_BACKGROUND_COLOR,
         DEFAULT_RUNTIME_CONFIG.tui.inputBackgroundColor
       ),
+      sessionFirstEnabled: toBoolean(
+        env.PONY_TUI_SESSION_FIRST_ENABLED,
+        DEFAULT_RUNTIME_CONFIG.tui.sessionFirstEnabled
+      ),
+      goalSubmitFastPathEnabled: toBoolean(
+        env.PONY_TUI_GOAL_SUBMIT_FAST_PATH_ENABLED,
+        DEFAULT_RUNTIME_CONFIG.tui.goalSubmitFastPathEnabled
+      ),
     },
   };
 }
@@ -636,6 +648,16 @@ function normalizeConfig(raw: PonyBunnyRuntimeConfig): PonyBunnyRuntimeConfig {
       inputBackgroundColor: toInputBackgroundColor(
         (raw as unknown as { tui?: { inputBackgroundColor?: unknown } }).tui?.inputBackgroundColor,
         DEFAULT_RUNTIME_CONFIG.tui.inputBackgroundColor
+      ),
+      sessionFirstEnabled: toBoolean(
+        (raw as unknown as { tui?: { session_first_enabled?: unknown; sessionFirstEnabled?: unknown } }).tui?.session_first_enabled
+          ?? (raw as unknown as { tui?: { sessionFirstEnabled?: unknown } }).tui?.sessionFirstEnabled,
+        DEFAULT_RUNTIME_CONFIG.tui.sessionFirstEnabled
+      ),
+      goalSubmitFastPathEnabled: toBoolean(
+        (raw as unknown as { tui?: { goal_submit_fast_path_enabled?: unknown; goalSubmitFastPathEnabled?: unknown } }).tui?.goal_submit_fast_path_enabled
+          ?? (raw as unknown as { tui?: { goalSubmitFastPathEnabled?: unknown } }).tui?.goalSubmitFastPathEnabled,
+        DEFAULT_RUNTIME_CONFIG.tui.goalSubmitFastPathEnabled
       ),
     },
   };

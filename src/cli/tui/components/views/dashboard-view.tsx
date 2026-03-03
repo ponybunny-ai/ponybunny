@@ -12,7 +12,19 @@ import { SimpleMessageItem } from '../widgets/simple-message-item.js';
 export const DashboardView: React.FC = () => {
   const { state } = useAppContext();
   const { activeGoals, queuedGoals, completedGoals } = useGoals();
-  const { pendingEscalationCount, simpleMessages, workItems } = state;
+  const {
+    pendingEscalationCount,
+    simpleMessages,
+    workItems,
+    sessions,
+    activeSessionId,
+    sessionsLifecycleFilter,
+    sessionsSearchQuery,
+    sessionsSortMode,
+    sessionHistoryPreviews,
+    eventsFilter,
+    eventsSearchQuery,
+  } = state;
   const { rows } = useTerminalSize();
 
   const hasMessages = simpleMessages.length > 0;
@@ -21,6 +33,8 @@ export const DashboardView: React.FC = () => {
   );
   const maxVisibleMessages = Math.max(2, Math.floor((rows - 14) / 3));
   const visibleMessages = simpleMessages.slice(-maxVisibleMessages);
+  const latestHistoryPreview = Object.values(sessionHistoryPreviews)
+    .sort((a, b) => b.generatedAt - a.generatedAt)[0];
 
   return (
     <Box flexDirection="column" flexGrow={1}>
@@ -74,6 +88,31 @@ export const DashboardView: React.FC = () => {
                 </Text>
               ))
             )}
+          </Box>
+        </Box>
+
+        <Box
+          flexDirection="column"
+          borderStyle="round"
+          borderColor="gray"
+          paddingX={1}
+          marginLeft={2}
+          flexGrow={1}
+        >
+          <Text bold color="cyan">Sessions</Text>
+          <Box marginTop={1} flexDirection="column">
+            <Text dimColor>Loaded: {sessions.length}</Text>
+            <Text dimColor>Active: {activeSessionId ? activeSessionId.slice(0, 12) : 'none'}</Text>
+            <Text dimColor>Filter: {sessionsLifecycleFilter}</Text>
+            <Text dimColor>Search: {sessionsSearchQuery || '(empty)'}</Text>
+            <Text dimColor>Sort: {sessionsSortMode}</Text>
+            <Text dimColor>
+              Last history: {latestHistoryPreview
+                ? `${latestHistoryPreview.sessionId.slice(0, 10)} role=${latestHistoryPreview.roleFilter}`
+                : 'none'}
+            </Text>
+            <Text dimColor>Events: {eventsFilter}{eventsSearchQuery ? ` · q=${eventsSearchQuery}` : ''}</Text>
+            <Text dimColor>Drill-down: Sessions -&gt; Goals -&gt; Workstream -&gt; Runs</Text>
           </Box>
         </Box>
       </Box>

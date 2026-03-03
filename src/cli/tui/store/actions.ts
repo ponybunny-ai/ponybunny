@@ -3,7 +3,7 @@
  */
 
 import type { Goal, WorkItem, Escalation } from '../../../work-order/types/index.js';
-import type { ConnectionStatus, ViewType, ModalType, GatewayEvent, RuntimeSnapshot, SimpleMessage } from './types.js';
+import type { ConnectionStatus, ViewType, ModalType, GatewayEvent, RuntimeSnapshot, SimpleMessage, SessionSummary, SessionHistoryPreview } from './types.js';
 import type { SchedulerCapabilitiesResponse } from '../../gateway/tui-gateway-client.js';
 
 // Simple message actions
@@ -40,6 +40,50 @@ export interface SetGatewayUrlAction {
 export interface SetCurrentViewAction {
   type: 'SET_CURRENT_VIEW';
   payload: ViewType;
+}
+
+export interface SetActiveSessionAction {
+  type: 'SET_ACTIVE_SESSION';
+  payload: {
+    sessionId: string | null;
+    title?: string | null;
+  };
+}
+
+export interface SetSessionsAction {
+  type: 'SET_SESSIONS';
+  payload: SessionSummary[];
+}
+
+export interface SetSessionsViewStateAction {
+  type: 'SET_SESSIONS_VIEW_STATE';
+  payload: {
+    lifecycleFilter?: 'active' | 'archived';
+    searchQuery?: string;
+    sortMode?: 'updated' | 'history_freshness';
+  };
+}
+
+export interface SetSessionHistoryPreviewAction {
+  type: 'SET_SESSION_HISTORY_PREVIEW';
+  payload: SessionHistoryPreview;
+}
+
+export interface ClearSessionHistoryPreviewAction {
+  type: 'CLEAR_SESSION_HISTORY_PREVIEW';
+  payload: string;
+}
+
+export interface ClearAllSessionHistoryPreviewsAction {
+  type: 'CLEAR_ALL_SESSION_HISTORY_PREVIEWS';
+}
+
+export interface SetEventsViewStateAction {
+  type: 'SET_EVENTS_VIEW_STATE';
+  payload: {
+    filter?: 'all' | 'goal' | 'workitem' | 'escalation' | 'system' | 'conversation';
+    searchQuery?: string;
+  };
 }
 
 // Goals actions
@@ -203,6 +247,13 @@ export type AppAction =
   | SetConnectionStatusAction
   | SetGatewayUrlAction
   | SetCurrentViewAction
+  | SetActiveSessionAction
+  | SetSessionsAction
+  | SetSessionsViewStateAction
+  | SetSessionHistoryPreviewAction
+  | ClearSessionHistoryPreviewAction
+  | ClearAllSessionHistoryPreviewsAction
+  | SetEventsViewStateAction
   | SetGoalsAction
   | AddGoalAction
   | UpdateGoalAction
@@ -263,6 +314,47 @@ export const actions = {
   setCurrentView: (view: ViewType): SetCurrentViewAction => ({
     type: 'SET_CURRENT_VIEW',
     payload: view,
+  }),
+
+  setActiveSession: (sessionId: string | null, title?: string | null): SetActiveSessionAction => ({
+    type: 'SET_ACTIVE_SESSION',
+    payload: { sessionId, title },
+  }),
+
+  setSessions: (sessions: SessionSummary[]): SetSessionsAction => ({
+    type: 'SET_SESSIONS',
+    payload: sessions,
+  }),
+
+  setSessionsViewState: (
+    lifecycleFilter?: 'active' | 'archived',
+    searchQuery?: string,
+    sortMode?: 'updated' | 'history_freshness'
+  ): SetSessionsViewStateAction => ({
+    type: 'SET_SESSIONS_VIEW_STATE',
+    payload: { lifecycleFilter, searchQuery, sortMode },
+  }),
+
+  setSessionHistoryPreview: (preview: SessionHistoryPreview): SetSessionHistoryPreviewAction => ({
+    type: 'SET_SESSION_HISTORY_PREVIEW',
+    payload: preview,
+  }),
+
+  clearSessionHistoryPreview: (sessionId: string): ClearSessionHistoryPreviewAction => ({
+    type: 'CLEAR_SESSION_HISTORY_PREVIEW',
+    payload: sessionId,
+  }),
+
+  clearAllSessionHistoryPreviews: (): ClearAllSessionHistoryPreviewsAction => ({
+    type: 'CLEAR_ALL_SESSION_HISTORY_PREVIEWS',
+  }),
+
+  setEventsViewState: (
+    filter?: 'all' | 'goal' | 'workitem' | 'escalation' | 'system' | 'conversation',
+    searchQuery?: string
+  ): SetEventsViewStateAction => ({
+    type: 'SET_EVENTS_VIEW_STATE',
+    payload: { filter, searchQuery },
   }),
 
   setGoals: (goals: Goal[]): SetGoalsAction => ({

@@ -21,6 +21,10 @@ const ANALYSIS: IInputAnalysis = {
 };
 
 function createManager(repository: InMemorySessionRepository): SessionManager {
+  return createManagerWithAnalysis(repository, ANALYSIS);
+}
+
+function createManagerWithAnalysis(repository: InMemorySessionRepository, analysis: IInputAnalysis): SessionManager {
   return new SessionManager(
     repository,
     {
@@ -30,7 +34,7 @@ function createManager(repository: InMemorySessionRepository): SessionManager {
       generateSystemPrompt: () => 'system',
     },
     {
-      analyze: async () => ANALYSIS,
+      analyze: async () => analysis,
     },
     {
       generate: async () => 'response',
@@ -85,5 +89,33 @@ describe('SessionManager lifecycle management', () => {
     expect(resumed).toBe(true);
     const resumedSession = manager.getSession(session.id);
     expect(resumedSession?.lifecycleState).toBe('active');
+  });
+
+  it('returns clarification_requested decision when the turn requires clarification', async () => {
+    const repository = new InMemorySessionRepository();
+    const manager = createManagerWithAnalysis(repository, {
+      ...ANALYSIS,
+      intent: { ...ANALYSIS.intent, primary: 'task_request' },
+      purpose: { ...ANALYSIS.purpose, isActionable: true, missingInfo: ['target platform'] },
+    });
+
+    const response = await manager.processMessage('Build this quickly please');
+    expect(response.decision).toBe('clarification_requested');
+    expect(response.taskInfo).toBeUndefined();
+    expect(response.state).toBe('clarifying');
+  });
+
+  it('returns goal_created decision when executable goal is created', async () => {
+    const repository = new InMemorySessionRepository();
+    const manager = createManagerWithAnalysis(repository, {
+      ...ANALYSIS,
+      intent: { ...ANALYSIS.intent, primary: 'task_request' },
+      purpose: { ...ANALYSIS.purpose, isActionable: true, missingInfo: [] },
+    });
+
+    const response = await manager.processMessage('Implement feature X end-to-end');
+    expect(response.decision).toBe('goal_created');
+    expect(response.taskInfo?.goalId).toBe('g1');
+    expect(response.state).toBe('executing');
   });
 });

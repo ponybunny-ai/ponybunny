@@ -934,7 +934,7 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
   $id: 'https://ponybunny.dev/schemas/ponybunny.schema.json',
   title: 'PonyBunny Runtime Configuration',
   type: 'object',
-  required: ['paths', 'gateway', 'scheduler', 'agent', 'persona', 'debug', 'memory'],
+  required: ['paths', 'gateway', 'scheduler', 'agent', 'persona', 'debug', 'memory', 'tui'],
   properties: {
     $schema: { type: 'string' },
     paths: {
@@ -965,6 +965,8 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
         'planCompilerEnabled',
         'toolRoutingMode',
         'allowModelNativeTools',
+        'runtimeRollout',
+        'runEventRetention',
       ],
       properties: {
         tickIntervalMs: { type: 'integer', minimum: 1 },
@@ -977,6 +979,37 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
           enum: ['legacy', 'system_only', 'system_preferred', 'model_preferred'],
         },
         allowModelNativeTools: { type: 'boolean' },
+        runtimeRollout: {
+          type: 'object',
+          required: ['shadowModeEnabled', 'canaryPercent', 'rollbackOnFailure', 'lanePercents'],
+          properties: {
+            shadowModeEnabled: { type: 'boolean' },
+            canaryPercent: { type: 'integer', minimum: 0, maximum: 100 },
+            rollbackOnFailure: { type: 'boolean' },
+            lanePercents: {
+              type: 'object',
+              required: ['dryRun', 'compile', 'replay'],
+              properties: {
+                dryRun: { type: 'integer', minimum: 0, maximum: 100 },
+                compile: { type: 'integer', minimum: 0, maximum: 100 },
+                replay: { type: 'integer', minimum: 0, maximum: 100 },
+              },
+              additionalProperties: false,
+            },
+          },
+          additionalProperties: false,
+        },
+        runEventRetention: {
+          type: 'object',
+          required: ['enabled', 'intervalMs', 'maxAgeMs', 'keepLatestPerRun'],
+          properties: {
+            enabled: { type: 'boolean' },
+            intervalMs: { type: 'integer', minimum: 1 },
+            maxAgeMs: { type: 'integer', minimum: 1 },
+            keepLatestPerRun: { type: 'integer', minimum: 0, maximum: 10000 },
+          },
+          additionalProperties: false,
+        },
       },
       additionalProperties: false,
     },
@@ -1048,6 +1081,19 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
         },
         vectorWeight: { type: 'number', minimum: 0, maximum: 1 },
         keywordWeight: { type: 'number', minimum: 0, maximum: 1 },
+      },
+      additionalProperties: false,
+    },
+    tui: {
+      type: 'object',
+      required: ['inputBackgroundColor', 'sessionFirstEnabled', 'goalSubmitFastPathEnabled'],
+      properties: {
+        inputBackgroundColor: {
+          type: 'string',
+          enum: ['gray', 'black', 'blue', 'green', 'yellow', 'magenta', 'cyan', 'white'],
+        },
+        sessionFirstEnabled: { type: 'boolean' },
+        goalSubmitFastPathEnabled: { type: 'boolean' },
       },
       additionalProperties: false,
     },
@@ -1133,6 +1179,38 @@ export function getOnboardingFiles(): OnboardingFile[] {
   const skillSeedFiles = getSkillSeedFiles(configDir);
 
   return [
+    {
+      name: 'ponybunny.schema.json',
+      path: path.join(configDir, 'ponybunny.schema.json'),
+      template: PONYBUNNY_CONFIG_SCHEMA_TEMPLATE,
+      format: 'json',
+      mode: 0o644,
+      description: 'Runtime config JSON schema',
+    },
+    {
+      name: 'credentials.schema.json',
+      path: path.join(configDir, 'credentials.schema.json'),
+      template: CREDENTIALS_SCHEMA_TEMPLATE,
+      format: 'json',
+      mode: 0o644,
+      description: 'Credentials JSON schema',
+    },
+    {
+      name: 'llm-config.schema.json',
+      path: path.join(configDir, 'llm-config.schema.json'),
+      template: LLM_CONFIG_SCHEMA_TEMPLATE,
+      format: 'json',
+      mode: 0o644,
+      description: 'LLM config JSON schema',
+    },
+    {
+      name: 'mcp-config.schema.json',
+      path: path.join(configDir, 'mcp-config.schema.json'),
+      template: MCP_CONFIG_SCHEMA_TEMPLATE,
+      format: 'json',
+      mode: 0o644,
+      description: 'MCP config JSON schema',
+    },
     {
       name: 'ponybunny.json',
       path: path.join(configDir, 'ponybunny.json'),

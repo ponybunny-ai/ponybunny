@@ -29,6 +29,10 @@ export interface InternalRuntimeConfigResponse {
       replay: number;
     };
   };
+  tui: {
+    sessionFirstEnabled: boolean;
+    goalSubmitFastPathEnabled: boolean;
+  };
 }
 
 export interface InternalRuntimeHandlersOptions {

@@ -26,6 +26,7 @@ export {
   type OnboardingFile,
   type InitFileResult,
   type InitOptions,
+  PONYBUNNY_CONFIG_SCHEMA_TEMPLATE,
   CREDENTIALS_SCHEMA_TEMPLATE,
   CREDENTIALS_TEMPLATE,
   LLM_CONFIG_SCHEMA_TEMPLATE,

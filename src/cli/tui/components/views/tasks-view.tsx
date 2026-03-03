@@ -4,17 +4,9 @@ import { Box, Text, useInput } from 'ink';
 import { useAppContext } from '../../context/app-context.js';
 import { useGatewayContext } from '../../context/gateway-context.js';
 import type { RuntimeSnapshot, SimpleMessage } from '../../store/types.js';
+import type { WorkItemRunResultDTO } from '../../../../domain/work-order/result-dto.js';
 
-type RunRecord = {
-  id: string;
-  status: string;
-  created_at: number;
-  completed_at?: number;
-  tokens_used?: number;
-  cost_usd?: number;
-  execution_log?: string;
-  error_message?: string;
-};
+type RunRecord = WorkItemRunResultDTO;
 
 function fmtTs(ms?: number): string {
   if (!ms) return '-';
@@ -48,17 +40,25 @@ function latestSummary(message: SimpleMessage, runs: RunRecord[]): string {
   }
 
   const latestRun = runs[0];
-  if (!latestRun?.execution_log) {
+  if (!latestRun?.output.executionLog) {
     if (message.status === 'completed') return 'Task completed.';
     if (message.status === 'failed') return message.error || 'Task failed.';
-    return message.statusText || 'Task in progress.';
+    return latestRun?.output.summary || message.statusText || 'Task in progress.';
   }
 
-  const line = latestRun.execution_log
+  const line = latestRun.output.executionLog
     .split('\n')
     .map((x) => x.trim())
     .find((x) => x.length > 0 && !x.startsWith('[POLICY_AUDIT]') && !x.startsWith('[ROUTE_CONTEXT]'));
-  return line || latestRun.execution_log.slice(0, 180);
+  return line || latestRun.output.summary || latestRun.output.executionLog.slice(0, 180);
+}
+
+function firstMeaningfulLine(log?: string): string | undefined {
+  if (!log) return undefined;
+  return log
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0 && !line.startsWith('[POLICY_AUDIT]') && !line.startsWith('[ROUTE_CONTEXT]'));
 }
 
 function findRuntimeSnapshot(
@@ -84,19 +84,34 @@ function findRuntimeSnapshot(
   return runtimeSnapshots[runtimeSnapshots.length - 1];
 }
 
-export const TasksView: React.FC = () => {
-  const { state, addSimpleMessage, removeSimpleMessage, removeGoal, setWorkItems, setView, selectGoal, openModal } = useAppContext();
+export const WorkstreamView: React.FC = () => {
+  const {
+    state,
+    addSimpleMessage,
+    removeSimpleMessage,
+    removeGoal,
+    setWorkItems,
+    setView,
+    selectGoal,
+    openModal,
+  } = useAppContext();
   const gateway = useGatewayContext();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [runsByWorkItem, setRunsByWorkItem] = useState<Record<string, RunRecord[]>>({});
+  const [selectedWorkItemIndex, setSelectedWorkItemIndex] = useState(0);
+  const [selectedRunIndex, setSelectedRunIndex] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);
   const [actionBusy, setActionBusy] = useState(false);
 
   const pageSize = 12;
 
   const tasks = useMemo(() => {
-    return [...state.simpleMessages].sort((a, b) => b.timestamp - a.timestamp);
-  }, [state.simpleMessages]);
+    const selectedGoalId = state.selectedGoalId;
+    const scoped = selectedGoalId
+      ? state.simpleMessages.filter((message) => message.goalId === selectedGoalId)
+      : state.simpleMessages;
+    return [...scoped].sort((a, b) => b.timestamp - a.timestamp);
+  }, [state.selectedGoalId, state.simpleMessages]);
   const totalPages = Math.max(1, Math.ceil(tasks.length / pageSize));
   const pageStart = currentPage * pageSize;
   const pageTasks = tasks.slice(pageStart, pageStart + pageSize);
@@ -122,14 +137,22 @@ export const TasksView: React.FC = () => {
       .sort((a, b) => b.updated_at - a.updated_at);
   }, [state.workItems, selected?.goalId]);
 
-  const selectedWorkItemId = selected?.workItemId || relatedWorkItems[0]?.id;
+  useEffect(() => {
+    setSelectedWorkItemIndex(0);
+    setSelectedRunIndex(0);
+  }, [selected?.id]);
+
+  const selectedWorkItemId =
+    selected?.workItemId
+    || relatedWorkItems[selectedWorkItemIndex]?.id
+    || relatedWorkItems[0]?.id;
 
   useEffect(() => {
     if (!gateway.client || !selectedWorkItemId || runsByWorkItem[selectedWorkItemId]) return;
     let alive = true;
     void gateway.client.getWorkItemRuns(selectedWorkItemId).then((result) => {
       if (!alive) return;
-      const runs = ((result.runs || []) as RunRecord[]).sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+      const runs = (result.runs || []).sort((a, b) => (b.timing.createdAt || 0) - (a.timing.createdAt || 0));
       setRunsByWorkItem((prev) => ({ ...prev, [selectedWorkItemId]: runs }));
     }).catch(() => {
       if (!alive) return;
@@ -171,6 +194,29 @@ export const TasksView: React.FC = () => {
     if (input === 'g' && selected?.goalId) {
       selectGoal(selected.goalId);
       setView('goals');
+      return;
+    }
+
+    if (input === 'w' && relatedWorkItems.length > 0) {
+      setSelectedWorkItemIndex((idx) => (idx + 1) % relatedWorkItems.length);
+      setSelectedRunIndex(0);
+      return;
+    }
+
+    if (input === 'n' && runs.length > 0) {
+      setSelectedRunIndex((idx) => (idx + 1) % runs.length);
+      return;
+    }
+
+    if (input === 'p' && runs.length > 0) {
+      setSelectedRunIndex((idx) => (idx - 1 + runs.length) % runs.length);
+      return;
+    }
+
+    if (input === '0' && state.selectedGoalId) {
+      selectGoal(null);
+      setSelectedIndex(0);
+      setCurrentPage(0);
       return;
     }
 
@@ -252,9 +298,13 @@ export const TasksView: React.FC = () => {
   if (tasks.length === 0) {
     return (
       <Box flexDirection="column" flexGrow={1}>
-        <Text bold color="cyan">Tasks</Text>
+        <Text bold color="cyan">Workstream</Text>
         <Box marginTop={1}>
-          <Text dimColor>No tasks yet. Submit a request in the input bar to create one.</Text>
+          <Text dimColor>
+            {state.selectedGoalId
+              ? 'No timeline entries for selected goal. Press 0 to clear goal scope.'
+              : 'No workstream entries yet. Submit a request in the input bar to create one.'}
+          </Text>
         </Box>
         {runtimeSnapshots.length > 0 && (
           <Box marginTop={1} flexDirection="column">
@@ -271,16 +321,20 @@ export const TasksView: React.FC = () => {
   }
 
   const runs = selectedWorkItemId ? (runsByWorkItem[selectedWorkItemId] || []) : [];
+  const selectedRun = runs[selectedRunIndex] || runs[0];
   const summary = selected ? latestSummary(selected, runs) : '';
   const actionList = selected?.actions && selected.actions.length > 0
     ? selected.actions
-    : extractActions(`${summary}\n${runs[0]?.execution_log || ''}`);
+    : extractActions(`${summary}\n${runs[0]?.output.executionLog || ''}`);
 
   return (
     <Box flexDirection="row" flexGrow={1}>
       <Box flexDirection="column" width="42%" borderStyle="round" borderColor="gray" paddingX={1} marginRight={1}>
-        <Text bold color="cyan">Task List ({tasks.length})</Text>
-        <Text dimColor>j/k or ↑/↓ select · h/l or ←/→ page · g open goal · r retry failed · d delete</Text>
+        <Text bold color="cyan">Workstream Timeline ({tasks.length})</Text>
+        <Text dimColor>
+          Scope: {state.selectedGoalId ? `goal ${state.selectedGoalId.slice(0, 8)} (0 clear)` : 'all goals'}
+        </Text>
+        <Text dimColor>j/k or ↑/↓ select · h/l or ←/→ page · g open goal · w next work item · n/p run +/- · r retry failed · d delete</Text>
         <Text dimColor>Page {Math.min(currentPage + 1, totalPages)} / {totalPages}</Text>
         <Box flexDirection="column" marginTop={1}>
           {pageTasks.map((task, idx) => {
@@ -297,7 +351,7 @@ export const TasksView: React.FC = () => {
       </Box>
 
       <Box flexDirection="column" width="58%" borderStyle="round" borderColor="gray" paddingX={1}>
-        <Text bold color="cyan">Task Detail</Text>
+        <Text bold color="cyan">Execution Detail</Text>
         {selected && (
           <>
             <Text>- Status: {selected.status}{selected.statusText ? ` (${selected.statusText})` : ''}</Text>
@@ -305,6 +359,7 @@ export const TasksView: React.FC = () => {
             <Text>- Created: {fmtTs(selected.timestamp)}</Text>
             <Text>- Goal: {selected.goalId || '-'}</Text>
             <Text>- Work Item: {selectedWorkItemId || '-'}</Text>
+            <Text>- Run: {selectedRun?.ids.runId || '-'}</Text>
 
             <Box marginTop={1} flexDirection="column">
               <Text bold>Step Timeline</Text>
@@ -330,10 +385,31 @@ export const TasksView: React.FC = () => {
                 <Text dimColor>- No run data loaded yet.</Text>
               ) : (
                 runs.slice(0, 5).map((run) => (
-                  <Text key={run.id} dimColor>
-                    - {run.id.slice(0, 8)} [{run.status}] completed={fmtTs(run.completed_at)} tokens={run.tokens_used ?? 0} cost={typeof run.cost_usd === 'number' ? `$${run.cost_usd.toFixed(4)}` : '-'}
+                  <Text key={run.ids.runId} dimColor>
+                    - {run.ids.runId.slice(0, 8)} [{run.status}] completed={fmtTs(run.timing.completedAt)} tokens={run.usage.tokensUsed} cost={typeof run.usage.costUsd === 'number' ? `$${run.usage.costUsd.toFixed(4)}` : '-'}
                   </Text>
                 ))
+              )}
+            </Box>
+
+            <Box marginTop={1} flexDirection="column">
+              <Text bold>Selected Run Result</Text>
+              {!selectedRun ? (
+                <Text dimColor>- Select a run with n/p after run data loads.</Text>
+              ) : (
+                <>
+                  <Text dimColor>- Status: {selectedRun.status}</Text>
+                  <Text dimColor>- Completed: {fmtTs(selectedRun.timing.completedAt)}</Text>
+                  <Text dimColor>- Tokens: {selectedRun.usage.tokensUsed}</Text>
+                  <Text dimColor>
+                    - Cost: {typeof selectedRun.usage.costUsd === 'number' ? `$${selectedRun.usage.costUsd.toFixed(4)}` : '-'}
+                  </Text>
+                  <Text dimColor>- Verification: {selectedRun.verification.verificationStatus || '-'} / {selectedRun.verification.workItemStatus || '-'}</Text>
+                  <Text dimColor>- Artifacts: {selectedRun.artifacts.count}</Text>
+                  <Text dimColor>
+                    - Result: {selectedRun.output.summary || firstMeaningfulLine(selectedRun.output.executionLog) || selectedRun.output.errorMessage || 'No execution summary yet.'}
+                  </Text>
+                </>
               )}
             </Box>
 
@@ -377,3 +453,5 @@ export const TasksView: React.FC = () => {
     </Box>
   );
 };
+
+export const TasksView = WorkstreamView;

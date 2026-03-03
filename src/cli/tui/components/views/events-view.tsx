@@ -3,29 +3,80 @@
  */
 
 import * as React from 'react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { useAppContext } from '../../context/app-context.js';
 import { EventItem } from '../widgets/event-item.js';
 
-type EventFilter = 'all' | 'goal' | 'workitem' | 'escalation' | 'system';
-const FILTER_OPTIONS: EventFilter[] = ['all', 'goal', 'workitem', 'escalation', 'system'];
+type EventFilter = 'all' | 'goal' | 'workitem' | 'escalation' | 'system' | 'conversation';
+const FILTER_OPTIONS: EventFilter[] = ['all', 'goal', 'workitem', 'escalation', 'system', 'conversation'];
 
 export const EventsView: React.FC = () => {
-  const { state, clearEvents } = useAppContext();
+  const { state, clearEvents, setEventsViewState } = useAppContext();
   const { events } = state;
 
-  const [filter, setFilter] = useState<EventFilter>('all');
+  const [filter, setFilter] = useState<EventFilter>(state.eventsFilter);
   const [compact, setCompact] = useState(true);
+  const [searchMode, setSearchMode] = useState(false);
+  const [searchQuery, setSearchQuery] = useState(state.eventsSearchQuery);
+
+  React.useEffect(() => {
+    setEventsViewState(filter, searchQuery);
+  }, [filter, searchQuery, setEventsViewState]);
+
+  React.useEffect(() => {
+    if (!searchMode && state.eventsFilter !== filter) {
+      setFilter(state.eventsFilter);
+    }
+    if (!searchMode && state.eventsSearchQuery !== searchQuery) {
+      setSearchQuery(state.eventsSearchQuery);
+    }
+  }, [filter, searchMode, searchQuery, state.eventsFilter, state.eventsSearchQuery]);
 
   // Filter events
-  const filteredEvents = filter === 'all'
-    ? events
-    : events.filter(e => e.event.startsWith(filter));
+  const filteredEvents = useMemo(() => {
+    const scoped = (() => {
+      if (filter === 'all') return events;
+      if (filter === 'conversation') return events.filter(e => e.event.startsWith('conversation.'));
+      return events.filter(e => e.event.startsWith(filter));
+    })();
+
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return scoped;
+    return scoped.filter((e) => {
+      const dataStr = typeof e.data === 'string' ? e.data : JSON.stringify(e.data);
+      return `${e.event} ${dataStr}`.toLowerCase().includes(q);
+    });
+  }, [events, filter, searchQuery]);
 
   // Handle keyboard input
   useInput((input, key) => {
     if (state.activeModal) {
+      return;
+    }
+
+    if (searchMode) {
+      if (key.escape || key.return) {
+        setSearchMode(false);
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setSearchQuery((prev) => prev.slice(0, -1));
+        return;
+      }
+      if (input && input.length === 1 && !key.ctrl && !key.meta) {
+        setSearchQuery((prev) => prev + input);
+      }
+      return;
+    }
+
+    if (input === '/') {
+      setSearchMode(true);
+      return;
+    }
+
+    if (input === 'q') {
+      setSearchQuery('');
       return;
     }
 
@@ -45,6 +96,7 @@ export const EventsView: React.FC = () => {
     if (input === 'w') setFilter('workitem');
     if (input === 'e') setFilter('escalation');
     if (input === 's') setFilter('system');
+    if (input === 'c') setFilter('conversation');
 
     // Toggle compact mode
     if (input === 'v') setCompact(c => !c);
@@ -75,7 +127,11 @@ export const EventsView: React.FC = () => {
           </React.Fragment>
         ))}
         <Box flexGrow={1} />
-        <Text dimColor>←/→: filter │ v: toggle view │ Ctrl+L: clear</Text>
+        <Text dimColor>←/→: filter │ /: search │ q: clear-search │ v: toggle view │ Ctrl+L: clear</Text>
+      </Box>
+
+      <Box marginBottom={1}>
+        <Text dimColor>Search: {searchMode ? 'editing' : 'idle'}{searchQuery ? ` · "${searchQuery}"` : ' · (empty)'}</Text>
       </Box>
 
       {/* Events list */}
@@ -96,7 +152,7 @@ export const EventsView: React.FC = () => {
             <Text dimColor>No events yet. Events will appear here as work progresses.</Text>
           ) : (
             displayEvents.map(event => (
-              <EventItem key={event.id} event={event} compact={compact} />
+              <EventItem key={event.id} event={event} compact={compact} searchQuery={searchQuery} />
             ))
           )}
         </Box>

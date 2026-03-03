@@ -108,6 +108,11 @@ export interface RuntimeRolloutUpdateParams {
 
 export interface SystemHandlersOptions {
   getRuntimeRolloutMetrics?: () => RuntimeRolloutMetricsSnapshot;
+  getSessionGoalCoverage?: () => {
+    goalsTotal: number;
+    goalsWithSessionLink: number;
+    goalSessionCoverageRate: number;
+  };
   applyRuntimeRollout?: (rollout: {
     deterministicRuntimeEnabled: boolean;
     planCompilerEnabled: boolean;
@@ -127,6 +132,23 @@ const EMPTY_RUNTIME_ROLLOUT_METRICS: RuntimeRolloutMetricsSnapshot = {
   retentionRunsTotal: 0,
   retentionDeletedTotal: 0,
   retentionFailedTotal: 0,
+  sessionFirst: {
+    sessionCreationsTotal: 0,
+    sessionCreationsSucceeded: 0,
+    sessionCreationSuccessRate: 0,
+    conversationMessagesTotal: 0,
+    conversationMessagesSucceeded: 0,
+    conversationMessagesFailed: 0,
+    conversationMessageSuccessRate: 0,
+    goalsTotal: 0,
+    goalsWithSessionLink: 0,
+    goalSessionCoverageRate: 0,
+    runsTotal: 0,
+    runsSucceeded: 0,
+    runsFailed: 0,
+    runSuccessRate: 0,
+    averageRunLatencyMs: 0,
+  },
 };
 
 function toRuntimeRolloutUpdatePayload(runtime: ReturnType<typeof loadRuntimeConfig>): {
@@ -181,6 +203,22 @@ function buildRuntimeRolloutStatus(options?: SystemHandlersOptions): RuntimeRoll
   const runtime = loadRuntimeConfig();
   const rollout = runtime.scheduler.runtimeRollout;
 
+  const sourceMetrics = options?.getRuntimeRolloutMetrics?.() ?? EMPTY_RUNTIME_ROLLOUT_METRICS;
+  const metrics: RuntimeRolloutMetricsSnapshot = {
+    ...sourceMetrics,
+    failureCodeCounts: { ...sourceMetrics.failureCodeCounts },
+    sessionFirst: { ...sourceMetrics.sessionFirst },
+  };
+  const goalCoverage = options?.getSessionGoalCoverage?.();
+  if (goalCoverage) {
+    metrics.sessionFirst = {
+      ...metrics.sessionFirst,
+      goalsTotal: goalCoverage.goalsTotal,
+      goalsWithSessionLink: goalCoverage.goalsWithSessionLink,
+      goalSessionCoverageRate: goalCoverage.goalSessionCoverageRate,
+    };
+  }
+
   return {
     mode: determineRolloutMode(rollout.shadowModeEnabled, rollout.canaryPercent, rollout.lanePercents),
     schedulerFlags: {
@@ -194,7 +232,7 @@ function buildRuntimeRolloutStatus(options?: SystemHandlersOptions): RuntimeRoll
       rollbackOnFailure: rollout.rollbackOnFailure,
       lanePercents: rollout.lanePercents,
     },
-    metrics: options?.getRuntimeRolloutMetrics?.() ?? EMPTY_RUNTIME_ROLLOUT_METRICS,
+    metrics,
   };
 }
 

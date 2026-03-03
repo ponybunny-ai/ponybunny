@@ -1,0 +1,70 @@
+{
+  "$schema": "https://ponybunny.dho.ai/schemas/ponybunny.schema.json",
+  "paths": {
+    "database": "~/.ponybunny/pony.db",
+    "schedulerSocket": "~/.ponybunny/gateway.sock"
+  },
+  "gateway": {
+    "host": "127.0.0.1",
+    "port": 18789
+  },
+  "scheduler": {
+    "tickIntervalMs": 1000,
+    "maxConcurrentGoals": 5,
+    "agentsEnabled": true,
+    "deterministicRuntimeEnabled": false,
+    "planCompilerEnabled": false,
+    "toolRoutingMode": "legacy",
+    "allowModelNativeTools": false,
+    "runtimeRollout": {
+      "shadowModeEnabled": false,
+      "canaryPercent": 0,
+      "rollbackOnFailure": true,
+      "lanePercents": {
+        "dryRun": 0,
+        "compile": 0,
+        "replay": 0
+      }
+    },
+    "runEventRetention": {
+      "enabled": true,
+      "intervalMs": 3600000,
+      "maxAgeMs": 604800000,
+      "keepLatestPerRun": 50
+    }
+  },
+  "agent": {
+    "mainAgentId": "lead",
+    "personaEnabled": false
+  },
+  "persona": {
+    "directory": "~/.config/ponybunny/personas",
+    "defaultPersonaId": "pony-default",
+    "promptOverrides": {
+      "personalityDescription": "",
+      "communicationStyleDescription": "",
+      "expertiseDescription": "",
+      "guidelines": "",
+      "backstory": ""
+    }
+  },
+  "debug": {
+    "serverPort": 3001,
+    "loggingEnabled": false,
+    "antigravityDebug": false
+  },
+  "memory": {
+    "backend": "sqlite",
+    "database": "~/.ponybunny/memory.db",
+    "userProfileId": "local-default-user",
+    "autoSave": true,
+    "embeddingProvider": "none",
+    "vectorWeight": 0.7,
+    "keywordWeight": 0.3
+  },
+  "tui": {
+    "inputBackgroundColor": "black",
+    "sessionFirstEnabled": true,
+    "goalSubmitFastPathEnabled": false
+  }
+}

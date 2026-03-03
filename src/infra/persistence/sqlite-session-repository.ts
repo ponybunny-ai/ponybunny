@@ -12,7 +12,6 @@ import type {
   IConversationSession,
   IConversationTurn,
   ISessionSummary,
-  IAttachment,
 } from '../../domain/conversation/session.js';
 import type { ISessionRepository } from '../../app/conversation/session-manager.js';
 import type { ConversationState } from '../../domain/conversation/state-machine-rules.js';
@@ -34,6 +33,13 @@ interface SessionRow {
   archive_summary: string | null;
   archive_metadata: string | null;
   metadata: string | null;
+}
+
+function deriveSessionTitleFromText(text?: string): string | undefined {
+  if (!text) return undefined;
+  const normalized = text.trim();
+  if (!normalized) return undefined;
+  return normalized.length > 64 ? `${normalized.slice(0, 64)}...` : normalized;
 }
 
 interface SessionTurnRow {
@@ -291,13 +297,28 @@ export class SqliteSessionRepository implements ISessionRepository {
       SELECT
         s.id,
         s.persona_id,
+        s.metadata,
         s.state,
         s.lifecycle_state,
         s.archived_at,
         s.archive_summary,
         s.created_at,
         s.updated_at,
-        COUNT(t.id) as turn_count
+        COUNT(t.id) as turn_count,
+        (
+          SELECT st.content
+          FROM session_turns st
+          WHERE st.session_id = s.id
+          ORDER BY st.timestamp DESC
+          LIMIT 1
+        ) as last_message,
+        (
+          SELECT st2.content
+          FROM session_turns st2
+          WHERE st2.session_id = s.id AND st2.role = 'user'
+          ORDER BY st2.timestamp ASC
+          LIMIT 1
+        ) as first_user_message
       FROM sessions s
       LEFT JOIN session_turns t ON s.id = t.session_id
       ${lifecycleState ? 'WHERE s.lifecycle_state = ?' : ''}
@@ -318,6 +339,7 @@ export class SqliteSessionRepository implements ISessionRepository {
     ) as Array<{
       id: string;
       persona_id: string;
+      metadata: string | null;
       state: string;
       lifecycle_state: string;
       archived_at: number | null;
@@ -325,16 +347,32 @@ export class SqliteSessionRepository implements ISessionRepository {
       created_at: number;
       updated_at: number;
       turn_count: number;
+      last_message: string | null;
+      first_user_message: string | null;
     }>;
 
     return rows.map(row => ({
       id: row.id,
       personaId: row.persona_id,
+      title: (() => {
+        if (row.metadata) {
+          try {
+            const metadata = JSON.parse(row.metadata) as Record<string, unknown>;
+            if (typeof metadata.title === 'string' && metadata.title.trim().length > 0) {
+              return metadata.title;
+            }
+          } catch (error) {
+            void error;
+          }
+        }
+        return deriveSessionTitleFromText(row.first_user_message ?? undefined);
+      })(),
       state: row.state as ConversationState,
       lifecycleState: (row.lifecycle_state as ConversationLifecycleState) || 'active',
       archivedAt: row.archived_at ?? undefined,
       archiveSummary: row.archive_summary ?? undefined,
       turnCount: row.turn_count,
+      lastMessage: row.last_message ?? undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));

@@ -9,7 +9,7 @@ import { GatewayProvider } from './context/gateway-context.js';
 import { AppProvider, useAppContext } from './context/app-context.js';
 import { useGatewayContext } from './context/gateway-context.js';
 import { MainLayout } from './components/layout/index.js';
-import { DashboardView, TasksView, GoalsView, EventsView, HelpView } from './components/views/index.js';
+import { DashboardView, WorkstreamView, GoalsView, SessionsView, EventsView, HelpView } from './components/views/index.js';
 import { GoalCreateModal, EscalationModal, ConfirmModal, CommandPaletteModal, ViewSwitcherModal, ModelSelectorModal } from './components/modals/index.js';
 import { executeCommand, handleNaturalInput, isCommand, type CommandContext } from './commands/index.js';
 import type { GatewayEvent as ClientGatewayEvent, TuiGatewayClient } from '../gateway/index.js';
@@ -61,7 +61,7 @@ function deriveMessageStatusFromGoalStatus(status: string): 'pending' | 'process
 const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
   const app = useAppContext();
   const gateway = useGatewayContext();
-  const { state, setView, addEvent, setInputFocused: setGlobalInputFocused, setSelectedModel } = app;
+  const { state, setView, addEvent, setInputFocused: setGlobalInputFocused } = app;
   const [selectedAgentIndex, setSelectedAgentIndex] = useState(0);
   const [selectedReasoningEffortIndex, setSelectedReasoningEffortIndex] = useState(0);
 
@@ -104,9 +104,15 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
       return;
     }
 
-    // Ctrl+N for new goal
     if (key.ctrl && input === 'n') {
-      app.openModal('goal-create');
+      void (async () => {
+        const result = await executeCommand('/new', commandContext);
+        if (result.error) {
+          addEvent('command.error', { command: '/new', error: result.error });
+        } else if (result.message) {
+          addEvent('command.success', { command: '/new', message: result.message });
+        }
+      })();
       return;
     }
 
@@ -208,6 +214,23 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
     if (connectionStatus === 'connected' && client && !initialLoadDone.current) {
       initialLoadDone.current = true;
 
+      client.listConversationSessions({ limit: 20, lifecycleState: 'active' }).then(result => {
+        appRef.current.setSessions(result.sessions.map((session) => ({
+          id: session.id,
+          title: session.title,
+          state: session.state,
+          lifecycleState: session.lifecycleState,
+          archivedAt: session.archivedAt,
+          archiveSummary: session.archiveSummary,
+          turnCount: session.turnCount,
+          lastMessage: session.lastMessage,
+          createdAt: session.createdAt,
+          updatedAt: session.updatedAt,
+        })));
+      }).catch(err => {
+        appRef.current.addEvent('error', { message: `Failed to load sessions: ${err.message}` });
+      });
+
       // Load goals
       client.listGoals().then(result => {
         appRef.current.setGoals(result.goals);
@@ -261,9 +284,11 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
       case 'dashboard':
         return <DashboardView />;
       case 'tasks':
-        return <TasksView />;
+        return <WorkstreamView />;
       case 'goals':
         return <GoalsView />;
+      case 'sessions':
+        return <SessionsView />;
       case 'events':
         return <EventsView />;
       case 'help':
@@ -415,19 +440,19 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
       if (!client || !workItemId) return;
       try {
         const runsResp = await client.getWorkItemRuns(workItemId);
-        const runs = (runsResp.runs as Array<Record<string, unknown>>) || [];
+        const runs = runsResp.runs || [];
         const run = runId
-          ? runs.find((r) => typeof r.id === 'string' && r.id === runId)
+          ? runs.find((r) => r.ids.runId === runId)
           : runs[runs.length - 1];
-        const log = typeof run?.execution_log === 'string' ? run.execution_log : undefined;
-        const summary = firstMeaningfulLine(log) || (typeof run?.error_message === 'string' ? run.error_message : undefined);
+        const log = run?.output.executionLog;
+        const summary = run?.output.summary || firstMeaningfulLine(log) || run?.output.errorMessage;
 
         const message = app.state.simpleMessages.find(m => m.goalId === goalId);
         if (!message) return;
 
         app.updateSimpleMessage(message.id, {
           workItemId,
-          runId: typeof run?.id === 'string' ? run.id : undefined,
+          runId: run?.ids.runId,
           resultSummary: summary,
           actions: log ? extractActionHints(log) : message.actions,
         });
@@ -737,6 +762,58 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
             status: typeof data?.success === 'boolean' ? (data.success ? 'completed' : 'failed') : undefined,
           });
           appendTimelineLatest('Final result generated', typeof data?.summary === 'string' ? data.summary : undefined);
+        }
+        break;
+
+      case 'conversation.new':
+        if (typeof data?.sessionId === 'string') {
+          const summary = app.state.sessions.find((session) => session.id === data.sessionId);
+          app.setActiveSession(data.sessionId, summary?.title ?? null);
+        }
+        if (client) {
+          void client.listConversationSessions({ limit: 20, lifecycleState: 'active' }).then(result => {
+            app.setSessions(result.sessions.map((session) => ({
+              id: session.id,
+              title: session.title,
+              state: session.state,
+              lifecycleState: session.lifecycleState,
+              archivedAt: session.archivedAt,
+              archiveSummary: session.archiveSummary,
+              turnCount: session.turnCount,
+              lastMessage: session.lastMessage,
+              createdAt: session.createdAt,
+              updatedAt: session.updatedAt,
+            })));
+          });
+        }
+        break;
+
+      case 'conversation.response':
+        if (typeof data?.sessionId === 'string' && !app.state.activeSessionId) {
+          app.setActiveSession(data.sessionId, null);
+        }
+        break;
+
+      case 'conversation.archived':
+      case 'conversation.resumed':
+        if (client) {
+          void client.listConversationSessions({ limit: 20, lifecycleState: 'active' }).then(result => {
+            app.setSessions(result.sessions.map((session) => ({
+              id: session.id,
+              title: session.title,
+              state: session.state,
+              lifecycleState: session.lifecycleState,
+              archivedAt: session.archivedAt,
+              archiveSummary: session.archiveSummary,
+              turnCount: session.turnCount,
+              lastMessage: session.lastMessage,
+              createdAt: session.createdAt,
+              updatedAt: session.updatedAt,
+            })));
+          });
+        }
+        if (event.event === 'conversation.archived' && typeof data?.sessionId === 'string' && app.state.activeSessionId === data.sessionId) {
+          app.setActiveSession(null, null);
         }
         break;
 

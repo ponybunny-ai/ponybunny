@@ -127,4 +127,58 @@ describe('workitem handlers', () => {
     expect(repository.updateWorkItemStatusIfDependenciesMet).toHaveBeenCalledWith(failed.id);
     expect(repository.updateGoalStatus).toHaveBeenCalledWith(goal.id, 'queued');
   });
+
+  it('returns standardized run result DTO from workitem.runs', async () => {
+    const rpc = new RpcHandler();
+    const session = createSession();
+    const goal = createGoal('goal-run-dto');
+    const workItem = createWorkItem('wi-run-dto', goal.id, 'done');
+
+    const repository = {
+      listGoals: jest.fn(() => [goal]),
+      getWorkItemsByGoal: jest.fn(() => [workItem]),
+      getGoal: jest.fn(() => goal),
+      getWorkItem: jest.fn(() => workItem),
+      getRunsByWorkItem: jest.fn(() => [{
+        id: 'run-1',
+        work_item_id: workItem.id,
+        goal_id: goal.id,
+        status: 'success',
+        created_at: Date.now() - 1000,
+        completed_at: Date.now(),
+        tokens_used: 123,
+        time_seconds: 2,
+        cost_usd: 0.0042,
+        execution_log: 'Implemented change and validated tests.',
+        error_message: undefined,
+        artifacts: ['artifact-1'],
+      }]),
+      getReadyWorkItems: jest.fn(() => []),
+      updateWorkItemStatus: jest.fn(),
+      incrementWorkItemRetry: jest.fn(),
+      updateWorkItemStatusIfDependenciesMet: jest.fn(),
+      updateGoalStatus: jest.fn(),
+    } as unknown as IWorkOrderRepository;
+
+    registerWorkItemHandlers(rpc, repository);
+
+    const result = await rpc.handle('workitem.runs', { workItemId: workItem.id }, session) as {
+      runs: Array<{
+        ids: { runId: string; workItemId: string; goalId: string };
+        output: { summary: string };
+        artifacts: { count: number };
+        usage: { tokensUsed: number };
+      }>;
+    };
+
+    expect(result.runs).toHaveLength(1);
+    expect(result.runs[0].ids).toEqual({
+      runId: 'run-1',
+      workItemId: workItem.id,
+      goalId: goal.id,
+    });
+    expect(result.runs[0].output.summary).toContain('Implemented change');
+    expect(result.runs[0].artifacts.count).toBe(1);
+    expect(result.runs[0].usage.tokensUsed).toBe(123);
+  });
 });

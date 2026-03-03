@@ -49,6 +49,7 @@ export interface GoalListParams {
   status?: GoalStatus;
   limit?: number;
   offset?: number;
+  sessionId?: string;
 }
 
 export interface GoalSubscribeParams {
@@ -99,6 +100,19 @@ export function registerGoalHandlers(
         throw GatewayError.invalidParams('title, description, and success_criteria are required');
       }
 
+      const context = params.context as Record<string, unknown> | undefined;
+      if (context?.createdViaConversation === true) {
+        const sessionId = context.sessionId;
+        const turnId = context.turnId;
+
+        if (typeof sessionId !== 'string' || sessionId.trim().length === 0) {
+          throw GatewayError.invalidParams('Conversation goal context requires sessionId');
+        }
+        if (typeof turnId !== 'string' || turnId.trim().length === 0) {
+          throw GatewayError.invalidParams('Conversation goal context requires turnId');
+        }
+      }
+
       const createParams: CreateGoalParams = {
         title: params.title,
         description: params.description,
@@ -107,7 +121,7 @@ export function registerGoalHandlers(
         budget_tokens: params.budget_tokens,
         budget_time_minutes: params.budget_time_minutes,
         budget_cost_usd: params.budget_cost_usd,
-        context: params.context as Record<string, any> | undefined,
+        context,
       };
 
       const goal = repository.createGoal(createParams);
@@ -365,6 +379,7 @@ export function registerGoalHandlers(
     async (params) => {
       const goals = repository.listGoals({
         status: params.status,
+        session_id: params.sessionId,
       });
 
       // Apply pagination

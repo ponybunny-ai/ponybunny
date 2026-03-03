@@ -177,6 +177,10 @@ describe('internal runtime handlers', () => {
             replay: 0,
           },
         },
+        tui: {
+          sessionFirstEnabled: true,
+          goalSubmitFastPathEnabled: false,
+        },
       }),
       () => toolRegistry
     );
@@ -322,6 +326,10 @@ describe('internal runtime handlers', () => {
           replay: 0,
         },
       },
+      tui: {
+        sessionFirstEnabled: true,
+        goalSubmitFastPathEnabled: false,
+      },
     });
   });
 
@@ -464,6 +472,10 @@ describe('internal runtime handlers', () => {
             compile: 0,
             replay: 0,
           },
+        },
+        tui: {
+          sessionFirstEnabled: true,
+          goalSubmitFastPathEnabled: false,
         },
       })
     );
@@ -1874,6 +1886,10 @@ describe('internal runtime handlers', () => {
             replay: 0,
           },
         },
+        tui: {
+          sessionFirstEnabled: true,
+          goalSubmitFastPathEnabled: false,
+        },
       }),
       () => toolRegistry
     );
@@ -1936,6 +1952,10 @@ describe('internal runtime handlers', () => {
             compile: 0,
             replay: 0,
           },
+        },
+        tui: {
+          sessionFirstEnabled: true,
+          goalSubmitFastPathEnabled: false,
         },
       })
     );

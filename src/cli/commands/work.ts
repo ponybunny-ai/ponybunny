@@ -5,6 +5,7 @@ import { WorkOrderDatabase } from '../../work-order/database/manager.js';
 import { ExecutionService } from '../../app/lifecycle/execution/execution-service.js';
 import { getLLMService, MockLLMProvider } from '../../infra/llm/index.js';
 import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
+import { buildWorkItemRunResultDTO } from '../../domain/work-order/result-dto.js';
 
 function buildWorkModelCandidates(fallbackChain: string[]): string[] {
   const candidates = fallbackChain.flatMap((modelId) => {
@@ -115,15 +116,34 @@ export function registerWorkCommand(program: Command) {
         }
 
         console.log(chalk.bold('\n📊 Execution Summary:'));
-        console.log(`  Success: ${result.success ? chalk.green('Yes') : chalk.red('No')}`);
-        console.log(`  Tokens:  ${result.run.tokens_used}`);
-        console.log(`  Cost:    $${result.run.cost_usd.toFixed(4)}`);
-        console.log(`  Time:    ${result.run.time_seconds}s`);
+        const resultDto = buildWorkItemRunResultDTO({
+          runId: result.run.id,
+          workItemId: result.run.work_item_id,
+          goalId: result.run.goal_id,
+          status: result.run.status,
+          createdAt: result.run.created_at,
+          completedAt: result.run.completed_at,
+          tokensUsed: result.run.tokens_used,
+          timeSeconds: result.run.time_seconds,
+          costUsd: result.run.cost_usd,
+          executionLog: result.run.execution_log,
+          errorMessage: result.run.error_message,
+          artifactIds: result.run.artifacts,
+          workItemStatus: workItem.status,
+          verificationStatus: workItem.status === 'done' ? 'passed' : 'not_started',
+        });
 
-        if (result.run.execution_log) {
+        console.log(`  Success: ${result.success ? chalk.green('Yes') : chalk.red('No')}`);
+        console.log(`  Tokens:  ${resultDto.usage.tokensUsed}`);
+        console.log(`  Cost:    $${resultDto.usage.costUsd.toFixed(4)}`);
+        console.log(`  Time:    ${resultDto.usage.timeSeconds}s`);
+        console.log(`  Result:  ${resultDto.output.summary}`);
+        console.log(`  Artifacts: ${resultDto.artifacts.count}`);
+
+        if (resultDto.output.executionLog) {
           console.log(chalk.bold('\n📜 Execution Log:'));
           console.log(chalk.gray('─'.repeat(80)));
-          console.log(result.run.execution_log);
+          console.log(resultDto.output.executionLog);
           console.log(chalk.gray('─'.repeat(80)));
         }
 

@@ -7,7 +7,7 @@ import type { SchedulerCapabilitiesResponse } from '../../gateway/tui-gateway-cl
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
-export type ViewType = 'dashboard' | 'tasks' | 'goals' | 'events' | 'help';
+export type ViewType = 'dashboard' | 'tasks' | 'goals' | 'sessions' | 'events' | 'help';
 
 export type SimpleMessageStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
@@ -39,6 +39,32 @@ export interface GatewayEvent {
   event: string;
   data: unknown;
   timestamp: number;
+}
+
+export interface SessionSummary {
+  id: string;
+  title?: string;
+  state: string;
+  lifecycleState: string;
+  archivedAt?: number;
+  archiveSummary?: string;
+  turnCount: number;
+  lastMessage?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SessionHistoryPreview {
+  sessionId: string;
+  totalTurns: number;
+  returnedTurns: number;
+  roleFilter: 'all' | 'user' | 'assistant' | 'system';
+  limit: number;
+  offset: number;
+  previewLines: number;
+  generatedAt: number;
+  source: 'command' | 'sessions_view';
+  previewText: string;
 }
 
 export interface RuntimeSnapshot {
@@ -97,6 +123,14 @@ export interface AppState {
   // Current view
   currentView: ViewType;
 
+  activeSessionId: string | null;
+  activeSessionTitle: string | null;
+  sessions: SessionSummary[];
+  sessionsLifecycleFilter: 'active' | 'archived';
+  sessionsSearchQuery: string;
+  sessionsSortMode: 'updated' | 'history_freshness';
+  sessionHistoryPreviews: Record<string, SessionHistoryPreview>;
+
   // Goals
   goals: Goal[];
   selectedGoalId: string | null;
@@ -119,6 +153,8 @@ export interface AppState {
   // Events
   events: GatewayEvent[];
   maxEvents: number;
+  eventsFilter: 'all' | 'goal' | 'workitem' | 'escalation' | 'system' | 'conversation';
+  eventsSearchQuery: string;
 
   runtimeSnapshots: RuntimeSnapshot[];
 
@@ -176,6 +212,13 @@ export const initialState: AppState = {
   connectionStatus: 'connecting',
   gatewayUrl: 'ws://127.0.0.1:18789',
   currentView: 'dashboard',
+  activeSessionId: null,
+  activeSessionTitle: null,
+  sessions: [],
+  sessionsLifecycleFilter: 'active',
+  sessionsSearchQuery: '',
+  sessionsSortMode: 'updated',
+  sessionHistoryPreviews: {},
   goals: [],
   selectedGoalId: null,
   goalsLoading: false,
@@ -189,6 +232,8 @@ export const initialState: AppState = {
   selectedModel: null,
   events: [],
   maxEvents: 100,
+  eventsFilter: 'all',
+  eventsSearchQuery: '',
   runtimeSnapshots: [],
   activityStatus: 'idle',
   activeModal: null,

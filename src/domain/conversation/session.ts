@@ -47,6 +47,7 @@ export interface IArchivedSessionSnapshot {
 export interface ISessionSummary {
   id: string;
   personaId: string;
+  title?: string;
   state: ConversationState;
   lifecycleState: ConversationLifecycleState;
   archivedAt?: number;

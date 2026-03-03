@@ -1,4 +1,11 @@
-import { resolveRuntimeConfigFromEnvironment } from '../../../src/infra/config/runtime-config.js';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import {
+  DEFAULT_RUNTIME_CONFIG,
+  loadRuntimeConfig,
+  resolveRuntimeConfigFromEnvironment,
+} from '../../../src/infra/config/runtime-config.js';
 
 describe('runtime-config memory user profile id', () => {
   it('uses PONY_MEMORY_USER_PROFILE_ID when provided', () => {
@@ -75,6 +82,16 @@ describe('runtime-config memory user profile id', () => {
     expect(config.scheduler.runtimeRollout.lanePercents.replay).toBe(0);
   });
 
+  it('loads TUI input routing flags from environment', () => {
+    const config = resolveRuntimeConfigFromEnvironment({
+      PONY_TUI_SESSION_FIRST_ENABLED: 'false',
+      PONY_TUI_GOAL_SUBMIT_FAST_PATH_ENABLED: 'true',
+    });
+
+    expect(config.tui.sessionFirstEnabled).toBe(false);
+    expect(config.tui.goalSubmitFastPathEnabled).toBe(true);
+  });
+
   it('loads run-event retention settings from environment', () => {
     const config = resolveRuntimeConfigFromEnvironment({
       PONY_RUN_EVENTS_RETENTION_ENABLED: 'false',
@@ -89,5 +106,45 @@ describe('runtime-config memory user profile id', () => {
       maxAgeMs: 86400000,
       keepLatestPerRun: 12,
     });
+  });
+
+  it('uses default TUI routing flags when env overrides are absent', () => {
+    const config = resolveRuntimeConfigFromEnvironment({});
+
+    expect(config.tui.sessionFirstEnabled).toBe(DEFAULT_RUNTIME_CONFIG.tui.sessionFirstEnabled);
+    expect(config.tui.goalSubmitFastPathEnabled).toBe(DEFAULT_RUNTIME_CONFIG.tui.goalSubmitFastPathEnabled);
+  });
+
+  it('reads TUI routing flags from ponybunny.json and normalizes snake_case aliases', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-runtime-config-'));
+    const previousConfigDir = process.env.PONYBUNNY_CONFIG_DIR;
+    process.env.PONYBUNNY_CONFIG_DIR = tempRoot;
+
+    try {
+      const payload = {
+        tui: {
+          inputBackgroundColor: 'black',
+          session_first_enabled: false,
+          goal_submit_fast_path_enabled: true,
+        },
+      };
+
+      fs.writeFileSync(
+        path.join(tempRoot, 'ponybunny.json'),
+        JSON.stringify(payload, null, 2),
+        'utf-8'
+      );
+
+      const loaded = loadRuntimeConfig();
+      expect(loaded.tui.sessionFirstEnabled).toBe(false);
+      expect(loaded.tui.goalSubmitFastPathEnabled).toBe(true);
+    } finally {
+      if (previousConfigDir === undefined) {
+        delete process.env.PONYBUNNY_CONFIG_DIR;
+      } else {
+        process.env.PONYBUNNY_CONFIG_DIR = previousConfigDir;
+      }
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 });

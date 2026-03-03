@@ -40,10 +40,15 @@ export const GoalsView: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(0);
   const [actionBusy, setActionBusy] = useState(false);
   const pageSize = 12;
+  const activeSessionId = state.activeSessionId;
 
   const goals = useMemo(() => {
-    return [...state.goals].sort((a, b) => (b.updated_at || b.created_at) - (a.updated_at || a.created_at));
-  }, [state.goals]);
+    const filtered = activeSessionId
+      ? state.goals.filter((goal) => goal.context?.sessionId === activeSessionId)
+      : state.goals;
+
+    return [...filtered].sort((a, b) => (b.updated_at || b.created_at) - (a.updated_at || a.created_at));
+  }, [activeSessionId, state.goals]);
   const totalPages = Math.max(1, Math.ceil(goals.length / pageSize));
   const pageStart = currentPage * pageSize;
   const pageGoals = goals.slice(pageStart, pageStart + pageSize);
@@ -175,7 +180,8 @@ export const GoalsView: React.FC = () => {
     <Box flexDirection="row" flexGrow={1}>
       <Box flexDirection="column" width="42%" borderStyle="round" borderColor="gray" paddingX={1} marginRight={1}>
         <Text bold color="cyan">Goal List ({goals.length})</Text>
-        <Text dimColor>j/k or ↑/↓ select · h/l or ←/→ page · t open tasks · r retry failed · d delete</Text>
+        <Text dimColor>Session filter: {activeSessionId ? activeSessionId.slice(0, 8) : 'none'}</Text>
+        <Text dimColor>j/k or ↑/↓ select · h/l or ←/→ page · t open workstream · r retry failed · d delete</Text>
         <Text dimColor>Page {Math.min(currentPage + 1, totalPages)} / {totalPages}</Text>
         <Box flexDirection="column" marginTop={1}>
           {pageGoals.map((goal, idx) => {
@@ -218,7 +224,7 @@ export const GoalsView: React.FC = () => {
             </Box>
 
             <Box marginTop={1} flexDirection="column">
-              <Text bold>Related Tasks ({relatedTasks.length})</Text>
+              <Text bold>Related Timeline Entries ({relatedTasks.length})</Text>
               {relatedTasks.length === 0 ? (
                 <Text dimColor>- No linked tasks.</Text>
               ) : (
@@ -228,7 +234,7 @@ export const GoalsView: React.FC = () => {
                   </Text>
                 ))
               )}
-              <Text dimColor>- Press t to jump to Tasks view for this goal.</Text>
+              <Text dimColor>- Press t to jump to Workstream view for this goal.</Text>
             </Box>
 
             <Box marginTop={1} flexDirection="column">

@@ -34,6 +34,63 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case 'SET_CURRENT_VIEW':
       return { ...state, currentView: action.payload };
 
+    case 'SET_ACTIVE_SESSION':
+      return {
+        ...state,
+        activeSessionId: action.payload.sessionId,
+        activeSessionTitle: Object.prototype.hasOwnProperty.call(action.payload, 'title')
+          ? (action.payload.title ?? null)
+          : state.activeSessionTitle,
+      };
+
+    case 'SET_SESSIONS':
+      return {
+        ...state,
+        sessions: action.payload,
+      };
+
+    case 'SET_SESSIONS_VIEW_STATE':
+      return {
+        ...state,
+        sessionsLifecycleFilter: action.payload.lifecycleFilter ?? state.sessionsLifecycleFilter,
+        sessionsSearchQuery: action.payload.searchQuery ?? state.sessionsSearchQuery,
+        sessionsSortMode: action.payload.sortMode ?? state.sessionsSortMode,
+      };
+
+    case 'SET_SESSION_HISTORY_PREVIEW':
+      return {
+        ...state,
+        sessionHistoryPreviews: {
+          ...state.sessionHistoryPreviews,
+          [action.payload.sessionId]: action.payload,
+        },
+      };
+
+    case 'CLEAR_SESSION_HISTORY_PREVIEW': {
+      if (!state.sessionHistoryPreviews[action.payload]) {
+        return state;
+      }
+      const next = { ...state.sessionHistoryPreviews };
+      delete next[action.payload];
+      return {
+        ...state,
+        sessionHistoryPreviews: next,
+      };
+    }
+
+    case 'CLEAR_ALL_SESSION_HISTORY_PREVIEWS':
+      return {
+        ...state,
+        sessionHistoryPreviews: {},
+      };
+
+    case 'SET_EVENTS_VIEW_STATE':
+      return {
+        ...state,
+        eventsFilter: action.payload.filter ?? state.eventsFilter,
+        eventsSearchQuery: action.payload.searchQuery ?? state.eventsSearchQuery,
+      };
+
     case 'SET_GOALS':
       return { ...state, goals: action.payload };
 
@@ -144,7 +201,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     }
 
     case 'CLEAR_EVENTS':
-      return { ...state, events: [] };
+      return { ...state, events: [], eventsSearchQuery: '' };
 
     case 'ADD_RUNTIME_SNAPSHOT': {
       const maxSnapshots = 20;

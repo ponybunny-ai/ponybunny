@@ -126,6 +126,7 @@ export const initCommand = new Command('init')
       console.log(`  1. Review ${chalk.cyan('~/.config/ponybunny/ponybunny.json')} for runtime settings`);
       console.log(`  2. Edit ${chalk.cyan('~/.config/ponybunny/credentials.json')} to add your API keys`);
       console.log(`  3. Edit ${chalk.cyan('~/.config/ponybunny/llm-config.json')} to customize endpoints`);
-      console.log(`  4. Run ${chalk.cyan('pb status')} to verify configuration`);
+      console.log(`  4. Validate schema files in ${chalk.cyan('~/.config/ponybunny/*.schema.json')}`);
+      console.log(`  5. Run ${chalk.cyan('pb status')} to verify configuration`);
     }
   });

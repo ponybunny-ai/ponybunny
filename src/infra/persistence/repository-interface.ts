@@ -84,6 +84,8 @@ export interface CreateGoalParams {
 export interface GoalFilters {
   status?: Goal['status'];
   parent_goal_id?: string | null;
+  session_id?: string;
+  turn_id?: string;
 }
 
 export interface CreateWorkItemParams {
