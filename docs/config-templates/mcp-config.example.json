@@ -15,6 +15,26 @@
       "autoReconnect": true,
       "timeout": 30000
     },
+    "companies_house_mcp": {
+      "enabled": false,
+      "transport": "http",
+      "url": "https://mcp.dho.ai/dho/companies-house/mcp",
+      "allowedTools": [
+        "*"
+      ],
+      "autoReconnect": true,
+      "timeout": 30000
+    },
+    "ico_mcp": {
+      "enabled": false,
+      "transport": "http",
+      "url": "https://mcp.dho.ai/dho/ico/mcp",
+      "allowedTools": [
+        "*"
+      ],
+      "autoReconnect": true,
+      "timeout": 30000
+    },
     "pg": {
       "enabled": false,
       "transport": "stdio",
