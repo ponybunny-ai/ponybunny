@@ -107,11 +107,29 @@ export const WorkstreamView: React.FC = () => {
 
   const tasks = useMemo(() => {
     const selectedGoalId = state.selectedGoalId;
+    const activeSessionId = state.activeSessionId;
+    const scopedGoalIds = activeSessionId
+      ? new Set(
+        state.goals
+          .filter((goal) => goal.context?.sessionId === activeSessionId)
+          .map((goal) => goal.id)
+      )
+      : null;
     const scoped = selectedGoalId
       ? state.simpleMessages.filter((message) => message.goalId === selectedGoalId)
-      : state.simpleMessages;
+      : state.simpleMessages.filter((message) => {
+        if (!scopedGoalIds) {
+          return true;
+        }
+
+        if (!message.goalId) {
+          return false;
+        }
+
+        return scopedGoalIds.has(message.goalId);
+      });
     return [...scoped].sort((a, b) => b.timestamp - a.timestamp);
-  }, [state.selectedGoalId, state.simpleMessages]);
+  }, [state.activeSessionId, state.goals, state.selectedGoalId, state.simpleMessages]);
   const totalPages = Math.max(1, Math.ceil(tasks.length / pageSize));
   const pageStart = currentPage * pageSize;
   const pageTasks = tasks.slice(pageStart, pageStart + pageSize);
@@ -332,7 +350,11 @@ export const WorkstreamView: React.FC = () => {
       <Box flexDirection="column" width="42%" borderStyle="round" borderColor="gray" paddingX={1} marginRight={1}>
         <Text bold color="cyan">Workstream Timeline ({tasks.length})</Text>
         <Text dimColor>
-          Scope: {state.selectedGoalId ? `goal ${state.selectedGoalId.slice(0, 8)} (0 clear)` : 'all goals'}
+          Scope: {state.selectedGoalId
+            ? `goal ${state.selectedGoalId.slice(0, 8)} (0 clear)`
+            : state.activeSessionId
+              ? `session ${state.activeSessionId.slice(0, 8)}`
+              : 'all goals'}
         </Text>
         <Text dimColor>j/k or ↑/↓ select · h/l or ←/→ page · g open goal · w next work item · n/p run +/- · r retry failed · d delete</Text>
         <Text dimColor>Page {Math.min(currentPage + 1, totalPages)} / {totalPages}</Text>

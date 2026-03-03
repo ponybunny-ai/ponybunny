@@ -2,12 +2,15 @@
  * Command Handlers - Execute slash commands
  */
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { AppContextValue } from '../context/app-context.js';
 import type { GatewayContextValue } from '../context/gateway-context.js';
 import { parseCommand, findCommand, type ParsedCommand } from './registry.js';
 import type { RuntimeSnapshot } from '../store/types.js';
 import type { InternalRuntimeRunEventsPruneParams } from '../../gateway/tui-gateway-client.js';
 import { loadRuntimeConfig, saveRuntimeConfig } from '../../../infra/config/runtime-config.js';
+import { getConfigDir } from '../../../infra/config/config-paths.js';
 
 export interface CommandContext {
   app: AppContextValue;
@@ -330,6 +333,41 @@ async function refreshSchedulerData(ctx: CommandContext): Promise<CommandResult>
   } finally {
     ctx.app.setActivityStatus('idle');
   }
+}
+
+async function persistModelSelectionToMainAgent(model: string): Promise<{ agentId: string; configPath: string }> {
+  const runtime = loadRuntimeConfig();
+  const agentId = runtime.agent.mainAgentId;
+
+  const userAgentConfigPath = path.join(getConfigDir(), 'agents', agentId, 'agent.json');
+  const workspaceAgentConfigPath = path.join(process.cwd(), 'agents', agentId, 'agent.json');
+  const sourcePath = fs.existsSync(userAgentConfigPath)
+    ? userAgentConfigPath
+    : workspaceAgentConfigPath;
+
+  if (!fs.existsSync(sourcePath)) {
+    throw new Error(`Agent config not found for '${agentId}'`);
+  }
+
+  const parsed = JSON.parse(fs.readFileSync(sourcePath, 'utf-8')) as Record<string, unknown>;
+  const runner = parsed.runner && typeof parsed.runner === 'object'
+    ? { ...(parsed.runner as Record<string, unknown>) }
+    : {};
+  const runnerConfig = runner.config && typeof runner.config === 'object'
+    ? { ...(runner.config as Record<string, unknown>) }
+    : {};
+
+  runnerConfig.model_hint = model;
+  runner.config = runnerConfig;
+  parsed.runner = runner;
+
+  const targetDir = path.dirname(userAgentConfigPath);
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true, mode: 0o700 });
+  }
+
+  fs.writeFileSync(userAgentConfigPath, `${JSON.stringify(parsed, null, 2)}\n`, { mode: 0o600 });
+  return { agentId, configPath: userAgentConfigPath };
 }
 
 async function refreshRuntimeData(ctx: CommandContext, goalId?: string): Promise<CommandResult> {
@@ -1131,6 +1169,20 @@ const handlers: Record<string, CommandHandler> = {
       onSelect: (model: string) => {
         ctx.app.setSelectedModel(model);
         ctx.app.addEvent('model.selected', { model, source: 'slash_command' });
+        void persistModelSelectionToMainAgent(model)
+          .then((result) => {
+            ctx.app.addEvent('model.selection.persisted', {
+              model,
+              agentId: result.agentId,
+              configPath: result.configPath,
+            });
+          })
+          .catch((error) => {
+            ctx.app.addEvent('model.selection.persist_failed', {
+              model,
+              error: (error as Error).message,
+            });
+          });
       },
     });
 

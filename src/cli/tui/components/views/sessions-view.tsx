@@ -203,7 +203,7 @@ export const SessionsView: React.FC = () => {
 
     if (input === 'g' && selected) {
       setActiveSession(selected.id, selected.title ?? null);
-      setView('goals');
+      setView('tasks');
       return;
     }
 
@@ -381,7 +381,7 @@ export const SessionsView: React.FC = () => {
       <Box flexDirection="column" width="46%" borderStyle="round" borderColor="gray" paddingX={1} marginRight={1}>
         <Text bold color="cyan">Session List ({visibleSessions.length}/{sessions.length})</Text>
         <Text dimColor>
-          Filter: {lifecycleFilter} · sort={sortMode} (o toggle) · / search · q clear-search · a active · h archived · j/k select · Enter/u activate · g goals · t workstream · y/1..4 history-role · m expand/collapse preview · z clear-history-preview · x archive · v resume · r refresh
+          Filter: {lifecycleFilter} · sort={sortMode} (o toggle) · / search · q clear-search · a active · h archived · j/k select · Enter/u activate · g/t workstream · y/1..4 history-role · m expand/collapse preview · z clear-history-preview · x archive · v resume · r refresh
         </Text>
         <Text dimColor>
           Search: {searchMode ? 'editing' : 'idle'}{searchQuery ? ` · "${searchQuery}"` : ' · (empty)'}

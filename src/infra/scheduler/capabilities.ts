@@ -27,6 +27,7 @@ export interface ProviderInfo {
   name: string;
   protocol: string;
   enabled: boolean;
+  healthAvailable: boolean;
   priority: number;
   baseUrl?: string;
 }
@@ -136,6 +137,7 @@ export function getProvidersInfo(): ProviderInfo[] {
         name: endpointId,
         protocol: endpointConfig.protocol,
         enabled: endpointConfig.enabled,
+        healthAvailable: endpointConfig.health?.available === true,
         priority: endpointConfig.priority,
         baseUrl: endpointConfig.baseUrl,
       });
@@ -258,19 +260,21 @@ export async function getAgentsInfo(): Promise<AgentInfo[]> {
  * Get complete scheduler capabilities
  */
 export async function getSchedulerCapabilities(toolRegistry?: ToolRegistry): Promise<SchedulerCapabilities> {
-  const models = getModelsInfo();
+  const allModels = getModelsInfo();
   const providers = getProvidersInfo();
   const tools = getToolsInfo(toolRegistry);
   const mcpServers = getMCPServersInfo();
   const skills = await getSkillsInfo();
   const agents = await getAgentsInfo();
 
-  const enabledProviderNames = new Set(
-    providers.filter(provider => provider.enabled).map(provider => provider.name)
+  const enabledHealthyProviderNames = new Set(
+    providers
+      .filter(provider => provider.enabled && provider.healthAvailable)
+      .map(provider => provider.name)
   );
-  const enabledModelsCount = models.filter(model =>
-    model.providers.some(providerName => enabledProviderNames.has(providerName))
-  ).length;
+  const models = allModels.filter(model =>
+    model.providers.some(providerName => enabledHealthyProviderNames.has(providerName))
+  );
   const enabledProvidersCount = providers.filter(provider => provider.enabled).length;
   const enabledMCPServersCount = mcpServers.filter(server => server.enabled).length;
   const enabledSkillsCount = skills.filter(skill => skill.enabled).length;
@@ -284,7 +288,7 @@ export async function getSchedulerCapabilities(toolRegistry?: ToolRegistry): Pro
     skills,
     agents,
     summary: {
-      totalModels: enabledModelsCount,
+      totalModels: models.length,
       totalProviders: enabledProvidersCount,
       totalTools: tools.length,
       totalMCPServers: enabledMCPServersCount,

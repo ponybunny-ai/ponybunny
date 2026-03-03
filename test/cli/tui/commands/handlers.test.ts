@@ -40,6 +40,8 @@ function createCommandContext(options?: {
     addRuntimeSnapshot: jest.Mock;
     setActiveSession: jest.Mock;
     selectGoal: jest.Mock;
+    openModal: jest.Mock;
+    setSelectedModel: jest.Mock;
   };
   client: {
     createConversationSession: jest.Mock;
@@ -68,6 +70,8 @@ function createCommandContext(options?: {
     addRuntimeSnapshot: jest.fn(),
     setActiveSession: jest.fn(),
     selectGoal: jest.fn(),
+    openModal: jest.fn(),
+    setSelectedModel: jest.fn(),
   };
 
   const client = {
@@ -182,7 +186,12 @@ function createCommandContext(options?: {
   const ctx = {
     app: {
       ...app,
-      state: { goals: [], escalations: [] },
+      state: {
+        goals: [],
+        escalations: [],
+        selectedModel: null,
+        schedulerCapabilities: buildCapabilitiesResponse(),
+      },
     },
     gateway: {
       client: options?.withClient === false ? null : client,
@@ -592,6 +601,120 @@ describe('TUI command handlers - pruneevents', () => {
     expect(badEventType.error).toContain('Prune command failed');
 
     expect(client.pruneInternalRunEvents).not.toHaveBeenCalled();
+  });
+});
+
+describe('TUI command handlers - models', () => {
+  let tempConfigDir: string;
+  let previousConfigDir: string | undefined;
+
+  beforeEach(() => {
+    tempConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-tui-models-'));
+    previousConfigDir = process.env.PONYBUNNY_CONFIG_DIR;
+    process.env.PONYBUNNY_CONFIG_DIR = tempConfigDir;
+    fs.writeFileSync(
+      path.join(tempConfigDir, 'ponybunny.json'),
+      JSON.stringify({
+        ...DEFAULT_RUNTIME_CONFIG,
+        agent: {
+          ...DEFAULT_RUNTIME_CONFIG.agent,
+          mainAgentId: 'lead',
+        },
+      }, null, 2),
+      'utf-8'
+    );
+  });
+
+  afterEach(() => {
+    if (previousConfigDir === undefined) {
+      delete process.env.PONYBUNNY_CONFIG_DIR;
+    } else {
+      process.env.PONYBUNNY_CONFIG_DIR = previousConfigDir;
+    }
+    fs.rmSync(tempConfigDir, { recursive: true, force: true });
+  });
+
+  it('opens model selector when models are available', async () => {
+    const { ctx, app } = createCommandContext();
+    (ctx.app as unknown as { state: { schedulerCapabilities: SchedulerCapabilitiesResponse } }).state.schedulerCapabilities = {
+      ...buildCapabilitiesResponse(),
+      capabilities: {
+        ...buildCapabilitiesResponse().capabilities,
+        models: [
+          {
+            name: 'openai.gpt-5.2',
+            displayName: 'GPT-5.2',
+            providers: ['openai-direct'],
+            capabilities: ['text'],
+          },
+        ],
+      },
+    };
+
+    const result = await executeCommand('/models', ctx);
+
+    expect(result.success).toBe(true);
+    expect(app.openModal).toHaveBeenCalledWith(
+      'model-selector',
+      expect.objectContaining({ selectedModel: null, onSelect: expect.any(Function) })
+    );
+  });
+
+  it('persists selected model to active main agent config', async () => {
+    const { ctx, app } = createCommandContext();
+    (ctx.app as unknown as { state: { schedulerCapabilities: SchedulerCapabilitiesResponse } }).state.schedulerCapabilities = {
+      ...buildCapabilitiesResponse(),
+      capabilities: {
+        ...buildCapabilitiesResponse().capabilities,
+        models: [
+          {
+            name: 'openai.gpt-5.2',
+            displayName: 'GPT-5.2',
+            providers: ['openai-direct'],
+            capabilities: ['text'],
+          },
+        ],
+      },
+    };
+
+    const result = await executeCommand('/models', ctx);
+    expect(result.success).toBe(true);
+
+    const modalData = app.openModal.mock.calls[0]?.[1] as { onSelect: (model: string) => void };
+    modalData.onSelect('openai.gpt-5.2');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const persistedPath = path.join(tempConfigDir, 'agents', 'lead', 'agent.json');
+    expect(fs.existsSync(persistedPath)).toBe(true);
+
+    const persisted = JSON.parse(fs.readFileSync(persistedPath, 'utf-8')) as {
+      runner?: { config?: { model_hint?: string } };
+    };
+
+    expect(persisted.runner?.config?.model_hint).toBe('openai.gpt-5.2');
+    expect(app.setSelectedModel).toHaveBeenCalledWith('openai.gpt-5.2');
+    expect(app.addEvent).toHaveBeenCalledWith(
+      'model.selection.persisted',
+      expect.objectContaining({ model: 'openai.gpt-5.2', agentId: 'lead' })
+    );
+  });
+
+  it('returns an error when model list is empty', async () => {
+    const { ctx, app } = createCommandContext();
+    (ctx.app as unknown as { state: { schedulerCapabilities: SchedulerCapabilitiesResponse } }).state.schedulerCapabilities = {
+      ...buildCapabilitiesResponse(),
+      capabilities: {
+        ...buildCapabilitiesResponse().capabilities,
+        models: [],
+      },
+    };
+
+    const result = await executeCommand('/models', ctx);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('No models available. Try /refresh first.');
+    expect(app.openModal).not.toHaveBeenCalled();
   });
 });
 

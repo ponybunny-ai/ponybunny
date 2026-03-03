@@ -29,7 +29,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   const { state } = useAppContext();
   const runtimeConfig = loadRuntimeConfig();
   const summary = state.schedulerCapabilities?.capabilities.summary;
-  const selectedModel = state.selectedModel;
+  const preferredModel = state.schedulerCapabilities?.capabilities.models?.[0]?.name;
+  const selectedModel = state.selectedModel || preferredModel || null;
   const activeSessionLabel = state.activeSessionId
     ? `${state.activeSessionTitle || 'untitled'} (${state.activeSessionId.slice(0, 8)})`
     : 'none';

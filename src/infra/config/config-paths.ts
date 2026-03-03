@@ -4,11 +4,8 @@ import * as path from 'path';
 
 const CONFIG_FILES_TO_MIGRATE = [
   'credentials.json',
-  'credentials.schema.json',
   'llm-config.json',
-  'llm-config.schema.json',
   'mcp-config.json',
-  'mcp-config.schema.json',
   'accounts.json',
   'auth.json',
   'debug-config.json',

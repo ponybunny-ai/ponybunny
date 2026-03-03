@@ -3,7 +3,7 @@
  */
 
 import * as React from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useInput } from 'ink';
 import { useAppContext } from '../../context/app-context.js';
 import { useGoals } from '../../hooks/use-goals.js';
 import { useTerminalSize } from '../../hooks/use-terminal-size.js';
@@ -32,9 +32,60 @@ export const DashboardView: React.FC = () => {
     item.status === 'in_progress' || item.status === 'ready' || item.status === 'queued'
   );
   const maxVisibleMessages = Math.max(2, Math.floor((rows - 14) / 3));
-  const visibleMessages = simpleMessages.slice(-maxVisibleMessages);
+  const [messageScrollOffset, setMessageScrollOffset] = React.useState(0);
+  const maxMessageScrollOffset = Math.max(0, simpleMessages.length - maxVisibleMessages);
+  const clampedOffset = Math.min(messageScrollOffset, maxMessageScrollOffset);
+  const visibleRangeEnd = Math.max(0, simpleMessages.length - clampedOffset);
+  const visibleRangeStart = Math.max(0, visibleRangeEnd - maxVisibleMessages);
+  const visibleMessages = simpleMessages.slice(visibleRangeStart, visibleRangeEnd);
   const latestHistoryPreview = Object.values(sessionHistoryPreviews)
     .sort((a, b) => b.generatedAt - a.generatedAt)[0];
+
+  React.useEffect(() => {
+    if (messageScrollOffset > maxMessageScrollOffset) {
+      setMessageScrollOffset(maxMessageScrollOffset);
+    }
+  }, [maxMessageScrollOffset, messageScrollOffset]);
+
+  useInput((_input, key) => {
+    if (key.upArrow) {
+      setMessageScrollOffset((value) => Math.min(maxMessageScrollOffset, value + 1));
+      return;
+    }
+
+    if (key.downArrow) {
+      setMessageScrollOffset((value) => Math.max(0, value - 1));
+    }
+  });
+
+  React.useEffect(() => {
+    const stdin = process.stdin;
+    if (!stdin?.isTTY) {
+      return;
+    }
+
+    stdin.write('\u001b[?1000h\u001b[?1006h');
+    const onData = (chunk: Buffer | string) => {
+      const data = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      const match = data.match(/\u001b\[<(\d+);(\d+);(\d+)([mM])/);
+      if (!match || match[4] !== 'M') {
+        return;
+      }
+
+      const button = Number.parseInt(match[1], 10);
+      if (button === 64) {
+        setMessageScrollOffset((value) => Math.min(maxMessageScrollOffset, value + 1));
+      } else if (button === 65) {
+        setMessageScrollOffset((value) => Math.max(0, value - 1));
+      }
+    };
+
+    stdin.on('data', onData);
+    return () => {
+      stdin.off('data', onData);
+      stdin.write('\u001b[?1000l\u001b[?1006l');
+    };
+  }, [maxMessageScrollOffset]);
 
   return (
     <Box flexDirection="column" flexGrow={1}>
@@ -133,6 +184,9 @@ export const DashboardView: React.FC = () => {
           </Box>
         ) : (
           <Box flexDirection="column" flexGrow={1} paddingX={1}>
+            <Text dimColor>
+              Stream {visibleRangeStart + 1}-{visibleRangeEnd} / {simpleMessages.length} · wheel or ↑/↓ scroll
+            </Text>
             {visibleMessages.map(message => (
               <SimpleMessageItem key={message.id} message={message} />
             ))}

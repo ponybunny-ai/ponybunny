@@ -1180,38 +1180,6 @@ export function getOnboardingFiles(): OnboardingFile[] {
 
   return [
     {
-      name: 'ponybunny.schema.json',
-      path: path.join(configDir, 'ponybunny.schema.json'),
-      template: PONYBUNNY_CONFIG_SCHEMA_TEMPLATE,
-      format: 'json',
-      mode: 0o644,
-      description: 'Runtime config JSON schema',
-    },
-    {
-      name: 'credentials.schema.json',
-      path: path.join(configDir, 'credentials.schema.json'),
-      template: CREDENTIALS_SCHEMA_TEMPLATE,
-      format: 'json',
-      mode: 0o644,
-      description: 'Credentials JSON schema',
-    },
-    {
-      name: 'llm-config.schema.json',
-      path: path.join(configDir, 'llm-config.schema.json'),
-      template: LLM_CONFIG_SCHEMA_TEMPLATE,
-      format: 'json',
-      mode: 0o644,
-      description: 'LLM config JSON schema',
-    },
-    {
-      name: 'mcp-config.schema.json',
-      path: path.join(configDir, 'mcp-config.schema.json'),
-      template: MCP_CONFIG_SCHEMA_TEMPLATE,
-      format: 'json',
-      mode: 0o644,
-      description: 'MCP config JSON schema',
-    },
-    {
       name: 'ponybunny.json',
       path: path.join(configDir, 'ponybunny.json'),
       template: getPonyBunnyConfigTemplate(),

@@ -37,22 +37,21 @@ describe('config change coupling invariants', () => {
     expect(typeof tui.goalSubmitFastPathEnabled).toBe('boolean');
   });
 
-  it('keeps pb init dry-run output consistent for schema and runtime config artifacts', () => {
+  it('keeps pb init dry-run output consistent and excludes schema artifacts', () => {
     const tempRoot = fs.mkdtempSync(path.join(repoRoot, '.tmp-config-coupling-'));
     const previousConfigDir = process.env.PONYBUNNY_CONFIG_DIR;
     process.env.PONYBUNNY_CONFIG_DIR = tempRoot;
 
     try {
       const onboardingNames = new Set(getOnboardingFiles().map((file) => file.name));
-      expect(onboardingNames.has('ponybunny.schema.json')).toBe(true);
+      expect(onboardingNames.has('ponybunny.schema.json')).toBe(false);
       expect(onboardingNames.has('ponybunny.json')).toBe(true);
 
       const dryRunResults = initAllConfigFiles({ dryRun: true });
       const dryRunByFile = new Map(dryRunResults.map((result) => [result.file, result]));
 
-      expect(dryRunByFile.get('ponybunny.schema.json')?.status).toBe('created');
+      expect(dryRunByFile.has('ponybunny.schema.json')).toBe(false);
       expect(dryRunByFile.get('ponybunny.json')?.status).toBe('created');
-      expect(dryRunByFile.get('ponybunny.schema.json')?.message).toContain(tempRoot);
       expect(dryRunByFile.get('ponybunny.json')?.message).toContain(tempRoot);
     } finally {
       if (previousConfigDir === undefined) {

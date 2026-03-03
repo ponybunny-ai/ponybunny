@@ -202,7 +202,7 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
       ? ` ${activeVariant || activeModel.reasoningEfforts[0]} <${(selectedReasoningEffortIndex % activeModel.reasoningEfforts.length) + 1}/${activeModel.reasoningEfforts.length}>`
       : '';
     const variantHint = activeModel?.reasoningEfforts && activeModel.reasoningEfforts.length > 1 ? 'ctrl-t variants ' : '';
-    return `${activeAgent?.id || 'guard'} │ ${modelLabel}${variantSegment} │ ${variantHint}tab agents ctrl-v views ctrl-p commands`;
+    return `A ${activeAgent?.id || 'guard'} │ M ${modelLabel}${variantSegment} │ ${variantHint}tab agents ctrl-v views ctrl-p commands`;
   }, [state.schedulerCapabilities, state.selectedModel, selectedAgentIndex, selectedReasoningEffortIndex]);
 
   // Track if initial data has been loaded
@@ -215,7 +215,7 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
       initialLoadDone.current = true;
 
       client.listConversationSessions({ limit: 20, lifecycleState: 'active' }).then(result => {
-        appRef.current.setSessions(result.sessions.map((session) => ({
+        const normalizedSessions = result.sessions.map((session) => ({
           id: session.id,
           title: session.title,
           state: session.state,
@@ -226,13 +226,20 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
           lastMessage: session.lastMessage,
           createdAt: session.createdAt,
           updatedAt: session.updatedAt,
-        })));
+        }));
+        appRef.current.setSessions(normalizedSessions);
+
+        if (!appRef.current.state.activeSessionId && normalizedSessions.length > 0) {
+          const initialSession = normalizedSessions[0];
+          appRef.current.setActiveSession(initialSession.id, initialSession.title ?? null);
+        }
       }).catch(err => {
         appRef.current.addEvent('error', { message: `Failed to load sessions: ${err.message}` });
       });
 
       // Load goals
-      client.listGoals().then(result => {
+      const effectiveSessionId = appRef.current.state.activeSessionId ?? null;
+      client.listGoals(effectiveSessionId ? { sessionId: effectiveSessionId } : undefined).then(result => {
         appRef.current.setGoals(result.goals);
 
         for (const goal of result.goals) {
