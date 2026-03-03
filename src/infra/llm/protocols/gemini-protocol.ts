@@ -175,8 +175,9 @@ export class GeminiProtocolAdapter extends BaseProtocolAdapter {
 
     // Extract token usage
     const usageMetadata = data.usageMetadata;
-    const tokensUsed = (usageMetadata?.promptTokenCount || 0) +
-                       (usageMetadata?.candidatesTokenCount || 0);
+    const inputTokens = usageMetadata?.promptTokenCount || 0;
+    const outputTokens = usageMetadata?.candidatesTokenCount || 0;
+    const tokensUsed = inputTokens + outputTokens;
 
     // Map finish reason
     const finishReason = this.mapGeminiFinishReason(candidates?.[0]?.finishReason);
@@ -184,6 +185,11 @@ export class GeminiProtocolAdapter extends BaseProtocolAdapter {
     return {
       content,
       tokensUsed,
+      tokenUsage: {
+        inputTokens,
+        outputTokens,
+        totalTokens: tokensUsed,
+      },
       model,
       finishReason,
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,

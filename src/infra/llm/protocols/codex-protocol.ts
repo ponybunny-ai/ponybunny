@@ -60,8 +60,12 @@ export class CodexProtocolAdapter extends BaseProtocolAdapter {
       data?.output_text ??
       '';
 
-    const inputTokens = data?.usage?.input_tokens;
-    const outputTokens = data?.usage?.output_tokens;
+    const inputTokens = typeof data?.usage?.input_tokens === 'number'
+      ? data.usage.input_tokens
+      : 0;
+    const outputTokens = typeof data?.usage?.output_tokens === 'number'
+      ? data.usage.output_tokens
+      : 0;
 
     const tokensUsed =
       data?.usage?.total_tokens ??
@@ -73,6 +77,11 @@ export class CodexProtocolAdapter extends BaseProtocolAdapter {
     return {
       content,
       tokensUsed,
+      tokenUsage: {
+        inputTokens,
+        outputTokens,
+        totalTokens: tokensUsed,
+      },
       model: data.model || model,
       finishReason: 'stop',
     };

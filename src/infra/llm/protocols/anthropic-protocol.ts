@@ -166,11 +166,18 @@ export class AnthropicProtocolAdapter extends BaseProtocolAdapter {
     }
 
     // Calculate tokens
-    const tokensUsed = (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0);
+    const inputTokens = data.usage?.input_tokens || 0;
+    const outputTokens = data.usage?.output_tokens || 0;
+    const tokensUsed = inputTokens + outputTokens;
 
     return {
       content,
       tokensUsed,
+      tokenUsage: {
+        inputTokens,
+        outputTokens,
+        totalTokens: tokensUsed,
+      },
       model: data.model || model,
       finishReason: this.mapAnthropicFinishReason(data.stop_reason),
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,

@@ -88,6 +88,11 @@ describe('AnthropicProtocolAdapter', () => {
       expect(result).toEqual({
         content: 'Hello! How can I help you?',
         tokensUsed: 30,
+        tokenUsage: {
+          inputTokens: 10,
+          outputTokens: 20,
+          totalTokens: 30,
+        },
         model: 'claude-opus-4-5-20251101',
         finishReason: 'stop',
       });

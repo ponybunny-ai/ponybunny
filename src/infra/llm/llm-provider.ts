@@ -17,6 +17,11 @@ export interface LLMMessage {
 export interface LLMResponse {
   content: string | null;
   tokensUsed: number;
+  tokenUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
   model: string;
   endpointId?: string;
   finishReason: 'stop' | 'length' | 'tool_calls' | 'error';
@@ -55,6 +60,11 @@ export interface StreamChunk {
   thinking?: string;             // Reasoning content
   toolCalls?: ToolCall[];        // Tool calls
   tokensUsed?: number;
+  tokenUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
   done: boolean;                 // Whether streaming is complete
   finishReason?: 'stop' | 'length' | 'tool_calls' | 'error';
 }

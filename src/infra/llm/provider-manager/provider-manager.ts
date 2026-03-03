@@ -418,6 +418,7 @@ export class LLMProviderManager implements ILLMProviderManager {
       let chunkIndex = 0;
       let fullContent = '';
       let tokensUsed = 0;
+      let tokenUsage: LLMResponse['tokenUsage'];
       let finishReason: 'stop' | 'length' | 'tool_calls' | 'error' = 'stop';
       const accumulatedToolCalls: import('../llm-provider.js').ToolCall[] = [];
 
@@ -469,6 +470,13 @@ export class LLMProviderManager implements ILLMProviderManager {
               if (typeof chunk.tokensUsed === 'number' && Number.isFinite(chunk.tokensUsed)) {
                 tokensUsed = chunk.tokensUsed;
               }
+              if (chunk.tokenUsage) {
+                tokenUsage = {
+                  inputTokens: chunk.tokenUsage.inputTokens,
+                  outputTokens: chunk.tokenUsage.outputTokens,
+                  totalTokens: chunk.tokenUsage.totalTokens,
+                };
+              }
             }
           }
         }
@@ -499,6 +507,13 @@ export class LLMProviderManager implements ILLMProviderManager {
             if (typeof chunk.tokensUsed === 'number' && Number.isFinite(chunk.tokensUsed)) {
               tokensUsed = chunk.tokensUsed;
             }
+            if (chunk.tokenUsage) {
+              tokenUsage = {
+                inputTokens: chunk.tokenUsage.inputTokens,
+                outputTokens: chunk.tokenUsage.outputTokens,
+                totalTokens: chunk.tokenUsage.totalTokens,
+              };
+            }
           }
         }
       }
@@ -516,6 +531,7 @@ export class LLMProviderManager implements ILLMProviderManager {
       const llmResponse: LLMResponse = {
         content: fullContent,
         tokensUsed,
+        tokenUsage,
         model: modelId,
         endpointId,
         finishReason,

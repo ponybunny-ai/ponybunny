@@ -126,11 +126,20 @@ describe('pb models test', () => {
   test('buildModelTestMetadata computes first-token latency and token fields', async () => {
     const { buildModelTestMetadata } = await import('../../src/cli/commands/models.js');
 
-    const metadata = buildModelTestMetadata(1000, 1200, 42, 0.00123);
+    const metadata = buildModelTestMetadata(
+      1000,
+      1200,
+      {
+        inputTokens: 7,
+        outputTokens: 35,
+        totalTokens: 42,
+      },
+      0.00123
+    );
     expect(metadata.requestedAt).toBe(new Date(1000).toISOString());
     expect(metadata.firstTokenLatencyMs).toBe(200);
-    expect(metadata.inputTokens).toBe(0);
-    expect(metadata.outputTokens).toBe(42);
+    expect(metadata.inputTokens).toBe(7);
+    expect(metadata.outputTokens).toBe(35);
     expect(metadata.totalTokens).toBe(42);
     expect(metadata.estimatedCostUsd).toBe(0.00123);
   });
@@ -138,7 +147,16 @@ describe('pb models test', () => {
   test('buildModelTestMetadata keeps null latency when no chunk arrives', async () => {
     const { buildModelTestMetadata } = await import('../../src/cli/commands/models.js');
 
-    const metadata = buildModelTestMetadata(1000, null, 0, null);
+    const metadata = buildModelTestMetadata(
+      1000,
+      null,
+      {
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+      },
+      null
+    );
     expect(metadata.firstTokenLatencyMs).toBeNull();
     expect(metadata.totalTokens).toBe(0);
     expect(metadata.estimatedCostUsd).toBeNull();
@@ -177,6 +195,11 @@ describe('pb models test', () => {
         return {
           content: 'hello',
           tokensUsed: 12,
+          tokenUsage: {
+            inputTokens: 4,
+            outputTokens: 8,
+            totalTokens: 12,
+          },
           model: 'CPA.gpt-5.2',
           finishReason: 'stop' as const,
         };
@@ -196,6 +219,8 @@ describe('pb models test', () => {
 
     expect(turn.ok).toBe(true);
     expect(turn.metadata).toBeDefined();
+    expect(turn.metadata?.inputTokens).toBe(4);
+    expect(turn.metadata?.outputTokens).toBe(8);
     expect(turn.metadata?.totalTokens).toBe(12);
     expect(chunks).toEqual(['hello']);
     expect(messages).toEqual([

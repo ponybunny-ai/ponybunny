@@ -99,6 +99,11 @@ describe('GeminiProtocolAdapter', () => {
       expect(result).toEqual({
         content: 'Hello! How can I help you?',
         tokensUsed: 30,
+        tokenUsage: {
+          inputTokens: 10,
+          outputTokens: 20,
+          totalTokens: 30,
+        },
         model: 'gemini-2.0-flash',
         finishReason: 'stop',
       });

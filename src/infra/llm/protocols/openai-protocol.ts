@@ -237,12 +237,21 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
       }
 
       const usage = data.usage;
-      const tokensUsed = usage?.total_tokens
-        || ((usage?.input_tokens || 0) + (usage?.output_tokens || 0));
+      const inputTokens = typeof usage?.input_tokens === 'number' ? usage.input_tokens : 0;
+      const outputTokens = typeof usage?.output_tokens === 'number' ? usage.output_tokens : 0;
+      const totalTokens = typeof usage?.total_tokens === 'number'
+        ? usage.total_tokens
+        : inputTokens + outputTokens;
+      const tokensUsed = Number.isFinite(totalTokens) ? totalTokens : 0;
 
       return {
         content,
         tokensUsed,
+        tokenUsage: {
+          inputTokens,
+          outputTokens,
+          totalTokens: tokensUsed,
+        },
         model: data.model || model,
         finishReason: toolCalls.length > 0 ? 'tool_calls' : (data.status === 'incomplete' ? 'length' : 'stop'),
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
@@ -273,12 +282,30 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
     const content = message?.content ?? '';
     const thinking = message?.reasoning_content;
     const toolCalls = message?.tool_calls;
-    const tokensUsed = data.usage?.total_tokens || 0;
+    const usage = (data as {
+      usage?: {
+        total_tokens?: number;
+        prompt_tokens?: number;
+        completion_tokens?: number;
+      };
+    }).usage;
+    const inputTokens = typeof usage?.prompt_tokens === 'number' ? usage.prompt_tokens : 0;
+    let outputTokens = typeof usage?.completion_tokens === 'number' ? usage.completion_tokens : 0;
+    const totalTokens = typeof usage?.total_tokens === 'number' ? usage.total_tokens : (inputTokens + outputTokens);
+    if (outputTokens === 0 && totalTokens > 0 && inputTokens === 0) {
+      outputTokens = totalTokens;
+    }
+    const tokensUsed = totalTokens;
     const finishReason = this.mapOpenAIFinishReason(data.choices?.[0]?.finish_reason);
 
     return {
       content,
       tokensUsed,
+      tokenUsage: {
+        inputTokens,
+        outputTokens,
+        totalTokens: tokensUsed,
+      },
       model: data.model || model,
       finishReason,
       toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls.map(tc => ({
@@ -418,13 +445,23 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
 
         if (data.type === 'response.completed') {
           const usage = data.response?.usage;
+          const inputTokens = typeof usage?.input_tokens === 'number' ? usage.input_tokens : 0;
+          const outputTokens = typeof usage?.output_tokens === 'number' ? usage.output_tokens : 0;
           const totalTokens = typeof usage?.total_tokens === 'number'
             ? usage.total_tokens
-            : ((usage?.input_tokens || 0) + (usage?.output_tokens || 0));
+            : (inputTokens + outputTokens);
+          const safeTotalTokens = Number.isFinite(totalTokens) ? totalTokens : undefined;
           return {
             done: true,
             finishReason: 'stop',
-            tokensUsed: Number.isFinite(totalTokens) ? totalTokens : undefined,
+            tokensUsed: safeTotalTokens,
+            tokenUsage: typeof safeTotalTokens === 'number'
+              ? {
+                inputTokens,
+                outputTokens,
+                totalTokens: safeTotalTokens,
+              }
+              : undefined,
           };
         }
 

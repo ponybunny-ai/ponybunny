@@ -32,6 +32,12 @@ export interface ModelTestTurnResult {
   errorMessage?: string;
 }
 
+interface ModelTestTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
 interface ModelTestManager {
   completeWithModel: ReturnType<typeof getLLMProviderManager>['completeWithModel'];
   estimateCost: ReturnType<typeof getLLMProviderManager>['estimateCost'];
@@ -123,14 +129,16 @@ export function renderProviderTree(nodes: ProviderTreeNode[]): string[] {
 export function buildModelTestMetadata(
   requestedAtMs: number,
   firstTokenAtMs: number | null,
-  totalTokens: number,
+  tokenUsage: ModelTestTokenUsage,
   estimatedCostUsd: number | null
 ): ModelTestMetadata {
-  const outputTokens = totalTokens > 0 ? totalTokens : 0;
+  const inputTokens = Math.max(0, tokenUsage.inputTokens || 0);
+  const outputTokens = Math.max(0, tokenUsage.outputTokens || 0);
+  const totalTokens = Math.max(0, tokenUsage.totalTokens || (inputTokens + outputTokens));
   return {
     requestedAt: new Date(requestedAtMs).toISOString(),
     firstTokenLatencyMs: firstTokenAtMs === null ? null : Math.max(0, firstTokenAtMs - requestedAtMs),
-    inputTokens: 0,
+    inputTokens,
     outputTokens,
     totalTokens,
     estimatedCostUsd,
@@ -190,16 +198,37 @@ export async function runModelTestTurn(
     const assistantContent = response.content || '';
     messages.push({ role: 'assistant', content: assistantContent });
 
-    const totalTokens = response.tokensUsed || 0;
-    const outputTokens = totalTokens > 0 ? totalTokens : 0;
+    const normalizedTokenUsage: ModelTestTokenUsage = response.tokenUsage
+      ? {
+        inputTokens: Math.max(0, response.tokenUsage.inputTokens || 0),
+        outputTokens: Math.max(0, response.tokenUsage.outputTokens || 0),
+        totalTokens: Math.max(
+          0,
+          response.tokenUsage.totalTokens || (response.tokenUsage.inputTokens || 0) + (response.tokenUsage.outputTokens || 0)
+        ),
+      }
+      : {
+        inputTokens: 0,
+        outputTokens: Math.max(0, response.tokensUsed || 0),
+        totalTokens: Math.max(0, response.tokensUsed || 0),
+      };
     let estimatedCostUsd: number | null = null;
     try {
-      estimatedCostUsd = manager.estimateCost(modelId, 0, outputTokens);
+      estimatedCostUsd = manager.estimateCost(
+        modelId,
+        normalizedTokenUsage.inputTokens,
+        normalizedTokenUsage.outputTokens
+      );
     } catch {
       estimatedCostUsd = null;
     }
 
-    const metadata = buildModelTestMetadata(requestedAt, firstTokenAt, totalTokens, estimatedCostUsd);
+    const metadata = buildModelTestMetadata(
+      requestedAt,
+      firstTokenAt,
+      normalizedTokenUsage,
+      estimatedCostUsd
+    );
     return { ok: true, metadata };
   } catch (error) {
     messages.pop();

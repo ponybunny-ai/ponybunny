@@ -162,6 +162,11 @@ describe('OpenAIProtocolAdapter', () => {
       expect(result).toEqual({
         content: 'Hello! How can I help?',
         tokensUsed: 50,
+        tokenUsage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 50,
+        },
         model: 'gpt-4o-2024-05-13',
         finishReason: 'stop',
       });
@@ -221,6 +226,35 @@ describe('OpenAIProtocolAdapter', () => {
       expect(result.content).toBe('Responses output');
       expect(result.tokensUsed).toBe(42);
       expect(result.finishReason).toBe('stop');
+    });
+
+    it('parses input/output token usage for responses payload', () => {
+      const response = {
+        status: 200,
+        statusText: 'OK',
+        data: {
+          output_text: 'hello',
+          usage: {
+            input_tokens: 7,
+            output_tokens: 25,
+            total_tokens: 32,
+          },
+          model: 'gpt-5.1',
+          status: 'completed',
+        },
+      };
+
+      const result = adapter.parseResponse(response, 'gpt-5.1', {
+        model: 'gpt-5.1',
+        openaiOperation: 'responses',
+      });
+
+      expect(result.tokenUsage).toEqual({
+        inputTokens: 7,
+        outputTokens: 25,
+        totalTokens: 32,
+      });
+      expect(result.tokensUsed).toBe(32);
     });
   });
 
@@ -320,6 +354,11 @@ describe('OpenAIProtocolAdapter', () => {
         done: true,
         finishReason: 'stop',
         tokensUsed: 12,
+        tokenUsage: {
+          inputTokens: 4,
+          outputTokens: 8,
+          totalTokens: 12,
+        },
       });
     });
 
@@ -333,6 +372,11 @@ describe('OpenAIProtocolAdapter', () => {
         done: true,
         finishReason: 'stop',
         tokensUsed: 8,
+        tokenUsage: {
+          inputTokens: 3,
+          outputTokens: 5,
+          totalTokens: 8,
+        },
       });
     });
   });
