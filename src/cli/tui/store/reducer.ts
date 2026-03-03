@@ -209,6 +209,9 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, runtimeSnapshots };
     }
 
+    case 'SET_RUNTIME_TUI_CONFIG':
+      return { ...state, runtimeTuiConfig: action.payload };
+
     case 'SET_ACTIVITY_STATUS':
       return { ...state, activityStatus: action.payload };
 

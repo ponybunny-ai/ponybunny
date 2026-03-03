@@ -23,16 +23,16 @@ export interface TierModelConfig {
  */
 export const DEFAULT_TIER_MODELS: Record<ModelTier, TierModelConfig> = {
   simple: {
-    primary: 'claude-haiku-4-5-20251001',
-    fallback: 'gpt-5.2',
+    primary: 'anthropic.claude-haiku-4-5-20251001',
+    fallback: 'openai.gpt-5.2',
   },
   medium: {
-    primary: 'claude-sonnet-4-5-20250929',
-    fallback: 'gpt-5.2',
+    primary: 'anthropic.claude-sonnet-4-5-20250929',
+    fallback: 'openai.gpt-5.2',
   },
   complex: {
-    primary: 'claude-opus-4-5-20251101',
-    fallback: 'gpt-5.2',
+    primary: 'anthropic.claude-opus-4-5-20251101',
+    fallback: 'openai.gpt-5.2',
   },
 };
 

@@ -24,10 +24,14 @@ jest.mock('../../src/cli/lib/auth-manager-v2.js', () => ({
   },
 }));
 
-jest.mock('../../src/cli/lib/openai-client.js', () => ({
-  openaiClient: {
-    streamChatCompletion: jest.fn(),
-  },
+jest.mock('../../src/infra/llm/llm-service.js', () => ({
+  getLLMService: jest.fn(() => ({
+    complete: jest.fn(),
+  })),
+}));
+
+jest.mock('../../src/infra/llm/provider-manager/openai-model-catalog.js', () => ({
+  testOpenAIProtocolConnection: jest.fn(),
 }));
 
 jest.mock('../../src/infra/config/credentials-loader.js', () => ({
@@ -48,18 +52,16 @@ function sanitizeOutput(value: string): string {
   return value.replace(/\x1B\[[0-9;]*m/g, '');
 }
 
-const originalFetch = globalThis.fetch;
-
 describe('pb status', () => {
   afterEach(() => {
     jest.clearAllMocks();
-    globalThis.fetch = originalFetch;
   });
 
   test('prints enabled providers grouped with OpenAI OAuth and OpenAI-Compatible', async () => {
     const { statusCommand } = await import('../../src/cli/commands/status.js');
     const { accountManagerV2, authManagerV2 } = await import('../../src/cli/lib/auth-manager-v2.js');
-    const { openaiClient } = await import('../../src/cli/lib/openai-client.js');
+    const { getLLMService } = await import('../../src/infra/llm/llm-service.js');
+    const { testOpenAIProtocolConnection } = await import('../../src/infra/llm/provider-manager/openai-model-catalog.js');
     const { getCachedEndpointCredential } = await import('../../src/infra/config/credentials-loader.js');
     const { loadLLMConfig } = await import('../../src/infra/llm/provider-manager/config-loader.js');
     const { getAllEndpointConfigs, hasRequiredCredentials } = await import('../../src/infra/llm/endpoints/index.js');
@@ -92,12 +94,9 @@ describe('pb status', () => {
       { id: 'anthropic-direct', displayName: 'Anthropic Direct' },
     ]);
     (hasRequiredCredentials as jest.Mock).mockReturnValue(true);
-    globalThis.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      text: async () => '',
-    }) as unknown as typeof fetch;
-    (openaiClient.streamChatCompletion as jest.Mock).mockResolvedValue(undefined);
+    const mockComplete = jest.fn().mockResolvedValue({ content: 'OK' });
+    (getLLMService as jest.Mock).mockReturnValue({ complete: mockComplete });
+    (testOpenAIProtocolConnection as jest.Mock).mockResolvedValue(undefined);
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
 

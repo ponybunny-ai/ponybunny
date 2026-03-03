@@ -19,20 +19,20 @@ describe('model-tier-config', () => {
 
   describe('DEFAULT_MODEL_TIER_CONFIG', () => {
     test('should have simple tier config (Claude-first)', () => {
-      expect(DEFAULT_MODEL_TIER_CONFIG.simple.primary).toBe('claude-haiku-4-5-20251001');
-      expect(DEFAULT_MODEL_TIER_CONFIG.simple.fallback).toBe('gpt-5.2');
+      expect(DEFAULT_MODEL_TIER_CONFIG.simple.primary).toBe('anthropic.claude-haiku-4-5-20251001');
+      expect(DEFAULT_MODEL_TIER_CONFIG.simple.fallback).toBe('openai.gpt-5.2');
       expect(DEFAULT_MODEL_TIER_CONFIG.simple.temperature).toBe(0.2);
     });
 
     test('should have medium tier config (Claude-first)', () => {
-      expect(DEFAULT_MODEL_TIER_CONFIG.medium.primary).toBe('claude-sonnet-4-5-20250929');
-      expect(DEFAULT_MODEL_TIER_CONFIG.medium.fallback).toBe('gpt-5.2');
+      expect(DEFAULT_MODEL_TIER_CONFIG.medium.primary).toBe('anthropic.claude-sonnet-4-5-20250929');
+      expect(DEFAULT_MODEL_TIER_CONFIG.medium.fallback).toBe('openai.gpt-5.2');
       expect(DEFAULT_MODEL_TIER_CONFIG.medium.temperature).toBe(0.2);
     });
 
     test('should have complex tier config (Claude Opus 4.5)', () => {
-      expect(DEFAULT_MODEL_TIER_CONFIG.complex.primary).toBe('claude-opus-4-5-20251101');
-      expect(DEFAULT_MODEL_TIER_CONFIG.complex.fallback).toBe('gpt-5.2');
+      expect(DEFAULT_MODEL_TIER_CONFIG.complex.primary).toBe('anthropic.claude-opus-4-5-20251101');
+      expect(DEFAULT_MODEL_TIER_CONFIG.complex.fallback).toBe('openai.gpt-5.2');
       expect(DEFAULT_MODEL_TIER_CONFIG.complex.temperature).toBe(0.3);
     });
   });
@@ -41,9 +41,9 @@ describe('model-tier-config', () => {
     test('should return default config when no env vars set', () => {
       const config = loadModelTierConfig();
 
-      expect(config.simple.primary).toBe('claude-haiku-4-5-20251001');
-      expect(config.medium.primary).toBe('claude-sonnet-4-5-20250929');
-      expect(config.complex.primary).toBe('claude-opus-4-5-20251101');
+      expect(config.simple.primary).toBe('anthropic.claude-haiku-4-5-20251001');
+      expect(config.medium.primary).toBe('anthropic.claude-sonnet-4-5-20250929');
+      expect(config.complex.primary).toBe('anthropic.claude-opus-4-5-20251101');
     });
 
     test('should override simple model from env', () => {
@@ -52,9 +52,9 @@ describe('model-tier-config', () => {
       const config = loadModelTierConfig();
 
       expect(config.simple.primary).toBe('custom-simple-model');
-      expect(config.simple.fallback).toBe('gpt-5.2');
-      expect(config.medium.primary).toBe('claude-sonnet-4-5-20250929');
-      expect(config.complex.primary).toBe('claude-opus-4-5-20251101');
+      expect(config.simple.fallback).toBe('openai.gpt-5.2');
+      expect(config.medium.primary).toBe('anthropic.claude-sonnet-4-5-20250929');
+      expect(config.complex.primary).toBe('anthropic.claude-opus-4-5-20251101');
     });
 
     test('should override medium model from env', () => {
@@ -62,10 +62,10 @@ describe('model-tier-config', () => {
 
       const config = loadModelTierConfig();
 
-      expect(config.simple.primary).toBe('claude-haiku-4-5-20251001');
+      expect(config.simple.primary).toBe('anthropic.claude-haiku-4-5-20251001');
       expect(config.medium.primary).toBe('custom-medium-model');
-      expect(config.medium.fallback).toBe('gpt-5.2');
-      expect(config.complex.primary).toBe('claude-opus-4-5-20251101');
+      expect(config.medium.fallback).toBe('openai.gpt-5.2');
+      expect(config.complex.primary).toBe('anthropic.claude-opus-4-5-20251101');
     });
 
     test('should override complex model from env', () => {
@@ -73,10 +73,10 @@ describe('model-tier-config', () => {
 
       const config = loadModelTierConfig();
 
-      expect(config.simple.primary).toBe('claude-haiku-4-5-20251001');
-      expect(config.medium.primary).toBe('claude-sonnet-4-5-20250929');
+      expect(config.simple.primary).toBe('anthropic.claude-haiku-4-5-20251001');
+      expect(config.medium.primary).toBe('anthropic.claude-sonnet-4-5-20250929');
       expect(config.complex.primary).toBe('custom-complex-model');
-      expect(config.complex.fallback).toBe('gpt-5.2');
+      expect(config.complex.fallback).toBe('openai.gpt-5.2');
     });
 
     test('should override all models from env', () => {
@@ -97,7 +97,7 @@ describe('model-tier-config', () => {
       const config = loadModelTierConfig();
 
       expect(config.simple.temperature).toBe(0.2);
-      expect(config.simple.fallback).toBe('gpt-5.2');
+      expect(config.simple.fallback).toBe('openai.gpt-5.2');
     });
 
     test('should override fallback models from env', () => {

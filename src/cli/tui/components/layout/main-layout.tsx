@@ -8,7 +8,6 @@ import { InputBar } from './input-bar.js';
 import { TabBar } from './tab-bar.js';
 import { useGatewayContext } from '../../context/gateway-context.js';
 import { useAppContext } from '../../context/app-context.js';
-import { loadRuntimeConfig } from '../../../../infra/config/runtime-config.js';
 
 export interface MainLayoutProps {
   children: React.ReactNode;
@@ -27,7 +26,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 }) => {
   const { connectionStatus } = useGatewayContext();
   const { state } = useAppContext();
-  const runtimeConfig = loadRuntimeConfig();
   const summary = state.schedulerCapabilities?.capabilities.summary;
   const preferredModel = state.schedulerCapabilities?.capabilities.models?.[0]?.name;
   const selectedModel = state.selectedModel || preferredModel || null;
@@ -37,7 +35,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   const latestEventTs = state.events.length > 0 ? state.events[state.events.length - 1].timestamp : 0;
   const [trafficFrame, setTrafficFrame] = React.useState(0);
   const [isCommunicating, setIsCommunicating] = React.useState(false);
-  const inputModeLabel = runtimeConfig.tui.goalSubmitFastPathEnabled ? 'fast-path' : 'session-first';
+  const inputModeLabel = state.runtimeTuiConfig?.goalSubmitFastPathEnabled ? 'fast-path' : 'session-first';
 
   React.useEffect(() => {
     if (!isCommunicating) {

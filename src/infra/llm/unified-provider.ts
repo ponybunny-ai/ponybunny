@@ -400,12 +400,9 @@ export class UnifiedLLMProvider implements ILLMProvider {
   }
 
   async isAvailable(): Promise<boolean> {
-    // Check if any endpoint is available for any supported model pattern
-    const patterns = this.router.getSupportedPatterns();
-    for (const pattern of patterns) {
-      // Use a sample model for each pattern
-      const sampleModel = pattern.replace('*', 'test');
-      if (this.router.getEndpointsForModel(sampleModel).length > 0) {
+    const configuredModels = Object.keys(getCachedConfig().models);
+    for (const modelId of configuredModels) {
+      if (this.router.getEndpointsForModel(modelId).length > 0) {
         return true;
       }
     }

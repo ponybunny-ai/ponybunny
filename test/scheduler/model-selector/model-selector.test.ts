@@ -102,7 +102,7 @@ describe('ModelSelector', () => {
     });
 
     test('should pick first available model when primary is unavailable', () => {
-      const isModelAvailable = (model: string): boolean => model === 'gpt-5.2';
+      const isModelAvailable = (model: string): boolean => model === 'openai.gpt-5.2';
       const selector = new ModelSelector(undefined, undefined, isModelAvailable);
       const workItem = createWorkItem({
         item_type: 'code',
@@ -114,7 +114,7 @@ describe('ModelSelector', () => {
 
       const result = selector.selectModel(workItem);
 
-      expect(result.model).toBe('gpt-5.2');
+      expect(result.model).toBe('openai.gpt-5.2');
     });
 
     test('should fall back to any globally available model when tier chain has no available models', () => {
@@ -237,15 +237,15 @@ describe('ModelSelector', () => {
 
   describe('default configuration', () => {
     test('should have correct default models (Claude-first strategy)', () => {
-      expect(DEFAULT_MODEL_TIER_CONFIG.simple.primary).toBe('claude-haiku-4-5-20251001');
-      expect(DEFAULT_MODEL_TIER_CONFIG.medium.primary).toBe('claude-sonnet-4-5-20250929');
-      expect(DEFAULT_MODEL_TIER_CONFIG.complex.primary).toBe('claude-opus-4-5-20251101');
+      expect(DEFAULT_MODEL_TIER_CONFIG.simple.primary).toBe('anthropic.claude-haiku-4-5-20251001');
+      expect(DEFAULT_MODEL_TIER_CONFIG.medium.primary).toBe('anthropic.claude-sonnet-4-5-20250929');
+      expect(DEFAULT_MODEL_TIER_CONFIG.complex.primary).toBe('anthropic.claude-opus-4-5-20251101');
     });
 
     test('should have fallback models configured (OpenAI gpt-5.2)', () => {
-      expect(DEFAULT_MODEL_TIER_CONFIG.simple.fallback).toBe('gpt-5.2');
-      expect(DEFAULT_MODEL_TIER_CONFIG.medium.fallback).toBe('gpt-5.2');
-      expect(DEFAULT_MODEL_TIER_CONFIG.complex.fallback).toBe('gpt-5.2');
+      expect(DEFAULT_MODEL_TIER_CONFIG.simple.fallback).toBe('openai.gpt-5.2');
+      expect(DEFAULT_MODEL_TIER_CONFIG.medium.fallback).toBe('openai.gpt-5.2');
+      expect(DEFAULT_MODEL_TIER_CONFIG.complex.fallback).toBe('openai.gpt-5.2');
     });
   });
 });

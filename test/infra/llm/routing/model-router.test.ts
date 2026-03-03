@@ -39,30 +39,28 @@ describe('ModelRouter', () => {
     it('should return openai for gpt models', () => {
       const router = new ModelRouter();
 
-      expect(router.getProtocolForModel('gpt-4o')).toBe('openai');
-      expect(router.getProtocolForModel('gpt-4-turbo')).toBe('openai');
-      expect(router.getProtocolForModel('gpt-3.5-turbo')).toBe('openai');
+      expect(router.getProtocolForModel('openai.gpt-5.2')).toBe('openai');
+      expect(router.getProtocolForModel('openai-codex.gpt-5.2-codex')).toBe('codex');
     });
 
     it('should return openai for o1 models', () => {
       const router = new ModelRouter();
 
-      expect(router.getProtocolForModel('o1')).toBe('openai');
-      expect(router.getProtocolForModel('o1-mini')).toBe('openai');
-      expect(router.getProtocolForModel('o1-preview')).toBe('openai');
+      expect(router.getProtocolForModel('openai.gpt-5.2')).toBe('openai');
     });
 
     it('should return gemini for gemini models', () => {
       const router = new ModelRouter();
 
-      expect(router.getProtocolForModel('gemini-2.0-flash')).toBe('gemini');
-      expect(router.getProtocolForModel('gemini-1.5-pro')).toBe('gemini');
+      expect(router.getProtocolForModel('google-ai-studio.gemini-2.0-flash')).toBe('gemini');
+      expect(router.getProtocolForModel('google-ai-studio.gemini-2.0-pro')).toBe('gemini');
     });
 
     it('should return undefined for unknown models', () => {
       const router = new ModelRouter();
 
       expect(router.getProtocolForModel('unknown-model')).toBeUndefined();
+      expect(router.getProtocolForModel('claude-haiku-4-5-20251001')).toBeUndefined();
     });
   });
 
@@ -149,6 +147,13 @@ describe('ModelRouter', () => {
     it('should return empty array for unknown models', () => {
       const router = new ModelRouter();
       const endpoints = router.getEndpointsForModel('unknown-model');
+
+      expect(endpoints.length).toBe(0);
+    });
+
+    it('should reject unqualified model ids under strict provider model format', () => {
+      const router = new ModelRouter();
+      const endpoints = router.getEndpointsForModel('claude-haiku-4-5-20251001');
 
       expect(endpoints.length).toBe(0);
     });

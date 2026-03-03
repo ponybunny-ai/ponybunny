@@ -11,7 +11,6 @@ import { useAppContext } from '../../context/app-context.js';
 import { commands } from '../../commands/registry.js';
 import { normalizeSlashCommandInput } from './input-normalize.js';
 import { TabBar } from './tab-bar.js';
-import { loadRuntimeConfig } from '../../../../infra/config/runtime-config.js';
 import { shouldHandleSuggestionNavigation } from './input-focus-guard.js';
 import { stripMouseEscapeSequences } from './input-mouse-sanitize.js';
 import {
@@ -38,7 +37,7 @@ export const InputBar: React.FC<InputBarProps> = ({
   const { state, setInputValue } = useAppContext();
   const { activityStatus, inputValue: externalInputValue } = state;
   const isDashboardView = state.currentView === 'dashboard';
-  const runtimeConfig = loadRuntimeConfig();
+  const inputBackgroundColor = state.runtimeTuiConfig?.inputBackgroundColor ?? 'gray';
   const [draftValue, setDraftValue] = useState(externalInputValue);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [lastQuery, setLastQuery] = useState('');
@@ -177,7 +176,7 @@ export const InputBar: React.FC<InputBarProps> = ({
           </Box>
         </Box>
         <Box>
-          <Text color={runtimeConfig.tui.inputBackgroundColor === 'gray' ? 'white' : undefined}>
+          <Text color={inputBackgroundColor === 'gray' ? 'white' : undefined}>
             {isActive ? <Text color="yellow">{activityStatus}</Text> : footerStatus}
           </Text>
         </Box>

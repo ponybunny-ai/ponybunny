@@ -482,6 +482,7 @@ export class GatewayServer {
           toolRoutingMode: runtime.scheduler.toolRoutingMode,
           runtimeRollout: runtime.scheduler.runtimeRollout,
           tui: {
+            inputBackgroundColor: runtime.tui.inputBackgroundColor,
             sessionFirstEnabled: runtime.tui.sessionFirstEnabled,
             goalSubmitFastPathEnabled: runtime.tui.goalSubmitFastPathEnabled,
           },

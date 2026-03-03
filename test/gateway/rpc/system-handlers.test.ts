@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { RpcHandler } from '../../../src/gateway/rpc/rpc-handler.js';
 import * as runtimeConfig from '../../../src/infra/config/runtime-config.js';
 import { Session } from '../../../src/gateway/connection/session.js';
@@ -372,5 +375,77 @@ describe('system handlers', () => {
     expect(result.metrics.sessionFirst.goalsTotal).toBe(10);
     expect(result.metrics.sessionFirst.goalsWithSessionLink).toBe(6);
     expect(result.metrics.sessionFirst.goalSessionCoverageRate).toBe(0.6);
+  });
+
+  it('updates runtime tui config through rpc', async () => {
+    jest.spyOn(runtimeConfig, 'loadRuntimeConfig').mockReturnValue({
+      ...runtimeConfig.DEFAULT_RUNTIME_CONFIG,
+      tui: {
+        inputBackgroundColor: 'gray',
+        sessionFirstEnabled: true,
+        goalSubmitFastPathEnabled: false,
+      },
+    });
+    const saveSpy = jest.spyOn(runtimeConfig, 'saveRuntimeConfig').mockImplementation(() => undefined);
+
+    const result = await rpc.handle(
+      'system.runtime.tui.update',
+      { sessionFirstEnabled: false, goalSubmitFastPathEnabled: true },
+      createSession(['admin'])
+    ) as {
+      sessionFirstEnabled: boolean;
+      goalSubmitFastPathEnabled: boolean;
+    };
+
+    expect(result.sessionFirstEnabled).toBe(false);
+    expect(result.goalSubmitFastPathEnabled).toBe(true);
+    expect(saveSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('persists main agent model hint through rpc', async () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-system-model-hint-'));
+    const previousConfigDir = process.env.PONYBUNNY_CONFIG_DIR;
+    process.env.PONYBUNNY_CONFIG_DIR = tempRoot;
+
+    const agentDir = path.join(tempRoot, 'agents', 'lead');
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, 'agent.json'), JSON.stringify({ id: 'lead', runner: { id: 'react-goal', config: {} } }, null, 2));
+
+    const runtimeSpy = jest.spyOn(runtimeConfig, 'loadRuntimeConfig').mockReturnValue({
+      ...runtimeConfig.DEFAULT_RUNTIME_CONFIG,
+      agent: {
+        ...runtimeConfig.DEFAULT_RUNTIME_CONFIG.agent,
+        mainAgentId: 'lead',
+      },
+    });
+
+    try {
+      const result = await rpc.handle(
+        'system.agent.model_hint.set',
+        { model: 'openai.gpt-5.2' },
+        createSession(['admin'])
+      ) as {
+        success: boolean;
+        agentId: string;
+        model: string;
+      };
+
+      expect(result.success).toBe(true);
+      expect(result.agentId).toBe('lead');
+      expect(result.model).toBe('openai.gpt-5.2');
+
+      const persisted = JSON.parse(fs.readFileSync(path.join(agentDir, 'agent.json'), 'utf-8')) as {
+        runner?: { config?: { model_hint?: string } };
+      };
+      expect(persisted.runner?.config?.model_hint).toBe('openai.gpt-5.2');
+      expect(runtimeSpy).toHaveBeenCalled();
+    } finally {
+      if (previousConfigDir === undefined) {
+        delete process.env.PONYBUNNY_CONFIG_DIR;
+      } else {
+        process.env.PONYBUNNY_CONFIG_DIR = previousConfigDir;
+      }
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 });

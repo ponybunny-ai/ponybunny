@@ -178,6 +178,7 @@ describe('internal runtime handlers', () => {
           },
         },
         tui: {
+          inputBackgroundColor: 'gray',
           sessionFirstEnabled: true,
           goalSubmitFastPathEnabled: false,
         },
@@ -329,6 +330,7 @@ describe('internal runtime handlers', () => {
       tui: {
         sessionFirstEnabled: true,
         goalSubmitFastPathEnabled: false,
+        inputBackgroundColor: 'gray',
       },
     });
   });
@@ -474,6 +476,7 @@ describe('internal runtime handlers', () => {
           },
         },
         tui: {
+          inputBackgroundColor: 'gray',
           sessionFirstEnabled: true,
           goalSubmitFastPathEnabled: false,
         },
@@ -1887,6 +1890,7 @@ describe('internal runtime handlers', () => {
           },
         },
         tui: {
+          inputBackgroundColor: 'gray',
           sessionFirstEnabled: true,
           goalSubmitFastPathEnabled: false,
         },
@@ -1954,6 +1958,7 @@ describe('internal runtime handlers', () => {
           },
         },
         tui: {
+          inputBackgroundColor: 'gray',
           sessionFirstEnabled: true,
           goalSubmitFastPathEnabled: false,
         },

@@ -60,8 +60,8 @@ describe('UnifiedLLMProvider', () => {
       const messages: LLMMessage[] = [{ role: 'user', content: 'Hello' }];
 
       await expect(
-        provider.complete(messages, { model: 'claude-opus-4-5-20251101' })
-      ).rejects.toThrow('No available endpoints for model: claude-opus-4-5-20251101');
+        provider.complete(messages, { model: 'anthropic.claude-opus-4-5-20251101' })
+      ).rejects.toThrow('No available endpoints for model: anthropic.claude-opus-4-5-20251101');
     });
 
     it('should successfully complete request with anthropic', async () => {
@@ -81,7 +81,7 @@ describe('UnifiedLLMProvider', () => {
       const messages: LLMMessage[] = [{ role: 'user', content: 'Hello' }];
 
       const result = await provider.complete(messages, {
-        model: 'claude-opus-4-5-20251101',
+        model: 'anthropic.claude-opus-4-5-20251101',
       });
 
       expect(result.content).toBe('Hello! How can I help?');
@@ -117,7 +117,7 @@ describe('UnifiedLLMProvider', () => {
       const provider = new UnifiedLLMProvider();
       const messages: LLMMessage[] = [{ role: 'user', content: 'Hello' }];
 
-      const result = await provider.complete(messages, { model: 'gpt-4o' });
+      const result = await provider.complete(messages, { model: 'openai.gpt-5.2' });
 
       expect(result.content).toBe('Hello! How can I help?');
       expect(result.tokensUsed).toBe(50);
@@ -161,7 +161,7 @@ describe('UnifiedLLMProvider', () => {
       expect(payload.model).not.toBe('openai.gpt-5.2');
     });
 
-    it('should fallback to next endpoint on failure', async () => {
+    it('should not cross provider boundaries for provider-qualified model ids', async () => {
       process.env.ANTHROPIC_API_KEY = 'test-key';
       process.env.AWS_ACCESS_KEY_ID = 'aws-id';
       process.env.AWS_SECRET_ACCESS_KEY = 'aws-secret';
@@ -174,26 +174,16 @@ describe('UnifiedLLMProvider', () => {
         json: async () => ({ error: { message: 'Server error' } }),
       });
 
-      // Second call succeeds
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          content: [{ type: 'text', text: 'Success from Bedrock!' }],
-          usage: { input_tokens: 10, output_tokens: 20 },
-          model: 'claude-opus-4-5-20251101',
-          stop_reason: 'end_turn',
-        }),
-      });
-
       const provider = new UnifiedLLMProvider();
       const messages: LLMMessage[] = [{ role: 'user', content: 'Hello' }];
 
-      const result = await provider.complete(messages, {
-        model: 'claude-opus-4-5-20251101',
-      });
+      await expect(
+        provider.complete(messages, {
+          model: 'anthropic.claude-opus-4-5-20251101',
+        })
+      ).rejects.toThrow('All endpoints failed for model anthropic.claude-opus-4-5-20251101');
 
-      expect(result.content).toBe('Success from Bedrock!');
-      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
     it('should throw non-recoverable errors immediately', async () => {
@@ -213,7 +203,7 @@ describe('UnifiedLLMProvider', () => {
       const messages: LLMMessage[] = [{ role: 'user', content: 'Hello' }];
 
       await expect(
-        provider.complete(messages, { model: 'claude-opus-4-5-20251101' })
+        provider.complete(messages, { model: 'anthropic.claude-opus-4-5-20251101' })
       ).rejects.toThrow(LLMProviderError);
 
       // Should not try second endpoint for rate limit

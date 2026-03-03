@@ -1,9 +1,5 @@
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
 import { executeCommand, handleNaturalInput, type CommandContext } from '../../../../src/cli/tui/commands/handlers.js';
 import type { SchedulerCapabilitiesResponse } from '../../../../src/cli/gateway/tui-gateway-client.js';
-import { DEFAULT_RUNTIME_CONFIG } from '../../../../src/infra/config/runtime-config.js';
 
 function buildCapabilitiesResponse(): SchedulerCapabilitiesResponse {
   return {
@@ -42,6 +38,7 @@ function createCommandContext(options?: {
     selectGoal: jest.Mock;
     openModal: jest.Mock;
     setSelectedModel: jest.Mock;
+    setRuntimeTuiConfig: jest.Mock;
   };
   client: {
     createConversationSession: jest.Mock;
@@ -57,6 +54,8 @@ function createCommandContext(options?: {
     getInternalRunTimeline: jest.Mock;
     getInternalRunEvents: jest.Mock;
     pruneInternalRunEvents: jest.Mock;
+    updateRuntimeTuiConfig: jest.Mock;
+    setMainAgentModelHint: jest.Mock;
   };
 } {
   const app = {
@@ -72,6 +71,7 @@ function createCommandContext(options?: {
     selectGoal: jest.fn(),
     openModal: jest.fn(),
     setSelectedModel: jest.fn(),
+    setRuntimeTuiConfig: jest.fn(),
   };
 
   const client = {
@@ -101,9 +101,21 @@ function createCommandContext(options?: {
         },
       },
       tui: {
+        inputBackgroundColor: 'gray',
         sessionFirstEnabled: true,
         goalSubmitFastPathEnabled: false,
       },
+    }),
+    updateRuntimeTuiConfig: jest.fn().mockResolvedValue({
+      inputBackgroundColor: 'gray',
+      sessionFirstEnabled: false,
+      goalSubmitFastPathEnabled: true,
+    }),
+    setMainAgentModelHint: jest.fn().mockResolvedValue({
+      success: true,
+      agentId: 'lead',
+      model: 'openai.gpt-5.2',
+      configPath: '/tmp/agents/lead/agent.json',
     }),
     getRuntimeRolloutStatus: jest.fn().mockResolvedValue({
       mode: 'legacy',
@@ -191,6 +203,11 @@ function createCommandContext(options?: {
         escalations: [],
         selectedModel: null,
         schedulerCapabilities: buildCapabilitiesResponse(),
+        runtimeTuiConfig: {
+          inputBackgroundColor: 'gray',
+          sessionFirstEnabled: true,
+          goalSubmitFastPathEnabled: false,
+        },
       },
     },
     gateway: {
@@ -605,35 +622,6 @@ describe('TUI command handlers - pruneevents', () => {
 });
 
 describe('TUI command handlers - models', () => {
-  let tempConfigDir: string;
-  let previousConfigDir: string | undefined;
-
-  beforeEach(() => {
-    tempConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-tui-models-'));
-    previousConfigDir = process.env.PONYBUNNY_CONFIG_DIR;
-    process.env.PONYBUNNY_CONFIG_DIR = tempConfigDir;
-    fs.writeFileSync(
-      path.join(tempConfigDir, 'ponybunny.json'),
-      JSON.stringify({
-        ...DEFAULT_RUNTIME_CONFIG,
-        agent: {
-          ...DEFAULT_RUNTIME_CONFIG.agent,
-          mainAgentId: 'lead',
-        },
-      }, null, 2),
-      'utf-8'
-    );
-  });
-
-  afterEach(() => {
-    if (previousConfigDir === undefined) {
-      delete process.env.PONYBUNNY_CONFIG_DIR;
-    } else {
-      process.env.PONYBUNNY_CONFIG_DIR = previousConfigDir;
-    }
-    fs.rmSync(tempConfigDir, { recursive: true, force: true });
-  });
-
   it('opens model selector when models are available', async () => {
     const { ctx, app } = createCommandContext();
     (ctx.app as unknown as { state: { schedulerCapabilities: SchedulerCapabilitiesResponse } }).state.schedulerCapabilities = {
@@ -660,8 +648,8 @@ describe('TUI command handlers - models', () => {
     );
   });
 
-  it('persists selected model to active main agent config', async () => {
-    const { ctx, app } = createCommandContext();
+  it('persists selected model through gateway api', async () => {
+    const { ctx, app, client } = createCommandContext();
     (ctx.app as unknown as { state: { schedulerCapabilities: SchedulerCapabilitiesResponse } }).state.schedulerCapabilities = {
       ...buildCapabilitiesResponse(),
       capabilities: {
@@ -685,14 +673,7 @@ describe('TUI command handlers - models', () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
     await new Promise<void>((resolve) => setImmediate(resolve));
 
-    const persistedPath = path.join(tempConfigDir, 'agents', 'lead', 'agent.json');
-    expect(fs.existsSync(persistedPath)).toBe(true);
-
-    const persisted = JSON.parse(fs.readFileSync(persistedPath, 'utf-8')) as {
-      runner?: { config?: { model_hint?: string } };
-    };
-
-    expect(persisted.runner?.config?.model_hint).toBe('openai.gpt-5.2');
+    expect(client.setMainAgentModelHint).toHaveBeenCalledWith({ model: 'openai.gpt-5.2' });
     expect(app.setSelectedModel).toHaveBeenCalledWith('openai.gpt-5.2');
     expect(app.addEvent).toHaveBeenCalledWith(
       'model.selection.persisted',
@@ -719,31 +700,8 @@ describe('TUI command handlers - models', () => {
 });
 
 describe('TUI command handlers - input mode routing', () => {
-  let tempConfigDir: string;
-  let previousConfigDir: string | undefined;
-
-  beforeEach(() => {
-    tempConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-tui-input-mode-'));
-    previousConfigDir = process.env.PONYBUNNY_CONFIG_DIR;
-    process.env.PONYBUNNY_CONFIG_DIR = tempConfigDir;
-    fs.writeFileSync(
-      path.join(tempConfigDir, 'ponybunny.json'),
-      JSON.stringify(DEFAULT_RUNTIME_CONFIG, null, 2),
-      'utf-8'
-    );
-  });
-
-  afterEach(() => {
-    if (previousConfigDir === undefined) {
-      delete process.env.PONYBUNNY_CONFIG_DIR;
-    } else {
-      process.env.PONYBUNNY_CONFIG_DIR = previousConfigDir;
-    }
-    fs.rmSync(tempConfigDir, { recursive: true, force: true });
-  });
-
-  it('switches routing mode with /input-mode fast-path and persists config', async () => {
-    const { ctx, app } = createCommandContext();
+  it('switches routing mode with /input-mode fast-path through gateway', async () => {
+    const { ctx, app, client } = createCommandContext();
 
     const result = await executeCommand('/input-mode fast-path', ctx);
     expect(result.success).toBe(true);
@@ -756,34 +714,28 @@ describe('TUI command handlers - input mode routing', () => {
         goalSubmitFastPathEnabled: true,
       })
     );
-
-    const persisted = JSON.parse(
-      fs.readFileSync(path.join(tempConfigDir, 'ponybunny.json'), 'utf-8')
-    ) as { tui: { sessionFirstEnabled: boolean; goalSubmitFastPathEnabled: boolean } };
-    expect(persisted.tui.sessionFirstEnabled).toBe(false);
-    expect(persisted.tui.goalSubmitFastPathEnabled).toBe(true);
+    expect(client.updateRuntimeTuiConfig).toHaveBeenCalledWith({
+      sessionFirstEnabled: false,
+      goalSubmitFastPathEnabled: true,
+    });
+    expect(app.setRuntimeTuiConfig).toHaveBeenCalled();
   });
 
   it('routes natural input through fast-path when enabled and emits mode usage event', async () => {
-    const fastPathConfig = {
-      ...DEFAULT_RUNTIME_CONFIG,
-      tui: {
-        ...DEFAULT_RUNTIME_CONFIG.tui,
-        sessionFirstEnabled: false,
-        goalSubmitFastPathEnabled: true,
-      },
-    };
-    fs.writeFileSync(
-      path.join(tempConfigDir, 'ponybunny.json'),
-      JSON.stringify(fastPathConfig, null, 2),
-      'utf-8'
-    );
-
     const submitGoal = jest.fn().mockResolvedValue({ id: 'goal-fast', title: 'Fast Goal' });
     const sendConversationMessage = jest.fn();
 
     const app = {
-      state: { selectedModel: undefined, activeSessionId: undefined, activeSessionTitle: undefined },
+      state: {
+        selectedModel: undefined,
+        activeSessionId: undefined,
+        activeSessionTitle: undefined,
+        runtimeTuiConfig: {
+          inputBackgroundColor: 'gray',
+          sessionFirstEnabled: false,
+          goalSubmitFastPathEnabled: true,
+        },
+      },
       addSimpleMessage: jest.fn(),
       updateSimpleMessage: jest.fn(),
       setActivityStatus: jest.fn(),
@@ -791,6 +743,7 @@ describe('TUI command handlers - input mode routing', () => {
       addEvent: jest.fn(),
       selectGoal: jest.fn(),
       setActiveSession: jest.fn(),
+      setRuntimeTuiConfig: jest.fn(),
     };
     const ctx = {
       app,
@@ -811,20 +764,6 @@ describe('TUI command handlers - input mode routing', () => {
   });
 
   it('routes natural input through session-first pipeline when fast-path is disabled', async () => {
-    const sessionFirstConfig = {
-      ...DEFAULT_RUNTIME_CONFIG,
-      tui: {
-        ...DEFAULT_RUNTIME_CONFIG.tui,
-        sessionFirstEnabled: true,
-        goalSubmitFastPathEnabled: false,
-      },
-    };
-    fs.writeFileSync(
-      path.join(tempConfigDir, 'ponybunny.json'),
-      JSON.stringify(sessionFirstConfig, null, 2),
-      'utf-8'
-    );
-
     const submitGoal = jest.fn();
     const sendConversationMessage = jest.fn().mockResolvedValue({
       sessionId: 'ses-1',
@@ -835,7 +774,16 @@ describe('TUI command handlers - input mode routing', () => {
     });
 
     const app = {
-      state: { selectedModel: undefined, activeSessionId: undefined, activeSessionTitle: undefined },
+      state: {
+        selectedModel: undefined,
+        activeSessionId: undefined,
+        activeSessionTitle: undefined,
+        runtimeTuiConfig: {
+          inputBackgroundColor: 'gray',
+          sessionFirstEnabled: true,
+          goalSubmitFastPathEnabled: false,
+        },
+      },
       addSimpleMessage: jest.fn(),
       updateSimpleMessage: jest.fn(),
       setActivityStatus: jest.fn(),
@@ -843,6 +791,7 @@ describe('TUI command handlers - input mode routing', () => {
       addEvent: jest.fn(),
       selectGoal: jest.fn(),
       setActiveSession: jest.fn(),
+      setRuntimeTuiConfig: jest.fn(),
     };
     const ctx = {
       app,

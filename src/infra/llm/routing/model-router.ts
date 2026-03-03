@@ -38,12 +38,27 @@ export class ModelRouter {
     const selectorResolution = this.useLLMConfig
       ? this.resolveModelSelector(modelId)
       : { modelId };
+    if (this.useLLMConfig && selectorResolution.strictError) {
+      console.log(`❌ [ModelRouter] ${selectorResolution.strictError}`);
+      return undefined;
+    }
     const llmModelConfig = this.useLLMConfig ? getLLMModelConfig(selectorResolution.modelId) : undefined;
+    if (this.useLLMConfig && !llmModelConfig) {
+      console.log(`❌ [ModelRouter] Model '${selectorResolution.modelId}' not found in llm-config.models`);
+      return undefined;
+    }
     if (llmModelConfig) {
       if (selectorResolution.providerAliasId) {
         const aliasProtocol = getCachedConfig().providerAliases?.[selectorResolution.providerAliasId]?.protocol;
         if (aliasProtocol) {
           return aliasProtocol;
+        }
+      }
+
+      if (selectorResolution.providerAliasId && getCachedConfig().providers[selectorResolution.providerAliasId]) {
+        const directProtocol = getCachedConfig().providers[selectorResolution.providerAliasId]?.protocol;
+        if (directProtocol) {
+          return directProtocol;
         }
       }
 
@@ -69,7 +84,15 @@ export class ModelRouter {
     const selectorResolution = this.useLLMConfig
       ? this.resolveModelSelector(modelId)
       : { modelId };
+    if (this.useLLMConfig && selectorResolution.strictError) {
+      console.log(`❌ [ModelRouter] ${selectorResolution.strictError}`);
+      return [];
+    }
     const llmModelConfig = this.useLLMConfig ? getLLMModelConfig(selectorResolution.modelId) : undefined;
+    if (this.useLLMConfig && !llmModelConfig) {
+      console.log(`❌ [ModelRouter] Model '${selectorResolution.modelId}' not found in llm-config.models`);
+      return [];
+    }
     const modelProviders = llmModelConfig
       ? (Array.isArray(llmModelConfig.providers) && llmModelConfig.providers.length > 0
         ? llmModelConfig.providers
@@ -87,11 +110,11 @@ export class ModelRouter {
     if (llmModelConfig) {
       console.log(`✅ [ModelRouter] Exact model match in llm-config: ${selectorResolution.modelId}`);
       console.log(`📋 [ModelRouter] Candidate providers from llm-config.models['${selectorResolution.modelId}'].providers: ${candidateEndpointIds.join(', ')}`);
-    } else {
+    } else if (!this.useLLMConfig) {
       console.log(`⚠️ [ModelRouter] No exact model match in llm-config for: ${modelId}`);
     }
 
-    const routingConfig = llmModelConfig ? undefined : this.findRoutingConfig(modelId);
+    const routingConfig = !this.useLLMConfig && !llmModelConfig ? this.findRoutingConfig(modelId) : undefined;
     const fallbackEndpointIds = routingConfig?.endpoints ?? [];
 
     const endpointIdsToTry = llmModelConfig ? candidateEndpointIds : fallbackEndpointIds;
@@ -259,44 +282,46 @@ export class ModelRouter {
 
   private resolveModelSelector(
     modelSelector: string
-  ): { modelId: string; providerAliasId?: string; providerScope?: Set<string> } {
+  ): { modelId: string; providerAliasId?: string; providerScope?: Set<string>; strictError?: string } {
     const config = getCachedConfig();
-
-    if (config.models[modelSelector]) {
-      return { modelId: modelSelector };
-    }
 
     const dotIndex = modelSelector.indexOf('.');
     if (dotIndex <= 0 || dotIndex === modelSelector.length - 1) {
-      return { modelId: modelSelector };
+      return {
+        modelId: modelSelector,
+        strictError: `Invalid model selector '${modelSelector}'. Expected '<provider>.<model_name>'`,
+      };
     }
 
     const providerAliasId = modelSelector.slice(0, dotIndex);
     const modelSuffix = modelSelector.slice(dotIndex + 1);
 
-    const directModelId = `${providerAliasId}.${modelSuffix}`;
-    if (config.models[directModelId]) {
+    const aliasConfig = config.providerAliases?.[providerAliasId];
+    const providerConfig = config.providers[providerAliasId];
+    if (!aliasConfig && !providerConfig) {
       return {
-        modelId: directModelId,
-        providerAliasId,
-        providerScope: new Set([providerAliasId]),
+        modelId: modelSelector,
+        strictError: `Unknown provider '${providerAliasId}' in model selector '${modelSelector}'`,
       };
     }
 
-    const modelId = modelSuffix;
-    const providerAlias = config.providerAliases?.[providerAliasId];
-    if (!providerAlias) {
-      return { modelId: modelSelector };
+    const modelId = `${providerAliasId}.${modelSuffix}`;
+    if (!config.models[modelId]) {
+      return {
+        modelId,
+        providerAliasId,
+        strictError: `Model '${modelId}' not found in llm-config.models`,
+      };
     }
 
-    if (!config.models[modelId]) {
-      return { modelId: modelSelector };
-    }
+    const providerScope = aliasConfig
+      ? new Set(aliasConfig.providers)
+      : new Set([providerAliasId]);
 
     return {
       modelId,
       providerAliasId,
-      providerScope: new Set(providerAlias.providers),
+      providerScope,
     };
   }
 }

@@ -1,11 +1,12 @@
 import chalk from 'chalk';
 import type { AccountProvider } from '../lib/account-types.js';
 import { accountManagerV2, authManagerV2 } from '../lib/auth-manager-v2.js';
-import { openaiClient } from '../lib/openai-client.js';
 import { getCachedCredentials, getCachedEndpointCredential } from '../../infra/config/credentials-loader.js';
 import { getAllEndpointConfigs, hasRequiredCredentials } from '../../infra/llm/endpoints/index.js';
 import type { EndpointConfig, EndpointId } from '../../infra/llm/endpoints/index.js';
 import { loadLLMConfig } from '../../infra/llm/provider-manager/config-loader.js';
+import { testOpenAIProtocolConnection } from '../../infra/llm/provider-manager/openai-model-catalog.js';
+import { getLLMService } from '../../infra/llm/llm-service.js';
 
 function providerDisplayName(provider: AccountProvider): string {
   switch (provider) {
@@ -72,17 +73,7 @@ async function testOpenAICompatibleConnection(): Promise<void> {
     throw new Error('OPENAI_COMPATIBLE_API_KEY is missing');
   }
 
-  const response = await fetch(`${config.baseUrl}/models`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => response.statusText);
-    throw new Error(`HTTP ${response.status}: ${errorText}`);
-  }
+  await testOpenAIProtocolConnection(config.baseUrl, config.apiKey);
 }
 
 async function testProvider(endpoint: EndpointConfig): Promise<void> {
@@ -132,13 +123,15 @@ export async function statusCommand(): Promise<void> {
 
     if (isAuth) {
       try {
-        let response = '';
-        await openaiClient.streamChatCompletion({
-          model: 'gpt-5.2',
-          messages: [{ role: 'user', content: 'Say "OK"' }],
-        }, (chunk) => {
-          response += chunk;
-        });
+        const llmService = getLLMService();
+        await llmService.complete(
+          [{ role: 'user', content: 'Say "OK"' }],
+          {
+            model: 'openai-codex.gpt-5.2-codex',
+            maxTokens: 16,
+            timeout: 30000,
+          }
+        );
         console.log(chalk.green('✓ OpenAI OAuth test successful'));
       } catch (error) {
         console.log(chalk.red(`✗ OpenAI OAuth test failed: ${(error as Error).message}`));

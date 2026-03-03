@@ -3,7 +3,7 @@
  */
 
 import type { Goal, WorkItem, Escalation } from '../../../work-order/types/index.js';
-import type { ConnectionStatus, ViewType, ModalType, GatewayEvent, RuntimeSnapshot, SimpleMessage, SessionSummary, SessionHistoryPreview } from './types.js';
+import type { ConnectionStatus, ViewType, ModalType, GatewayEvent, RuntimeSnapshot, RuntimeTuiConfig, SimpleMessage, SessionSummary, SessionHistoryPreview } from './types.js';
 import type { SchedulerCapabilitiesResponse } from '../../gateway/tui-gateway-client.js';
 
 // Simple message actions
@@ -195,6 +195,11 @@ export interface AddRuntimeSnapshotAction {
   payload: RuntimeSnapshot;
 }
 
+export interface SetRuntimeTuiConfigAction {
+  type: 'SET_RUNTIME_TUI_CONFIG';
+  payload: RuntimeTuiConfig | null;
+}
+
 // Activity actions
 export interface SetActivityStatusAction {
   type: 'SET_ACTIVITY_STATUS';
@@ -275,6 +280,7 @@ export type AppAction =
   | AddEventsAction
   | ClearEventsAction
   | AddRuntimeSnapshotAction
+  | SetRuntimeTuiConfigAction
   | SetActivityStatusAction
   | OpenModalAction
   | CloseModalAction
@@ -461,6 +467,11 @@ export const actions = {
   addRuntimeSnapshot: (snapshot: RuntimeSnapshot): AddRuntimeSnapshotAction => ({
     type: 'ADD_RUNTIME_SNAPSHOT',
     payload: snapshot,
+  }),
+
+  setRuntimeTuiConfig: (config: RuntimeTuiConfig | null): SetRuntimeTuiConfigAction => ({
+    type: 'SET_RUNTIME_TUI_CONFIG',
+    payload: config,
   }),
 
   setActivityStatus: (status: string): SetActivityStatusAction => ({

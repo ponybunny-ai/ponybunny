@@ -6,7 +6,7 @@ import * as React from 'react';
 import { createContext, useContext, useReducer, useCallback, useMemo, useEffect, useRef } from 'react';
 import { appReducer } from '../store/reducer.js';
 import { actions, type AppAction } from '../store/actions.js';
-import { initialState, type AppState, type RuntimeSnapshot, type ViewType, type ModalType, type SimpleMessage, type SessionSummary, type SessionHistoryPreview } from '../store/types.js';
+import { initialState, type AppState, type RuntimeSnapshot, type RuntimeTuiConfig, type ViewType, type ModalType, type SimpleMessage, type SessionSummary, type SessionHistoryPreview } from '../store/types.js';
 import type { Goal, WorkItem, Escalation } from '../../../work-order/types/index.js';
 import type { SchedulerCapabilitiesResponse } from '../../gateway/tui-gateway-client.js';
 
@@ -40,6 +40,7 @@ export interface AppContextValue {
   addEvent: (event: string, data: unknown) => void;
   clearEvents: () => void;
   addRuntimeSnapshot: (snapshot: RuntimeSnapshot) => void;
+  setRuntimeTuiConfig: (config: RuntimeTuiConfig | null) => void;
 
   // Goal methods
   setGoals: (goals: Goal[]) => void;
@@ -192,6 +193,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     dispatch(actions.addRuntimeSnapshot(snapshot));
   }, []);
 
+  const setRuntimeTuiConfig = useCallback((config: RuntimeTuiConfig | null) => {
+    dispatch(actions.setRuntimeTuiConfig(config));
+  }, []);
+
   // Goal methods
   const setGoals = useCallback((goals: Goal[]) => {
     dispatch(actions.setGoals(goals));
@@ -276,6 +281,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     addEvent,
     clearEvents,
     addRuntimeSnapshot,
+    setRuntimeTuiConfig,
     setGoals,
     addGoal,
     updateGoal,
@@ -310,6 +316,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     addEvent,
     clearEvents,
     addRuntimeSnapshot,
+    setRuntimeTuiConfig,
     setGoals,
     addGoal,
     updateGoal,

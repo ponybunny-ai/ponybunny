@@ -282,6 +282,12 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
       }).catch(err => {
         appRef.current.addEvent('error', { message: `Failed to load scheduler capabilities: ${err.message}` });
       });
+
+      client.getInternalRuntimeConfig().then((runtimeConfig) => {
+        appRef.current.setRuntimeTuiConfig(runtimeConfig.tui);
+      }).catch((err) => {
+        appRef.current.addEvent('error', { message: `Failed to load runtime tui config: ${err.message}` });
+      });
     }
   }, [gateway.connectionStatus]);
 

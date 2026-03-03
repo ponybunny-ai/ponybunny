@@ -30,6 +30,7 @@ export interface InternalRuntimeConfigResponse {
     };
   };
   tui: {
+    inputBackgroundColor: 'gray' | 'black' | 'blue' | 'green' | 'yellow' | 'magenta' | 'cyan' | 'white';
     sessionFirstEnabled: boolean;
     goalSubmitFastPathEnabled: boolean;
   };

@@ -361,6 +361,46 @@ export interface RuntimeRolloutUpdateParams {
   rollbackToLegacy?: boolean;
 }
 
+export interface RuntimeTuiConfig {
+  inputBackgroundColor: 'gray' | 'black' | 'blue' | 'green' | 'yellow' | 'magenta' | 'cyan' | 'white';
+  sessionFirstEnabled: boolean;
+  goalSubmitFastPathEnabled: boolean;
+}
+
+export interface InternalRuntimeConfig {
+  deterministicRuntimeEnabled: boolean;
+  planCompilerEnabled: boolean;
+  toolRoutingMode: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
+  runtimeRollout: {
+    shadowModeEnabled: boolean;
+    canaryPercent: number;
+    rollbackOnFailure: boolean;
+    lanePercents: {
+      dryRun: number;
+      compile: number;
+      replay: number;
+    };
+  };
+  tui: RuntimeTuiConfig;
+}
+
+export interface RuntimeTuiConfigUpdateParams {
+  sessionFirstEnabled?: boolean;
+  goalSubmitFastPathEnabled?: boolean;
+  inputBackgroundColor?: RuntimeTuiConfig['inputBackgroundColor'];
+}
+
+export interface SetMainAgentModelHintParams {
+  model: string;
+}
+
+export interface SetMainAgentModelHintResponse {
+  success: boolean;
+  agentId: string;
+  model: string;
+  configPath: string;
+}
+
 export class TuiGatewayClient {
   private client: GatewayClient;
 
@@ -590,26 +630,16 @@ export class TuiGatewayClient {
     return this.client.request('approval.reject', { approvalId, reason });
   }
 
-  async getInternalRuntimeConfig(): Promise<{
-    deterministicRuntimeEnabled: boolean;
-    planCompilerEnabled: boolean;
-    toolRoutingMode: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
-    runtimeRollout: {
-      shadowModeEnabled: boolean;
-      canaryPercent: number;
-      rollbackOnFailure: boolean;
-      lanePercents: {
-        dryRun: number;
-        compile: number;
-        replay: number;
-      };
-    };
-    tui: {
-      sessionFirstEnabled: boolean;
-      goalSubmitFastPathEnabled: boolean;
-    };
-  }> {
+  async getInternalRuntimeConfig(): Promise<InternalRuntimeConfig> {
     return this.client.request('internal.runtime.config', {});
+  }
+
+  async updateRuntimeTuiConfig(params: RuntimeTuiConfigUpdateParams): Promise<RuntimeTuiConfig> {
+    return this.client.request('system.runtime.tui.update', params);
+  }
+
+  async setMainAgentModelHint(params: SetMainAgentModelHintParams): Promise<SetMainAgentModelHintResponse> {
+    return this.client.request('system.agent.model_hint.set', params);
   }
 
   async getRuntimeRolloutStatus(): Promise<RuntimeRolloutStatusResponse> {

@@ -1,4 +1,6 @@
 import type { RpcHandler } from '../rpc-handler.js';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { ConnectionManager } from '../../connection/connection-manager.js';
 import type { ISchedulerCore } from '../../../scheduler/core/index.js';
 import type { ToolRegistry } from '../../../infra/tools/tool-registry.js';
@@ -15,6 +17,7 @@ import {
 } from '../../../infra/scheduler/capabilities.js';
 import { GatewayError } from '../../errors.js';
 import { loadRuntimeConfig, saveRuntimeConfig } from '../../../infra/config/runtime-config.js';
+import { getUserAgentsDir } from '../../../infra/agents/agent-discovery.js';
 import type { RuntimeRolloutMetricsSnapshot } from '../../runtime/runtime-rollout-telemetry.js';
 
 export interface SystemStatusResponse {
@@ -104,6 +107,29 @@ export interface RuntimeRolloutUpdateParams {
   };
   rollbackOnFailure?: boolean;
   rollbackToLegacy?: boolean;
+}
+
+export interface RuntimeTuiConfigUpdateParams {
+  sessionFirstEnabled?: boolean;
+  goalSubmitFastPathEnabled?: boolean;
+  inputBackgroundColor?: 'gray' | 'black' | 'blue' | 'green' | 'yellow' | 'magenta' | 'cyan' | 'white';
+}
+
+export interface RuntimeTuiConfigResponse {
+  inputBackgroundColor: 'gray' | 'black' | 'blue' | 'green' | 'yellow' | 'magenta' | 'cyan' | 'white';
+  sessionFirstEnabled: boolean;
+  goalSubmitFastPathEnabled: boolean;
+}
+
+export interface SetMainAgentModelHintParams {
+  model: string;
+}
+
+export interface SetMainAgentModelHintResponse {
+  success: boolean;
+  agentId: string;
+  model: string;
+  configPath: string;
 }
 
 export interface SystemHandlersOptions {
@@ -197,6 +223,48 @@ function toCanaryPercent(value: unknown, fallback: number): number {
   }
 
   throw GatewayError.invalidParams(`canaryPercent must be an integer between 0 and 100 (current=${fallback})`);
+}
+
+function buildRuntimeTuiConfigResponse(runtime: ReturnType<typeof loadRuntimeConfig>): RuntimeTuiConfigResponse {
+  return {
+    inputBackgroundColor: runtime.tui.inputBackgroundColor,
+    sessionFirstEnabled: runtime.tui.sessionFirstEnabled,
+    goalSubmitFastPathEnabled: runtime.tui.goalSubmitFastPathEnabled,
+  };
+}
+
+function persistModelHintToMainAgent(model: string): SetMainAgentModelHintResponse {
+  const runtime = loadRuntimeConfig();
+  const agentId = runtime.agent.mainAgentId;
+  const userAgentConfigPath = path.join(getUserAgentsDir(), agentId, 'agent.json');
+  const workspaceAgentConfigPath = path.join(process.cwd(), 'agents', agentId, 'agent.json');
+  const sourcePath = fs.existsSync(userAgentConfigPath)
+    ? userAgentConfigPath
+    : workspaceAgentConfigPath;
+
+  if (!fs.existsSync(sourcePath)) {
+    throw GatewayError.invalidParams(`Agent config not found for '${agentId}'`);
+  }
+
+  const parsed = JSON.parse(fs.readFileSync(sourcePath, 'utf-8')) as Record<string, unknown>;
+  const runner = parsed.runner && typeof parsed.runner === 'object'
+    ? { ...(parsed.runner as Record<string, unknown>) }
+    : {};
+  const runnerConfig = runner.config && typeof runner.config === 'object'
+    ? { ...(runner.config as Record<string, unknown>) }
+    : {};
+
+  runnerConfig.model_hint = model;
+  runner.config = runnerConfig;
+  parsed.runner = runner;
+
+  const targetDir = path.dirname(userAgentConfigPath);
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true, mode: 0o700 });
+  }
+
+  fs.writeFileSync(userAgentConfigPath, `${JSON.stringify(parsed, null, 2)}\n`, { mode: 0o600 });
+  return { success: true, agentId, model, configPath: userAgentConfigPath };
 }
 
 function buildRuntimeRolloutStatus(options?: SystemHandlersOptions): RuntimeRolloutStatusResponse {
@@ -397,6 +465,49 @@ export function registerSystemHandlers(
         await options.applyRuntimeRollout(toRuntimeRolloutUpdatePayload(runtime));
       }
       return buildRuntimeRolloutStatus(options);
+    }
+  );
+
+  rpcHandler.register<RuntimeTuiConfigUpdateParams, RuntimeTuiConfigResponse>(
+    'system.runtime.tui.update',
+    ['admin'],
+    async (params) => {
+      const runtime = loadRuntimeConfig();
+
+      if (
+        params.sessionFirstEnabled === undefined
+        && params.goalSubmitFastPathEnabled === undefined
+        && params.inputBackgroundColor === undefined
+      ) {
+        throw GatewayError.invalidParams('At least one tui config field must be provided');
+      }
+
+      if (params.sessionFirstEnabled !== undefined) {
+        runtime.tui.sessionFirstEnabled = params.sessionFirstEnabled;
+      }
+
+      if (params.goalSubmitFastPathEnabled !== undefined) {
+        runtime.tui.goalSubmitFastPathEnabled = params.goalSubmitFastPathEnabled;
+      }
+
+      if (params.inputBackgroundColor !== undefined) {
+        runtime.tui.inputBackgroundColor = params.inputBackgroundColor;
+      }
+
+      saveRuntimeConfig(runtime);
+      return buildRuntimeTuiConfigResponse(runtime);
+    }
+  );
+
+  rpcHandler.register<SetMainAgentModelHintParams, SetMainAgentModelHintResponse>(
+    'system.agent.model_hint.set',
+    ['admin'],
+    async (params) => {
+      if (!params.model || typeof params.model !== 'string' || params.model.trim().length === 0) {
+        throw GatewayError.invalidParams('model must be a non-empty string');
+      }
+
+      return persistModelHintToMainAgent(params.model.trim());
     }
   );
 }

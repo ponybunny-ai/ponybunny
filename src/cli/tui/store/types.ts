@@ -112,6 +112,12 @@ export interface RuntimeSnapshot {
   };
 }
 
+export interface RuntimeTuiConfig {
+  inputBackgroundColor: 'gray' | 'black' | 'blue' | 'green' | 'yellow' | 'magenta' | 'cyan' | 'white';
+  sessionFirstEnabled: boolean;
+  goalSubmitFastPathEnabled: boolean;
+}
+
 export interface AppState {
   // Message stream
   simpleMessages: SimpleMessage[];
@@ -157,6 +163,7 @@ export interface AppState {
   eventsSearchQuery: string;
 
   runtimeSnapshots: RuntimeSnapshot[];
+  runtimeTuiConfig: RuntimeTuiConfig | null;
 
   // Activity
   activityStatus: string;
@@ -235,6 +242,7 @@ export const initialState: AppState = {
   eventsFilter: 'all',
   eventsSearchQuery: '',
   runtimeSnapshots: [],
+  runtimeTuiConfig: null,
   activityStatus: 'idle',
   activeModal: null,
   modalData: null,

@@ -57,18 +57,18 @@ describe('LLMService', () => {
 
   describe('DEFAULT_TIER_MODELS', () => {
     it('should have Claude-first strategy for simple tier', () => {
-      expect(DEFAULT_TIER_MODELS.simple.primary).toBe('claude-haiku-4-5-20251001');
-      expect(DEFAULT_TIER_MODELS.simple.fallback).toBe('gpt-5.2');
+      expect(DEFAULT_TIER_MODELS.simple.primary).toBe('anthropic.claude-haiku-4-5-20251001');
+      expect(DEFAULT_TIER_MODELS.simple.fallback).toBe('openai.gpt-5.2');
     });
 
     it('should have Claude-first strategy for medium tier', () => {
-      expect(DEFAULT_TIER_MODELS.medium.primary).toBe('claude-sonnet-4-5-20250929');
-      expect(DEFAULT_TIER_MODELS.medium.fallback).toBe('gpt-5.2');
+      expect(DEFAULT_TIER_MODELS.medium.primary).toBe('anthropic.claude-sonnet-4-5-20250929');
+      expect(DEFAULT_TIER_MODELS.medium.fallback).toBe('openai.gpt-5.2');
     });
 
     it('should have Claude Opus 4.5 as primary for complex tier', () => {
-      expect(DEFAULT_TIER_MODELS.complex.primary).toBe('claude-opus-4-5-20251101');
-      expect(DEFAULT_TIER_MODELS.complex.fallback).toBe('gpt-5.2');
+      expect(DEFAULT_TIER_MODELS.complex.primary).toBe('anthropic.claude-opus-4-5-20251101');
+      expect(DEFAULT_TIER_MODELS.complex.fallback).toBe('openai.gpt-5.2');
     });
   });
 
@@ -77,9 +77,9 @@ describe('LLMService', () => {
       const service = new LLMService();
       const tierModels = service.getTierModels();
 
-      expect(tierModels.simple.primary).toBe('claude-haiku-4-5-20251001');
-      expect(tierModels.medium.primary).toBe('claude-sonnet-4-5-20250929');
-      expect(tierModels.complex.primary).toBe('claude-opus-4-5-20251101');
+      expect(tierModels.simple.primary).toBe('anthropic.claude-haiku-4-5-20251001');
+      expect(tierModels.medium.primary).toBe('anthropic.claude-sonnet-4-5-20250929');
+      expect(tierModels.complex.primary).toBe('anthropic.claude-opus-4-5-20251101');
     });
 
     it('should allow custom tier model configuration', () => {
@@ -178,9 +178,9 @@ describe('LLMService', () => {
       process.env.ANTHROPIC_API_KEY = 'test-key';
       const service = new LLMService();
 
-      expect(service.getModelForTier('simple')).toBe('claude-haiku-4-5-20251001');
-      expect(service.getModelForTier('medium')).toBe('claude-sonnet-4-5-20250929');
-      expect(service.getModelForTier('complex')).toBe('claude-opus-4-5-20251101');
+      expect(service.getModelForTier('simple')).toBe('anthropic.claude-haiku-4-5-20251001');
+      expect(service.getModelForTier('medium')).toBe('anthropic.claude-sonnet-4-5-20250929');
+      expect(service.getModelForTier('complex')).toBe('anthropic.claude-opus-4-5-20251101');
     });
 
     it('should return fallback model when primary provider is not available', () => {
@@ -188,9 +188,9 @@ describe('LLMService', () => {
       const service = new LLMService();
 
       // Primary is Claude but no ANTHROPIC_API_KEY, so should fall back to OpenAI
-      expect(service.getModelForTier('simple')).toBe('gpt-5.2');
-      expect(service.getModelForTier('medium')).toBe('gpt-5.2');
-      expect(service.getModelForTier('complex')).toBe('gpt-5.2');
+      expect(service.getModelForTier('simple')).toBe('openai.gpt-5.2');
+      expect(service.getModelForTier('medium')).toBe('openai.gpt-5.2');
+      expect(service.getModelForTier('complex')).toBe('openai.gpt-5.2');
     });
   });
 
