@@ -805,6 +805,22 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
         if (typeof data?.sessionId === 'string' && !app.state.activeSessionId) {
           app.setActiveSession(data.sessionId, null);
         }
+        if (client) {
+          void client.listConversationSessions({ limit: 20, lifecycleState: 'active' }).then(result => {
+            app.setSessions(result.sessions.map((session) => ({
+              id: session.id,
+              title: session.title,
+              state: session.state,
+              lifecycleState: session.lifecycleState,
+              archivedAt: session.archivedAt,
+              archiveSummary: session.archiveSummary,
+              turnCount: session.turnCount,
+              lastMessage: session.lastMessage,
+              createdAt: session.createdAt,
+              updatedAt: session.updatedAt,
+            })));
+          });
+        }
         break;
 
       case 'conversation.archived':

@@ -120,6 +120,58 @@ export function truncate(str: string, maxLength: number): string {
   return str.slice(0, maxLength - 1) + '…';
 }
 
+const ansiPattern = /\u001B\[[0-9;]*m/g;
+const combiningMarkPattern = /\p{Mark}/u;
+const zeroWidthPattern = /[\u200B-\u200D\uFE0E\uFE0F]/u;
+const fullWidthPattern = /[\u1100-\u115F\u231A-\u231B\u2329-\u232A\u23E9-\u23EC\u23F0\u23F3\u25FD-\u25FE\u2614-\u2615\u2648-\u2653\u267F\u2693\u26A1\u26AA-\u26AB\u26BD-\u26BE\u26C4-\u26C5\u26CE\u26D4\u26EA\u26F2-\u26F3\u26F5\u26FA\u26FD\u2705\u270A-\u270B\u2728\u274C\u274E\u2753-\u2755\u2757\u2795-\u2797\u27B0\u27BF\u2B1B-\u2B1C\u2B50\u2B55\u2E80-\u2E99\u2E9B-\u2EF3\u2F00-\u2FD5\u2FF0-\u2FFB\u3000-\u303E\u3041-\u3096\u3099-\u30FF\u3105-\u312F\u3131-\u318E\u3190-\u31E3\u31F0-\u321E\u3220-\u3247\u3250-\u32FE\u3300-\u4DBF\u4E00-\uA4C6\uA960-\uA97C\uAC00-\uD7A3\uF900-\uFAFF\uFE10-\uFE19\uFE30-\uFE6B\uFF01-\uFF60\uFFE0-\uFFE6\u{1F000}-\u{1F02F}\u{1F0A0}-\u{1F0FF}\u{1F18E}\u{1F191}-\u{1F251}\u{1F300}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FAFF}\u{20000}-\u{2FFFD}\u{30000}-\u{3FFFD}]/u;
+
+function charDisplayWidth(char: string): number {
+  if (char === '\n' || char === '\r') {
+    return 0;
+  }
+  if (zeroWidthPattern.test(char) || combiningMarkPattern.test(char)) {
+    return 0;
+  }
+  return fullWidthPattern.test(char) ? 2 : 1;
+}
+
+export function displayWidth(input: string): number {
+  const plain = input.replace(ansiPattern, '');
+  let width = 0;
+  for (const char of plain) {
+    width += charDisplayWidth(char);
+  }
+  return width;
+}
+
+export function truncateDisplayWidth(input: string, maxWidth: number): string {
+  if (maxWidth <= 0) {
+    return '';
+  }
+  const plain = input.replace(ansiPattern, '');
+  if (displayWidth(plain) <= maxWidth) {
+    return plain;
+  }
+  if (maxWidth === 1) {
+    return '…';
+  }
+
+  const targetWidth = maxWidth - 1;
+  let usedWidth = 0;
+  let output = '';
+
+  for (const char of plain) {
+    const charWidth = charDisplayWidth(char);
+    if (usedWidth + charWidth > targetWidth) {
+      break;
+    }
+    output += char;
+    usedWidth += charWidth;
+  }
+
+  return `${output}…`;
+}
+
 export function padRight(str: string, length: number): string {
   if (str.length >= length) return str;
   return str + ' '.repeat(length - str.length);
