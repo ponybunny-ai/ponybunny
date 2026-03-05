@@ -118,4 +118,18 @@ describe('SessionManager lifecycle management', () => {
     expect(response.taskInfo?.goalId).toBe('g1');
     expect(response.state).toBe('executing');
   });
+
+  it('returns goal_created decision for actionable question intent without missing info', async () => {
+    const repository = new InMemorySessionRepository();
+    const manager = createManagerWithAnalysis(repository, {
+      ...ANALYSIS,
+      intent: { ...ANALYSIS.intent, primary: 'question' },
+      purpose: { ...ANALYSIS.purpose, isActionable: true, missingInfo: [] },
+    });
+
+    const response = await manager.processMessage('Can you build and ship this feature end-to-end today?');
+    expect(response.decision).toBe('goal_created');
+    expect(response.taskInfo?.goalId).toBe('g1');
+    expect(response.state).toBe('executing');
+  });
 });

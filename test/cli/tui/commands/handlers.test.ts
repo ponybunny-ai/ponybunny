@@ -728,7 +728,7 @@ describe('TUI command handlers - input mode routing', () => {
     const app = {
       state: {
         selectedModel: undefined,
-        activeSessionId: undefined,
+        activeSessionId: 'ses-fast-1',
         activeSessionTitle: undefined,
         runtimeTuiConfig: {
           inputBackgroundColor: 'gray',
@@ -759,6 +759,14 @@ describe('TUI command handlers - input mode routing', () => {
     const result = await handleNaturalInput('Build a quick script', ctx);
     expect(result.success).toBe(true);
     expect(submitGoal).toHaveBeenCalledTimes(1);
+    expect(submitGoal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          sessionId: 'ses-fast-1',
+          inputMode: 'fast-path',
+        }),
+      })
+    );
     expect(sendConversationMessage).not.toHaveBeenCalled();
     expect(app.addEvent).toHaveBeenCalledWith('tui.input_mode.used', { mode: 'fast-path' });
   });
@@ -814,6 +822,75 @@ describe('TUI command handlers - input mode routing', () => {
       'conversation.response',
       expect.objectContaining({
         decision: 'clarification_requested',
+      })
+    );
+  });
+
+  it('maps session-first goal_created response to queued task UI state', async () => {
+    const submitGoal = jest.fn();
+    const sendConversationMessage = jest.fn().mockResolvedValue({
+      sessionId: 'ses-2',
+      state: 'executing',
+      response: 'Got it, task created and queued.',
+      decision: 'goal_created',
+      decisionReason: 'Task bridge created executable goal from conversation intent.',
+      taskInfo: {
+        goalId: 'goal-xyz',
+        status: 'queued',
+      },
+    });
+
+    const app = {
+      state: {
+        selectedModel: undefined,
+        activeSessionId: undefined,
+        activeSessionTitle: undefined,
+        runtimeTuiConfig: {
+          inputBackgroundColor: 'gray',
+          sessionFirstEnabled: true,
+          goalSubmitFastPathEnabled: false,
+        },
+      },
+      addSimpleMessage: jest.fn(),
+      updateSimpleMessage: jest.fn(),
+      setActivityStatus: jest.fn(),
+      addGoal: jest.fn(),
+      addEvent: jest.fn(),
+      selectGoal: jest.fn(),
+      setActiveSession: jest.fn(),
+      setRuntimeTuiConfig: jest.fn(),
+    };
+
+    const ctx = {
+      app,
+      gateway: {
+        client: {
+          submitGoal,
+          createConversationSession: jest.fn().mockResolvedValue({ sessionId: 'ses-2' }),
+          sendConversationMessage,
+          getStats: jest.fn().mockResolvedValue({ schedulerConnected: true }),
+        },
+      },
+    } as unknown as CommandContext;
+
+    const result = await handleNaturalInput('Please implement this and run tests', ctx);
+    expect(result.success).toBe(true);
+    expect(sendConversationMessage).toHaveBeenCalledTimes(1);
+    expect(submitGoal).not.toHaveBeenCalled();
+    expect(app.selectGoal).toHaveBeenCalledWith('goal-xyz');
+    expect(app.updateSimpleMessage).toHaveBeenCalledWith(
+      expect.stringMatching(/^msg-/),
+      expect.objectContaining({
+        status: 'processing',
+        statusText: 'Task queued...',
+        goalId: 'goal-xyz',
+      })
+    );
+    expect(app.addEvent).toHaveBeenCalledWith(
+      'conversation.response',
+      expect.objectContaining({
+        decision: 'goal_created',
+        hasTask: true,
       })
     );
   });

@@ -91,6 +91,13 @@ export class ConversationStateMachine implements IConversationStateMachine {
     intent: IntentCategory,
     purpose: IInputAnalysis['purpose']
   ): ConversationState {
+    if (purpose.isActionable) {
+      if (purpose.missingInfo.length > 0) {
+        return 'clarifying';
+      }
+      return 'executing';
+    }
+
     switch (intent) {
       case 'greeting':
       case 'farewell':

@@ -1516,6 +1516,7 @@ export async function handleNaturalInput(
   }
 
   const messageId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const activeSessionId = ctx.app.state.activeSessionId;
   const runtimeConfig = ctx.app.state.runtimeTuiConfig ?? (await client.getInternalRuntimeConfig()).tui;
   if (!ctx.app.state.runtimeTuiConfig) {
     ctx.app.setRuntimeTuiConfig(runtimeConfig);
@@ -1526,6 +1527,7 @@ export async function handleNaturalInput(
     id: messageId,
     input,
     source: useFastPath ? 'goal' : 'conversation',
+    sessionId: activeSessionId ?? undefined,
     status: 'pending',
     timeline: [{ timestamp: Date.now(), stage: 'Parsing intent', detail: 'Analyzing request and planning execution.' }],
     timestamp: Date.now(),
@@ -1552,7 +1554,6 @@ export async function handleNaturalInput(
       ],
     });
 
-    const activeSessionId = ctx.app.state.activeSessionId;
     const sessionPayload = activeSessionId
       ? { sessionId: activeSessionId }
       : await client.createConversationSession({});
@@ -1676,6 +1677,20 @@ async function handleNaturalInputFastPath(
   });
 
   try {
+    const selectedModel = ctx.app.state.selectedModel;
+    const activeSessionId = ctx.app.state.activeSessionId;
+    const goalContext: Record<string, unknown> = {};
+
+    if (selectedModel) {
+      goalContext.selected_model = selectedModel;
+      goalContext.model_source = 'tui_selected';
+    }
+
+    if (activeSessionId) {
+      goalContext.sessionId = activeSessionId;
+      goalContext.inputMode = 'fast-path';
+    }
+
     const goal = await client.submitGoal({
       title: input.length > 60 ? `${input.slice(0, 60)}...` : input,
       description: input,
@@ -1686,12 +1701,7 @@ async function handleNaturalInputFastPath(
         required: true,
       }],
       priority: 50,
-      context: ctx.app.state.selectedModel
-        ? {
-            selected_model: ctx.app.state.selectedModel,
-            model_source: 'tui_selected',
-          }
-        : undefined,
+      context: Object.keys(goalContext).length > 0 ? goalContext : undefined,
     });
 
     ctx.app.addGoal(goal);
