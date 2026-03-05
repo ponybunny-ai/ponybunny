@@ -14,9 +14,11 @@ export type SimpleMessageStatus = 'pending' | 'processing' | 'completed' | 'fail
 export interface SimpleMessage {
   id: string;
   input: string;
+  source?: 'conversation' | 'goal';
   status: SimpleMessageStatus;
   statusText?: string;
   goalId?: string;
+  sessionId?: string;
   workItemId?: string;
   runId?: string;
   timeline: Array<{

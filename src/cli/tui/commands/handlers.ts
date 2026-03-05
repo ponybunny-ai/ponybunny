@@ -1525,6 +1525,7 @@ export async function handleNaturalInput(
   ctx.app.addSimpleMessage({
     id: messageId,
     input,
+    source: useFastPath ? 'goal' : 'conversation',
     status: 'pending',
     timeline: [{ timestamp: Date.now(), stage: 'Parsing intent', detail: 'Analyzing request and planning execution.' }],
     timestamp: Date.now(),
@@ -1556,6 +1557,11 @@ export async function handleNaturalInput(
       ? { sessionId: activeSessionId }
       : await client.createConversationSession({});
     const sessionId = sessionPayload.sessionId;
+
+    ctx.app.updateSimpleMessage(messageId, {
+      sessionId,
+      source: 'conversation',
+    });
 
     if (!ctx.app.state.activeSessionId) {
       const inferredTitle = input.length > 60 ? `${input.slice(0, 60)}...` : input;

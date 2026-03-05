@@ -41,6 +41,7 @@ export const DashboardView: React.FC = () => {
     eventsFilter,
     eventsSearchQuery,
     events,
+    simpleMessages,
   } = state;
   const { rows, columns } = useTerminalSize();
 
@@ -51,6 +52,37 @@ export const DashboardView: React.FC = () => {
   const [conversationTurns, setConversationTurns] = React.useState<ConversationTurn[]>([]);
   const [conversationLoading, setConversationLoading] = React.useState(false);
   const [conversationError, setConversationError] = React.useState<string | null>(null);
+
+  const mergedConversationTurns = React.useMemo<ConversationTurn[]>(() => {
+    if (!activeSessionId) {
+      return conversationTurns;
+    }
+
+    const optimisticTurns = simpleMessages
+      .filter((message) =>
+        message.source === 'conversation' &&
+        message.sessionId === activeSessionId &&
+        (message.status === 'pending' || message.status === 'processing')
+      )
+      .map((message) => ({
+        role: 'user' as const,
+        content: message.input,
+        timestamp: message.timestamp,
+      }))
+      .filter((candidate) => {
+        return !conversationTurns.some((turn) =>
+          turn.role === 'user' &&
+          turn.content === candidate.content &&
+          Math.abs(turn.timestamp - candidate.timestamp) <= 30_000
+        );
+      });
+
+    if (optimisticTurns.length === 0) {
+      return conversationTurns;
+    }
+
+    return [...conversationTurns, ...optimisticTurns].sort((a, b) => a.timestamp - b.timestamp);
+  }, [activeSessionId, conversationTurns, simpleMessages]);
 
   const activeWorkItems = workItems.filter(item =>
     item.status === 'in_progress' || item.status === 'ready' || item.status === 'queued'
@@ -68,7 +100,7 @@ export const DashboardView: React.FC = () => {
   const renderedConversationLines = React.useMemo<RenderedConversationLine[]>(() => {
     const lines: RenderedConversationLine[] = [];
 
-    for (const [turnIndex, turn] of conversationTurns.entries()) {
+    for (const [turnIndex, turn] of mergedConversationTurns.entries()) {
       const role = turn.role.toUpperCase();
       const roleColor = turn.role === 'assistant'
         ? 'blue'
@@ -101,15 +133,30 @@ export const DashboardView: React.FC = () => {
     }
 
     return lines;
-  }, [conversationTurns, streamTextWidth]);
-  const estimatedSummaryRows = 14;
-  const maxVisibleLines = Math.max(6, rows - estimatedSummaryRows);
+  }, [mergedConversationTurns, streamTextWidth]);
+  const summaryRows = compactSummaryLayout ? 32 : 14;
+  const pendingBannerRows = pendingEscalationCount > 0 ? 4 : 0;
+  const conversationChromeRows = 4;
+  const maxVisibleLines = Math.max(4, rows - summaryRows - pendingBannerRows - conversationChromeRows);
   const [lineScrollOffset, setLineScrollOffset] = React.useState(0);
   const maxLineScrollOffset = Math.max(0, renderedConversationLines.length - maxVisibleLines);
   const clampedLineOffset = Math.min(lineScrollOffset, maxLineScrollOffset);
   const visibleLineEnd = Math.max(0, renderedConversationLines.length - clampedLineOffset);
   const visibleLineStart = Math.max(0, visibleLineEnd - maxVisibleLines);
   const visibleConversationLines = renderedConversationLines.slice(visibleLineStart, visibleLineEnd);
+  const paddedConversationLines = React.useMemo(() => {
+    if (visibleConversationLines.length >= maxVisibleLines) {
+      return visibleConversationLines;
+    }
+
+    const fillerCount = maxVisibleLines - visibleConversationLines.length;
+    const fillers: RenderedConversationLine[] = Array.from({ length: fillerCount }, (_value, index) => ({
+      key: `filler-${index}`,
+      text: '',
+      dim: true,
+    }));
+    return [...visibleConversationLines, ...fillers];
+  }, [maxVisibleLines, visibleConversationLines]);
   const latestHistoryPreview = Object.values(sessionHistoryPreviews)
     .sort((a, b) => b.generatedAt - a.generatedAt)[0];
   const latestConversationEventId = React.useMemo(() => {
@@ -356,8 +403,8 @@ export const DashboardView: React.FC = () => {
             <Text dimColor>
               Conversation lines {visibleLineStart + 1}-{visibleLineEnd} / {renderedConversationLines.length} · full markdown · wheel/↑↓/PgUp/PgDn scroll
             </Text>
-            <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1} flexDirection="column" flexGrow={1}>
-              {visibleConversationLines.map((line) => (
+            <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1} flexDirection="column" height={maxVisibleLines + 2}>
+              {paddedConversationLines.map((line) => (
                 <Text
                   key={line.key}
                   color={line.color}
