@@ -244,9 +244,9 @@ export const commands: CommandDefinition[] = [
     name: 'input-mode',
     aliases: ['im'],
     group: 'System',
-    description: 'Show or switch natural input routing mode',
-    usage: '/input-mode [session-first|fast-path|toggle]',
-    args: [{ name: 'mode', required: false, description: 'session-first, fast-path, or toggle' }],
+    description: 'Show or enforce session-first input mode',
+    usage: '/input-mode [session-first]',
+    args: [{ name: 'mode', required: false, description: 'session-first' }],
   },
   {
     name: 'rollout',

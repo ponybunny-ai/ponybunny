@@ -2,6 +2,7 @@ import { TuiGatewayClient } from '../../src/cli/gateway/tui-gateway-client.js';
 
 jest.mock('../../src/cli/gateway/gateway-client.js', () => {
   const request = jest.fn().mockResolvedValue({ ok: true });
+  let lastOptions: unknown;
 
   class MockGatewayClient {
     public url = 'ws://127.0.0.1:18789';
@@ -11,20 +12,57 @@ jest.mock('../../src/cli/gateway/gateway-client.js', () => {
     public onEvent?: (event: string, data: unknown) => void;
     public onError?: (error: Error) => void;
 
-    start(): void {}
+    constructor(options?: unknown) {
+      lastOptions = options;
+    }
+
+    public start = jest.fn();
     stop(): void {}
     isConnected(): boolean { return true; }
   }
 
   return {
     GatewayClient: MockGatewayClient,
+    __requestMock: request,
+    __getLastOptions: () => lastOptions,
   };
 });
+
+jest.mock('../../src/cli/lib/key-manager.js', () => ({
+  hasKeyPair: jest.fn(() => false),
+  getPublicKey: jest.fn(() => 'pk-test'),
+  signChallenge: jest.fn(() => 'sig-test'),
+}));
 
 describe('TuiGatewayClient internal runtime API wrappers', () => {
   function getRequestMock(client: TuiGatewayClient): jest.Mock {
     return (client as unknown as { client: { request: jest.Mock } }).client.request;
   }
+
+  it('forwards channel identity options to GatewayClient', async () => {
+    const client = new TuiGatewayClient({
+      reconnect: false,
+      token: 'token-abc',
+      channelType: 'discord',
+      channelSessionId: 'discord-thread-1',
+    });
+
+    const gatewayClientModule = jest.requireMock('../../src/cli/gateway/gateway-client.js') as {
+      __getLastOptions: () => {
+        token?: string;
+        channelType?: string;
+        channelSessionId?: string;
+      };
+    };
+    const options = gatewayClientModule.__getLastOptions();
+
+    expect(options).toEqual(expect.objectContaining({
+      token: 'token-abc',
+      channelType: 'discord',
+      channelSessionId: 'discord-thread-1',
+    }));
+    expect(client).toBeInstanceOf(TuiGatewayClient);
+  });
 
   it('calls internal.runtime.config', async () => {
     const client = new TuiGatewayClient({ reconnect: false });

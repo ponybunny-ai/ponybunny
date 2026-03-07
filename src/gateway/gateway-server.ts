@@ -11,6 +11,27 @@ import { DEFAULT_GATEWAY_CONFIG } from './types.js';
 import { EventBus } from './events/event-bus.js';
 import { EventEmitter } from './events/event-emitter.js';
 import { BroadcastManager } from './events/broadcast-manager.js';
+import { ChannelRouter, type GatewayChannelType } from './channels/channel-router.js';
+import { ChannelSessionStore } from './channels/channel-session-store.js';
+import { ChannelEventStore, type StoredChannelEvent } from './channels/channel-event-store.js';
+import { ChannelEventEnricher } from './channels/channel-event-enricher.js';
+import { ChannelAdapterManager } from './channels/channel-adapter-manager.js';
+import {
+  EmailChannelAdapter,
+  WebuiChannelAdapter,
+  DiscordChannelAdapter,
+  TelegramChannelAdapter,
+  WhatsappChannelAdapter,
+  type GatewayChannelAdapterStatus,
+} from './channels/channel-adapter.js';
+import { ChannelAdapterConfigStore } from './channels/channel-adapter-config-store.js';
+import {
+  type GatewayChannelAdapterConfig,
+  type GatewayChannelAdapterConfigMap,
+  sanitizeAdapterConfigMap,
+  diffAdapterConfigMaps,
+  normalizeAdapterConfig,
+} from './channels/channel-adapter-config.js';
 import { ConnectionManager } from './connection/connection-manager.js';
 import { AuthManager } from './auth/auth-manager.js';
 import { MessageRouter } from './protocol/message-router.js';
@@ -29,7 +50,6 @@ import { registerEscalationHandlers } from './rpc/handlers/escalation-handlers.j
 import { registerApprovalHandlers } from './rpc/handlers/approval-handlers.js';
 import { registerDebugHandlers } from './rpc/handlers/debug-handlers.js';
 import { registerConversationHandlers } from './rpc/handlers/conversation-handlers.js';
-import { registerPersonaHandlers } from './rpc/handlers/persona-handlers.js';
 import { registerAuditHandlers } from './rpc/handlers/audit-handlers.js';
 import { registerSystemHandlers } from './rpc/handlers/system-handlers.js';
 import { registerInternalRuntimeHandlers } from './rpc/handlers/internal-runtime-handlers.js';
@@ -42,22 +62,6 @@ import { AuditService } from '../infra/audit/audit-service.js';
 import { getConfigDir } from '../infra/config/config-paths.js';
 
 // Conversation imports
-import { SessionManager, type ISessionManager } from '../app/conversation/session-manager.js';
-import { PersonaEngine, type IPersonaEngine } from '../app/conversation/persona-engine.js';
-import { InputAnalysisService } from '../app/conversation/input-analysis-service.js';
-import { ResponseGenerator } from '../app/conversation/response-generator.js';
-import { TaskBridge } from '../app/conversation/task-bridge.js';
-import { RetryHandler } from '../app/conversation/retry-handler.js';
-import { FilePersonaRepository, InMemoryPersonaRepository } from '../infra/conversation/persona-repository.js';
-import { InMemorySessionRepository } from '../infra/conversation/session-repository.js';
-import { SqliteSessionRepository } from '../infra/persistence/sqlite-session-repository.js';
-import { SqliteMemoryRepository } from '../infra/persistence/sqlite-memory-repository.js';
-import { ConversationMemoryService } from '../app/conversation/memory-service.js';
-import { LocalEmbeddingService } from '../app/conversation/local-embedding-service.js';
-import { CoreMemorySummaryService } from '../app/conversation/core-memory-summary-service.js';
-import { getLLMService } from '../infra/llm/llm-service.js';
-import * as path from 'path';
-import * as fs from 'fs';
 import { ToolRegistry, ToolAllowlist, ToolEnforcer } from '../infra/tools/tool-registry.js';
 import { ToolProvider, setGlobalToolProvider } from '../infra/tools/tool-provider.js';
 import { ReadFileTool } from '../infra/tools/implementations/read-file-tool.js';
@@ -82,6 +86,17 @@ export interface GatewayServerDependencies {
 }
 
 export class GatewayServer {
+  private static readonly CHANNEL_EVENT_PREFIXES = [
+    'conversation.',
+    'goal.',
+    'workitem.',
+    'run.',
+    'verification.',
+    'escalation.',
+    'budget.',
+    'channel.adapter.',
+  ] as const;
+
   private static readonly ROLLOUT_THRESHOLD_MIN_CONVERSATION_MESSAGES = 10;
   private static readonly ROLLOUT_THRESHOLD_MIN_RUNS = 10;
   private static readonly ROLLOUT_THRESHOLD_MIN_GOALS = 5;
@@ -93,7 +108,6 @@ export class GatewayServer {
   private config: GatewayConfig;
   private db: Database.Database;
   private dbPath?: string;
-  private memoryDb: Database.Database;
   private memoryDbPath?: string;
   private repository: IWorkOrderRepository;
   private debugMode: boolean;
@@ -106,6 +120,14 @@ export class GatewayServer {
   private messageRouter: MessageRouter;
   private eventEmitter: EventEmitter;
   private broadcastManager: BroadcastManager;
+  private channelRouter: ChannelRouter;
+  private channelSessionStore: ChannelSessionStore;
+  private channelEventStore: ChannelEventStore;
+  private channelEventEnricher: ChannelEventEnricher;
+  private channelAdapterManager: ChannelAdapterManager;
+  private channelAdapterConfigStore: ChannelAdapterConfigStore;
+  private channelAdapterConfigs: GatewayChannelAdapterConfigMap = {};
+  private storedChannelEvents: StoredChannelEvent[] = [];
   private daemonBridge: DaemonBridge;
   private schedulerBridge: SchedulerBridge;
   private ipcServer: IPCServer;
@@ -113,7 +135,6 @@ export class GatewayServer {
   private scheduler: ISchedulerCore | null = null;
   private debugBroadcasterCleanup: (() => void) | null = null;
   private schedulerEventAuditUnsubscribers: Array<() => void> = [];
-
   // Audit components
   private auditRepository: AuditLogRepository;
   private auditService: AuditService;
@@ -122,11 +143,6 @@ export class GatewayServer {
   private toolRegistry: ToolRegistry;
   private toolAllowlist: ToolAllowlist;
   private toolEnforcer: ToolEnforcer;
-
-  // Conversation components
-  private sessionManager: ISessionManager;
-  private personaEngine: IPersonaEngine;
-  private responseGenerator?: ResponseGenerator;
 
   private configWatcher?: ConfigWatcher;
   private enableConfigWatch: boolean;
@@ -141,9 +157,9 @@ export class GatewayServer {
     this.config = { ...DEFAULT_GATEWAY_CONFIG, ...config };
     this.db = dependencies.db;
     this.dbPath = dependencies.dbPath;
-    this.memoryDb = dependencies.memoryDb ?? dependencies.db;
     this.memoryDbPath = dependencies.memoryDbPath;
     this.repository = dependencies.repository;
+    this.channelEventEnricher = new ChannelEventEnricher(this.repository);
     this.debugMode = dependencies.debugMode ?? false;
     this.enableConfigWatch = dependencies.enableConfigWatch ?? false;
 
@@ -211,6 +227,106 @@ export class GatewayServer {
     this.eventBus.on('goal.created', () => {
       void this.evaluateRolloutThresholds();
     });
+    this.eventBus.on('connection.authenticated', (sample: unknown) => {
+      if (!sample || typeof sample !== 'object') {
+        return;
+      }
+
+      const payload = sample as {
+        sessionId?: string;
+        metadata?: Record<string, unknown>;
+      };
+
+      if (typeof payload.sessionId !== 'string') {
+        return;
+      }
+
+      const metadata = payload.metadata;
+      if (!metadata || typeof metadata.channelType !== 'string') {
+        return;
+      }
+
+      const channelType = metadata.channelType;
+      if (
+        channelType === 'tui'
+        || channelType === 'webui'
+        || channelType === 'email'
+        || channelType === 'telegram'
+        || channelType === 'whatsapp'
+        || channelType === 'discord'
+      ) {
+        this.channelRouter.setSessionChannel(payload.sessionId, channelType);
+        this.channelSessionStore.save(this.channelRouter.getSessionChannelOverrides());
+      }
+    });
+    this.eventBus.on('connection.disconnected', (sample: unknown) => {
+      if (!sample || typeof sample !== 'object') {
+        return;
+      }
+
+      const payload = sample as {
+        sessionId?: string;
+      };
+
+      if (typeof payload.sessionId === 'string') {
+        this.channelRouter.clearSessionChannel(payload.sessionId);
+        this.channelSessionStore.save(this.channelRouter.getSessionChannelOverrides());
+      }
+    });
+    this.eventBus.onAny((event, sample) => {
+      if (!this.shouldStoreChannelEvent(event)) {
+        return;
+      }
+      if (!sample || typeof sample !== 'object') {
+        return;
+      }
+
+      const payload = sample as Record<string, unknown>;
+      const timestamp = typeof payload.timestamp === 'number' ? payload.timestamp : Date.now();
+      const goalId = typeof payload.goalId === 'string' ? payload.goalId : undefined;
+      const workItemId = typeof payload.workItemId === 'string' ? payload.workItemId : undefined;
+      const runId = typeof payload.runId === 'string' ? payload.runId : undefined;
+      const goalContext = this.channelEventEnricher.resolveFromDomainIds(goalId, workItemId, runId);
+      const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : goalContext.sessionId;
+      const channelSessionId = typeof payload.channelSessionId === 'string'
+        ? payload.channelSessionId
+        : goalContext.channelSessionId;
+      const gatewaySessionId = typeof payload.gatewaySessionId === 'string' ? payload.gatewaySessionId : undefined;
+      const metadata = payload.metadata;
+      const metadataChannelType = (
+        metadata
+        && typeof metadata === 'object'
+        && typeof (metadata as Record<string, unknown>).channelType === 'string'
+      )
+        ? (metadata as Record<string, unknown>).channelType
+        : undefined;
+      const channelType = this.resolveChannelType(
+        payload,
+        gatewaySessionId,
+        sessionId,
+        metadataChannelType,
+        goalContext.channelType
+      );
+
+      this.storedChannelEvents.push({
+        id: `${timestamp}-${Math.random().toString(36).slice(2, 10)}`,
+        event,
+        timestamp,
+        channelType,
+        channelSessionId,
+        sessionId,
+        goalId,
+        workItemId,
+        runId,
+        payload,
+      });
+
+      if (this.storedChannelEvents.length > 2000) {
+        this.storedChannelEvents = this.storedChannelEvents.slice(-2000);
+      }
+
+      this.channelEventStore.save(this.storedChannelEvents);
+    });
 
     this.connectionManager = new ConnectionManager(
       {
@@ -236,7 +352,24 @@ export class GatewayServer {
     );
 
     this.eventEmitter = new EventEmitter(this.connectionManager);
-    this.broadcastManager = new BroadcastManager(this.eventBus, this.eventEmitter);
+    this.channelRouter = new ChannelRouter();
+    this.channelAdapterManager = new ChannelAdapterManager([
+      new WebuiChannelAdapter(),
+      new EmailChannelAdapter(),
+      new TelegramChannelAdapter(),
+      new WhatsappChannelAdapter(),
+      new DiscordChannelAdapter(),
+    ]);
+    const channelAdapterConfigStorePath = join(getConfigDir(), 'gateway', 'channel-adapter-configs.json');
+    this.channelAdapterConfigStore = new ChannelAdapterConfigStore(channelAdapterConfigStorePath);
+    this.channelAdapterConfigs = this.channelAdapterConfigStore.load();
+    const channelSessionStorePath = join(getConfigDir(), 'gateway', 'channel-sessions.json');
+    this.channelSessionStore = new ChannelSessionStore(channelSessionStorePath);
+    this.channelRouter.setSessionChannelOverrides(this.channelSessionStore.load());
+    const channelEventStorePath = join(getConfigDir(), 'gateway', 'channel-events.json');
+    this.channelEventStore = new ChannelEventStore(channelEventStorePath);
+    this.storedChannelEvents = this.channelEventStore.load();
+    this.broadcastManager = new BroadcastManager(this.eventBus, this.eventEmitter, this.channelRouter);
     this.daemonBridge = new DaemonBridge(this.eventBus);
     this.schedulerBridge = new SchedulerBridge(this.eventBus);
 
@@ -277,11 +410,6 @@ export class GatewayServer {
     const toolProvider = new ToolProvider(this.toolEnforcer);
     setGlobalToolProvider(toolProvider);
 
-    // Initialize conversation components
-    const { personaEngine, sessionManager } = this.initializeConversation(dependencies.personasDir);
-    this.personaEngine = personaEngine;
-    this.sessionManager = sessionManager;
-
     if (this.enableConfigWatch) {
       this.initializeConfigWatcher();
     }
@@ -307,94 +435,6 @@ export class GatewayServer {
     this.toolAllowlist.addTool('search_code');
     this.toolAllowlist.addTool('web_search');
     this.toolAllowlist.addTool('find_skills');
-  }
-
-  /**
-   * Initialize conversation components with dependency injection
-   */
-  private initializeConversation(personasDir?: string): {
-    personaEngine: IPersonaEngine;
-    sessionManager: ISessionManager;
-  } {
-    const runtimeConfig = loadRuntimeConfig();
-
-    // Determine personas directory
-    const defaultPersonasDir = path.join(process.cwd(), 'config', 'personas');
-    const resolvedPersonasDir = personasDir || runtimeConfig.persona.directory || defaultPersonasDir;
-
-    // Create persona repository (file-based if directory exists, otherwise in-memory)
-    let personaRepository;
-    if (fs.existsSync(resolvedPersonasDir)) {
-      personaRepository = new FilePersonaRepository(resolvedPersonasDir);
-    } else {
-      console.log('[GatewayServer] Personas directory not found, using in-memory repository');
-      personaRepository = new InMemoryPersonaRepository();
-      // Add default persona to in-memory repository
-      personaRepository.addPersona({
-        id: 'pony-default',
-        name: 'Pony',
-        nickname: '小马',
-        personality: { warmth: 0.8, formality: 0.4, humor: 0.5, empathy: 0.7 },
-        communicationStyle: { verbosity: 'balanced', technicalDepth: 'adaptive', expressiveness: 'moderate' },
-        expertise: {
-          primaryDomains: ['software-engineering', 'devops', 'automation'],
-          skillConfidence: { coding: 0.95, debugging: 0.9, architecture: 0.85 },
-        },
-        backstory: '我是 Pony，你的自主 AI 助手。',
-        locale: 'zh-CN',
-      });
-    }
-
-    const personaEngine = new PersonaEngine(
-      personaRepository,
-      runtimeConfig.persona.defaultPersonaId,
-      runtimeConfig.persona.promptOverrides
-    );
-    const useSqliteMemoryBackend = runtimeConfig.memory.backend === 'sqlite';
-    const sessionRepository = useSqliteMemoryBackend
-      ? new SqliteSessionRepository(this.memoryDb)
-      : new InMemorySessionRepository();
-    if (sessionRepository instanceof SqliteSessionRepository) {
-      sessionRepository.initialize();
-    }
-
-    const memoryRepository = new SqliteMemoryRepository(this.memoryDb);
-    memoryRepository.initialize();
-    const embeddingService = new LocalEmbeddingService(runtimeConfig.memory.embeddingProvider);
-    const coreSummaryService = new CoreMemorySummaryService(getLLMService());
-    const memoryService = new ConversationMemoryService(
-      memoryRepository,
-      embeddingService,
-      5000,
-      coreSummaryService
-    );
-    const llmService = getLLMService();
-
-    const inputAnalyzer = new InputAnalysisService(llmService);
-
-    // Initialize ResponseGenerator with ToolEnforcer for conversation tools
-    this.responseGenerator = new ResponseGenerator(llmService, personaEngine, this.toolEnforcer);
-
-    const taskBridge = new TaskBridge(this.repository as any, () => this.scheduler);
-    const retryHandler = new RetryHandler(llmService);
-
-    const sessionManager = new SessionManager(
-      sessionRepository,
-      personaEngine,
-      inputAnalyzer,
-      this.responseGenerator,
-      taskBridge,
-      retryHandler,
-      memoryService,
-      {
-        autoSave: runtimeConfig.memory.autoSave,
-        vectorWeight: runtimeConfig.memory.vectorWeight,
-        keywordWeight: runtimeConfig.memory.keywordWeight,
-        defaultUserProfileId: runtimeConfig.memory.userProfileId,
-      }
-    );
-
-    return { personaEngine, sessionManager };
   }
 
   private initializeConfigWatcher(): void {
@@ -443,8 +483,7 @@ export class GatewayServer {
       () => this.connectionManager
     );
 
-    registerConversationHandlers(this.rpcHandler, this.sessionManager, this.eventBus);
-    registerPersonaHandlers(this.rpcHandler, this.personaEngine);
+    registerConversationHandlers(this.rpcHandler, this.eventBus, this.ipcBridge);
 
     registerAuditHandlers(this.rpcHandler, this.auditService, this.auditRepository);
 
@@ -452,11 +491,61 @@ export class GatewayServer {
       this.rpcHandler,
       () => this.connectionManager,
       () => this.scheduler,
+      () => this.channelRouter,
+      () => this.storedChannelEvents,
       () => ({
         isRunning: this.isRunning,
         daemonConnected: this.daemonBridge.isConnected(),
         schedulerConnected: this.schedulerBridge.isConnected(),
       }),
+      () => this.channelAdapterManager.getStatuses(),
+      async (configs) => {
+        const previousConfigs = { ...this.channelAdapterConfigs };
+        const mergedConfigs: GatewayChannelAdapterConfigMap = {
+          ...this.channelAdapterConfigs,
+        };
+        for (const [channel, config] of Object.entries(configs)) {
+          const typedChannel = channel as GatewayChannelType;
+          const previous = mergedConfigs[typedChannel] ?? {};
+          mergedConfigs[typedChannel] = normalizeAdapterConfig(typedChannel, {
+            ...(previous as GatewayChannelAdapterConfig),
+            ...((config ?? {}) as GatewayChannelAdapterConfig),
+          });
+        }
+
+        await this.channelAdapterManager.applyConfig(mergedConfigs);
+        this.channelAdapterConfigs = mergedConfigs;
+        this.channelAdapterConfigStore.save(this.channelAdapterConfigs);
+
+        const sanitizedBefore = sanitizeAdapterConfigMap(previousConfigs);
+        const sanitizedAfter = sanitizeAdapterConfigMap(this.channelAdapterConfigs);
+        const diff = diffAdapterConfigMaps(sanitizedBefore, sanitizedAfter);
+        this.eventBus.emit('channel.adapter.config.updated', {
+          timestamp: Date.now(),
+          reason: 'rpc-update',
+          source: 'rpc-system.channels.update',
+          configs: sanitizedAfter,
+          diff,
+        });
+        this.eventBus.emit('channel.adapter.status.updated', {
+          timestamp: Date.now(),
+          reason: 'rpc-update',
+          source: 'rpc-system.channels.update',
+          adapters: this.channelAdapterManager.getStatuses(),
+        });
+      },
+      async () => {
+        await this.channelAdapterManager.applyEnabledChannels(this.channelRouter.getEnabledChannels(), {
+          reason: 'channel-toggle',
+          source: 'channel-router',
+        });
+        this.eventBus.emit('channel.adapter.status.updated', {
+          timestamp: Date.now(),
+          reason: 'channel-toggle',
+          source: 'channel-router',
+          adapters: this.channelAdapterManager.getStatuses(),
+        });
+      },
       () => this.toolRegistry,
       {
         getRuntimeRolloutMetrics: () => this.runtimeRolloutTelemetry.snapshot(),
@@ -535,6 +624,17 @@ export class GatewayServer {
 
         this.wss.on('listening', async () => {
           this.isRunning = true;
+          await this.channelAdapterManager.applyConfig(this.channelAdapterConfigs);
+          await this.channelAdapterManager.applyEnabledChannels(this.channelRouter.getEnabledChannels(), {
+            reason: 'startup',
+            source: 'gateway-startup',
+          });
+          this.eventBus.emit('channel.adapter.status.updated', {
+            timestamp: Date.now(),
+            reason: 'startup',
+            source: 'gateway-startup',
+            adapters: this.channelAdapterManager.getStatuses(),
+          });
           this.connectionManager.start();
           this.broadcastManager.start();
           this.setupSchedulerEventAudit();
@@ -612,6 +712,10 @@ export class GatewayServer {
 
     this.ipcBridge.disconnect();
     await this.ipcServer.stop();
+    await this.channelAdapterManager.stopAll({
+      reason: 'shutdown',
+      source: 'gateway-stop',
+    });
 
     await this.auditService.shutdown();
 
@@ -704,6 +808,10 @@ export class GatewayServer {
       schedulerConnected: this.schedulerBridge.isConnected(),
       debugMode: this.debugMode,
     };
+  }
+
+  getChannelAdapterStatuses(): GatewayChannelAdapterStatus[] {
+    return this.channelAdapterManager.getStatuses();
   }
 
   /**
@@ -903,6 +1011,46 @@ export class GatewayServer {
     }
   }
 
+  private shouldStoreChannelEvent(event: string): boolean {
+    for (const prefix of GatewayServer.CHANNEL_EVENT_PREFIXES) {
+      if (event.startsWith(prefix)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private resolveChannelType(
+    payload: Record<string, unknown>,
+    gatewaySessionId?: string,
+    sessionId?: string,
+    metadataChannelType?: unknown,
+    goalContextChannelType?: StoredChannelEvent['channelType']
+  ): StoredChannelEvent['channelType'] {
+    const overrides = this.channelRouter.getSessionChannelOverrides();
+    const overrideChannelByGatewaySession = gatewaySessionId ? overrides[gatewaySessionId] : undefined;
+    const overrideChannelBySession = sessionId ? overrides[sessionId] : undefined;
+    const rawChannelType = typeof payload.channelType === 'string'
+      ? payload.channelType
+      : typeof metadataChannelType === 'string'
+        ? metadataChannelType
+        : goalContextChannelType ?? overrideChannelByGatewaySession ?? overrideChannelBySession;
+
+    if (
+      rawChannelType === 'tui'
+      || rawChannelType === 'webui'
+      || rawChannelType === 'email'
+      || rawChannelType === 'telegram'
+      || rawChannelType === 'whatsapp'
+      || rawChannelType === 'discord'
+    ) {
+      return rawChannelType;
+    }
+
+    return undefined;
+  }
+
   private teardownSchedulerEventAudit(): void {
     for (const unsubscribe of this.schedulerEventAuditUnsubscribers) {
       unsubscribe();
@@ -935,6 +1083,9 @@ export class GatewayServer {
         permissions: ['read', 'write', 'admin'] as Permission[],
         connectedAt: Date.now(),
         lastActivityAt: Date.now(),
+        metadata: {
+          channelType: 'tui',
+        },
       };
       this.connectionManager.addPendingConnection(ws, remoteAddress, this.config.authTimeoutMs);
       const session = this.connectionManager.promoteConnection(ws, sessionData);

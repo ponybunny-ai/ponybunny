@@ -50,7 +50,12 @@ export const GatewayProvider: React.FC<GatewayProviderProps> = ({
       return;
     }
 
-    const client = new TuiGatewayClient({ url, token });
+    const client = new TuiGatewayClient({
+      url,
+      token,
+      channelType: 'tui',
+      channelSessionId: `tui-${process.pid}`,
+    });
     clientRef.current = client;
     callbacksRef.current.onClientReady?.(client);
 

@@ -700,30 +700,36 @@ describe('TUI command handlers - models', () => {
 });
 
 describe('TUI command handlers - input mode routing', () => {
-  it('switches routing mode with /input-mode fast-path through gateway', async () => {
+  it('keeps session-first mode when /input-mode session-first is executed', async () => {
     const { ctx, app, client } = createCommandContext();
 
-    const result = await executeCommand('/input-mode fast-path', ctx);
+    const result = await executeCommand('/input-mode session-first', ctx);
     expect(result.success).toBe(true);
-    expect(result.message).toContain('Input mode switched to fast-path');
+    expect(result.message).toContain('Input mode switched to session-first');
     expect(app.addEvent).toHaveBeenCalledWith(
       'tui.input_mode.updated',
       expect.objectContaining({
-        mode: 'fast-path',
-        sessionFirstEnabled: false,
-        goalSubmitFastPathEnabled: true,
+        mode: 'session-first',
+        sessionFirstEnabled: true,
+        goalSubmitFastPathEnabled: false,
       })
     );
     expect(client.updateRuntimeTuiConfig).toHaveBeenCalledWith({
-      sessionFirstEnabled: false,
-      goalSubmitFastPathEnabled: true,
+      sessionFirstEnabled: true,
+      goalSubmitFastPathEnabled: false,
     });
     expect(app.setRuntimeTuiConfig).toHaveBeenCalled();
   });
 
-  it('routes natural input through fast-path when enabled and emits mode usage event', async () => {
+  it('routes natural input through session-first even when cached runtime says fast-path', async () => {
     const submitGoal = jest.fn().mockResolvedValue({ id: 'goal-fast', title: 'Fast Goal' });
-    const sendConversationMessage = jest.fn();
+    const sendConversationMessage = jest.fn().mockResolvedValue({
+      sessionId: 'ses-fast-1',
+      state: 'chatting',
+      response: 'Need details.',
+      decision: 'clarification_requested',
+      decisionReason: 'Need clarification',
+    });
 
     const app = {
       state: {
@@ -758,17 +764,9 @@ describe('TUI command handlers - input mode routing', () => {
 
     const result = await handleNaturalInput('Build a quick script', ctx);
     expect(result.success).toBe(true);
-    expect(submitGoal).toHaveBeenCalledTimes(1);
-    expect(submitGoal).toHaveBeenCalledWith(
-      expect.objectContaining({
-        context: expect.objectContaining({
-          sessionId: 'ses-fast-1',
-          inputMode: 'fast-path',
-        }),
-      })
-    );
-    expect(sendConversationMessage).not.toHaveBeenCalled();
-    expect(app.addEvent).toHaveBeenCalledWith('tui.input_mode.used', { mode: 'fast-path' });
+    expect(submitGoal).not.toHaveBeenCalled();
+    expect(sendConversationMessage).toHaveBeenCalledTimes(1);
+    expect(app.addEvent).toHaveBeenCalledWith('tui.input_mode.used', { mode: 'session-first' });
   });
 
   it('routes natural input through session-first pipeline when fast-path is disabled', async () => {

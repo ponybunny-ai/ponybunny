@@ -16,6 +16,7 @@ export interface IPCMessage {
   /** Message type identifier */
   type:
     | 'scheduler_event'
+    | 'session_event'
     | 'debug_event'
     | 'run_event_retention'
     | 'scheduler_command'
@@ -40,6 +41,21 @@ export interface IPCSchedulerEventMessage extends IPCMessage {
 }
 
 /**
+ * Session event message sent from Scheduler Daemon to Gateway.
+ * Contains session-scoped conversation/runtime events that must be routed
+ * to the originating gateway websocket session.
+ */
+export interface IPCSessionEventMessage extends IPCMessage {
+  type: 'session_event';
+  data: {
+    event: string;
+    gatewaySessionId?: string;
+    sessionId?: string;
+    payload?: Record<string, unknown>;
+  };
+}
+
+/**
  * Debug event message sent from Daemon to Gateway.
  * Contains detailed instrumentation events for debugging.
  */
@@ -57,11 +73,39 @@ export interface IPCRunEventRetentionMessage extends IPCMessage {
   };
 }
 
-export type SchedulerCommandType = 'submit_goal' | 'cancel_goal' | 'apply_runtime_rollout';
+export type SchedulerCommandType =
+  | 'submit_goal'
+  | 'cancel_goal'
+  | 'apply_runtime_rollout'
+  | 'session_open'
+  | 'session_list'
+  | 'session_message'
+  | 'session_history'
+  | 'session_end'
+  | 'session_archive'
+  | 'session_resume'
+  | 'session_status';
 
 export interface SchedulerCommandRequest {
   requestId: string;
   command: SchedulerCommandType;
+  gatewaySessionId?: string;
+  channelType?: string;
+  channelSessionId?: string;
+  sessionId?: string;
+  personaId?: string;
+  userProfileId?: string;
+  lifecycleState?: 'active' | 'archived';
+  message?: string;
+  attachments?: Array<{
+    type: 'image' | 'file' | 'audio';
+    url?: string;
+    base64?: string;
+    mimeType: string;
+    filename?: string;
+  }>;
+  stream?: boolean;
+  limit?: number;
   goalId?: string;
   reason?: string;
   rollout?: {
@@ -85,6 +129,7 @@ export interface SchedulerCommandResponse {
   requestId: string;
   success: boolean;
   error?: string;
+  result?: unknown;
 }
 
 export interface IPCSchedulerCommandMessage extends IPCMessage {
@@ -144,6 +189,7 @@ export interface IPCDisconnectMessage extends IPCMessage {
  */
 export type AnyIPCMessage =
   | IPCSchedulerEventMessage
+  | IPCSessionEventMessage
   | IPCDebugEventMessage
   | IPCRunEventRetentionMessage
   | IPCSchedulerCommandMessage

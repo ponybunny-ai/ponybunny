@@ -206,6 +206,40 @@ describe('IPCBridge scheduler event routing', () => {
     });
   });
 
+  it('propagates scheduler envelope fields into routed events', () => {
+    serverMessageHandler?.(
+      {
+        type: 'scheduler_event',
+        timestamp: Date.now(),
+        data: {
+          type: 'run_started',
+          timestamp: 777,
+          goalId: 'goal-1',
+          workItemId: 'wi-1',
+          runId: 'run-1',
+          data: {
+            selected_model: 'gpt',
+            sessionId: 'session-1',
+            channelType: 'discord',
+            channelSessionId: 'discord-1',
+          },
+        },
+      },
+      'client-1'
+    );
+
+    expect(mockEventBus.emit).toHaveBeenCalledWith('run.started', {
+      runId: 'run-1',
+      workItemId: 'wi-1',
+      goalId: 'goal-1',
+      selectedModel: 'gpt',
+      sessionId: 'session-1',
+      channelType: 'discord',
+      channelSessionId: 'discord-1',
+      timestamp: 777,
+    });
+  });
+
   it('routes work_item_ended scheduler events to gateway event bus', () => {
     serverMessageHandler?.(
       {

@@ -12,6 +12,7 @@ import { fileURLToPath } from 'url';
 import chalk from 'chalk';
 import { spawn, execSync } from 'child_process';
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, appendFileSync, openSync, closeSync } from 'fs';
+import Database from 'better-sqlite3';
 import { WorkOrderDatabase } from '../../work-order/database/manager.js';
 import { ExecutionService } from '../../app/lifecycle/execution/execution-service.js';
 import { getLLMService } from '../../infra/llm/index.js';
@@ -34,6 +35,7 @@ interface PidInfo {
   pid: number;
   startedAt: number;
   dbPath: string;
+  memoryDbPath: string;
   socketPath: string;
   mode: 'foreground' | 'background';
 }
@@ -96,6 +98,21 @@ function log(message: string): void {
   appendFileSync(LOG_FILE, line);
 }
 
+function ensureMemorySchema(db: Database.Database): void {
+  try {
+    const schemaPath = join(__dirname, '../../infra/persistence/schema-memory.sql');
+    const schema = readFileSync(schemaPath, 'utf-8');
+    db.exec(schema);
+  } catch {
+    try {
+      const distSchemaPath = join(__dirname, '../../../dist/infra/persistence/schema-memory.sql');
+      const schema = readFileSync(distSchemaPath, 'utf-8');
+      db.exec(schema);
+    } catch {
+    }
+  }
+}
+
 function formatUptime(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
@@ -115,6 +132,7 @@ function formatUptime(ms: number): string {
 
 async function runScheduler(
   dbPath: string,
+  memoryDbPath: string,
   socketPath: string,
   debugMode: boolean,
   mode: 'foreground' | 'background',
@@ -123,6 +141,7 @@ async function runScheduler(
   personaEnabled: boolean
 ): Promise<void> {
   const isBackground = process.env.PONY_SCHEDULER_BACKGROUND === '1';
+  let memoryDb: Database.Database | null = null;
 
   log(`Scheduler starting with db=${dbPath}, socket=${socketPath}, agentsEnabled=${agentsEnabled}`);
 
@@ -130,6 +149,9 @@ async function runScheduler(
     // Initialize database
     const repository = new WorkOrderDatabase(dbPath);
     await repository.initialize();
+
+    memoryDb = new Database(memoryDbPath);
+    ensureMemorySchema(memoryDb);
 
     // Initialize LLM service
     const llmService = getLLMService();
@@ -199,6 +221,7 @@ async function runScheduler(
         agentsEnabled,
         mainAgentId,
         personaEnabled,
+        memoryDb,
       }
     );
 
@@ -225,6 +248,7 @@ async function runScheduler(
       pid: process.pid,
       startedAt: Date.now(),
       dbPath,
+      memoryDbPath,
       socketPath,
       mode,
     });
@@ -265,6 +289,10 @@ async function runScheduler(
     // Keep process alive
     await new Promise(() => {});
   } catch (error) {
+    if (memoryDb) {
+      memoryDb.close();
+      memoryDb = null;
+    }
     log(`Scheduler failed to start: ${error}`);
     removePidFile();
     if (!isBackground) {
@@ -276,6 +304,7 @@ async function runScheduler(
 
 function startBackground(
   dbPath: string,
+  memoryDbPath: string,
   socketPath: string,
   debugMode: boolean,
   agentsEnabled: boolean,
@@ -290,7 +319,18 @@ function startBackground(
   ensurePonyDir();
   const logFd = openSync(LOG_FILE, 'a');
 
-  const args = [cliPath, 'scheduler', 'start', '--foreground', '--db', dbPath, '--socket', socketPath];
+  const args = [
+    cliPath,
+    'scheduler',
+    'start',
+    '--foreground',
+    '--db',
+    dbPath,
+    '--memory-db',
+    memoryDbPath,
+    '--socket',
+    socketPath,
+  ];
   if (debugMode) {
     args.push('--debug');
   }
@@ -320,6 +360,7 @@ function startBackground(
       console.log(chalk.green(`\n✓ Scheduler started in background`));
       console.log(chalk.gray(`  PID: ${pidInfo.pid}`));
       console.log(chalk.gray(`  Database: ${dbPath}`));
+      console.log(chalk.gray(`  Memory DB: ${memoryDbPath}`));
       console.log(chalk.gray(`  Socket: ${socketPath}`));
       console.log(chalk.gray(`  Log: ${LOG_FILE}`));
       console.log(chalk.gray('\nUse `pb scheduler stop` to stop the daemon'));
@@ -338,6 +379,7 @@ export const schedulerCommand = new Command('scheduler')
       .description('Start the Scheduler Daemon')
       .option('--foreground', 'Run in foreground (default: background)')
       .option('--db <path>', 'Database path', runtimeConfig.paths.database)
+      .option('--memory-db <path>', 'Conversation memory/session sqlite path', runtimeConfig.memory.database)
       .option('--socket <path>', 'IPC socket path', runtimeConfig.paths.schedulerSocket)
       .option('--debug', 'Enable debug mode')
       .option('-f, --force', 'Force start even if already running')
@@ -346,6 +388,7 @@ export const schedulerCommand = new Command('scheduler')
       .option('--persona', 'Enable persona prompt loading', runtimeConfig.agent.personaEnabled)
       .action(async (options) => {
         const dbPath = options.db;
+        const memoryDbPath = options.memoryDb;
         const socketPath = options.socket;
         const debugMode = Boolean(options.debug) || isDebugLoggingEnabled();
         const foreground = options.foreground ?? false;
@@ -376,6 +419,7 @@ export const schedulerCommand = new Command('scheduler')
           // Run in foreground
           await runScheduler(
             dbPath,
+            memoryDbPath,
             socketPath,
             debugMode,
             'foreground',
@@ -385,7 +429,7 @@ export const schedulerCommand = new Command('scheduler')
           );
         } else {
           // Run in background (default)
-          startBackground(dbPath, socketPath, debugMode, agentsEnabled, mainAgentId, personaEnabled);
+          startBackground(dbPath, memoryDbPath, socketPath, debugMode, agentsEnabled, mainAgentId, personaEnabled);
         }
       })
   )
@@ -453,6 +497,7 @@ export const schedulerCommand = new Command('scheduler')
         console.log(chalk.white('  PID:'), chalk.cyan(pidInfo.pid));
         console.log(chalk.white('  Mode:'), chalk.cyan(pidInfo.mode));
         console.log(chalk.white('  Database:'), chalk.gray(pidInfo.dbPath));
+        console.log(chalk.white('  Memory DB:'), chalk.gray(pidInfo.memoryDbPath));
         console.log(chalk.white('  Socket:'), chalk.gray(pidInfo.socketPath));
         console.log(chalk.white('  Started:'), chalk.gray(new Date(pidInfo.startedAt).toISOString()));
 

@@ -5,6 +5,7 @@
  * Sends scheduler and debug events to Gateway via IPC for real-time monitoring.
  */
 
+import type Database from 'better-sqlite3';
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
 import type { IExecutionService } from '../app/lifecycle/stage-interfaces.js';
 import type { ILLMProvider } from '../infra/llm/llm-provider.js';
@@ -15,12 +16,15 @@ import { createScheduler } from '../gateway/integration/scheduler-factory.js';
 import { IPCClient } from '../ipc/ipc-client.js';
 import { debugEmitter } from '../debug/emitter.js';
 import type { AnyIPCMessage, SchedulerCommandRequest } from '../ipc/types.js';
+import { SchedulerSessionIntake } from './session-intake.js';
 import { getGlobalAgentRegistry } from '../infra/agents/agent-registry.js';
 import { getGlobalRunnerRegistry } from '../infra/agents/runner-registry.js';
 import { reconcileCronJobsFromRegistry } from '../infra/scheduler/cron-job-reconciler.js';
 import { acquireSchedulerDaemonLock, releaseSchedulerDaemonLock } from './pid-lock.js';
 import { AgentScheduler } from './agent-scheduler.js';
 import { createSchemaDrivenAgentRunner } from '../infra/agents/schema-driven-agent-runner.js';
+import { getLLMService } from '../infra/llm/index.js';
+import { SchedulerEventEnvelopeResolver } from './scheduler-event-envelope.js';
 
 export interface SchedulerDaemonConfig {
   /** Path to Gateway IPC socket */
@@ -55,6 +59,7 @@ export interface SchedulerDaemonConfig {
   agentsEnabled?: boolean;
   mainAgentId?: string;
   personaEnabled?: boolean;
+  memoryDb?: Database.Database;
 }
 
 function resolveMainAgentId(configuredId: string | undefined, availableIds: string[]): string | null {
@@ -83,6 +88,9 @@ export class SchedulerDaemon {
   private agentSchedulerDispatchActive = false;
   private retentionInterval: NodeJS.Timeout | null = null;
   private retentionDispatchActive = false;
+  private sessionIntake: SchedulerSessionIntake | null = null;
+  private memoryDb: Database.Database | null = null;
+  private schedulerEventEnvelopeResolver: SchedulerEventEnvelopeResolver;
 
   constructor(
     repository: IWorkOrderRepository,
@@ -94,6 +102,8 @@ export class SchedulerDaemon {
     this.executionService = executionService;
     this.llmProvider = llmProvider;
     this.config = config;
+    this.memoryDb = config.memoryDb ?? null;
+    this.schedulerEventEnvelopeResolver = new SchedulerEventEnvelopeResolver(this.repository);
 
     // Initialize IPC client
     this.ipcClient = new IPCClient({
@@ -162,6 +172,29 @@ export class SchedulerDaemon {
       // Connect to Gateway IPC
       await this.ipcClient.connect();
       console.log('[SchedulerDaemon] Connected to Gateway IPC');
+
+      if (this.memoryDb) {
+        this.sessionIntake = new SchedulerSessionIntake({
+          repository: this.repository,
+          memoryDb: this.memoryDb,
+          llmService: getLLMService(),
+          schedulerProvider: () => this.scheduler,
+          publishSessionEvent: async (event) => {
+            await this.ipcClient.send({
+              type: 'session_event',
+              timestamp: Date.now(),
+              data: {
+                event: event.event,
+                gatewaySessionId: event.gatewaySessionId,
+                sessionId: event.sessionId,
+                payload: event.payload,
+              },
+            });
+          },
+        });
+      } else {
+        console.warn('[SchedulerDaemon] Session intake disabled: memoryDb not configured');
+      }
 
       // Create scheduler with all dependencies
       const schedulerTickIntervalMs = this.config.tickIntervalMs ?? 1000;
@@ -297,6 +330,12 @@ export class SchedulerDaemon {
     }
     this.retentionDispatchActive = false;
     this.agentScheduler = null;
+    this.sessionIntake = null;
+
+    if (this.memoryDb) {
+      this.memoryDb.close();
+      this.memoryDb = null;
+    }
 
     // Stop scheduler
     if (this.scheduler) {
@@ -348,10 +387,11 @@ export class SchedulerDaemon {
    * Handle scheduler event and send to Gateway via IPC.
    */
   private handleSchedulerEvent(event: SchedulerEvent): void {
+    const enrichedEvent = this.schedulerEventEnvelopeResolver.resolve(event);
     const message: AnyIPCMessage = {
       type: 'scheduler_event',
       timestamp: Date.now(),
-      data: event,
+      data: enrichedEvent,
     };
 
     this.ipcClient.send(message).catch((error) => {
@@ -395,6 +435,147 @@ export class SchedulerDaemon {
     }
 
     try {
+      if (command.command === 'session_open') {
+        if (!command.gatewaySessionId) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'gatewaySessionId is required for session_open');
+          return;
+        }
+        if (!this.sessionIntake) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'Session intake is not initialized');
+          return;
+        }
+
+        const result = await this.sessionIntake.openSession({
+          gatewaySessionId: command.gatewaySessionId,
+          personaId: command.personaId,
+          userProfileId: command.userProfileId,
+          channelType: command.channelType,
+          channelSessionId: command.channelSessionId,
+        });
+        await this.sendSchedulerCommandResult(command.requestId, true, undefined, result);
+        return;
+      }
+
+      if (command.command === 'session_list') {
+        if (!this.sessionIntake) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'Session intake is not initialized');
+          return;
+        }
+
+        const result = this.sessionIntake.listSessions({
+          limit: command.limit,
+          lifecycleState: command.lifecycleState,
+        });
+        await this.sendSchedulerCommandResult(command.requestId, true, undefined, result);
+        return;
+      }
+
+      if (command.command === 'session_message') {
+        if (!command.gatewaySessionId) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'gatewaySessionId is required for session_message');
+          return;
+        }
+        if (!command.message || command.message.trim().length === 0) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'message is required for session_message');
+          return;
+        }
+        if (!this.sessionIntake) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'Session intake is not initialized');
+          return;
+        }
+
+        const result = await this.sessionIntake.processMessage({
+          gatewaySessionId: command.gatewaySessionId,
+          sessionId: command.sessionId,
+          personaId: command.personaId,
+          userProfileId: command.userProfileId,
+          channelType: command.channelType,
+          channelSessionId: command.channelSessionId,
+          message: command.message,
+          attachments: command.attachments,
+        });
+        await this.sendSchedulerCommandResult(command.requestId, true, undefined, result);
+        return;
+      }
+
+      if (command.command === 'session_history') {
+        if (!command.sessionId) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'sessionId is required for session_history');
+          return;
+        }
+        if (!this.sessionIntake) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'Session intake is not initialized');
+          return;
+        }
+
+        const result = this.sessionIntake.getHistory({
+          sessionId: command.sessionId,
+          limit: command.limit,
+        });
+        await this.sendSchedulerCommandResult(command.requestId, true, undefined, result);
+        return;
+      }
+
+      if (command.command === 'session_end') {
+        if (!command.sessionId) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'sessionId is required for session_end');
+          return;
+        }
+        if (!this.sessionIntake) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'Session intake is not initialized');
+          return;
+        }
+
+        const result = await this.sessionIntake.endSession({ sessionId: command.sessionId });
+        await this.sendSchedulerCommandResult(command.requestId, true, undefined, result);
+        return;
+      }
+
+      if (command.command === 'session_archive') {
+        if (!command.sessionId) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'sessionId is required for session_archive');
+          return;
+        }
+        if (!this.sessionIntake) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'Session intake is not initialized');
+          return;
+        }
+
+        const result = await this.sessionIntake.archiveSession({ sessionId: command.sessionId });
+        await this.sendSchedulerCommandResult(command.requestId, true, undefined, result);
+        return;
+      }
+
+      if (command.command === 'session_resume') {
+        if (!command.sessionId) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'sessionId is required for session_resume');
+          return;
+        }
+        if (!this.sessionIntake) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'Session intake is not initialized');
+          return;
+        }
+
+        const result = await this.sessionIntake.resumeSession({ sessionId: command.sessionId });
+        await this.sendSchedulerCommandResult(command.requestId, true, undefined, result);
+        return;
+      }
+
+      if (command.command === 'session_status') {
+        if (!command.sessionId) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'sessionId is required for session_status');
+          return;
+        }
+        if (!this.sessionIntake) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'Session intake is not initialized');
+          return;
+        }
+
+        const result = this.sessionIntake.getStatus({ sessionId: command.sessionId });
+        await this.sendSchedulerCommandResult(command.requestId, true, undefined, result);
+        return;
+      }
+
       if (command.command === 'submit_goal') {
         if (!command.goalId) {
           await this.sendSchedulerCommandResult(command.requestId, false, 'goalId is required for submit_goal');
@@ -448,7 +629,8 @@ export class SchedulerDaemon {
   private async sendSchedulerCommandResult(
     requestId: string,
     success: boolean,
-    error?: string
+    error?: string,
+    result?: unknown
   ): Promise<void> {
     const message: AnyIPCMessage = {
       type: 'scheduler_command_result',
@@ -457,6 +639,7 @@ export class SchedulerDaemon {
         requestId,
         success,
         error,
+        result,
       },
     };
 

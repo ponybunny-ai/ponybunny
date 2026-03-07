@@ -9,6 +9,8 @@ import { getPublicKey, signChallenge, hasKeyPair } from '../lib/key-manager.js';
 export interface GatewayClientOptions {
   url?: string;
   token?: string;  // Pairing token for first-time setup
+  channelType?: 'tui' | 'webui' | 'email' | 'telegram' | 'whatsapp' | 'discord';
+  channelSessionId?: string;
   reconnect?: boolean;
   reconnectIntervalMs?: number;
   maxReconnectAttempts?: number;
@@ -49,6 +51,8 @@ interface PendingRequest {
 const DEFAULT_OPTIONS: Required<GatewayClientOptions> = {
   url: 'ws://127.0.0.1:18789',
   token: '',
+  channelType: 'tui',
+  channelSessionId: '',
   reconnect: true,
   reconnectIntervalMs: 2000,
   maxReconnectAttempts: 10,
@@ -199,6 +203,16 @@ export class GatewayClient {
 
       // If a pairing token is provided, use it to pair this client
       if (this.options.token) {
+        if (!hasKeyPair()) {
+          await this.request('auth.token', {
+            token: this.options.token,
+            channelType: this.options.channelType,
+            channelSessionId: this.options.channelSessionId || undefined,
+          });
+          this.markConnected();
+          return;
+        }
+
         // Start pairing flow
         const pairResult = await this.request<{ challenge: string }>('auth.pair', {
           token: this.options.token
@@ -208,7 +222,12 @@ export class GatewayClient {
         const publicKey = getPublicKey();
         const signature = signChallenge(pairResult.challenge);
 
-        await this.request('auth.verify', { signature, publicKey });
+        await this.request('auth.verify', {
+          signature,
+          publicKey,
+          channelType: this.options.channelType,
+          channelSessionId: this.options.channelSessionId || undefined,
+        });
         this.markConnected();
         return;
       }
@@ -223,7 +242,11 @@ export class GatewayClient {
           // Sign the challenge
           const signature = signChallenge(helloResult.challenge);
 
-          await this.request('auth.verify', { signature });
+          await this.request('auth.verify', {
+            signature,
+            channelType: this.options.channelType,
+            channelSessionId: this.options.channelSessionId || undefined,
+          });
           this.markConnected();
           return;
         } catch (error) {
