@@ -191,6 +191,16 @@ function toStringValue(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim().length > 0 ? value : fallback;
 }
 
+function expandHomePath(input: string): string {
+  if (input === '~') {
+    return homedir();
+  }
+  if (input.startsWith('~/')) {
+    return path.join(homedir(), input.slice(2));
+  }
+  return input;
+}
+
 function toToolRoutingMode(
   value: unknown,
   fallback: PonyBunnyRuntimeConfig['scheduler']['toolRoutingMode']
@@ -266,7 +276,7 @@ function runUsernameCommand(command: string): string | null {
 export function resolveRuntimeConfigFromEnvironment(
   env: NodeJS.ProcessEnv = process.env
 ): PonyBunnyRuntimeConfig {
-  const mainDatabase = toStringValue(env.PONY_DB_PATH, DEFAULT_RUNTIME_CONFIG.paths.database);
+  const mainDatabase = path.resolve(expandHomePath(toStringValue(env.PONY_DB_PATH, DEFAULT_RUNTIME_CONFIG.paths.database)));
   const memoryDatabase = toStringValue(
     env.PONY_MEMORY_DB_PATH,
     defaultMemoryDbPath(mainDatabase)
@@ -276,7 +286,7 @@ export function resolveRuntimeConfigFromEnvironment(
     ...DEFAULT_RUNTIME_CONFIG,
     paths: {
       database: mainDatabase,
-      schedulerSocket: toStringValue(env.PONY_SCHEDULER_SOCKET, DEFAULT_RUNTIME_CONFIG.paths.schedulerSocket),
+      schedulerSocket: path.resolve(expandHomePath(toStringValue(env.PONY_SCHEDULER_SOCKET, DEFAULT_RUNTIME_CONFIG.paths.schedulerSocket))),
     },
     gateway: {
       host: toStringValue(env.PONY_GATEWAY_HOST, DEFAULT_RUNTIME_CONFIG.gateway.host),
@@ -367,7 +377,7 @@ export function resolveRuntimeConfigFromEnvironment(
       personaEnabled: toBoolean(env.PONY_AGENT_PERSONA_ENABLED, DEFAULT_RUNTIME_CONFIG.agent.personaEnabled),
     },
     persona: {
-      directory: toStringValue(env.PONY_PERSONA_DIR, DEFAULT_RUNTIME_CONFIG.persona.directory),
+      directory: path.resolve(expandHomePath(toStringValue(env.PONY_PERSONA_DIR, DEFAULT_RUNTIME_CONFIG.persona.directory))),
       defaultPersonaId: toStringValue(env.PONY_DEFAULT_PERSONA_ID, DEFAULT_RUNTIME_CONFIG.persona.defaultPersonaId),
       promptOverrides: {
         personalityDescription: toStringValue(
@@ -399,7 +409,7 @@ export function resolveRuntimeConfigFromEnvironment(
     },
     memory: {
       backend: env.PONY_MEMORY_BACKEND === 'memory' ? 'memory' : 'sqlite',
-      database: memoryDatabase,
+      database: path.resolve(expandHomePath(memoryDatabase)),
       userProfileId: toStringValue(env.PONY_MEMORY_USER_PROFILE_ID, DEFAULT_RUNTIME_CONFIG.memory.userProfileId),
       autoSave: toBoolean(env.PONY_MEMORY_AUTO_SAVE, DEFAULT_RUNTIME_CONFIG.memory.autoSave),
       embeddingProvider: toStringValue(env.PONY_MEMORY_EMBEDDING_PROVIDER, DEFAULT_RUNTIME_CONFIG.memory.embeddingProvider),
@@ -494,7 +504,7 @@ function normalizeConfig(raw: PonyBunnyRuntimeConfig): PonyBunnyRuntimeConfig {
     ?? (personaInput.prompt_overrides as Record<string, unknown> | undefined)
     ?? {};
   const normalizedMainDbPath = path.resolve(
-    toStringValue(raw.paths?.database, DEFAULT_RUNTIME_CONFIG.paths.database)
+    expandHomePath(toStringValue(raw.paths?.database, DEFAULT_RUNTIME_CONFIG.paths.database))
   );
   const memoryDatabaseValue = memoryInput.database ?? memoryInput.db;
   const userProfileIdValue = memoryInput.userProfileId ?? memoryInput.user_profile_id;
@@ -508,7 +518,7 @@ function normalizeConfig(raw: PonyBunnyRuntimeConfig): PonyBunnyRuntimeConfig {
     paths: {
       database: normalizedMainDbPath,
       schedulerSocket: path.resolve(
-        toStringValue(raw.paths?.schedulerSocket, DEFAULT_RUNTIME_CONFIG.paths.schedulerSocket)
+        expandHomePath(toStringValue(raw.paths?.schedulerSocket, DEFAULT_RUNTIME_CONFIG.paths.schedulerSocket))
       ),
     },
     gateway: {
@@ -603,7 +613,7 @@ function normalizeConfig(raw: PonyBunnyRuntimeConfig): PonyBunnyRuntimeConfig {
       personaEnabled: toBoolean(raw.agent?.personaEnabled, DEFAULT_RUNTIME_CONFIG.agent.personaEnabled),
     },
     persona: {
-      directory: path.resolve(toStringValue(personaInput.directory, DEFAULT_RUNTIME_CONFIG.persona.directory)),
+      directory: path.resolve(expandHomePath(toStringValue(personaInput.directory, DEFAULT_RUNTIME_CONFIG.persona.directory))),
       defaultPersonaId: toStringValue(personaInput.defaultPersonaId, DEFAULT_RUNTIME_CONFIG.persona.defaultPersonaId),
       promptOverrides: {
         personalityDescription: toStringValue(
@@ -636,7 +646,7 @@ function normalizeConfig(raw: PonyBunnyRuntimeConfig): PonyBunnyRuntimeConfig {
     memory: {
       backend: memoryInput.backend === 'memory' ? 'memory' : 'sqlite',
       database: path.resolve(
-        toStringValue(memoryDatabaseValue, defaultMemoryDbPath(normalizedMainDbPath))
+        expandHomePath(toStringValue(memoryDatabaseValue, defaultMemoryDbPath(normalizedMainDbPath)))
       ),
       userProfileId: toStringValue(userProfileIdValue, DEFAULT_RUNTIME_CONFIG.memory.userProfileId),
       autoSave: toBoolean(autoSaveValue, DEFAULT_RUNTIME_CONFIG.memory.autoSave),

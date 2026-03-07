@@ -39,6 +39,20 @@ describe('runtime-config memory user profile id', () => {
     expect(config.persona.promptOverrides.personalityDescription).toBe('Custom personality block');
   });
 
+  it('expands tilde paths from environment variables', () => {
+    const config = resolveRuntimeConfigFromEnvironment({
+      PONY_DB_PATH: '~/.ponybunny/custom-pony.db',
+      PONY_SCHEDULER_SOCKET: '~/.ponybunny/custom-gateway.sock',
+      PONY_MEMORY_DB_PATH: '~/.ponybunny/custom-memory.db',
+      PONY_PERSONA_DIR: '~/.config/ponybunny/custom-personas',
+    });
+
+    expect(config.paths.database).toBe(path.join(os.homedir(), '.ponybunny', 'custom-pony.db'));
+    expect(config.paths.schedulerSocket).toBe(path.join(os.homedir(), '.ponybunny', 'custom-gateway.sock'));
+    expect(config.memory.database).toBe(path.join(os.homedir(), '.ponybunny', 'custom-memory.db'));
+    expect(config.persona.directory).toBe(path.join(os.homedir(), '.config', 'ponybunny', 'custom-personas'));
+  });
+
   it('loads scheduler deterministic runtime flags from environment', () => {
     const config = resolveRuntimeConfigFromEnvironment({
       PONY_SCHEDULER_DETERMINISTIC_RUNTIME_ENABLED: 'true',
@@ -138,6 +152,46 @@ describe('runtime-config memory user profile id', () => {
       const loaded = loadRuntimeConfig();
       expect(loaded.tui.sessionFirstEnabled).toBe(false);
       expect(loaded.tui.goalSubmitFastPathEnabled).toBe(true);
+    } finally {
+      if (previousConfigDir === undefined) {
+        delete process.env.PONYBUNNY_CONFIG_DIR;
+      } else {
+        process.env.PONYBUNNY_CONFIG_DIR = previousConfigDir;
+      }
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('expands tilde paths from ponybunny.json runtime file', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-runtime-config-'));
+    const previousConfigDir = process.env.PONYBUNNY_CONFIG_DIR;
+    process.env.PONYBUNNY_CONFIG_DIR = tempRoot;
+
+    try {
+      const payload = {
+        paths: {
+          database: '~/.ponybunny/pony.db',
+          schedulerSocket: '~/.ponybunny/gateway.sock',
+        },
+        persona: {
+          directory: '~/.config/ponybunny/personas',
+        },
+        memory: {
+          database: '~/.ponybunny/memory.db',
+        },
+      };
+
+      fs.writeFileSync(
+        path.join(tempRoot, 'ponybunny.json'),
+        JSON.stringify(payload, null, 2),
+        'utf-8'
+      );
+
+      const loaded = loadRuntimeConfig();
+      expect(loaded.paths.database).toBe(path.join(os.homedir(), '.ponybunny', 'pony.db'));
+      expect(loaded.paths.schedulerSocket).toBe(path.join(os.homedir(), '.ponybunny', 'gateway.sock'));
+      expect(loaded.persona.directory).toBe(path.join(os.homedir(), '.config', 'ponybunny', 'personas'));
+      expect(loaded.memory.database).toBe(path.join(os.homedir(), '.ponybunny', 'memory.db'));
     } finally {
       if (previousConfigDir === undefined) {
         delete process.env.PONYBUNNY_CONFIG_DIR;
