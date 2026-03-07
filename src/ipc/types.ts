@@ -74,6 +74,7 @@ export interface IPCRunEventRetentionMessage extends IPCMessage {
 }
 
 export type SchedulerCommandType =
+  | 'materialize_goal'
   | 'submit_goal'
   | 'cancel_goal'
   | 'apply_runtime_rollout'
@@ -108,6 +109,30 @@ export interface SchedulerCommandRequest {
   limit?: number;
   goalId?: string;
   reason?: string;
+  goalSpec?: {
+    title: string;
+    description: string;
+    success_criteria: Array<{
+      description: string;
+      type: 'heuristic' | 'deterministic';
+      verification_method: string;
+      required?: boolean;
+    }>;
+    priority?: number;
+    budget_tokens?: number;
+    budget_time_minutes?: number;
+    budget_cost_usd?: number;
+    context?: Record<string, unknown>;
+  };
+  initialWorkItemSpec?: {
+    title: string;
+    description: string;
+    item_type: 'analysis' | 'code' | 'test' | 'doc' | 'refactor';
+    priority?: number;
+    dependencies?: string[];
+    context?: Record<string, unknown>;
+  };
+  autoSubmitGoal?: boolean;
   rollout?: {
     deterministicRuntimeEnabled: boolean;
     planCompilerEnabled: boolean;

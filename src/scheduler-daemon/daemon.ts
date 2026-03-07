@@ -593,6 +593,51 @@ export class SchedulerDaemon {
         return;
       }
 
+      if (command.command === 'materialize_goal') {
+        if (!command.goalSpec) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'goalSpec is required for materialize_goal');
+          return;
+        }
+
+        const goal = this.repository.createGoal({
+          title: command.goalSpec.title,
+          description: command.goalSpec.description,
+          success_criteria: command.goalSpec.success_criteria.map((item) => ({
+            ...item,
+            required: item.required ?? true,
+          })),
+          priority: command.goalSpec.priority,
+          budget_tokens: command.goalSpec.budget_tokens,
+          budget_time_minutes: command.goalSpec.budget_time_minutes,
+          budget_cost_usd: command.goalSpec.budget_cost_usd,
+          context: command.goalSpec.context,
+        });
+
+        let initialWorkItemId: string | undefined;
+        if (command.initialWorkItemSpec) {
+          const workItem = this.repository.createWorkItem({
+            goal_id: goal.id,
+            title: command.initialWorkItemSpec.title,
+            description: command.initialWorkItemSpec.description,
+            item_type: command.initialWorkItemSpec.item_type,
+            priority: command.initialWorkItemSpec.priority,
+            dependencies: command.initialWorkItemSpec.dependencies,
+            context: command.initialWorkItemSpec.context,
+          });
+          initialWorkItemId = workItem.id;
+        }
+
+        if (command.autoSubmitGoal) {
+          await scheduler.submitGoal(goal);
+        }
+
+        await this.sendSchedulerCommandResult(command.requestId, true, undefined, {
+          goal,
+          initialWorkItemId,
+        });
+        return;
+      }
+
       if (command.command === 'cancel_goal') {
         if (!command.goalId) {
           await this.sendSchedulerCommandResult(command.requestId, false, 'goalId is required for cancel_goal');

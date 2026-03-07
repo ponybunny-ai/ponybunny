@@ -25,6 +25,12 @@ interface AdapterTransitionMeta {
   retryTrail: AdapterRetryAttempt[];
 }
 
+export interface ChannelAdapterPublishReport {
+  attempted: number;
+  delivered: number;
+  failed: Array<{ channel: GatewayChannelType; error: string }>;
+}
+
 export class ChannelAdapterManager {
   private adapters = new Map<GatewayChannelType, GatewayChannelAdapter>();
   private transitionMeta = new Map<GatewayChannelType, AdapterTransitionMeta>();
@@ -97,6 +103,42 @@ export class ChannelAdapterManager {
         retryTrail: [...(this.transitionMeta.get(status.channel)?.retryTrail ?? [])],
       };
     });
+  }
+
+  async publishToChannels(
+    channels: GatewayChannelType[],
+    event: string,
+    payload: Record<string, unknown>
+  ): Promise<ChannelAdapterPublishReport> {
+    const report: ChannelAdapterPublishReport = {
+      attempted: 0,
+      delivered: 0,
+      failed: [],
+    };
+
+    for (const channel of new Set(channels)) {
+      if (channel === 'tui') {
+        continue;
+      }
+
+      const adapter = this.adapters.get(channel);
+      if (!adapter) {
+        continue;
+      }
+
+      report.attempted += 1;
+      try {
+        await adapter.publish(event, payload);
+        report.delivered += 1;
+      } catch (error) {
+        report.failed.push({
+          channel,
+          error: (error as Error).message,
+        });
+      }
+    }
+
+    return report;
   }
 
   private async startWithRetry(

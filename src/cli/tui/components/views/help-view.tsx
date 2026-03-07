@@ -31,7 +31,7 @@ const SLASH_COMMANDS = [
   { cmd: '/approve <id>', desc: 'Approve a request' },
   { cmd: '/reject <id> [reason]', desc: 'Reject a request' },
   { cmd: '/status', desc: 'Show gateway status' },
-  { cmd: '/input-mode [session-first|fast-path|toggle]', desc: 'Show or switch natural input routing mode' },
+  { cmd: '/input-mode [session-first]', desc: 'Show or enforce session-first input routing mode' },
   { cmd: '/refresh [runtime] [goalId]', desc: 'Refresh scheduler or runtime diagnostics' },
   { cmd: '/rollout <status|set|rollback>', desc: 'Inspect or update runtime rollout settings' },
   { cmd: '/replay <runId> [relatedRunId] [key=value...]', desc: 'Run replay diagnostics for runtime events' },

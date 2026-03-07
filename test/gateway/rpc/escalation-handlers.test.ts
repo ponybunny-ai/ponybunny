@@ -17,7 +17,7 @@ function createSession(): Session {
 }
 
 describe('escalation handlers approval resume flow', () => {
-  it('creates resumed work item and re-submits goal when escalation response requests retry', async () => {
+  it('re-queues existing work item and re-submits goal when escalation response requests retry', async () => {
     const now = Date.now();
     const rpc = new RpcHandler();
     const session = createSession();
@@ -100,18 +100,7 @@ describe('escalation handlers approval resume flow', () => {
       },
       'pk-escalation'
     );
-    expect(repository.createWorkItem).toHaveBeenCalledWith(
-      expect.objectContaining({
-        goal_id: 'goal-1',
-        context: expect.objectContaining({
-          approval_granted: true,
-          approval_resolved_by: 'pk-escalation',
-          approval_resolution_action: 'retry',
-          selected_skill_override: 'postgres-query',
-          selected_mcp_tool_override: 'mcp__github__search_repositories',
-        }),
-      })
-    );
+    expect(repository.updateWorkItemStatus).toHaveBeenCalledWith('wi-1', 'ready');
     expect(repository.updateGoalStatus).toHaveBeenCalledWith('goal-1', 'queued');
     expect(remoteScheduler.submitGoal).toHaveBeenCalledWith('goal-1');
   });

@@ -35,7 +35,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   const latestEventTs = state.events.length > 0 ? state.events[state.events.length - 1].timestamp : 0;
   const [trafficFrame, setTrafficFrame] = React.useState(0);
   const [isCommunicating, setIsCommunicating] = React.useState(false);
-  const inputModeLabel = state.runtimeTuiConfig?.goalSubmitFastPathEnabled ? 'fast-path' : 'session-first';
+  const inputModeLabel = 'session-first';
 
   React.useEffect(() => {
     if (!isCommunicating) {

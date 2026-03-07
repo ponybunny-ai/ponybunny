@@ -33,6 +33,20 @@
    - 风险清单、指标、告警、审计
 9. [09-acceptance-criteria.md](./09-acceptance-criteria.md)
    - 验收标准（功能、一致性、实时性、安全性）
+10. [10-execution-mainline.md](./10-execution-mainline.md)
+   - 执行主线与阶段任务状态
+11. [11-acceptance-review-matrix.md](./11-acceptance-review-matrix.md)
+   - A-F 验收矩阵（pass/partial/fail + 证据）
+12. [12-stage-summary-and-release-readiness.md](./12-stage-summary-and-release-readiness.md)
+   - 阶段总结与发布建议
+13. [13-compatibility-and-rollback-playbook.md](./13-compatibility-and-rollback-playbook.md)
+   - 兼容窗口与回滚演练
+14. [14-migration-baseline-comparison.md](./14-migration-baseline-comparison.md)
+   - 迁移基线对比指南
+15. [15-production-rollout-runbook.md](./15-production-rollout-runbook.md)
+   - 生产发布执行手册
+16. [16-production-threshold-matrix.md](./16-production-threshold-matrix.md)
+   - 生产阈值与回滚触发矩阵
 
 ## 与 As-Is 的映射
 

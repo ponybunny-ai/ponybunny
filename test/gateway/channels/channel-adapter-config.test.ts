@@ -2,6 +2,7 @@ import {
   diffAdapterConfigMaps,
   normalizeAdapterConfig,
   sanitizeAdapterConfig,
+  summarizeAdapterConfigImpact,
 } from '../../../src/gateway/channels/channel-adapter-config.js';
 
 describe('channel-adapter-config utilities', () => {
@@ -26,6 +27,7 @@ describe('channel-adapter-config utilities', () => {
   it('masks sensitive fields in sanitized config', () => {
     expect(sanitizeAdapterConfig('discord', { botToken: 'abc', commandsEnabled: false })).toEqual({
       botToken: '***',
+      webhookUrl: '',
       guildId: '',
       applicationId: '',
       commandsEnabled: false,
@@ -103,5 +105,30 @@ describe('channel-adapter-config utilities', () => {
         },
       },
     ]);
+  });
+
+  it('summarizes config impact flags from diff categories', () => {
+    const diff = diffAdapterConfigMaps(
+      {
+        discord: {
+          commandsEnabled: true,
+          guildId: '1',
+        },
+      },
+      {
+        discord: {
+          commandsEnabled: false,
+          guildId: '2',
+          customTag: 'prod',
+        },
+      }
+    );
+
+    expect(summarizeAdapterConfigImpact(diff)).toEqual({
+      credentialsChanged: false,
+      policyChanged: true,
+      routingChanged: true,
+      otherChanged: true,
+    });
   });
 });

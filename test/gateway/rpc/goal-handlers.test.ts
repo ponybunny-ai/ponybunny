@@ -93,6 +93,22 @@ describe('goal handlers remote scheduler forwarding', () => {
 
     const remoteScheduler = {
       isSchedulerDaemonConnected: jest.fn(() => true),
+      materializeGoal: jest.fn(async () => ({
+        goal: {
+          id: 'goal-1',
+          created_at: now,
+          updated_at: now,
+          title: 'test title',
+          description: 'test description',
+          success_criteria: [],
+          status: 'queued',
+          priority: 50,
+          spent_tokens: 0,
+          spent_time_minutes: 0,
+          spent_cost_usd: 0,
+        },
+        initialWorkItemId: 'wi-1',
+      })),
       submitGoal: jest.fn(async () => {}),
       cancelGoal: jest.fn(async () => {}),
     } as IRemoteSchedulerClient;
@@ -110,15 +126,8 @@ describe('goal handlers remote scheduler forwarding', () => {
     );
 
     expect((result as { id: string }).id).toBe('goal-1');
-    expect(repository.createWorkItem).toHaveBeenCalledWith({
-      goal_id: 'goal-1',
-      title: 'test title',
-      description: 'test description',
-      item_type: 'analysis',
-      priority: 50,
-      dependencies: [],
-    });
-    expect(remoteScheduler.submitGoal).toHaveBeenCalledWith('goal-1');
+    expect(remoteScheduler.materializeGoal).toHaveBeenCalled();
+    expect(remoteScheduler.submitGoal).not.toHaveBeenCalled();
   });
 
   it('forwards goal.cancel to remote scheduler when local scheduler is unavailable', async () => {
@@ -145,6 +154,21 @@ describe('goal handlers remote scheduler forwarding', () => {
 
     const remoteScheduler = {
       isSchedulerDaemonConnected: jest.fn(() => true),
+      materializeGoal: jest.fn(async () => ({
+        goal: {
+          id: 'goal-cancel-helper',
+          created_at: now,
+          updated_at: now,
+          title: 'cancel me',
+          description: 'cancel me',
+          success_criteria: [],
+          status: 'queued',
+          priority: 50,
+          spent_tokens: 0,
+          spent_time_minutes: 0,
+          spent_cost_usd: 0,
+        },
+      })),
       submitGoal: jest.fn(async () => {}),
       cancelGoal: jest.fn(async () => {}),
     } as IRemoteSchedulerClient;
@@ -189,6 +213,22 @@ describe('goal handlers remote scheduler forwarding', () => {
 
     const remoteScheduler = {
       isSchedulerDaemonConnected: jest.fn(() => true),
+      materializeGoal: jest.fn(async () => ({
+        goal: {
+          id: 'goal-3',
+          created_at: now,
+          updated_at: now,
+          title: 'Agent Command: Lead',
+          description: 'summarize pipeline status',
+          success_criteria: [],
+          status: 'queued',
+          priority: 50,
+          spent_tokens: 0,
+          spent_time_minutes: 0,
+          spent_cost_usd: 0,
+        },
+        initialWorkItemId: 'wi-3',
+      })),
       submitGoal: jest.fn(async () => {}),
       cancelGoal: jest.fn(async () => {}),
     } as IRemoteSchedulerClient;
@@ -226,22 +266,23 @@ describe('goal handlers remote scheduler forwarding', () => {
 
     expect((result as { id: string }).id).toBe('goal-3');
     expect(loadAgentsMock).toHaveBeenCalledTimes(1);
-    expect(repository.createWorkItem).toHaveBeenCalledWith(
+    expect(remoteScheduler.materializeGoal).toHaveBeenCalledWith(
       expect.objectContaining({
-        goal_id: 'goal-3',
-        item_type: 'analysis',
-        context: expect.objectContaining({
-          kind: 'agent_tick',
-          agent_id: 'lead',
-          definition_hash: 'hash-lead',
-          agent_workdir: '/tmp/pony-workdir/lead',
-          tool_allowlist: ['read_file', 'search_code'],
-          approval_required: true,
-          approval_actions: ['execute_command'],
+        initialWorkItemSpec: expect.objectContaining({
+          item_type: 'analysis',
+          context: expect.objectContaining({
+            kind: 'agent_tick',
+            agent_id: 'lead',
+            definition_hash: 'hash-lead',
+            agent_workdir: '/tmp/pony-workdir/lead',
+            tool_allowlist: ['read_file', 'search_code'],
+            approval_required: true,
+            approval_actions: ['execute_command'],
+          }),
         }),
       })
     );
-    expect(remoteScheduler.submitGoal).toHaveBeenCalledWith('goal-3');
+    expect(remoteScheduler.submitGoal).not.toHaveBeenCalled();
   });
 
   it('rejects conversation-created goal submit when sessionId/turnId linkage is missing', async () => {

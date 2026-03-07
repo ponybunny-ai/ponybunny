@@ -61,6 +61,7 @@ describe('ChannelAdapterManager', () => {
     const statusByChannel = Object.fromEntries(manager.getStatuses().map((item) => [item.channel, item]));
     expect(statusByChannel.discord.config).toEqual({
       botToken: '***',
+      webhookUrl: '',
       guildId: '',
       applicationId: '',
       commandsEnabled: true,
@@ -96,6 +97,8 @@ describe('ChannelAdapterManager', () => {
         startCount: 0,
         stopCount: 0,
         errorCount: 0,
+        deliveryCount: 0,
+        deliveryErrorCount: 0,
       };
 
       async configure(): Promise<void> {
@@ -127,6 +130,10 @@ describe('ChannelAdapterManager', () => {
           state: 'stopped',
           stopCount: this.status.stopCount + 1,
         };
+      }
+
+      async publish(): Promise<void> {
+        return;
       }
 
       getStatus(): GatewayChannelAdapterStatus {
@@ -172,6 +179,10 @@ describe('ChannelAdapterManager', () => {
         return;
       }
 
+      async publish(): Promise<void> {
+        return;
+      }
+
       getStatus(): GatewayChannelAdapterStatus {
         return {
           channel: 'discord',
@@ -181,6 +192,8 @@ describe('ChannelAdapterManager', () => {
           startCount: 0,
           stopCount: 0,
           errorCount: this.attempts,
+          deliveryCount: 0,
+          deliveryErrorCount: 0,
         };
       }
     }
@@ -198,5 +211,77 @@ describe('ChannelAdapterManager', () => {
     const status = manager.getStatuses()[0];
     expect(status.retryTrail?.length).toBe(1);
     expect(status.retryTrail?.[0]).toEqual(expect.objectContaining({ attempt: 1, outcome: 'failure' }));
+  });
+
+  it('publishes to running non-tui adapters and records delivery metrics', async () => {
+    const manager = new ChannelAdapterManager([new DiscordChannelAdapter()]);
+    const fetchMock = jest.fn(async () => ({ ok: true, status: 204 })) as unknown as typeof globalThis.fetch;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      await manager.applyConfig({
+        discord: { webhookUrl: 'https://example.test/discord-hook' },
+      });
+      await manager.applyEnabledChannels(['discord'], {
+        reason: 'channel-toggle',
+        source: 'channel-router',
+      });
+
+      const report = await manager.publishToChannels(['tui', 'discord'], 'conversation.response', {
+        goalId: 'goal-1',
+        runId: 'run-1',
+      });
+
+      expect(report.attempted).toBe(1);
+      expect(report.delivered).toBe(1);
+      expect(report.failed).toEqual([]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      const status = manager.getStatuses()[0];
+      expect(status.deliveryCount).toBe(1);
+      expect(status.deliveryErrorCount).toBe(0);
+      expect(status.lastDeliveryAt).toBeDefined();
+      expect(status.lastDeliveryError).toBeUndefined();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('captures publish failures without throwing from manager dispatch', async () => {
+    const manager = new ChannelAdapterManager([new DiscordChannelAdapter()]);
+    const fetchMock = jest.fn(async () => ({ ok: false, status: 500 })) as unknown as typeof globalThis.fetch;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      await manager.applyConfig({
+        discord: { webhookUrl: 'https://example.test/discord-hook' },
+      });
+      await manager.applyEnabledChannels(['discord'], {
+        reason: 'channel-toggle',
+        source: 'channel-router',
+      });
+
+      const report = await manager.publishToChannels(['discord'], 'run.completed', {
+        goalId: 'goal-1',
+      });
+
+      expect(report.attempted).toBe(1);
+      expect(report.delivered).toBe(0);
+      expect(report.failed).toEqual([
+        {
+          channel: 'discord',
+          error: 'discord webhook publish failed: 500',
+        },
+      ]);
+
+      const status = manager.getStatuses()[0];
+      expect(status.deliveryCount).toBe(0);
+      expect(status.deliveryErrorCount).toBe(1);
+      expect(status.lastDeliveryError).toBe('discord webhook publish failed: 500');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

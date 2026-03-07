@@ -24,6 +24,7 @@ describe('ChannelAdapterConfigStore', () => {
       expect(loaded).toEqual({
         discord: {
           botToken: '',
+          webhookUrl: '',
           guildId: '',
           applicationId: '',
           commandsEnabled: true,
@@ -63,6 +64,7 @@ describe('ChannelAdapterConfigStore', () => {
       expect(loaded).toEqual({
         discord: {
           botToken: '',
+          webhookUrl: '',
           guildId: '',
           applicationId: '',
           commandsEnabled: true,

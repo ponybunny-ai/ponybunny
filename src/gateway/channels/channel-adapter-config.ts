@@ -46,6 +46,7 @@ const DEFAULT_CONFIGS: Record<Exclude<GatewayChannelType, 'tui'>, GatewayChannel
   },
   discord: {
     botToken: '',
+    webhookUrl: '',
     guildId: '',
     applicationId: '',
     commandsEnabled: true,
@@ -124,6 +125,13 @@ export interface AdapterConfigDiffEntry {
   };
 }
 
+export interface AdapterConfigImpactSummary {
+  credentialsChanged: boolean;
+  policyChanged: boolean;
+  routingChanged: boolean;
+  otherChanged: boolean;
+}
+
 const CREDENTIAL_KEYS = new Set(['botToken', 'webhookVerifyToken']);
 const POLICY_KEYS = new Set(['retryAttempts', 'retryBackoffMs', 'commandsEnabled', 'pollingEnabled', 'useTls', 'corsEnabled']);
 const ROUTING_KEYS = new Set(['origin', 'inboundAddress', 'smtpHost', 'smtpPort', 'webhookUrl', 'provider', 'phoneNumberId', 'guildId', 'applicationId']);
@@ -188,6 +196,32 @@ export function diffAdapterConfigMaps(
   }
 
   return diffs;
+}
+
+export function summarizeAdapterConfigImpact(diff: AdapterConfigDiffEntry[]): AdapterConfigImpactSummary {
+  const summary: AdapterConfigImpactSummary = {
+    credentialsChanged: false,
+    policyChanged: false,
+    routingChanged: false,
+    otherChanged: false,
+  };
+
+  for (const entry of diff) {
+    if (entry.changedCategories.credentials.length > 0) {
+      summary.credentialsChanged = true;
+    }
+    if (entry.changedCategories.policy.length > 0) {
+      summary.policyChanged = true;
+    }
+    if (entry.changedCategories.routing.length > 0) {
+      summary.routingChanged = true;
+    }
+    if (entry.changedCategories.other.length > 0) {
+      summary.otherChanged = true;
+    }
+  }
+
+  return summary;
 }
 
 export function resolveAdapterRetryPolicy(config: GatewayChannelAdapterConfig | undefined): AdapterRetryPolicy {

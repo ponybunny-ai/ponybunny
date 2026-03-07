@@ -2,7 +2,7 @@
  * Goal Handlers - RPC handlers for goal operations
  */
 
-import type { IWorkOrderRepository, CreateGoalParams } from '../../../infra/persistence/repository-interface.js';
+import type { IWorkOrderRepository } from '../../../infra/persistence/repository-interface.js';
 import type { Goal, GoalStatus } from '../../../work-order/types/index.js';
 import type { RpcHandler } from '../rpc-handler.js';
 import { GatewayError, ErrorCodes } from '../../errors.js';
@@ -17,6 +17,27 @@ import { buildGatewayMessageRouteContext } from '../../../infra/routing/route-co
 
 export interface IRemoteSchedulerClient {
   isSchedulerDaemonConnected(): boolean;
+  materializeGoal(params: {
+    goalSpec: {
+      title: string;
+      description: string;
+      success_criteria: Goal['success_criteria'];
+      priority?: number;
+      budget_tokens?: number;
+      budget_time_minutes?: number;
+      budget_cost_usd?: number;
+      context?: Record<string, unknown>;
+    };
+    initialWorkItemSpec?: {
+      title: string;
+      description: string;
+      item_type: 'analysis' | 'code' | 'test' | 'doc' | 'refactor';
+      priority?: number;
+      dependencies?: string[];
+      context?: Record<string, unknown>;
+    };
+    autoSubmitGoal?: boolean;
+  }): Promise<{ goal: Goal; initialWorkItemId?: string }>;
   submitGoal(goalId: string): Promise<void>;
   cancelGoal(goalId: string, reason?: string): Promise<void>;
 }
@@ -113,35 +134,40 @@ export function registerGoalHandlers(
         }
       }
 
-      const createParams: CreateGoalParams = {
-        title: params.title,
-        description: params.description,
-        success_criteria: params.success_criteria,
-        priority: params.priority,
-        budget_tokens: params.budget_tokens,
-        budget_time_minutes: params.budget_time_minutes,
-        budget_cost_usd: params.budget_cost_usd,
-        context,
-      };
+      if (!remoteSchedulerClient?.isSchedulerDaemonConnected()) {
+        throw GatewayError.internalError('scheduler daemon is required for goal.submit');
+      }
 
-      const goal = repository.createGoal(createParams);
-
-      repository.createWorkItem({
-        goal_id: goal.id,
-        title: goal.title,
-        description: goal.description,
-        item_type: 'analysis',
-        priority: goal.priority,
-        dependencies: [],
-        context: goal.context
-          ? {
-              ...goal.context,
-              model: typeof (goal.context as Record<string, unknown>).selected_model === 'string'
-                ? (goal.context as Record<string, unknown>).selected_model
-                : undefined,
-            }
-          : undefined,
+      const materialized = await remoteSchedulerClient.materializeGoal({
+        goalSpec: {
+          title: params.title,
+          description: params.description,
+          success_criteria: params.success_criteria,
+          priority: params.priority,
+          budget_tokens: params.budget_tokens,
+          budget_time_minutes: params.budget_time_minutes,
+          budget_cost_usd: params.budget_cost_usd,
+          context,
+        },
+        initialWorkItemSpec: {
+          title: params.title,
+          description: params.description,
+          item_type: 'analysis',
+          priority: params.priority,
+          dependencies: [],
+          context: context
+            ? {
+                ...context,
+                model: typeof (context as Record<string, unknown>).selected_model === 'string'
+                  ? (context as Record<string, unknown>).selected_model
+                  : undefined,
+              }
+            : undefined,
+        },
+        autoSubmitGoal: true,
       });
+
+      const goal = materialized.goal;
 
       // Audit log: goal created
       auditService?.logGoalCreated(goal.id, session.publicKey, 'user', {
@@ -161,14 +187,6 @@ export function registerGoalHandlers(
         title: goal.title,
         createdBy: session.publicKey,
       });
-
-      // Submit to scheduler if connected
-      const scheduler = getScheduler?.();
-      if (scheduler) {
-        await scheduler.submitGoal(goal);
-      } else if (remoteSchedulerClient?.isSchedulerDaemonConnected()) {
-        await remoteSchedulerClient.submitGoal(goal.id);
-      }
 
       return goal;
     }
@@ -195,19 +213,9 @@ export function registerGoalHandlers(
       const runKey = randomUUID();
       const now = Date.now();
 
-      const goal = repository.createGoal({
-        title: `Agent Command: ${definition.config.name}`,
-        description: params.command.trim(),
-        success_criteria: [
-          {
-            description: 'Agent command completes successfully',
-            type: 'deterministic',
-            verification_method: 'status_check',
-            required: true,
-          },
-        ],
-        priority: params.priority ?? 50,
-      });
+      if (!remoteSchedulerClient?.isSchedulerDaemonConnected()) {
+        throw GatewayError.internalError('scheduler daemon is required for agent.command.submit');
+      }
 
       const effectiveTools = computeEffectiveTools(
         toStringArray(definition.config.policy?.toolAllowlist),
@@ -223,39 +231,56 @@ export function registerGoalHandlers(
         configPath: definition.configPath,
       });
 
-      repository.createWorkItem({
-        goal_id: goal.id,
-        title: `Run ${definition.config.name}`,
-        description: params.command.trim(),
-        item_type: 'analysis',
-        priority: params.priority ?? 50,
-        dependencies: [],
-        context: {
-          kind: 'agent_tick',
-          agent_id: definition.id,
-          definition_hash: definition.definitionHash,
-          run_key: runKey,
-          scheduled_for_ms: now,
-          agent_workdir: workdir,
-          tool_allowlist: effectiveTools,
-          approval_required: definition.config.policy?.approval?.required === true,
-          approval_actions: toStringArray(definition.config.policy?.approval?.actions),
-          tool_policy_context: {
-            agentId: definition.id,
-            isSubagent: false,
-            sandboxed: false,
-            isOwner: session.permissions.includes('admin') || session.permissions.includes('write'),
-          },
-          policy_snapshot: definition.config.policy ?? null,
-          routeContext: buildGatewayMessageRouteContext({
-            agentId: definition.id,
-            runKey,
-            channel: 'rpc',
-            senderId: session.publicKey,
-            senderIsOwner: session.permissions.includes('admin'),
-          }),
+      const materialized = await remoteSchedulerClient.materializeGoal({
+        goalSpec: {
+          title: `Agent Command: ${definition.config.name}`,
+          description: params.command.trim(),
+          success_criteria: [
+            {
+              description: 'Agent command completes successfully',
+              type: 'deterministic',
+              verification_method: 'status_check',
+              required: true,
+            },
+          ],
+          priority: params.priority ?? 50,
         },
-      } as unknown as Parameters<IWorkOrderRepository['createWorkItem']>[0]);
+        initialWorkItemSpec: {
+          title: `Run ${definition.config.name}`,
+          description: params.command.trim(),
+          item_type: 'analysis',
+          priority: params.priority ?? 50,
+          dependencies: [],
+          context: {
+            kind: 'agent_tick',
+            agent_id: definition.id,
+            definition_hash: definition.definitionHash,
+            run_key: runKey,
+            scheduled_for_ms: now,
+            agent_workdir: workdir,
+            tool_allowlist: effectiveTools,
+            approval_required: definition.config.policy?.approval?.required === true,
+            approval_actions: toStringArray(definition.config.policy?.approval?.actions),
+            tool_policy_context: {
+              agentId: definition.id,
+              isSubagent: false,
+              sandboxed: false,
+              isOwner: session.permissions.includes('admin') || session.permissions.includes('write'),
+            },
+            policy_snapshot: definition.config.policy ?? null,
+            routeContext: buildGatewayMessageRouteContext({
+              agentId: definition.id,
+              runKey,
+              channel: 'rpc',
+              senderId: session.publicKey,
+              senderIsOwner: session.permissions.includes('admin'),
+            }),
+          },
+        },
+        autoSubmitGoal: true,
+      });
+
+      const goal = materialized.goal;
 
       session.subscribeToGoal(goal.id);
       eventBus.emit('goal.created', {
@@ -263,13 +288,6 @@ export function registerGoalHandlers(
         title: goal.title,
         createdBy: session.publicKey,
       });
-
-      const scheduler = getScheduler?.();
-      if (scheduler) {
-        await scheduler.submitGoal(goal);
-      } else if (remoteSchedulerClient?.isSchedulerDaemonConnected()) {
-        await remoteSchedulerClient.submitGoal(goal.id);
-      }
 
       return goal;
     }

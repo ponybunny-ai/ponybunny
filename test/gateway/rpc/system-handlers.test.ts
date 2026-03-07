@@ -199,6 +199,47 @@ describe('system handlers', () => {
     );
   });
 
+  it('exposes realtime ack and stream latency metrics in system.status', async () => {
+    const rpcWithRealtime = new RpcHandler();
+    registerSystemHandlers(
+      rpcWithRealtime,
+      () => mockConnectionManager,
+      () => mockScheduler,
+      () => mockChannelRouter,
+      () => [],
+      () => ({ isRunning: true, daemonConnected: true, schedulerConnected: true }),
+      () => [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => ({
+        schedulerCommandAckMsP95: 180,
+        streamChunkLatencyMsP95: 640,
+        ackSampleSize: 42,
+        streamSampleSize: 16,
+      })
+    );
+
+    const result = await rpcWithRealtime.handle('system.status', {}, createSession(['admin'])) as {
+      gateway: {
+        realtime: {
+          schedulerCommandAckMsP95: number;
+          streamChunkLatencyMsP95: number;
+          ackSampleSize: number;
+          streamSampleSize: number;
+        };
+      };
+    };
+
+    expect(result.gateway.realtime).toEqual({
+      schedulerCommandAckMsP95: 180,
+      streamChunkLatencyMsP95: 640,
+      ackSampleSize: 42,
+      streamSampleSize: 16,
+    });
+  });
+
   it('returns runtime rollout status', async () => {
     jest.spyOn(runtimeConfig, 'loadRuntimeConfig').mockReturnValue({
       ...runtimeConfig.DEFAULT_RUNTIME_CONFIG,
@@ -490,6 +531,8 @@ describe('system handlers', () => {
           startCount: 1,
           stopCount: 0,
           errorCount: 0,
+          deliveryCount: 0,
+          deliveryErrorCount: 0,
         },
       ],
       updateAdapterConfigs
@@ -510,6 +553,7 @@ describe('system handlers', () => {
     expect(updateAdapterConfigs).toHaveBeenCalledWith({
       discord: {
         botToken: 'abc',
+        webhookUrl: '',
         guildId: '',
         applicationId: '',
         commandsEnabled: true,
@@ -525,8 +569,11 @@ describe('system handlers', () => {
         startCount: 1,
         stopCount: 0,
         errorCount: 0,
+        deliveryCount: 0,
+        deliveryErrorCount: 0,
         config: {
           botToken: '',
+          webhookUrl: '',
           guildId: '',
           applicationId: '',
           commandsEnabled: true,
@@ -557,6 +604,8 @@ describe('system handlers', () => {
           startCount: 1,
           stopCount: 0,
           errorCount: 0,
+          deliveryCount: 0,
+          deliveryErrorCount: 0,
         },
       ]
     );
@@ -573,8 +622,11 @@ describe('system handlers', () => {
         startCount: 1,
         stopCount: 0,
         errorCount: 0,
+        deliveryCount: 0,
+        deliveryErrorCount: 0,
         config: {
           botToken: '***',
+          webhookUrl: '',
           guildId: '',
           applicationId: '',
           commandsEnabled: true,
@@ -604,6 +656,8 @@ describe('system handlers', () => {
           startCount: 1,
           stopCount: 0,
           errorCount: 0,
+          deliveryCount: 0,
+          deliveryErrorCount: 0,
           retryTrail: [],
         },
         {
@@ -614,6 +668,8 @@ describe('system handlers', () => {
           startCount: 1,
           stopCount: 0,
           errorCount: 1,
+          deliveryCount: 0,
+          deliveryErrorCount: 0,
           retryTrail: [
             {
               timestamp: 1700000000000,
@@ -778,6 +834,7 @@ describe('system handlers', () => {
     expect(updateAdapterConfigs).toHaveBeenLastCalledWith({
       discord: {
         botToken: '',
+        webhookUrl: '',
         guildId: '',
         applicationId: '',
         commandsEnabled: true,
@@ -932,6 +989,43 @@ describe('system handlers', () => {
     };
 
     expect(result.events.map((item) => item.id)).toEqual(['evt-run-2']);
+  });
+
+  it('supports cursor pagination for system.channels.events replay', async () => {
+    const rpcWithEvents = new RpcHandler();
+    const events = [
+      { id: 'evt-1', event: 'conversation.response', timestamp: 100, payload: {} },
+      { id: 'evt-2', event: 'conversation.response', timestamp: 200, payload: {} },
+      { id: 'evt-3', event: 'conversation.response', timestamp: 300, payload: {} },
+    ];
+
+    registerSystemHandlers(
+      rpcWithEvents,
+      () => mockConnectionManager,
+      () => mockScheduler,
+      () => mockChannelRouter,
+      () => [...events],
+      () => ({ isRunning: true, daemonConnected: true, schedulerConnected: true }),
+      () => []
+    );
+
+    const firstPage = await rpcWithEvents.handle(
+      'system.channels.events',
+      { limit: 2, cursor: '0' },
+      createSession(['read'])
+    ) as { events: Array<{ id: string }>; nextCursor?: string };
+
+    expect(firstPage.events.map((item) => item.id)).toEqual(['evt-1', 'evt-2']);
+    expect(firstPage.nextCursor).toBe('2');
+
+    const secondPage = await rpcWithEvents.handle(
+      'system.channels.events',
+      { limit: 2, cursor: firstPage.nextCursor },
+      createSession(['read'])
+    ) as { events: Array<{ id: string }>; nextCursor?: string };
+
+    expect(secondPage.events.map((item) => item.id)).toEqual(['evt-3']);
+    expect(secondPage.nextCursor).toBeUndefined();
   });
 
   it('persists main agent model hint through rpc', async () => {

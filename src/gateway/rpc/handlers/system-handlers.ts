@@ -56,6 +56,12 @@ export interface SystemStatusResponse {
     };
     daemonConnected: boolean;
     schedulerConnected: boolean;
+    realtime: {
+      schedulerCommandAckMsP95: number;
+      streamChunkLatencyMsP95: number;
+      ackSampleSize: number;
+      streamSampleSize: number;
+    };
   };
   scheduler: {
     isConnected: boolean;
@@ -165,11 +171,13 @@ export interface GatewayChannelEventsParams {
   workItemId?: string;
   runId?: string;
   sinceTimestamp?: number;
+  cursor?: string;
   limit?: number;
 }
 
 export interface GatewayChannelEventsResponse {
   events: StoredChannelEvent[];
+  nextCursor?: string;
 }
 
 export interface SetMainAgentModelHintParams {
@@ -334,6 +342,7 @@ function validateAdapterConfigForChannel(
   if (channel === 'discord') {
     return normalizeAdapterConfig(channel, {
       ...(readOptionalString(input, 'botToken', channel) !== undefined ? { botToken: readOptionalString(input, 'botToken', channel) } : {}),
+      ...(readOptionalString(input, 'webhookUrl', channel) !== undefined ? { webhookUrl: readOptionalString(input, 'webhookUrl', channel) } : {}),
       ...(readOptionalString(input, 'guildId', channel) !== undefined ? { guildId: readOptionalString(input, 'guildId', channel) } : {}),
       ...(readOptionalString(input, 'applicationId', channel) !== undefined ? { applicationId: readOptionalString(input, 'applicationId', channel) } : {}),
       ...(readOptionalBoolean(input, 'commandsEnabled', channel) !== undefined
@@ -555,7 +564,13 @@ export function registerSystemHandlers(
   updateChannelAdapterConfigs?: (configs: Partial<Record<GatewayChannelType, GatewayChannelAdapterConfig>>) => Promise<void>,
   onChannelsUpdated?: () => Promise<void>,
   getToolRegistry?: () => ToolRegistry | undefined,
-  options?: SystemHandlersOptions
+  options?: SystemHandlersOptions,
+  getRealtimeMetrics?: () => {
+    schedulerCommandAckMsP95: number;
+    streamChunkLatencyMsP95: number;
+    ackSampleSize: number;
+    streamSampleSize: number;
+  }
 ): void {
   rpcHandler.register<Record<string, never>, SystemCapabilitiesResponse>(
     'system.capabilities',
@@ -581,6 +596,12 @@ export function registerSystemHandlers(
       const connectionManager = getConnectionManager();
       const connStats = connectionManager.getStats();
       const gatewayStats = getGatewayStats();
+      const realtimeMetrics = getRealtimeMetrics?.() ?? {
+        schedulerCommandAckMsP95: 0,
+        streamChunkLatencyMsP95: 0,
+        ackSampleSize: 0,
+        streamSampleSize: 0,
+      };
       const scheduler = getScheduler();
 
       const response: SystemStatusResponse = {
@@ -597,6 +618,7 @@ export function registerSystemHandlers(
           },
           daemonConnected: gatewayStats.daemonConnected,
           schedulerConnected: gatewayStats.schedulerConnected,
+          realtime: realtimeMetrics,
         },
         scheduler: {
           isConnected: scheduler !== null || processInfo.scheduler.status === 'running',
@@ -822,6 +844,12 @@ export function registerSystemHandlers(
       const allEvents = getStoredChannelEvents();
       const sinceTimestamp = typeof params.sinceTimestamp === 'number' ? params.sinceTimestamp : 0;
       const limit = typeof params.limit === 'number' && params.limit > 0 ? params.limit : 200;
+      const cursor = typeof params.cursor === 'string' && params.cursor.length > 0
+        ? Number.parseInt(params.cursor, 10)
+        : 0;
+      if (!Number.isInteger(cursor) || cursor < 0) {
+        throw GatewayError.invalidParams('cursor must be a non-negative integer string');
+      }
       const eventNames = Array.isArray(params.eventNames)
         ? params.eventNames.filter((item): item is string => typeof item === 'string' && item.length > 0)
         : [];
@@ -857,8 +885,14 @@ export function registerSystemHandlers(
         return true;
       });
 
+      const sorted = filtered.sort((a, b) => a.timestamp - b.timestamp);
+      const start = Math.min(cursor, sorted.length);
+      const events = sorted.slice(start, start + limit);
+      const nextCursor = start + events.length < sorted.length ? String(start + events.length) : undefined;
+
       return {
-        events: filtered.slice(-limit),
+        events,
+        ...(nextCursor ? { nextCursor } : {}),
       };
     }
   );

@@ -15,11 +15,13 @@ import type {
 import { debugEmitter } from '../../debug/emitter.js';
 import type { ConversationLifecycleState, IConversationTurn } from '../../domain/conversation/session.js';
 import type { ConversationState } from '../../domain/conversation/state-machine-rules.js';
+import type { Goal } from '../../work-order/types/index.js';
 
 interface PendingCommand {
   resolve: (value?: unknown) => void;
   reject: (error: Error) => void;
   timeout: NodeJS.Timeout;
+  startedAt: number;
 }
 
 export class IPCBridge {
@@ -27,6 +29,9 @@ export class IPCBridge {
   private ipcServer: IPCServer | null = null;
   private messageHandler: IPCMessageHandler | null = null;
   private pendingCommands = new Map<string, PendingCommand>();
+  private schedulerSessionToGatewaySession = new Map<string, string>();
+  private schedulerCommandAckLatenciesMs: number[] = [];
+  private streamChunkLatenciesMs: number[] = [];
 
   constructor(eventBus: EventBus) {
     this.eventBus = eventBus;
@@ -80,6 +85,39 @@ export class IPCBridge {
 
   async submitGoal(goalId: string): Promise<void> {
     await this.sendSchedulerCommand('submit_goal', { goalId });
+  }
+
+  async materializeGoal(params: {
+    goalSpec: {
+      title: string;
+      description: string;
+      success_criteria: Array<{
+        description: string;
+        type: 'heuristic' | 'deterministic';
+        verification_method: string;
+        required?: boolean;
+      }>;
+      priority?: number;
+      budget_tokens?: number;
+      budget_time_minutes?: number;
+      budget_cost_usd?: number;
+      context?: Record<string, unknown>;
+    };
+    initialWorkItemSpec?: {
+      title: string;
+      description: string;
+      item_type: 'analysis' | 'code' | 'test' | 'doc' | 'refactor';
+      priority?: number;
+      dependencies?: string[];
+      context?: Record<string, unknown>;
+    };
+    autoSubmitGoal?: boolean;
+  }): Promise<{
+    goal: Goal;
+    initialWorkItemId?: string;
+  }> {
+    const result = await this.sendSchedulerCommand('materialize_goal', params);
+    return result as { goal: Goal; initialWorkItemId?: string };
   }
 
   async cancelGoal(goalId: string, reason?: string): Promise<void> {
@@ -236,6 +274,20 @@ export class IPCBridge {
     await this.sendSchedulerCommand('apply_runtime_rollout', { rollout });
   }
 
+  getRealtimeMetrics(): {
+    schedulerCommandAckMsP95: number;
+    streamChunkLatencyMsP95: number;
+    ackSampleSize: number;
+    streamSampleSize: number;
+  } {
+    return {
+      schedulerCommandAckMsP95: this.computeP95(this.schedulerCommandAckLatenciesMs),
+      streamChunkLatencyMsP95: this.computeP95(this.streamChunkLatenciesMs),
+      ackSampleSize: this.schedulerCommandAckLatenciesMs.length,
+      streamSampleSize: this.streamChunkLatenciesMs.length,
+    };
+  }
+
   /**
    * Handle incoming IPC message and route to appropriate subsystem.
    */
@@ -295,6 +347,13 @@ export class IPCBridge {
     }
 
     const event = message.data as any;
+
+    if (typeof event.timestamp === 'number') {
+      const transportLatencyMs = Math.max(0, Date.now() - event.timestamp);
+      if (event.type === 'llm_stream_chunk') {
+        this.recordSample(this.streamChunkLatenciesMs, transportLatencyMs, 500);
+      }
+    }
 
     const schedulerEnvelope = this.extractSchedulerEnvelope(event.data);
 
@@ -472,6 +531,7 @@ export class IPCBridge {
   }
 
   private extractSchedulerEnvelope(data: unknown): {
+    gatewaySessionId?: string;
     sessionId?: string;
     channelType?: string;
     channelSessionId?: string;
@@ -491,7 +551,10 @@ export class IPCBridge {
       ? payload.channelType
       : undefined;
 
+    const gatewaySessionId = sessionId ? this.schedulerSessionToGatewaySession.get(sessionId) : undefined;
+
     return {
+      ...(gatewaySessionId ? { gatewaySessionId } : {}),
       ...(sessionId ? { sessionId } : {}),
       ...(channelType ? { channelType } : {}),
       ...(channelSessionId ? { channelSessionId } : {}),
@@ -561,6 +624,10 @@ export class IPCBridge {
       timestamp: Date.now(),
     };
 
+    if (typeof eventData.sessionId === 'string' && typeof eventData.gatewaySessionId === 'string') {
+      this.schedulerSessionToGatewaySession.set(eventData.sessionId, eventData.gatewaySessionId);
+    }
+
     this.eventBus.emit(eventData.event, payload);
   }
 
@@ -581,12 +648,13 @@ export class IPCBridge {
     const requestId = `ipc-cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     return await new Promise<unknown>((resolve, reject) => {
+      const startedAt = Date.now();
       const timeout = setTimeout(() => {
         this.pendingCommands.delete(requestId);
         reject(new Error(`Scheduler command timed out: ${command}`));
       }, 5000);
 
-      this.pendingCommands.set(requestId, { resolve, reject, timeout });
+      this.pendingCommands.set(requestId, { resolve, reject, timeout, startedAt });
 
       try {
         ipcServer.sendToClient(schedulerClientId, {
@@ -623,6 +691,7 @@ export class IPCBridge {
 
     clearTimeout(pending.timeout);
     this.pendingCommands.delete(requestId);
+    this.recordSample(this.schedulerCommandAckLatenciesMs, Math.max(0, Date.now() - pending.startedAt), 500);
 
     if (message.data.success) {
       pending.resolve(message.data.result);
@@ -652,5 +721,21 @@ export class IPCBridge {
       pending.reject(new Error(reason));
       this.pendingCommands.delete(requestId);
     }
+  }
+
+  private recordSample(samples: number[], value: number, maxSamples: number): void {
+    samples.push(value);
+    if (samples.length > maxSamples) {
+      samples.splice(0, samples.length - maxSamples);
+    }
+  }
+
+  private computeP95(samples: number[]): number {
+    if (samples.length === 0) {
+      return 0;
+    }
+    const sorted = [...samples].sort((a, b) => a - b);
+    const index = Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1);
+    return sorted[index] ?? 0;
   }
 }

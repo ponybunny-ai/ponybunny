@@ -30,6 +30,7 @@ import {
   type GatewayChannelAdapterConfigMap,
   sanitizeAdapterConfigMap,
   diffAdapterConfigMaps,
+  summarizeAdapterConfigImpact,
   normalizeAdapterConfig,
 } from './channels/channel-adapter-config.js';
 import { ConnectionManager } from './connection/connection-manager.js';
@@ -96,6 +97,16 @@ export class GatewayServer {
     'budget.',
     'channel.adapter.',
   ] as const;
+
+  private static readonly ADAPTER_DELIVERY_EVENTS = new Set<string>([
+    'conversation.response',
+    'goal.completed',
+    'goal.failed',
+    'run.completed',
+    'verification.completed',
+    'escalation.created',
+    'escalation.resolved',
+  ]);
 
   private static readonly ROLLOUT_THRESHOLD_MIN_CONVERSATION_MESSAGES = 10;
   private static readonly ROLLOUT_THRESHOLD_MIN_RUNS = 10;
@@ -326,6 +337,21 @@ export class GatewayServer {
       }
 
       this.channelEventStore.save(this.storedChannelEvents);
+
+      if (GatewayServer.ADAPTER_DELIVERY_EVENTS.has(event)) {
+        const channels = this.resolveAdapterDeliveryChannels(channelType);
+        if (channels.length > 0) {
+          void this.channelAdapterManager.publishToChannels(channels, event, payload).then((report) => {
+            if (report.failed.length > 0) {
+              console.warn(
+                `[GatewayServer] Adapter publish had ${report.failed.length} failure(s) for event ${event}: ${report.failed
+                  .map((failure) => `${failure.channel}=${failure.error}`)
+                  .join(', ')}`
+              );
+            }
+          });
+        }
+      }
     });
 
     this.connectionManager = new ConnectionManager(
@@ -520,12 +546,14 @@ export class GatewayServer {
         const sanitizedBefore = sanitizeAdapterConfigMap(previousConfigs);
         const sanitizedAfter = sanitizeAdapterConfigMap(this.channelAdapterConfigs);
         const diff = diffAdapterConfigMaps(sanitizedBefore, sanitizedAfter);
+        const impactSummary = summarizeAdapterConfigImpact(diff);
         this.eventBus.emit('channel.adapter.config.updated', {
           timestamp: Date.now(),
           reason: 'rpc-update',
           source: 'rpc-system.channels.update',
           configs: sanitizedAfter,
           diff,
+          impactSummary,
         });
         this.eventBus.emit('channel.adapter.status.updated', {
           timestamp: Date.now(),
@@ -557,7 +585,8 @@ export class GatewayServer {
 
           await this.ipcBridge.applyRuntimeRollout(rollout);
         },
-      }
+      },
+      () => this.ipcBridge.getRealtimeMetrics()
     );
 
     registerInternalRuntimeHandlers(
@@ -1049,6 +1078,25 @@ export class GatewayServer {
     }
 
     return undefined;
+  }
+
+  private resolveAdapterDeliveryChannels(sourceChannelType?: GatewayChannelType): GatewayChannelType[] {
+    const enabledChannels = this.channelRouter
+      .getEnabledChannels()
+      .filter((channel): channel is Exclude<GatewayChannelType, 'tui'> => channel !== 'tui');
+    if (enabledChannels.length === 0) {
+      return [];
+    }
+
+    if (this.channelRouter.getMirrorToAllEnabledChannels()) {
+      return enabledChannels;
+    }
+
+    if (sourceChannelType && sourceChannelType !== 'tui' && enabledChannels.includes(sourceChannelType)) {
+      return [sourceChannelType];
+    }
+
+    return [];
   }
 
   private teardownSchedulerEventAudit(): void {
