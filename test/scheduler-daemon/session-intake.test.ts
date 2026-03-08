@@ -208,10 +208,14 @@ describe('SchedulerTaskBridge', () => {
       })),
     };
 
+    const resolveModelHint = jest.fn((agentId?: string) => (
+      agentId === 'planning' ? 'openai.gpt-5.3' : undefined
+    ));
+
     const bridge = new SchedulerTaskBridge(
       repository as never,
       () => null,
-      () => 'openai.gpt-5.3'
+      resolveModelHint
     );
 
     await bridge.createGoalFromConversation(
@@ -222,8 +226,11 @@ describe('SchedulerTaskBridge', () => {
         priority: 'medium',
       },
       { id: 'ses-1', personaId: 'pony-default' },
-      'turn-1'
+      'turn-1',
+      { sourceAgentId: 'planning' }
     );
+
+    expect(resolveModelHint).toHaveBeenCalledWith('planning');
 
     expect(repository.createGoal).toHaveBeenCalledWith(expect.objectContaining({
       context: expect.objectContaining({

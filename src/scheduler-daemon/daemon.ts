@@ -490,6 +490,7 @@ export class SchedulerDaemon {
           sessionId: command.sessionId,
           personaId: command.personaId,
           userProfileId: command.userProfileId,
+          agentId: command.agentId,
           channelType: command.channelType,
           channelSessionId: command.channelSessionId,
           message: command.message,

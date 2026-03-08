@@ -235,6 +235,53 @@ describe('LLM Provider Manager', () => {
       expect(gpt.capabilities).toEqual(expect.arrayContaining(['text', 'vision', 'function-calling', 'json-mode']));
     });
 
+    it('should treat explicitly configured providers as authoritative', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-config-providers-'));
+      const tempConfigPath = path.join(tempDir, 'llm-config.json');
+
+      const configPayload = {
+        providers: {
+          cpa: {
+            enabled: true,
+            protocol: 'openai',
+            baseUrl: 'https://api.cpa.example/v1',
+            priority: 1,
+          },
+        },
+        models: {
+          cpa: {
+            'deepseek-v3.1': {
+              displayName: 'DeepSeek V3.1',
+              providers: ['cpa'],
+              costPer1kTokens: { input: 0.001, output: 0.002 },
+              maxContextTokens: 128000,
+            },
+          },
+        },
+        tiers: {
+          simple: { primary: 'cpa.deepseek-v3.1' },
+          medium: { primary: 'cpa.deepseek-v3.1' },
+          complex: { primary: 'cpa.deepseek-v3.1' },
+        },
+        workloads: {
+          conversation: { tier: 'medium' },
+        },
+        defaults: {
+          timeout: 120000,
+          maxTokens: 4096,
+        },
+      };
+
+      fs.writeFileSync(tempConfigPath, JSON.stringify(configPayload, null, 2));
+
+      const loaded = loadLLMConfig(tempConfigPath);
+      expect(Object.keys(loaded.providers)).toEqual(['cpa']);
+      expect(loaded.providers.cpa.enabled).toBe(true);
+      expect(loaded.providers.anthropic).toBeUndefined();
+
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
     it('should save models using provider-grouped structure', () => {
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-config-save-grouped-'));
       const tempConfigPath = path.join(tempDir, 'llm-config.json');

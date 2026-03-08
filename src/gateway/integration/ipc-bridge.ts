@@ -186,6 +186,7 @@ export class IPCBridge {
     sessionId?: string;
     personaId?: string;
     userProfileId?: string;
+    agentId?: string;
     channelType?: string;
     channelSessionId?: string;
     message: string;

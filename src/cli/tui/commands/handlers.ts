@@ -1676,10 +1676,14 @@ export async function handleNaturalInput(
       ctx.app.setActiveSession(sessionId, inferredTitle);
     }
 
+    const activeAgentId = ctx.app.state.selectedAgentId
+      ?? ctx.app.state.schedulerCapabilities?.capabilities.agents?.[0]?.id;
+
     const conversationResult = await client.sendConversationMessage({
       sessionId,
       message: input,
       stream: false,
+      ...(activeAgentId ? { agentId: activeAgentId } : {}),
     });
 
     ctx.app.addEvent('conversation.response', {

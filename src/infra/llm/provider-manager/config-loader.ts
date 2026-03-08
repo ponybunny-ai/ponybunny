@@ -845,6 +845,14 @@ export function loadLLMConfig(configPath?: string): LLMConfig {
     // Merge with defaults to ensure all required fields exist
     const merged = deepMerge(defaultConfig as unknown as Record<string, unknown>, normalizedParsed as unknown as Record<string, unknown>) as unknown as LLMConfig;
 
+    if (isJsonMap((parsed as Record<string, unknown>).providers) && normalizedParsed.providers) {
+      merged.providers = normalizedParsed.providers;
+    }
+
+    if (isJsonMap((parsed as Record<string, unknown>).providerAliases) && normalizedParsed.providerAliases) {
+      merged.providerAliases = normalizedParsed.providerAliases;
+    }
+
     // Validate the merged configuration
     return validateConfig(merged);
   } catch (error) {

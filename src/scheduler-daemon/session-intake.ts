@@ -70,6 +70,7 @@ interface SessionMessageResult {
 
 interface ResolveMainAgentModelHintOptions {
   runtimeConfig?: PonyBunnyRuntimeConfig;
+  agentId?: string;
   userAgentsDir?: string;
   workspaceDir?: string;
   fileExists?: (filePath: string) => boolean;
@@ -80,7 +81,9 @@ export function resolveMainAgentModelHintFromAgentConfig(
   options: ResolveMainAgentModelHintOptions = {}
 ): string | undefined {
   const runtime = options.runtimeConfig ?? loadRuntimeConfig();
-  const agentId = runtime.agent.mainAgentId;
+  const agentId = typeof options.agentId === 'string' && options.agentId.trim().length > 0
+    ? options.agentId.trim()
+    : runtime.agent.mainAgentId;
 
   const runtimeOverrideRaw = runtime.agent.modelOverrides?.[agentId];
   if (typeof runtimeOverrideRaw === 'string') {
@@ -132,7 +135,8 @@ export class SchedulerTaskBridge {
   constructor(
     private repository: IWorkOrderRepository,
     private schedulerProvider: () => SchedulerCore | null,
-    private resolveModelHint: () => string | undefined = resolveMainAgentModelHintFromAgentConfig
+    private resolveModelHint: (agentId?: string) => string | undefined =
+      (agentId?: string) => resolveMainAgentModelHintFromAgentConfig({ agentId })
   ) {}
 
   async createGoalFromConversation(
@@ -145,12 +149,15 @@ export class SchedulerTaskBridge {
       estimatedComplexity?: 'simple' | 'medium' | 'complex';
     },
     session: { id: string; personaId: string },
-    sourceTurnId: string
+    sourceTurnId: string,
+    options?: {
+      sourceAgentId?: string;
+    }
   ): Promise<{
     goalId: string;
     workItems: Array<{ id: string; title: string; status: string }>;
   }> {
-    const selectedModel = this.resolveModelHint();
+    const selectedModel = this.resolveModelHint(options?.sourceAgentId);
 
     const goal = this.repository.createGoal({
       title: requirements.title,
@@ -401,6 +408,7 @@ export class SchedulerSessionIntake {
     sessionId?: string;
     personaId?: string;
     userProfileId?: string;
+    agentId?: string;
     channelType?: string;
     channelSessionId?: string;
     message: string;
@@ -428,7 +436,8 @@ export class SchedulerSessionIntake {
       params.sessionId,
       params.personaId,
       params.userProfileId,
-      params.attachments
+      params.attachments,
+      params.agentId
     );
 
     this.bindingsBySchedulerSession.set(result.sessionId, {

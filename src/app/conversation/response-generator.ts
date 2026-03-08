@@ -24,12 +24,14 @@ export interface IResponseGenerator {
   generateProgressNarration(
     progress: ITaskProgress,
     persona: IPersona,
+    preferredModel?: string,
     onChunk?: (chunk: string) => void
   ): Promise<string>;
 
   generateResultSummary(
     result: ITaskResult,
     persona: IPersona,
+    preferredModel?: string,
     onChunk?: (chunk: string) => void
   ): Promise<string>;
 }
@@ -39,6 +41,7 @@ export interface IResponseContext {
   analysis: IInputAnalysis;
   conversationState: ConversationState;
   recentTurns: IConversationTurn[];
+  preferredModel?: string;
   taskInfo?: {
     goalId: string;
     status: string;
@@ -123,6 +126,7 @@ export class ResponseGenerator implements IResponseGenerator {
         messages,
         {
           maxTokens: 1000,
+          ...(context.preferredModel ? { model: context.preferredModel } : {}),
           tools: conversationTools,
           allowModelNativeTools: runtimeConfig.scheduler.allowModelNativeTools,
           tool_choice: 'auto',
@@ -244,6 +248,7 @@ export class ResponseGenerator implements IResponseGenerator {
   async generateProgressNarration(
     progress: ITaskProgress,
     persona: IPersona,
+    preferredModel?: string,
     onChunk?: (chunk: string) => void
   ): Promise<string> {
     const systemPrompt = this.personaEngine.generateSystemPrompt(persona);
@@ -257,20 +262,17 @@ Elapsed time: ${Math.round(progress.elapsedTime / 1000)} seconds
 
 Keep the update concise (1-2 sentences) and match the persona's style.`;
 
-    const response = await this.llmService.completeWithTier(
+    const response = await this.llmService.completeForWorkload(
+      'conversation',
       [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: progressPrompt },
       ],
-      'simple',
       {
         maxTokens: 200,
+        ...(preferredModel ? { model: preferredModel } : {}),
         stream: !!onChunk,
-        onChunk: onChunk ? (chunk) => {
-          if (chunk.content) {
-            onChunk(chunk.content);
-          }
-        } : undefined,
+        onChunk: onChunk,
       }
     );
 
@@ -280,6 +282,7 @@ Keep the update concise (1-2 sentences) and match the persona's style.`;
   async generateResultSummary(
     result: ITaskResult,
     persona: IPersona,
+    preferredModel?: string,
     onChunk?: (chunk: string) => void
   ): Promise<string> {
     const systemPrompt = this.personaEngine.generateSystemPrompt(persona);
@@ -303,20 +306,17 @@ Summary: ${result.summary}`;
       resultPrompt += ' Offer helpful suggestions for next steps.';
     }
 
-    const response = await this.llmService.completeWithTier(
+    const response = await this.llmService.completeForWorkload(
+      'conversation',
       [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: resultPrompt },
       ],
-      'simple',
       {
         maxTokens: 500,
+        ...(preferredModel ? { model: preferredModel } : {}),
         stream: !!onChunk,
-        onChunk: onChunk ? (chunk) => {
-          if (chunk.content) {
-            onChunk(chunk.content);
-          }
-        } : undefined,
+        onChunk: onChunk,
       }
     );
 

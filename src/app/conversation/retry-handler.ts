@@ -15,7 +15,8 @@ import type { LLMService } from '../../infra/llm/llm-service.js';
 export interface IRetryHandler {
   analyzeFailure(
     errorMessage: string,
-    context: IRetryContext
+    context: IRetryContext,
+    preferredModel?: string
   ): Promise<IFailureAnalysis>;
 
   selectRetryStrategy(
@@ -57,7 +58,8 @@ export class RetryHandler implements IRetryHandler {
 
   async analyzeFailure(
     errorMessage: string,
-    context: IRetryContext
+    context: IRetryContext,
+    preferredModel?: string
   ): Promise<IFailureAnalysis> {
     try {
       const prompt = FAILURE_ANALYSIS_PROMPT
@@ -65,10 +67,13 @@ export class RetryHandler implements IRetryHandler {
         .replace('{attempts}', context.attemptNumber.toString())
         .replace('{previousStrategies}', context.previousStrategies.join(', ') || 'none');
 
-      const response = await this.llmService.completeWithTier(
+      const response = await this.llmService.completeForWorkload(
+        'conversation',
         [{ role: 'user', content: prompt }],
-        'simple',
-        { maxTokens: 500 }
+        {
+          maxTokens: 500,
+          ...(preferredModel ? { model: preferredModel } : {}),
+        }
       );
 
       const jsonMatch = (response.content || '').match(/\{[\s\S]*\}/);

@@ -40,6 +40,7 @@ export interface ConversationMessageParams {
   sessionId?: string;
   personaId?: string;
   userProfileId?: string;
+  agentId?: string;
   message: string;
   attachments?: IAttachment[];
   stream?: boolean;
@@ -169,6 +170,7 @@ export function registerConversationHandlers(
           sessionId: params.sessionId,
           personaId: params.personaId,
           userProfileId: params.userProfileId,
+          agentId: params.agentId,
           message: params.message,
           attachments: params.attachments,
           stream: params.stream,

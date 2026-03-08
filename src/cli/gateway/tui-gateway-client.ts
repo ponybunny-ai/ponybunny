@@ -107,6 +107,7 @@ export interface ConversationMessageParams {
   sessionId?: string;
   personaId?: string;
   userProfileId?: string;
+  agentId?: string;
   message: string;
   stream?: boolean;
 }

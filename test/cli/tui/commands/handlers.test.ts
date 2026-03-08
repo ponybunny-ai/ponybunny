@@ -828,6 +828,7 @@ describe('TUI command handlers - input mode routing', () => {
     const app = {
       state: {
         selectedModel: undefined,
+        selectedAgentId: 'planning',
         activeSessionId: 'ses-fast-1',
         activeSessionTitle: undefined,
         runtimeTuiConfig: {
@@ -860,6 +861,10 @@ describe('TUI command handlers - input mode routing', () => {
     expect(result.success).toBe(true);
     expect(submitGoal).not.toHaveBeenCalled();
     expect(sendConversationMessage).toHaveBeenCalledTimes(1);
+    expect(sendConversationMessage).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'ses-fast-1',
+      agentId: 'planning',
+    }));
     expect(app.addEvent).toHaveBeenCalledWith('tui.input_mode.used', { mode: 'session-first' });
   });
 
@@ -876,6 +881,7 @@ describe('TUI command handlers - input mode routing', () => {
     const app = {
       state: {
         selectedModel: undefined,
+        selectedAgentId: 'planning',
         activeSessionId: undefined,
         activeSessionTitle: undefined,
         runtimeTuiConfig: {
@@ -908,6 +914,10 @@ describe('TUI command handlers - input mode routing', () => {
     const result = await handleNaturalInput('Can you help me design this?', ctx);
     expect(result.success).toBe(true);
     expect(sendConversationMessage).toHaveBeenCalledTimes(1);
+    expect(sendConversationMessage).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'ses-1',
+      agentId: 'planning',
+    }));
     expect(submitGoal).not.toHaveBeenCalled();
     expect(app.addEvent).toHaveBeenCalledWith('tui.input_mode.used', { mode: 'session-first' });
     expect(app.addEvent).toHaveBeenCalledWith(
@@ -935,6 +945,7 @@ describe('TUI command handlers - input mode routing', () => {
     const app = {
       state: {
         selectedModel: undefined,
+        selectedAgentId: 'planning',
         activeSessionId: undefined,
         activeSessionTitle: undefined,
         runtimeTuiConfig: {
@@ -968,6 +979,10 @@ describe('TUI command handlers - input mode routing', () => {
     const result = await handleNaturalInput('Please implement this and run tests', ctx);
     expect(result.success).toBe(true);
     expect(sendConversationMessage).toHaveBeenCalledTimes(1);
+    expect(sendConversationMessage).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'ses-2',
+      agentId: 'planning',
+    }));
     expect(submitGoal).not.toHaveBeenCalled();
     expect(app.selectGoal).toHaveBeenCalledWith('goal-xyz');
     expect(app.updateSimpleMessage).toHaveBeenCalledWith(

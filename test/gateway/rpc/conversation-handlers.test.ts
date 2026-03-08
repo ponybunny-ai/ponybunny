@@ -92,13 +92,16 @@ describe('conversation handlers', () => {
 
     const result = await rpc.handle(
       'conversation.message',
-      { sessionId: 'ses-1', message: 'build this' },
+      { sessionId: 'ses-1', message: 'build this', agentId: 'planning' },
       createSession(['write'])
     ) as { sessionId: string; decision?: string };
 
     expect(result.sessionId).toBe('ses-1');
     expect(result.decision).toBe('goal_created');
     expect(ipcBridge.sendSessionMessage).toHaveBeenCalledTimes(1);
+    expect(ipcBridge.sendSessionMessage).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: 'planning',
+    }));
   });
 
   it('emits message.failed event when conversation.message processing fails', async () => {

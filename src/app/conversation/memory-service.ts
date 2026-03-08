@@ -104,6 +104,7 @@ export interface ICoreMemorySummaryService {
     role: 'user' | 'assistant';
     content: string;
     ownerScope: IMemoryOwnerScope;
+    preferredModel?: string;
   }): Promise<{
     summary: string;
     importance: number;
@@ -111,7 +112,12 @@ export interface ICoreMemorySummaryService {
 }
 
 export interface IConversationMemoryService {
-  indexTurn(sessionId: string, turn: IConversationTurn, ownerScope: IMemoryOwnerScope): Promise<void>;
+  indexTurn(
+    sessionId: string,
+    turn: IConversationTurn,
+    ownerScope: IMemoryOwnerScope,
+    preferredModel?: string
+  ): Promise<void>;
   retrieveRelevantMemories(
     sessionId: string,
     query: string,
@@ -145,7 +151,12 @@ export class ConversationMemoryService implements IConversationMemoryService {
     private coreSummaryService?: ICoreMemorySummaryService
   ) {}
 
-  async indexTurn(sessionId: string, turn: IConversationTurn, ownerScope: IMemoryOwnerScope): Promise<void> {
+  async indexTurn(
+    sessionId: string,
+    turn: IConversationTurn,
+    ownerScope: IMemoryOwnerScope,
+    preferredModel?: string
+  ): Promise<void> {
     const content = turn.content.trim();
     if (content.length === 0) {
       return;
@@ -162,7 +173,7 @@ export class ConversationMemoryService implements IConversationMemoryService {
       createdAt: turn.timestamp,
     });
 
-    await this.upsertCoreMemory(sessionId, turn, content, ownerScope);
+    await this.upsertCoreMemory(sessionId, turn, content, ownerScope, preferredModel);
   }
 
   async retrieveRelevantMemories(
@@ -303,7 +314,8 @@ export class ConversationMemoryService implements IConversationMemoryService {
     sessionId: string,
     turn: IConversationTurn,
     content: string,
-    ownerScope: IMemoryOwnerScope
+    ownerScope: IMemoryOwnerScope,
+    preferredModel?: string
   ): Promise<void> {
     const summary = this.coreSummaryService
       ? await this.coreSummaryService.summarize({
@@ -311,6 +323,7 @@ export class ConversationMemoryService implements IConversationMemoryService {
         role: turn.role,
         content,
         ownerScope,
+        preferredModel,
       })
       : {
         summary: summarizeLocally(content),

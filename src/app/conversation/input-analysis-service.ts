@@ -20,7 +20,8 @@ import { debug } from '../../debug/index.js';
 export interface IInputAnalysisService {
   analyze(
     input: string,
-    recentTurns?: IConversationTurn[]
+    recentTurns?: IConversationTurn[],
+    preferredModel?: string
   ): Promise<IInputAnalysis>;
 }
 
@@ -77,7 +78,8 @@ export class InputAnalysisService implements IInputAnalysisService {
 
   async analyze(
     input: string,
-    recentTurns: IConversationTurn[] = []
+    recentTurns: IConversationTurn[] = [],
+    preferredModel?: string
   ): Promise<IInputAnalysis> {
     debug.custom('analysis.start', 'input-analysis', {
       inputLength: input.length,
@@ -88,14 +90,18 @@ export class InputAnalysisService implements IInputAnalysisService {
 
     try {
       debug.custom('analysis.llm.request', 'input-analysis', {
-        tier: 'simple',
+        workload: 'conversation',
         messageCount: contextMessages.length,
+        model: preferredModel,
       });
 
-      const response = await this.llmService.completeWithTier(
+      const response = await this.llmService.completeForWorkload(
+        'conversation',
         contextMessages,
-        'simple',
-        { maxTokens: 1000 }
+        {
+          maxTokens: 1000,
+          ...(preferredModel ? { model: preferredModel } : {}),
+        }
       );
 
       const analysisResult = this.parseAnalysisResponse(response.content || '');
