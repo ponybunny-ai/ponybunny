@@ -14,7 +14,7 @@
     "agentsEnabled": true,
     "deterministicRuntimeEnabled": false,
     "planCompilerEnabled": false,
-    "toolRoutingMode": "legacy",
+    "toolRoutingMode": "system_preferred",
     "allowModelNativeTools": false,
     "runtimeRollout": {
       "shadowModeEnabled": false,

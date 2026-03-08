@@ -25,7 +25,7 @@ This guide explains every configuration item in `docs/schemas/ponybunny.schema.j
     "agentsEnabled": true,
     "deterministicRuntimeEnabled": false,
     "planCompilerEnabled": false,
-    "toolRoutingMode": "legacy",
+    "toolRoutingMode": "system_preferred",
     "allowModelNativeTools": false,
     "runtimeRollout": {
       "shadowModeEnabled": false,
@@ -117,6 +117,11 @@ This guide explains every configuration item in `docs/schemas/ponybunny.schema.j
 - `deterministicRuntimeEnabled` (`boolean`): Enable deterministic runtime mode.
 - `planCompilerEnabled` (`boolean`): Enable plan compiler pipeline.
 - `toolRoutingMode` (`legacy|system_only|system_preferred|model_preferred`): Tool routing strategy.
+  - `legacy`: compatibility baseline / rollback-safe mode.
+  - `system_only`: only system-governed tool routing; model-native tools are effectively disallowed for routing decisions.
+  - `system_preferred`: system routing first, model-native tool path allowed only as secondary fallback when policy permits.
+  - `model_preferred`: model-native tool path is preferred first; highest flexibility, lowest conservatism.
+  - Relative strictness order (from conservative to aggressive): `legacy < system_only < system_preferred < model_preferred`.
 - `allowModelNativeTools` (`boolean`): Permit native model tools in routing path.
 
 #### `scheduler.runtimeRollout`
