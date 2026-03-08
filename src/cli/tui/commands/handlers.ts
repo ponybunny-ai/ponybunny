@@ -1621,12 +1621,6 @@ export async function handleNaturalInput(
 
   const messageId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   const activeSessionId = ctx.app.state.activeSessionId;
-  const runtimeConfig = enforceSessionFirstConfig(
-    (ctx.app.state.runtimeTuiConfig ?? (await client.getInternalRuntimeConfig()).tui) as TuiRuntimeConfig
-  );
-  if (!ctx.app.state.runtimeTuiConfig) {
-    ctx.app.setRuntimeTuiConfig(runtimeConfig);
-  }
 
   ctx.app.addSimpleMessage({
     id: messageId,
@@ -1639,6 +1633,19 @@ export async function handleNaturalInput(
   });
 
   try {
+    if (!ctx.app.state.runtimeTuiConfig) {
+      void client.getInternalRuntimeConfig()
+        .then((runtime) => {
+          const runtimeConfig = enforceSessionFirstConfig(runtime.tui as TuiRuntimeConfig);
+          ctx.app.setRuntimeTuiConfig(runtimeConfig);
+        })
+        .catch((error) => {
+          ctx.app.addEvent('error', {
+            message: `Failed to load runtime tui config: ${(error as Error).message}`,
+          });
+        });
+    }
+
     ctx.app.addEvent('tui.input_mode.used', { mode: 'session-first' });
     ctx.app.setActivityStatus('Processing conversation...');
 

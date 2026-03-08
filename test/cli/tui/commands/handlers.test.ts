@@ -1001,4 +1001,54 @@ describe('TUI command handlers - input mode routing', () => {
       })
     );
   });
+
+  it('does not block optimistic conversation rendering on runtime config fetch', async () => {
+    const pendingRuntimeConfig = new Promise<never>(() => {});
+    const sendConversationMessage = jest.fn().mockResolvedValue({
+      sessionId: 'ses-3',
+      state: 'chatting',
+      response: 'Acknowledged.',
+      decision: 'response_only',
+    });
+
+    const app = {
+      state: {
+        selectedModel: undefined,
+        selectedAgentId: 'planning',
+        activeSessionId: undefined,
+        activeSessionTitle: undefined,
+        runtimeTuiConfig: undefined,
+      },
+      addSimpleMessage: jest.fn(),
+      updateSimpleMessage: jest.fn(),
+      setActivityStatus: jest.fn(),
+      addGoal: jest.fn(),
+      addEvent: jest.fn(),
+      selectGoal: jest.fn(),
+      setActiveSession: jest.fn(),
+      setRuntimeTuiConfig: jest.fn(),
+    };
+
+    const ctx = {
+      app,
+      gateway: {
+        client: {
+          createConversationSession: jest.fn().mockResolvedValue({ sessionId: 'ses-3' }),
+          sendConversationMessage,
+          getInternalRuntimeConfig: jest.fn().mockReturnValue(pendingRuntimeConfig),
+        },
+      },
+    } as unknown as CommandContext;
+
+    const result = await Promise.race([
+      handleNaturalInput('Please continue with this task', ctx),
+      new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 100)),
+    ]);
+
+    expect(result).not.toBe('timeout');
+    expect(result).toEqual(expect.objectContaining({ success: true }));
+    expect(app.addSimpleMessage).toHaveBeenCalledTimes(1);
+    expect(app.setRuntimeTuiConfig).not.toHaveBeenCalled();
+    expect(sendConversationMessage).toHaveBeenCalledTimes(1);
+  });
 });

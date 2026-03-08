@@ -39,4 +39,35 @@ describe('InputAnalysisService', () => {
       })
     );
   });
+
+  it('falls back to actionable task_request when LLM analysis fails for explicit action input', async () => {
+    const llmService = {
+      completeForWorkload: jest.fn(async () => {
+        throw new Error('llm unavailable');
+      }),
+    };
+
+    const service = new InputAnalysisService(llmService as never);
+    const result = await service.analyze('Please implement user login and run tests');
+
+    expect(result.intent.primary).toBe('task_request');
+    expect(result.purpose.isActionable).toBe(true);
+    expect(result.purpose.extractedGoal).toBe('Please implement user login and run tests');
+    expect(result.purpose.successCriteria).toEqual(['Request completed with verifiable result']);
+  });
+
+  it('falls back to non-actionable question when no action cue or verb is present', async () => {
+    const llmService = {
+      completeForWorkload: jest.fn(async () => {
+        throw new Error('llm unavailable');
+      }),
+    };
+
+    const service = new InputAnalysisService(llmService as never);
+    const result = await service.analyze('What is the current architecture?');
+
+    expect(result.intent.primary).toBe('question');
+    expect(result.purpose.isActionable).toBe(false);
+    expect(result.purpose.extractedGoal).toBeUndefined();
+  });
 });
