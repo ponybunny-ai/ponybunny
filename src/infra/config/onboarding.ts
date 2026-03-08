@@ -1261,6 +1261,32 @@ export interface InitOptions {
   dryRun?: boolean;
 }
 
+function sanitizeCredentialsTemplateForInit(template: unknown): unknown {
+  if (!template || typeof template !== 'object') {
+    return template;
+  }
+
+  const root = JSON.parse(JSON.stringify(template)) as {
+    providers?: Record<string, Record<string, unknown>>;
+  };
+
+  const providers = root.providers;
+  if (!providers || typeof providers !== 'object') {
+    return root;
+  }
+
+  for (const provider of Object.values(providers)) {
+    if (!provider || typeof provider !== 'object') {
+      continue;
+    }
+    if (typeof provider.apiKey === 'string') {
+      provider.apiKey = '';
+    }
+  }
+
+  return root;
+}
+
 /**
  * Initialize a single config file
  */
@@ -1293,8 +1319,11 @@ export function initConfigFile(file: OnboardingFile, options: InitOptions = {}):
     }
 
     // Write file
+    const templateForWrite = file.name === 'credentials.json'
+      ? sanitizeCredentialsTemplateForInit(file.template)
+      : file.template;
     const payload =
-      file.format === 'raw' ? String(file.template) : JSON.stringify(file.template, null, 2);
+      file.format === 'raw' ? String(templateForWrite) : JSON.stringify(templateForWrite, null, 2);
     fs.writeFileSync(file.path, payload, { mode: file.mode });
 
     return {

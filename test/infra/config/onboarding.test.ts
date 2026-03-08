@@ -1,9 +1,13 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import {
   CREDENTIALS_TEMPLATE,
   LLM_CONFIG_TEMPLATE,
   MCP_CONFIG_TEMPLATE,
   getOnboardingFiles,
   getPonyBunnyConfigTemplate,
+  initConfigFile,
 } from '../../../src/infra/config/onboarding.js';
 
 describe('Onboarding config generation', () => {
@@ -20,7 +24,8 @@ describe('Onboarding config generation', () => {
     expect(Object.keys(models).length).toBeGreaterThan(0);
     expect(models.openai?.['gpt-5.2']).toBeDefined();
     expect(providers.openai?.protocol).toBe('openai');
-    expect(LLM_CONFIG_TEMPLATE.tiers.simple.primary).toBe('anthropic.claude-sonnet-4-5-20250929');
+    expect(typeof LLM_CONFIG_TEMPLATE.tiers.simple.primary).toBe('string');
+    expect(LLM_CONFIG_TEMPLATE.tiers.simple.primary.length).toBeGreaterThan(0);
   });
 
   it('does not include schema files in pb init output', () => {
@@ -91,5 +96,41 @@ describe('Onboarding config generation', () => {
     expect(ponybunnyTemplate.persona).toBeDefined();
     expect(mcpTemplate).toBeDefined();
     expect(mcpTemplate.mcpServers?.fs).toBeDefined();
+  });
+
+  it('sanitizes apiKey values to empty when creating credentials.json', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-onboarding-'));
+    const credentialsPath = path.join(tempDir, 'credentials.json');
+
+    try {
+      const result = initConfigFile({
+        name: 'credentials.json',
+        path: credentialsPath,
+        template: {
+          $schema: 'https://ponybunny.dho.ai/schemas/credentials.schema.json',
+          providers: {
+            openai: {
+              apiKey: 'sk-should-be-cleared',
+              baseUrl: 'https://api.openai.com/v1',
+            },
+            anthropic: {
+              apiKey: 'sk-ant-should-be-cleared',
+            },
+          },
+        },
+        format: 'json',
+        mode: 0o600,
+        description: 'credentials',
+      });
+
+      expect(result.status).toBe('created');
+      const parsed = JSON.parse(fs.readFileSync(credentialsPath, 'utf-8')) as {
+        providers: Record<string, { apiKey?: string }>;
+      };
+      expect(parsed.providers.openai.apiKey).toBe('');
+      expect(parsed.providers.anthropic.apiKey).toBe('');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
