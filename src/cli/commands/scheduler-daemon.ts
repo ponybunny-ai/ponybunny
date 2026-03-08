@@ -23,6 +23,7 @@ import { isDebugLoggingEnabled } from '../../infra/config/debug-flags.js';
 import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
 import { getManagedSkillsDir } from '../../infra/config/config-paths.js';
 import { getAsciiArtBanner } from '../../infra/ui/ascii-art-banner.js';
+import { getSchedulerConfiguredProviderIds } from '../lib/scheduler-provider-display.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -156,6 +157,10 @@ async function runScheduler(
     // Initialize LLM service
     const llmService = getLLMService();
     const availableProviders = llmService.getAvailableProviders();
+    const configuredProviders = getSchedulerConfiguredProviderIds();
+    const providerBannerList = configuredProviders.length > 0
+      ? configuredProviders
+      : availableProviders;
 
     let llmProvider;
     if (availableProviders.length === 0) {
@@ -167,7 +172,7 @@ async function runScheduler(
     } else {
       llmProvider = llmService;
       if (!isBackground) {
-        console.log(chalk.gray(`  LLM Providers: ${availableProviders.join(', ')}`));
+        console.log(chalk.gray(`  LLM Providers: ${providerBannerList.join(', ')}`));
       }
     }
 
@@ -274,7 +279,7 @@ async function runScheduler(
     console.log(`  Main Agent: ${mainAgentId}`);
     console.log(`  Persona: ${personaEnabled ? 'Enabled' : 'Disabled'}`);
     console.log(
-      `  LLM Providers: ${availableProviders.length > 0 ? availableProviders.join(', ') : 'mock-provider'}`
+      `  LLM Providers: ${providerBannerList.length > 0 ? providerBannerList.join(', ') : 'mock-provider'}`
     );
     console.log(`  Skills Loaded: ${loadedSkills.length}`);
     console.log(`${bannerSeparator}\n`);
