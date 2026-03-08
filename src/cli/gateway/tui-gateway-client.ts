@@ -433,6 +433,9 @@ export interface InternalRuntimeConfig {
       replay: number;
     };
   };
+  agent: {
+    mainAgentId: string;
+  };
   tui: RuntimeTuiConfig;
 }
 

@@ -618,6 +618,9 @@ export class GatewayServer {
           planCompilerEnabled: runtime.scheduler.planCompilerEnabled,
           toolRoutingMode: runtime.scheduler.toolRoutingMode,
           runtimeRollout: runtime.scheduler.runtimeRollout,
+          agent: {
+            mainAgentId: runtime.agent.mainAgentId,
+          },
           tui: {
             inputBackgroundColor: runtime.tui.inputBackgroundColor,
             sessionFirstEnabled: runtime.tui.sessionFirstEnabled,

@@ -16,6 +16,7 @@ import type { GatewayEvent as ClientGatewayEvent, TuiGatewayClient } from '../ga
 import { useTerminalSize } from './hooks/use-terminal-size.js';
 import type { ViewType } from './store/types.js';
 import { getNextReasoningEffortIndex } from './model-variant.js';
+import { resolveInitialAgentIndex } from './utils/agent-selection.js';
 
 interface AppContentProps {
   onExit: () => void;
@@ -64,6 +65,8 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
   const { state, setView, addEvent, setInputFocused: setGlobalInputFocused } = app;
   const [selectedAgentIndex, setSelectedAgentIndex] = useState(0);
   const [selectedReasoningEffortIndex, setSelectedReasoningEffortIndex] = useState(0);
+  const [runtimeMainAgentId, setRuntimeMainAgentId] = useState<string | null>(null);
+  const [runtimeConfigReady, setRuntimeConfigReady] = useState(false);
 
   // Store refs to avoid recreating callbacks
   const appRef = useRef(app);
@@ -236,6 +239,22 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
 
   // Track if initial data has been loaded
   const initialLoadDone = useRef(false);
+  const initialAgentSelectionApplied = useRef(false);
+
+  useEffect(() => {
+    if (!runtimeConfigReady || initialAgentSelectionApplied.current) {
+      return;
+    }
+
+    const agents = state.schedulerCapabilities?.capabilities.agents || [];
+    if (agents.length === 0) {
+      return;
+    }
+
+    setSelectedAgentIndex((index) => resolveInitialAgentIndex(agents, runtimeMainAgentId, index));
+
+    initialAgentSelectionApplied.current = true;
+  }, [runtimeConfigReady, runtimeMainAgentId, state.schedulerCapabilities]);
 
   // Load initial data when connected
   useEffect(() => {
@@ -314,8 +333,11 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
 
       client.getInternalRuntimeConfig().then((runtimeConfig) => {
         appRef.current.setRuntimeTuiConfig(runtimeConfig.tui);
+        setRuntimeMainAgentId(runtimeConfig.agent?.mainAgentId ?? null);
+        setRuntimeConfigReady(true);
       }).catch((err) => {
         appRef.current.addEvent('error', { message: `Failed to load runtime tui config: ${err.message}` });
+        setRuntimeConfigReady(true);
       });
     }
   }, [gateway.connectionStatus]);
