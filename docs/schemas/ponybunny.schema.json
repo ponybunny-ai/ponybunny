@@ -186,6 +186,13 @@
         },
         "personaEnabled": {
           "type": "boolean"
+        },
+        "modelOverrides": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       },
       "additionalProperties": false

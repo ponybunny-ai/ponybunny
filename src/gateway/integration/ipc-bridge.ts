@@ -274,6 +274,21 @@ export class IPCBridge {
     await this.sendSchedulerCommand('apply_runtime_rollout', { rollout });
   }
 
+  async setAgentModelOverride(params: {
+    agentId: string;
+    model: string;
+  }): Promise<{ success: boolean; agentId: string; model: string; configPath: string }> {
+    const result = await this.sendSchedulerCommand('set_agent_model_override', params);
+    return result as { success: boolean; agentId: string; model: string; configPath: string };
+  }
+
+  async getAgentModelOverride(params: {
+    agentId: string;
+  }): Promise<{ agentId: string; model: string | null }> {
+    const result = await this.sendSchedulerCommand('get_agent_model_override', params);
+    return result as { agentId: string; model: string | null };
+  }
+
   getRealtimeMetrics(): {
     schedulerCommandAckMsP95: number;
     streamChunkLatencyMsP95: number;

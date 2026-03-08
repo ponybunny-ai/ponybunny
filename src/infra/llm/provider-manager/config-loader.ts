@@ -214,7 +214,6 @@ export const DEFAULT_LLM_CONFIG: LLMConfig = {
     },
     execution: {
       tier: 'medium',
-      primary: 'anthropic.claude-sonnet-4-5-20250929',
       description: 'ReAct execution loop',
     },
     verification: {
@@ -305,9 +304,6 @@ const EMBEDDED_SCHEMA = {
         type: 'object',
         properties: {
           tier: { type: 'string', enum: ['simple', 'medium', 'complex'] },
-          llm_model: { type: 'string' },
-          primary: { type: 'string' },
-          fallback: { type: 'array', items: { type: 'string' } },
           description: { type: 'string' },
         },
       },
@@ -624,15 +620,6 @@ function remapProviderReferencesInWorkloads(workloads: LLMConfig['workloads']): 
   for (const [workloadId, workload] of Object.entries(workloads || {})) {
     remapped[workloadId] = {
       ...workload,
-      ...(typeof workload.llm_model === 'string'
-        ? { llm_model: remapProviderReferenceInModelId(workload.llm_model) }
-        : {}),
-      ...(typeof workload.primary === 'string'
-        ? { primary: remapProviderReferenceInModelId(workload.primary) }
-        : {}),
-      ...(Array.isArray(workload.fallback)
-        ? { fallback: workload.fallback.map(remapProviderReferenceInModelId) }
-        : {}),
     };
   }
 

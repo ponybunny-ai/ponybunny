@@ -35,7 +35,8 @@
   },
   "agent": {
     "mainAgentId": "lead",
-    "personaEnabled": false
+    "personaEnabled": false,
+    "modelOverrides": {}
   },
   "persona": {
     "directory": "~/.config/ponybunny/personas",

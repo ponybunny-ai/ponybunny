@@ -42,6 +42,7 @@ function createCommandContext(options?: {
   };
   client: {
     createConversationSession: jest.Mock;
+    cancelGoal: jest.Mock;
     listGoals: jest.Mock;
     listWorkItems: jest.Mock;
     listEscalations: jest.Mock;
@@ -55,7 +56,11 @@ function createCommandContext(options?: {
     getInternalRunEvents: jest.Mock;
     pruneInternalRunEvents: jest.Mock;
     updateRuntimeTuiConfig: jest.Mock;
+    setAgentModelOverride: jest.Mock;
+    getAgentModelOverride: jest.Mock;
     setMainAgentModelHint: jest.Mock;
+    getChannelsStatus: jest.Mock;
+    getChannelEvents: jest.Mock;
   };
 } {
   const app = {
@@ -80,6 +85,7 @@ function createCommandContext(options?: {
       state: 'chatting',
       lifecycleState: 'active',
     }),
+    cancelGoal: jest.fn().mockResolvedValue({ success: true }),
     listGoals: options?.listGoalsError
       ? jest.fn().mockRejectedValue(options.listGoalsError)
       : jest.fn().mockResolvedValue({ goals: options?.emptyGoals ? [] : [{ id: 'goal-1' }] }),
@@ -111,11 +117,42 @@ function createCommandContext(options?: {
       sessionFirstEnabled: false,
       goalSubmitFastPathEnabled: true,
     }),
+    setAgentModelOverride: jest.fn().mockResolvedValue({
+      success: true,
+      agentId: 'lead',
+      model: 'openai.gpt-5.2',
+      configPath: '/tmp/agents/lead/agent.json',
+    }),
+    getAgentModelOverride: jest.fn().mockResolvedValue({
+      agentId: 'lead',
+      model: null,
+    }),
     setMainAgentModelHint: jest.fn().mockResolvedValue({
       success: true,
       agentId: 'lead',
       model: 'openai.gpt-5.2',
       configPath: '/tmp/agents/lead/agent.json',
+    }),
+    getChannelsStatus: jest.fn().mockResolvedValue({
+      enabledChannels: ['tui', 'discord'],
+      mirrorToAllEnabledChannels: true,
+      adapters: [],
+      adapterHealth: {
+        running: 1,
+        stopped: 0,
+        error: 0,
+        available: 1,
+      },
+    }),
+    getChannelEvents: jest.fn().mockResolvedValue({
+      events: [
+        {
+          event: 'run.completed',
+          data: { goalId: 'goal-1' },
+          timestamp: Date.now(),
+        },
+      ],
+      nextCursor: '1',
     }),
     getRuntimeRolloutStatus: jest.fn().mockResolvedValue({
       mode: 'legacy',
@@ -201,6 +238,7 @@ function createCommandContext(options?: {
       state: {
         goals: [],
         escalations: [],
+        selectedAgentId: 'lead',
         selectedModel: null,
         schedulerCapabilities: buildCapabilitiesResponse(),
         runtimeTuiConfig: {
@@ -283,6 +321,62 @@ describe('TUI command handlers - refresh', () => {
     expect(result.success).toBe(false);
     expect(result.error).toBe('Not connected to gateway');
     expect(app.setActivityStatus).not.toHaveBeenCalled();
+  });
+
+  it('loads channel status via /channels', async () => {
+    const { ctx, app, client } = createCommandContext();
+
+    const result = await executeCommand('/channels', ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain('Channels enabled=[tui, discord]');
+    expect(client.getChannelsStatus).toHaveBeenCalledTimes(1);
+    expect(app.addEvent).toHaveBeenCalledWith('system.channels.status', expect.any(Object));
+  });
+
+  it('loads channel events page via /channel-events', async () => {
+    const { ctx, app, client } = createCommandContext();
+
+    const result = await executeCommand('/channel-events 25 10 run.', ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain('Channel events loaded');
+    expect(client.getChannelEvents).toHaveBeenCalledWith({
+      limit: 25,
+      cursor: '10',
+      eventPrefix: 'run.',
+    });
+    expect(app.addEvent).toHaveBeenCalledWith(
+      'system.channels.events.loaded',
+      expect.objectContaining({ returned: 1, nextCursor: '1' })
+    );
+  });
+
+  it('returns validation error for malformed /channel-events args', async () => {
+    const { ctx, client } = createCommandContext();
+
+    const result = await executeCommand('/channel-events 0', ctx);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Channel events command failed');
+    expect(client.getChannelEvents).not.toHaveBeenCalled();
+  });
+
+  it('passes optional reason through /cancel confirmation handler', async () => {
+    const { ctx, app, client } = createCommandContext();
+
+    const result = await executeCommand('/cancel goal-123 duplicate-work', ctx);
+
+    expect(result.success).toBe(true);
+    expect(app.openModal).toHaveBeenCalledWith(
+      'confirm',
+      expect.objectContaining({ title: 'Cancel Goal' })
+    );
+
+    const modalData = app.openModal.mock.calls[0]?.[1] as { onConfirm: () => Promise<void> };
+    await modalData.onConfirm();
+
+    expect(client.cancelGoal).toHaveBeenCalledWith('goal-123', 'duplicate-work');
   });
 
   it('returns refresh failure when gateway call throws', async () => {
@@ -673,7 +767,7 @@ describe('TUI command handlers - models', () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
     await new Promise<void>((resolve) => setImmediate(resolve));
 
-    expect(client.setMainAgentModelHint).toHaveBeenCalledWith({ model: 'openai.gpt-5.2' });
+    expect(client.setAgentModelOverride).toHaveBeenCalledWith({ agentId: 'lead', model: 'openai.gpt-5.2' });
     expect(app.setSelectedModel).toHaveBeenCalledWith('openai.gpt-5.2');
     expect(app.addEvent).toHaveBeenCalledWith(
       'model.selection.persisted',

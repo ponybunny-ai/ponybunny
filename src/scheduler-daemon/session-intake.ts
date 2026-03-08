@@ -1,4 +1,6 @@
 import type Database from 'better-sqlite3';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
 import type { IConversationTurn, ConversationLifecycleState } from '../domain/conversation/session.js';
@@ -19,7 +21,8 @@ import { CoreMemorySummaryService } from '../app/conversation/core-memory-summar
 import { SqliteSessionRepository } from '../infra/persistence/sqlite-session-repository.js';
 import { SqliteMemoryRepository } from '../infra/persistence/sqlite-memory-repository.js';
 import { FilePersonaRepository, InMemoryPersonaRepository } from '../infra/conversation/persona-repository.js';
-import { loadRuntimeConfig } from '../infra/config/runtime-config.js';
+import { getUserAgentsDir } from '../infra/agents/agent-discovery.js';
+import { loadRuntimeConfig, type PonyBunnyRuntimeConfig } from '../infra/config/runtime-config.js';
 import { ToolAllowlist, ToolEnforcer, ToolRegistry } from '../infra/tools/tool-registry.js';
 
 export interface SchedulerSessionEvent {
@@ -65,10 +68,71 @@ interface SessionMessageResult {
   };
 }
 
-class SchedulerTaskBridge {
+interface ResolveMainAgentModelHintOptions {
+  runtimeConfig?: PonyBunnyRuntimeConfig;
+  userAgentsDir?: string;
+  workspaceDir?: string;
+  fileExists?: (filePath: string) => boolean;
+  readTextFile?: (filePath: string) => string;
+}
+
+export function resolveMainAgentModelHintFromAgentConfig(
+  options: ResolveMainAgentModelHintOptions = {}
+): string | undefined {
+  const runtime = options.runtimeConfig ?? loadRuntimeConfig();
+  const agentId = runtime.agent.mainAgentId;
+
+  const runtimeOverrideRaw = runtime.agent.modelOverrides?.[agentId];
+  if (typeof runtimeOverrideRaw === 'string') {
+    const runtimeOverride = runtimeOverrideRaw.trim();
+    if (runtimeOverride.length > 0) {
+      return runtimeOverride.toLowerCase() === 'auto' ? undefined : runtimeOverride;
+    }
+  }
+
+  const userAgentsDir = options.userAgentsDir ?? getUserAgentsDir();
+  const workspaceDir = options.workspaceDir ?? process.cwd();
+  const fileExists = options.fileExists ?? fs.existsSync;
+  const readTextFile = options.readTextFile ?? ((filePath: string) => fs.readFileSync(filePath, 'utf-8'));
+
+  const userAgentConfigPath = path.join(userAgentsDir, agentId, 'agent.json');
+  const workspaceAgentConfigPath = path.join(workspaceDir, 'agents', agentId, 'agent.json');
+
+  const sourcePath = fileExists(userAgentConfigPath)
+    ? userAgentConfigPath
+    : fileExists(workspaceAgentConfigPath)
+      ? workspaceAgentConfigPath
+      : null;
+
+  if (!sourcePath) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(readTextFile(sourcePath)) as {
+      runner?: {
+        config?: {
+          model_hint?: unknown;
+        };
+      };
+    };
+    const hint = parsed.runner?.config?.model_hint;
+    if (typeof hint !== 'string') {
+      return undefined;
+    }
+
+    const trimmedHint = hint.trim();
+    return trimmedHint.length > 0 ? trimmedHint : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export class SchedulerTaskBridge {
   constructor(
     private repository: IWorkOrderRepository,
-    private schedulerProvider: () => SchedulerCore | null
+    private schedulerProvider: () => SchedulerCore | null,
+    private resolveModelHint: () => string | undefined = resolveMainAgentModelHintFromAgentConfig
   ) {}
 
   async createGoalFromConversation(
@@ -86,6 +150,8 @@ class SchedulerTaskBridge {
     goalId: string;
     workItems: Array<{ id: string; title: string; status: string }>;
   }> {
+    const selectedModel = this.resolveModelHint();
+
     const goal = this.repository.createGoal({
       title: requirements.title,
       description: requirements.description,
@@ -102,6 +168,7 @@ class SchedulerTaskBridge {
         sessionId: session.id,
         turnId: sourceTurnId,
         personaId: session.personaId,
+        ...(selectedModel ? { selected_model: selectedModel } : {}),
       },
     });
 
@@ -115,6 +182,12 @@ class SchedulerTaskBridge {
       context: {
         ...(goal.context ?? {}),
         createdViaConversation: true,
+        ...(selectedModel
+          ? {
+              selected_model: selectedModel,
+              model: selectedModel,
+            }
+          : {}),
       },
     });
 

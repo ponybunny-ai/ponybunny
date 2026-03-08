@@ -7,10 +7,11 @@ import { sanitizeModelSelectorQuery } from './model-selector-input-sanitize.js';
 
 type ModelSelectorData = {
   selectedModel: string | null;
-  onSelect: (model: string) => void;
+  onSelect: (model: string | null) => void;
 };
 
 type ModelOption = {
+  kind: 'auto' | 'model';
   name: string;
   provider: string;
 };
@@ -23,10 +24,18 @@ export const ModelSelectorModal: React.FC = () => {
 
   const models = state.schedulerCapabilities?.capabilities.models ?? [];
   const options = useMemo<ModelOption[]>(() => {
-    return models.map((model) => ({
+    return [
+      {
+        kind: 'auto',
+        name: 'AUTO',
+        provider: 'system',
+      },
+      ...models.map((model) => ({
+        kind: 'model' as const,
       name: model.name,
       provider: model.providers[0] ?? 'unknown',
-    }));
+      })),
+    ];
   }, [models]);
 
   const filtered = useMemo(() => {
@@ -76,7 +85,7 @@ export const ModelSelectorModal: React.FC = () => {
       if (!target || !data) {
         return;
       }
-      data.onSelect(target.name);
+      data.onSelect(target.kind === 'auto' ? null : target.name);
       closeModal();
     }
   });
@@ -101,7 +110,7 @@ export const ModelSelectorModal: React.FC = () => {
         ) : (
           filtered.slice(0, 14).map((option, index) => {
             const active = index === selectedIndex;
-            const isSelected = selected === option.name;
+            const isSelected = option.kind === 'auto' ? selected === null : selected === option.name;
             return (
               <Box key={option.name}>
                 <Text color={active ? 'cyan' : undefined} bold={active}>

@@ -141,7 +141,7 @@
   - `system.status`
   - `system.runtime.rollout.status/update`
   - `system.runtime.tui.update`
-  - `system.agent.model_hint.set`
+- `system.agent.model_override.set` (legacy alias: `system.agent.model_hint.set`)
 - 文件：`src/gateway/rpc/handlers/internal-runtime-handlers.ts`
   - `internal.runtime.config`
   - `internal.plan.*`

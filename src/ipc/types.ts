@@ -78,6 +78,8 @@ export type SchedulerCommandType =
   | 'submit_goal'
   | 'cancel_goal'
   | 'apply_runtime_rollout'
+  | 'set_agent_model_override'
+  | 'get_agent_model_override'
   | 'session_open'
   | 'session_list'
   | 'session_message'
@@ -148,6 +150,8 @@ export interface SchedulerCommandRequest {
       };
     };
   };
+  agentId?: string;
+  model?: string;
 }
 
 export interface SchedulerCommandResponse {

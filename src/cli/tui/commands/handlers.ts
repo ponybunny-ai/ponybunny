@@ -308,6 +308,43 @@ function parsePruneEventsOptions(tokens: string[]): {
   };
 }
 
+function parseChannelEventsArgs(args: string[]): {
+  limit?: number;
+  cursor?: string;
+  eventPrefix?: string;
+} {
+  const [limitArg, cursorArg, prefixArg] = args;
+  const result: {
+    limit?: number;
+    cursor?: string;
+    eventPrefix?: string;
+  } = {};
+
+  if (limitArg !== undefined) {
+    const parsed = Number.parseInt(limitArg, 10);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 500) {
+      throw new Error('limit must be an integer between 1 and 500');
+    }
+    result.limit = parsed;
+  }
+
+  if (cursorArg !== undefined) {
+    if (cursorArg.trim().length === 0) {
+      throw new Error('cursor must be a non-empty string when provided');
+    }
+    result.cursor = cursorArg.trim();
+  }
+
+  if (prefixArg !== undefined) {
+    if (prefixArg.trim().length === 0) {
+      throw new Error('eventPrefix must be a non-empty string when provided');
+    }
+    result.eventPrefix = prefixArg.trim();
+  }
+
+  return result;
+}
+
 async function refreshSchedulerData(ctx: CommandContext): Promise<CommandResult> {
   const client = ctx.gateway.client;
   if (!client) {
@@ -957,10 +994,11 @@ const handlers: Record<string, CommandHandler> = {
   },
 
   cancel: async (cmd, ctx) => {
-    const [goalId] = cmd.args;
+    const [goalId, ...reasonParts] = cmd.args;
     if (!goalId) {
       return { success: false, error: 'Goal ID is required. Usage: /cancel <id>' };
     }
+    const reason = reasonParts.join(' ').trim();
 
     ctx.app.openModal('confirm', {
       title: 'Cancel Goal',
@@ -969,7 +1007,7 @@ const handlers: Record<string, CommandHandler> = {
         try {
           const client = ctx.gateway.client;
           if (client) {
-            await client.cancelGoal(goalId);
+            await client.cancelGoal(goalId, reason || undefined);
             ctx.app.addEvent('goal.cancelled', { goalId });
           }
         } catch (err) {
@@ -1101,6 +1139,47 @@ const handlers: Record<string, CommandHandler> = {
     };
   },
 
+  channels: async (_cmd, ctx) => {
+    const client = ctx.gateway.client;
+    if (!client) {
+      return { success: false, error: 'Not connected to gateway' };
+    }
+
+    try {
+      const status = await client.getChannelsStatus();
+      ctx.app.addEvent('system.channels.status', status);
+      return {
+        success: true,
+        message: `Channels enabled=[${status.enabledChannels.join(', ')}], mirrorAll=${String(status.mirrorToAllEnabledChannels)}, adapters running=${status.adapterHealth.running} error=${status.adapterHealth.error}`,
+      };
+    } catch (err) {
+      return { success: false, error: `Channels command failed: ${(err as Error).message}` };
+    }
+  },
+
+  'channel-events': async (cmd, ctx) => {
+    const client = ctx.gateway.client;
+    if (!client) {
+      return { success: false, error: 'Not connected to gateway' };
+    }
+
+    try {
+      const params = parseChannelEventsArgs(cmd.args);
+      const page = await client.getChannelEvents(params);
+      ctx.app.addEvent('system.channels.events.loaded', {
+        returned: page.events.length,
+        nextCursor: page.nextCursor,
+        params,
+      });
+      return {
+        success: true,
+        message: `Channel events loaded: returned=${page.events.length}${page.nextCursor ? ` nextCursor=${page.nextCursor}` : ''}`,
+      };
+    } catch (err) {
+      return { success: false, error: `Channel events command failed: ${(err as Error).message}` };
+    }
+  },
+
   ping: async (_cmd, ctx) => {
     try {
       const client = ctx.gateway.client;
@@ -1141,29 +1220,42 @@ const handlers: Record<string, CommandHandler> = {
 
     ctx.app.openModal('model-selector', {
       selectedModel: ctx.app.state.selectedModel,
-      onSelect: (model: string) => {
+      onSelect: (model: string | null) => {
         ctx.app.setSelectedModel(model);
-        ctx.app.addEvent('model.selected', { model, source: 'slash_command' });
+        ctx.app.addEvent('model.selected', { model: model ?? 'AUTO', source: 'slash_command' });
         const clientForPersist = ctx.gateway.client;
         if (!clientForPersist) {
           ctx.app.addEvent('model.selection.persist_failed', {
-            model,
+            model: model ?? 'AUTO',
             error: 'Not connected to gateway',
           });
           return;
         }
 
-        void clientForPersist.setMainAgentModelHint({ model })
+        const activeAgentId = ctx.app.state.selectedAgentId
+          ?? ctx.app.state.schedulerCapabilities?.capabilities.agents?.[0]?.id;
+        if (!activeAgentId) {
+          ctx.app.addEvent('model.selection.persist_failed', {
+            model: model ?? 'AUTO',
+            error: 'No active agent selected',
+          });
+          return;
+        }
+
+        void clientForPersist.setAgentModelOverride({
+          agentId: activeAgentId,
+          model: model ?? 'AUTO',
+        })
           .then((result) => {
             ctx.app.addEvent('model.selection.persisted', {
-              model,
+              model: result.model,
               agentId: result.agentId,
               configPath: result.configPath,
             });
           })
           .catch((error) => {
             ctx.app.addEvent('model.selection.persist_failed', {
-              model,
+              model: model ?? 'AUTO',
               error: (error as Error).message,
             });
           });
@@ -1467,6 +1559,8 @@ const aliasMap: Record<string, string> = {
   app: 'approvals',
   a: 'approvals',
   s: 'status',
+  ch: 'channels',
+  chev: 'channel-events',
   rc: 'reconnect',
   rf: 'refresh',
   modelpicker: 'models',

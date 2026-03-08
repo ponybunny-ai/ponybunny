@@ -42,6 +42,7 @@ export interface PonyBunnyRuntimeConfig {
   agent: {
     mainAgentId: string;
     personaEnabled: boolean;
+    modelOverrides: Record<string, string>;
   };
   persona: {
     directory: string;
@@ -117,6 +118,7 @@ export const DEFAULT_RUNTIME_CONFIG: PonyBunnyRuntimeConfig = {
   agent: {
     mainAgentId: 'lead',
     personaEnabled: false,
+    modelOverrides: {},
   },
   persona: {
     directory: path.join(CONFIG_DIR, 'personas'),
@@ -189,6 +191,34 @@ function toBoolean(value: unknown, fallback: boolean): boolean {
 
 function toStringValue(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim().length > 0 ? value : fallback;
+}
+
+function normalizeAgentModelOverrides(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>);
+  const normalized: Record<string, string> = {};
+  for (const [agentIdRaw, modelRaw] of entries) {
+    if (typeof modelRaw !== 'string') {
+      continue;
+    }
+
+    const agentId = agentIdRaw.trim();
+    if (!agentId) {
+      continue;
+    }
+
+    const model = modelRaw.trim();
+    if (!model) {
+      continue;
+    }
+
+    normalized[agentId] = model.toLowerCase() === 'auto' ? 'auto' : model;
+  }
+
+  return normalized;
 }
 
 function expandHomePath(input: string): string {
@@ -375,6 +405,7 @@ export function resolveRuntimeConfigFromEnvironment(
     agent: {
       mainAgentId: toStringValue(env.PONY_MAIN_AGENT_ID, DEFAULT_RUNTIME_CONFIG.agent.mainAgentId),
       personaEnabled: toBoolean(env.PONY_AGENT_PERSONA_ENABLED, DEFAULT_RUNTIME_CONFIG.agent.personaEnabled),
+      modelOverrides: { ...DEFAULT_RUNTIME_CONFIG.agent.modelOverrides },
     },
     persona: {
       directory: path.resolve(expandHomePath(toStringValue(env.PONY_PERSONA_DIR, DEFAULT_RUNTIME_CONFIG.persona.directory))),
@@ -611,6 +642,15 @@ function normalizeConfig(raw: PonyBunnyRuntimeConfig): PonyBunnyRuntimeConfig {
     agent: {
       mainAgentId: toStringValue(raw.agent?.mainAgentId, DEFAULT_RUNTIME_CONFIG.agent.mainAgentId),
       personaEnabled: toBoolean(raw.agent?.personaEnabled, DEFAULT_RUNTIME_CONFIG.agent.personaEnabled),
+      modelOverrides: normalizeAgentModelOverrides(
+        (raw as unknown as {
+          agent?: {
+            modelOverrides?: unknown;
+            model_overrides?: unknown;
+          };
+        }).agent?.modelOverrides
+          ?? (raw as unknown as { agent?: { model_overrides?: unknown } }).agent?.model_overrides
+      ),
     },
     persona: {
       directory: path.resolve(expandHomePath(toStringValue(personaInput.directory, DEFAULT_RUNTIME_CONFIG.persona.directory))),

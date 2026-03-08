@@ -230,9 +230,6 @@ export const LLM_CONFIG_SCHEMA_TEMPLATE = {
         type: 'object',
         properties: {
           tier: { type: 'string', enum: ['simple', 'medium', 'complex'] },
-          llm_model: { type: 'string' },
-          primary: { type: 'string' },
-          fallback: { type: 'array', items: { type: 'string' } },
           description: { type: 'string' },
         },
       },
@@ -548,7 +545,6 @@ const DEFAULT_LLM_CONFIG_TEMPLATE = {
     },
     execution: {
       tier: 'medium',
-      llm_model: 'openai.gpt-5.2',
       description: 'ReAct execution loop',
     },
     verification: {
@@ -561,7 +557,6 @@ const DEFAULT_LLM_CONFIG_TEMPLATE = {
     },
     conversation: {
       tier: 'medium',
-      llm_model: 'openai.gpt-5-mini',
       description: 'Conversation agent',
     },
   },
@@ -898,6 +893,13 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
       properties: {
         mainAgentId: { type: 'string', minLength: 1 },
         personaEnabled: { type: 'boolean' },
+        modelOverrides: {
+          type: 'object',
+          additionalProperties: {
+            type: 'string',
+            minLength: 1,
+          },
+        },
       },
       additionalProperties: false,
     },

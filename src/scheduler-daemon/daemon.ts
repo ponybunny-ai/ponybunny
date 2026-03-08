@@ -25,6 +25,7 @@ import { AgentScheduler } from './agent-scheduler.js';
 import { createSchemaDrivenAgentRunner } from '../infra/agents/schema-driven-agent-runner.js';
 import { getLLMService } from '../infra/llm/index.js';
 import { SchedulerEventEnvelopeResolver } from './scheduler-event-envelope.js';
+import { getRuntimeConfigPath, loadRuntimeConfig, saveRuntimeConfig } from '../infra/config/runtime-config.js';
 
 export interface SchedulerDaemonConfig {
   /** Path to Gateway IPC socket */
@@ -661,6 +662,54 @@ export class SchedulerDaemon {
         this.config.runtimeRollout = command.rollout.runtimeRollout;
         scheduler.applyRuntimeRollout(command.rollout);
         await this.sendSchedulerCommandResult(command.requestId, true);
+        return;
+      }
+
+      if (command.command === 'set_agent_model_override') {
+        const agentId = typeof command.agentId === 'string' ? command.agentId.trim() : '';
+        const modelRaw = typeof command.model === 'string' ? command.model.trim() : '';
+        if (!agentId) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'agentId is required for set_agent_model_override');
+          return;
+        }
+        if (!modelRaw) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'model is required for set_agent_model_override');
+          return;
+        }
+
+        const runtime = loadRuntimeConfig();
+        const nextOverrides = {
+          ...(runtime.agent.modelOverrides ?? {}),
+          [agentId]: modelRaw.toLowerCase() === 'auto' ? 'auto' : modelRaw,
+        };
+        runtime.agent.modelOverrides = nextOverrides;
+        saveRuntimeConfig(runtime);
+
+        await this.sendSchedulerCommandResult(command.requestId, true, undefined, {
+          success: true,
+          agentId,
+          model: nextOverrides[agentId],
+          configPath: getRuntimeConfigPath(),
+        });
+        return;
+      }
+
+      if (command.command === 'get_agent_model_override') {
+        const agentId = typeof command.agentId === 'string' ? command.agentId.trim() : '';
+        if (!agentId) {
+          await this.sendSchedulerCommandResult(command.requestId, false, 'agentId is required for get_agent_model_override');
+          return;
+        }
+
+        const runtime = loadRuntimeConfig();
+        const stored = runtime.agent.modelOverrides?.[agentId];
+        const model = typeof stored === 'string' && stored.trim().length > 0 && stored.trim().toLowerCase() !== 'auto'
+          ? stored.trim()
+          : null;
+        await this.sendSchedulerCommandResult(command.requestId, true, undefined, {
+          agentId,
+          model,
+        });
         return;
       }
 

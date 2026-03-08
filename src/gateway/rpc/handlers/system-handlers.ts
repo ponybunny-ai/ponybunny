@@ -1,6 +1,4 @@
 import type { RpcHandler } from '../rpc-handler.js';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import type { ConnectionManager } from '../../connection/connection-manager.js';
 import type { ChannelRouter, GatewayChannelType } from '../../channels/channel-router.js';
 import type { GatewayChannelAdapterStatus } from '../../channels/channel-adapter.js';
@@ -22,7 +20,6 @@ import {
 } from '../../../infra/scheduler/capabilities.js';
 import { GatewayError } from '../../errors.js';
 import { loadRuntimeConfig, saveRuntimeConfig } from '../../../infra/config/runtime-config.js';
-import { getUserAgentsDir } from '../../../infra/agents/agent-discovery.js';
 import type { RuntimeRolloutMetricsSnapshot } from '../../runtime/runtime-rollout-telemetry.js';
 
 export interface SystemStatusResponse {
@@ -182,6 +179,7 @@ export interface GatewayChannelEventsResponse {
 
 export interface SetMainAgentModelHintParams {
   model: string;
+  agentId?: string;
 }
 
 export interface SetMainAgentModelHintResponse {
@@ -189,6 +187,15 @@ export interface SetMainAgentModelHintResponse {
   agentId: string;
   model: string;
   configPath: string;
+}
+
+export interface GetMainAgentModelHintParams {
+  agentId?: string;
+}
+
+export interface GetMainAgentModelHintResponse {
+  agentId: string;
+  model: string | null;
 }
 
 export interface SystemHandlersOptions {
@@ -204,6 +211,8 @@ export interface SystemHandlersOptions {
     toolRoutingMode: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
     runtimeRollout: RuntimeRolloutStatusResponse['rollout'];
   }) => Promise<void>;
+  setAgentModelOverride?: (params: { agentId: string; model: string }) => Promise<SetMainAgentModelHintResponse>;
+  getAgentModelOverride?: (params: { agentId: string }) => Promise<GetMainAgentModelHintResponse>;
 }
 
 const EMPTY_RUNTIME_ROLLOUT_METRICS: RuntimeRolloutMetricsSnapshot = {
@@ -476,40 +485,6 @@ function buildRuntimeTuiConfigResponse(runtime: ReturnType<typeof loadRuntimeCon
     sessionFirstEnabled: runtime.tui.sessionFirstEnabled,
     goalSubmitFastPathEnabled: runtime.tui.goalSubmitFastPathEnabled,
   };
-}
-
-function persistModelHintToMainAgent(model: string): SetMainAgentModelHintResponse {
-  const runtime = loadRuntimeConfig();
-  const agentId = runtime.agent.mainAgentId;
-  const userAgentConfigPath = path.join(getUserAgentsDir(), agentId, 'agent.json');
-  const workspaceAgentConfigPath = path.join(process.cwd(), 'agents', agentId, 'agent.json');
-  const sourcePath = fs.existsSync(userAgentConfigPath)
-    ? userAgentConfigPath
-    : workspaceAgentConfigPath;
-
-  if (!fs.existsSync(sourcePath)) {
-    throw GatewayError.invalidParams(`Agent config not found for '${agentId}'`);
-  }
-
-  const parsed = JSON.parse(fs.readFileSync(sourcePath, 'utf-8')) as Record<string, unknown>;
-  const runner = parsed.runner && typeof parsed.runner === 'object'
-    ? { ...(parsed.runner as Record<string, unknown>) }
-    : {};
-  const runnerConfig = runner.config && typeof runner.config === 'object'
-    ? { ...(runner.config as Record<string, unknown>) }
-    : {};
-
-  runnerConfig.model_hint = model;
-  runner.config = runnerConfig;
-  parsed.runner = runner;
-
-  const targetDir = path.dirname(userAgentConfigPath);
-  if (!fs.existsSync(targetDir)) {
-    fs.mkdirSync(targetDir, { recursive: true, mode: 0o700 });
-  }
-
-  fs.writeFileSync(userAgentConfigPath, `${JSON.stringify(parsed, null, 2)}\n`, { mode: 0o600 });
-  return { success: true, agentId, model, configPath: userAgentConfigPath };
 }
 
 function buildRuntimeRolloutStatus(options?: SystemHandlersOptions): RuntimeRolloutStatusResponse {
@@ -897,15 +872,62 @@ export function registerSystemHandlers(
     }
   );
 
+  const handleSetAgentModelOverride = async (params: SetMainAgentModelHintParams): Promise<SetMainAgentModelHintResponse> => {
+    if (!params.model || typeof params.model !== 'string' || params.model.trim().length === 0) {
+      throw GatewayError.invalidParams('model must be a non-empty string');
+    }
+
+    if (!options?.setAgentModelOverride) {
+      throw GatewayError.internalError('scheduler daemon is required for model selection updates');
+    }
+
+    const runtime = loadRuntimeConfig();
+    const agentId = typeof params.agentId === 'string' && params.agentId.trim().length > 0
+      ? params.agentId.trim()
+      : runtime.agent.mainAgentId;
+    const model = params.model.trim();
+
+    return options.setAgentModelOverride({ agentId, model });
+  };
+
+  const handleGetAgentModelOverride = async (params: GetMainAgentModelHintParams): Promise<GetMainAgentModelHintResponse> => {
+    const runtime = loadRuntimeConfig();
+    const agentId = typeof params.agentId === 'string' && params.agentId.trim().length > 0
+      ? params.agentId.trim()
+      : runtime.agent.mainAgentId;
+
+    if (options?.getAgentModelOverride) {
+      return options.getAgentModelOverride({ agentId });
+    }
+
+    const stored = runtime.agent.modelOverrides?.[agentId];
+    const model = typeof stored === 'string' && stored.trim().length > 0 && stored.trim().toLowerCase() !== 'auto'
+      ? stored.trim()
+      : null;
+    return { agentId, model };
+  };
+
+  rpcHandler.register<SetMainAgentModelHintParams, SetMainAgentModelHintResponse>(
+    'system.agent.model_override.set',
+    ['admin'],
+    handleSetAgentModelOverride
+  );
+
   rpcHandler.register<SetMainAgentModelHintParams, SetMainAgentModelHintResponse>(
     'system.agent.model_hint.set',
     ['admin'],
-    async (params) => {
-      if (!params.model || typeof params.model !== 'string' || params.model.trim().length === 0) {
-        throw GatewayError.invalidParams('model must be a non-empty string');
-      }
+    handleSetAgentModelOverride
+  );
 
-      return persistModelHintToMainAgent(params.model.trim());
-    }
+  rpcHandler.register<GetMainAgentModelHintParams, GetMainAgentModelHintResponse>(
+    'system.agent.model_override.get',
+    ['read'],
+    handleGetAgentModelOverride
+  );
+
+  rpcHandler.register<GetMainAgentModelHintParams, GetMainAgentModelHintResponse>(
+    'system.agent.model_hint.get',
+    ['read'],
+    handleGetAgentModelOverride
   );
 }

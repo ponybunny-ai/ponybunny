@@ -156,6 +156,7 @@ export interface AppState {
   // Approvals
   pendingApprovalCount: number;
   schedulerCapabilities: SchedulerCapabilitiesResponse | null;
+  selectedAgentId: string | null;
   selectedModel: string | null;
 
   // Events
@@ -212,7 +213,7 @@ export interface ModalData {
   };
   'model-selector': {
     selectedModel: string | null;
-    onSelect: (model: string) => void;
+    onSelect: (model: string | null) => void;
   };
 }
 
@@ -238,6 +239,7 @@ export const initialState: AppState = {
   pendingEscalationCount: 0,
   pendingApprovalCount: 0,
   schedulerCapabilities: null,
+  selectedAgentId: null,
   selectedModel: null,
   events: [],
   maxEvents: 100,

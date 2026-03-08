@@ -1028,15 +1028,7 @@ describe('system handlers', () => {
     expect(secondPage.nextCursor).toBeUndefined();
   });
 
-  it('persists main agent model hint through rpc', async () => {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-system-model-hint-'));
-    const previousConfigDir = process.env.PONYBUNNY_CONFIG_DIR;
-    process.env.PONYBUNNY_CONFIG_DIR = tempRoot;
-
-    const agentDir = path.join(tempRoot, 'agents', 'lead');
-    fs.mkdirSync(agentDir, { recursive: true });
-    fs.writeFileSync(path.join(agentDir, 'agent.json'), JSON.stringify({ id: 'lead', runner: { id: 'react-goal', config: {} } }, null, 2));
-
+  it('routes model hint persistence through scheduler callback', async () => {
     const runtimeSpy = jest.spyOn(runtimeConfig, 'loadRuntimeConfig').mockReturnValue({
       ...runtimeConfig.DEFAULT_RUNTIME_CONFIG,
       agent: {
@@ -1044,10 +1036,33 @@ describe('system handlers', () => {
         mainAgentId: 'lead',
       },
     });
+    const setAgentModelOverride = jest.fn(async ({ agentId, model }: { agentId: string; model: string }) => ({
+      success: true,
+      agentId,
+      model,
+      configPath: '/tmp/ponybunny.json',
+    }));
+    const rpcWithOverride = new RpcHandler();
+
+    registerSystemHandlers(
+      rpcWithOverride,
+      () => mockConnectionManager,
+      () => mockScheduler,
+      () => mockChannelRouter,
+      () => [],
+      () => ({ isRunning: true, daemonConnected: true, schedulerConnected: true }),
+      () => [],
+      undefined,
+      undefined,
+      undefined,
+      {
+        setAgentModelOverride,
+      }
+    );
 
     try {
-      const result = await rpc.handle(
-        'system.agent.model_hint.set',
+      const result = await rpcWithOverride.handle(
+        'system.agent.model_override.set',
         { model: 'openai.gpt-5.2' },
         createSession(['admin'])
       ) as {
@@ -1059,19 +1074,23 @@ describe('system handlers', () => {
       expect(result.success).toBe(true);
       expect(result.agentId).toBe('lead');
       expect(result.model).toBe('openai.gpt-5.2');
+      expect(setAgentModelOverride).toHaveBeenCalledWith({
+        agentId: 'lead',
+        model: 'openai.gpt-5.2',
+      });
 
-      const persisted = JSON.parse(fs.readFileSync(path.join(agentDir, 'agent.json'), 'utf-8')) as {
-        runner?: { config?: { model_hint?: string } };
-      };
-      expect(persisted.runner?.config?.model_hint).toBe('openai.gpt-5.2');
+      await rpcWithOverride.handle(
+        'system.agent.model_hint.set',
+        { model: 'AUTO' },
+        createSession(['admin'])
+      );
+      expect(setAgentModelOverride).toHaveBeenCalledWith({
+        agentId: 'lead',
+        model: 'AUTO',
+      });
       expect(runtimeSpy).toHaveBeenCalled();
     } finally {
-      if (previousConfigDir === undefined) {
-        delete process.env.PONYBUNNY_CONFIG_DIR;
-      } else {
-        process.env.PONYBUNNY_CONFIG_DIR = previousConfigDir;
-      }
-      fs.rmSync(tempRoot, { recursive: true, force: true });
+      runtimeSpy.mockRestore();
     }
   });
 });

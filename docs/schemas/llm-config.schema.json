@@ -163,18 +163,6 @@
               "complex"
             ]
           },
-          "llm_model": {
-            "type": "string"
-          },
-          "primary": {
-            "type": "string"
-          },
-          "fallback": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
           "description": {
             "type": "string"
           }

@@ -585,6 +585,25 @@ export class GatewayServer {
 
           await this.ipcBridge.applyRuntimeRollout(rollout);
         },
+        setAgentModelOverride: async ({ agentId, model }) => {
+          if (!this.ipcBridge.isSchedulerDaemonConnected()) {
+            throw new Error('Scheduler daemon is not connected');
+          }
+          return this.ipcBridge.setAgentModelOverride({ agentId, model });
+        },
+        getAgentModelOverride: async ({ agentId }) => {
+          if (!this.ipcBridge.isSchedulerDaemonConnected()) {
+            const runtime = loadRuntimeConfig();
+            const stored = runtime.agent.modelOverrides?.[agentId];
+            return {
+              agentId,
+              model: typeof stored === 'string' && stored.trim().length > 0 && stored.trim().toLowerCase() !== 'auto'
+                ? stored.trim()
+                : null,
+            };
+          }
+          return this.ipcBridge.getAgentModelOverride({ agentId });
+        },
       },
       () => this.ipcBridge.getRealtimeMetrics()
     );

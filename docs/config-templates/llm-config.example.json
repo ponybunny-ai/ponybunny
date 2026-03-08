@@ -115,10 +115,10 @@
   "workloads": {
     "input-analysis": { "tier": "simple", "description": "Intent and emotion analysis" },
     "planning": { "tier": "complex", "description": "Goal decomposition and planning" },
-    "execution": { "tier": "medium", "llm_model": "openai.gpt-5.2", "description": "ReAct execution loop" },
+    "execution": { "tier": "medium", "description": "ReAct execution loop" },
     "verification": { "tier": "medium", "description": "Result verification" },
     "response-generation": { "tier": "simple", "description": "Natural language response" },
-    "conversation": { "tier": "medium", "llm_model": "openai.gpt-5.2", "description": "Conversation agent" }
+    "conversation": { "tier": "medium", "description": "Conversation agent" }
   },
   "defaults": {
     "timeout": 120000,

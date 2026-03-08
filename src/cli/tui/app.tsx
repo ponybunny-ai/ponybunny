@@ -205,6 +205,35 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
     return `A ${activeAgent?.id || 'guard'} │ M ${modelLabel}${variantSegment} │ ${variantHint}tab agents ctrl-v views ctrl-p commands`;
   }, [state.schedulerCapabilities, state.selectedModel, selectedAgentIndex, selectedReasoningEffortIndex]);
 
+  useEffect(() => {
+    const agents = state.schedulerCapabilities?.capabilities.agents || [];
+    if (agents.length === 0) {
+      app.setSelectedAgentId(null);
+      app.setSelectedModel(null);
+      return;
+    }
+
+    const activeAgent = agents[selectedAgentIndex % agents.length];
+    const activeAgentId = activeAgent?.id ?? null;
+    app.setSelectedAgentId(activeAgentId);
+
+    const client = gatewayRef.current.client;
+    if (!client || !activeAgentId) {
+      return;
+    }
+
+    void client.getAgentModelOverride({ agentId: activeAgentId })
+      .then((result) => {
+        appRef.current.setSelectedModel(result.model);
+      })
+      .catch((err) => {
+        appRef.current.addEvent('model.selection.load_failed', {
+          agentId: activeAgentId,
+          error: (err as Error).message,
+        });
+      });
+  }, [selectedAgentIndex, state.schedulerCapabilities, gateway.connectionStatus]);
+
   // Track if initial data has been loaded
   const initialLoadDone = useRef(false);
 
