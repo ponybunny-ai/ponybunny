@@ -10,6 +10,7 @@ import { useGoals } from '../../hooks/use-goals.js';
 import { useTerminalSize } from '../../hooks/use-terminal-size.js';
 import { formatDateTime, truncateDisplayWidth } from '../../utils/formatters.js';
 import { renderMarkdownToTerminalLines } from '../../utils/markdown-render.js';
+import { resolveConversationRenderState } from '../../utils/conversation-render-state.js';
 
 type ConversationTurn = {
   role: 'user' | 'assistant' | 'system';
@@ -134,10 +135,18 @@ export const DashboardView: React.FC = () => {
 
     return lines;
   }, [mergedConversationTurns, streamTextWidth]);
+  const conversationRenderState = resolveConversationRenderState({
+    activeSessionId,
+    mergedTurnCount: mergedConversationTurns.length,
+    conversationLoading,
+    conversationError,
+  });
   const summaryRows = compactSummaryLayout ? 32 : 14;
   const pendingBannerRows = pendingEscalationCount > 0 ? 4 : 0;
   const conversationChromeRows = 4;
-  const maxVisibleLines = Math.max(4, rows - summaryRows - pendingBannerRows - conversationChromeRows);
+  const layoutReserveRows = 8;
+  const usableRows = Math.max(8, rows - layoutReserveRows);
+  const maxVisibleLines = Math.max(4, usableRows - summaryRows - pendingBannerRows - conversationChromeRows);
   const [lineScrollOffset, setLineScrollOffset] = React.useState(0);
   const maxLineScrollOffset = Math.max(0, renderedConversationLines.length - maxVisibleLines);
   const clampedLineOffset = Math.min(lineScrollOffset, maxLineScrollOffset);
@@ -255,43 +264,6 @@ export const DashboardView: React.FC = () => {
     }
   });
 
-  React.useEffect(() => {
-    const stdin = process.stdin;
-    if (!stdin?.isTTY) {
-      return;
-    }
-
-    stdin.write('\u001b[?1000h\u001b[?1006h');
-    const onData = (chunk: Buffer | string) => {
-      const data = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-
-      if (data.includes('\u001b[5~')) {
-        setLineScrollOffset((value) => Math.min(maxLineScrollOffset, value + Math.max(3, maxVisibleLines - 2)));
-      }
-      if (data.includes('\u001b[6~')) {
-        setLineScrollOffset((value) => Math.max(0, value - Math.max(3, maxVisibleLines - 2)));
-      }
-
-      const match = data.match(/\u001b\[<(\d+);(\d+);(\d+)([mM])/);
-      if (!match || match[4] !== 'M') {
-        return;
-      }
-
-      const button = Number.parseInt(match[1], 10);
-      if (button === 64) {
-        setLineScrollOffset((value) => Math.min(maxLineScrollOffset, value + 1));
-      } else if (button === 65) {
-        setLineScrollOffset((value) => Math.max(0, value - 1));
-      }
-    };
-
-    stdin.on('data', onData);
-    return () => {
-      stdin.off('data', onData);
-      stdin.write('\u001b[?1000l\u001b[?1006l');
-    };
-  }, [maxLineScrollOffset, maxVisibleLines]);
-
   return (
     <Box flexDirection="column" flexGrow={1}>
       {/* Pending Items */}
@@ -374,7 +346,7 @@ export const DashboardView: React.FC = () => {
       </Box>
 
       <Box flexDirection="column" flexGrow={1}>
-        {!activeSessionId ? (
+        {conversationRenderState === 'no-session' ? (
           <Box
             flexDirection="column"
             alignItems="center"
@@ -386,15 +358,15 @@ export const DashboardView: React.FC = () => {
             </Box>
             <Text dimColor>Select or create a session to view conversation history.</Text>
           </Box>
-        ) : conversationLoading ? (
+        ) : conversationRenderState === 'loading' ? (
           <Box alignItems="center" justifyContent="center" flexGrow={1}>
             <Text dimColor>Loading session conversation...</Text>
           </Box>
-        ) : conversationError ? (
+        ) : conversationRenderState === 'error' ? (
           <Box alignItems="center" justifyContent="center" flexGrow={1}>
             <Text color="red">Failed to load conversation: {conversationError}</Text>
           </Box>
-        ) : conversationTurns.length === 0 ? (
+        ) : conversationRenderState === 'empty' ? (
           <Box alignItems="center" justifyContent="center" flexGrow={1}>
             <Text dimColor>Current session has no conversation turns yet.</Text>
           </Box>
