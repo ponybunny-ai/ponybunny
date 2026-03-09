@@ -14,6 +14,7 @@ function createTempDbPath(): string {
 async function seedInspectionDb(dbPath: string): Promise<{
   inFlightRunId: string;
   orphanedRunId: string;
+  directRunId: string;
 }> {
   const repository = new WorkOrderDatabase(dbPath);
   await repository.initialize();
@@ -80,7 +81,7 @@ async function seedInspectionDb(dbPath: string): Promise<{
     },
   });
 
-  repository.createRun({
+  const directRun = repository.createRun({
     work_item_id: directItem.id,
     goal_id: goal.id,
     agent_type: 'test',
@@ -93,6 +94,7 @@ async function seedInspectionDb(dbPath: string): Promise<{
   return {
     inFlightRunId: inFlightRun.id,
     orphanedRunId: orphanedRun.id,
+    directRunId: directRun.id,
   };
 }
 
@@ -135,5 +137,61 @@ describe('pb scheduler reconciliation inspection', () => {
     expect(output).toContain('stale_orphaned: 1');
     expect(output).toContain('continuation_applied: 0');
     expect(output).toContain('already_terminal: 0');
+  });
+
+  test('prints one inspected run with durable recovery fields', async () => {
+    const dbPath = createTempDbPath();
+    const { orphanedRunId } = await seedInspectionDb(dbPath);
+
+    const output = execSync(`${pbCommand} scheduler inspect-run ${orphanedRunId} --db "${dbPath}"`, {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    });
+
+    expect(output).toContain('Run Inspection');
+    expect(output).toContain(`- runId: ${orphanedRunId}`);
+    expect(output).toContain('- executionMode: evented');
+    expect(output).toContain('- lane: slow');
+    expect(output).toContain('- resultContinuationApplied: false');
+    expect(output).toContain('- orphanClassification: stale_timeout');
+    expect(output).toContain('- recoveryCandidate: -');
+  });
+
+  test('marks an evented run as a recovery candidate idempotently without affecting direct runs', async () => {
+    const dbPath = createTempDbPath();
+    const { inFlightRunId, directRunId } = await seedInspectionDb(dbPath);
+
+    const firstOutput = execSync(
+      `${pbCommand} scheduler mark-recovery-candidate ${inFlightRunId} --db "${dbPath}"`,
+      {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      }
+    );
+    expect(firstOutput).toContain(`Recovery candidate marked for run ${inFlightRunId}.`);
+    expect(firstOutput).toContain('- recoveryCandidate: true');
+    expect(firstOutput).toContain('- recoveryCandidateReason: manual_operator_mark');
+
+    const secondOutput = execSync(
+      `${pbCommand} scheduler mark-recovery-candidate ${inFlightRunId} --db "${dbPath}"`,
+      {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      }
+    );
+    expect(secondOutput).toContain(`Recovery candidate already marked for run ${inFlightRunId}.`);
+
+    try {
+      execSync(`${pbCommand} scheduler mark-recovery-candidate ${directRunId} --db "${dbPath}"`, {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      });
+      throw new Error('expected direct run mark to fail');
+    } catch (error) {
+      const execError = error as Error & { stdout?: string };
+      expect(execError.stdout).toContain(
+        `Could not mark run ${directRunId} as a recovery candidate (missing_evented_dispatch).`
+      );
+    }
   });
 });

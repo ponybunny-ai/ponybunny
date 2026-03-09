@@ -251,6 +251,132 @@ describe('WorkOrderDatabase evented reconciliation queries', () => {
     repository.close();
   });
 
+  it('inspects one run and marks recovery candidates idempotently without affecting direct runs', async () => {
+    const dbPath = createTempDbPath();
+    const repository = new WorkOrderDatabase(dbPath);
+    await repository.initialize();
+
+    const goal = repository.createGoal({
+      title: 'goal',
+      description: 'desc',
+      success_criteria: [],
+    });
+
+    const eventedItem = repository.createWorkItem({
+      goal_id: goal.id,
+      title: 'evented',
+      description: 'desc',
+      item_type: 'code',
+    });
+    repository.updateWorkItemStatus(eventedItem.id, 'in_progress');
+
+    const directItem = repository.createWorkItem({
+      goal_id: goal.id,
+      title: 'direct',
+      description: 'desc',
+      item_type: 'test',
+    });
+    repository.updateWorkItemStatus(directItem.id, 'in_progress');
+
+    const eventedRun = repository.createRun({
+      work_item_id: eventedItem.id,
+      goal_id: goal.id,
+      agent_type: 'code',
+      run_sequence: 1,
+    });
+    repository.mergeRunContext(eventedRun.id, {
+      evented_dispatch: {
+        ...buildEventedDispatchCheckpoint({
+          laneId: 'main',
+          dispatchedAt: 1234,
+          resultContinuationApplied: false,
+        }),
+        orphan_classification: 'stale_timeout',
+        orphan_detected_at: 1500,
+      },
+    });
+
+    const directRun = repository.createRun({
+      work_item_id: directItem.id,
+      goal_id: goal.id,
+      agent_type: 'test',
+      run_sequence: 1,
+      context: {
+        selected_model: 'direct-model',
+      },
+    });
+
+    const eventedInspection = repository.getRunInspection(eventedRun.id);
+    expect(eventedInspection).toEqual(
+      expect.objectContaining({
+        executionMode: 'evented',
+        workItemStatus: 'in_progress',
+        laneId: 'main',
+        dispatchedAt: 1234,
+        orphanClassification: 'stale_timeout',
+        orphanDetectedAt: 1500,
+        recoveryCandidate: undefined,
+      })
+    );
+
+    const directInspection = repository.getRunInspection(directRun.id);
+    expect(directInspection).toEqual(
+      expect.objectContaining({
+        executionMode: 'direct',
+        workItemStatus: 'in_progress',
+        dispatchedAt: undefined,
+        recoveryCandidate: undefined,
+      })
+    );
+
+    const firstMark = repository.markEventedRunRecoveryCandidate(eventedRun.id, {
+      markedAt: 5678,
+    });
+    expect(firstMark).toEqual(
+      expect.objectContaining({
+        status: 'marked',
+        markedAt: 5678,
+        reason: 'manual_operator_mark',
+      })
+    );
+
+    const secondMark = repository.markEventedRunRecoveryCandidate(eventedRun.id, {
+      markedAt: 9999,
+    });
+    expect(secondMark).toEqual(
+      expect.objectContaining({
+        status: 'already_marked',
+        markedAt: 5678,
+        reason: 'manual_operator_mark',
+      })
+    );
+
+    const markedInspection = repository.getRunInspection(eventedRun.id);
+    expect(markedInspection).toEqual(
+      expect.objectContaining({
+        executionMode: 'evented',
+        recoveryCandidate: true,
+        recoveryCandidateMarkedAt: 5678,
+        recoveryCandidateReason: 'manual_operator_mark',
+      })
+    );
+
+    const directMark = repository.markEventedRunRecoveryCandidate(directRun.id, {
+      markedAt: 8888,
+    });
+    expect(directMark.status).toBe('missing_evented_dispatch');
+
+    const persistedDirectRun = repository.getRun(directRun.id);
+    expect(persistedDirectRun?.context).toEqual(
+      expect.objectContaining({
+        selected_model: 'direct-model',
+      })
+    );
+    expect(persistedDirectRun?.context?.evented_dispatch).toBeUndefined();
+
+    repository.close();
+  });
+
   it('lists evented inspection records and summary without including direct runs', async () => {
     const dbPath = createTempDbPath();
     const repository = new WorkOrderDatabase(dbPath);
@@ -401,6 +527,7 @@ describe('WorkOrderDatabase evented reconciliation queries', () => {
         laneId: 'slow',
         orphanClassification: 'stale_timeout',
         orphanDetectedAt: 3000,
+        recoveryCandidate: undefined,
       })
     );
 

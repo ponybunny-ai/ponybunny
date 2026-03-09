@@ -4,7 +4,9 @@ import type {
   EventedResultContinuationClaim,
   EventedRunOrphanMarkResult,
   EventedRunInspectionRecord,
+  EventedRunRecoveryCandidateMarkResult,
   EventedRunReconciliationSummary,
+  RunInspectionRecord,
   CronJob,
   CronJobRun,
   CronJobRunStatus,
@@ -73,6 +75,11 @@ interface RunReconciliationCandidateRow extends RunRow {
 }
 
 interface EventedRunInspectionRow extends RunRow {
+  work_item_status: WorkItemStatus;
+  work_item_updated_at: number;
+}
+
+interface RunInspectionRow extends RunRow {
   work_item_status: WorkItemStatus;
   work_item_updated_at: number;
 }
@@ -779,6 +786,95 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     };
   }
 
+  markEventedRunRecoveryCandidate(
+    id: string,
+    params?: {
+      markedAt?: number;
+      reason?: 'manual_operator_mark';
+    }
+  ): EventedRunRecoveryCandidateMarkResult {
+    const markedAt = params?.markedAt ?? Date.now();
+    const reason = params?.reason ?? 'manual_operator_mark';
+    const markStmt = this.db.prepare(`
+      UPDATE runs
+      SET context = json_set(
+        COALESCE(context, '{}'),
+        '$.evented_dispatch.recovery_candidate',
+        json('true'),
+        '$.evented_dispatch.recovery_candidate_marked_at',
+        COALESCE(
+          json_extract(context, '$.evented_dispatch.recovery_candidate_marked_at'),
+          ?
+        ),
+        '$.evented_dispatch.recovery_candidate_reason',
+        COALESCE(
+          json_extract(context, '$.evented_dispatch.recovery_candidate_reason'),
+          ?
+        )
+      )
+      WHERE id = ?
+        AND status = 'running'
+        AND json_extract(context, '$.evented_dispatch.execution_mode') = 'evented'
+        AND json_extract(context, '$.evented_dispatch.result_continuation_applied') = 0
+        AND COALESCE(json_extract(context, '$.evented_dispatch.recovery_candidate'), 0) = 0
+    `);
+
+    const result = markStmt.run(markedAt, reason, id);
+    const run = this.getRun(id);
+
+    if (result.changes > 0) {
+      return {
+        status: 'marked',
+        markedAt,
+        reason,
+        run,
+      };
+    }
+
+    if (!run) {
+      return { status: 'run_not_found' };
+    }
+
+    const checkpoint = this.readEventedDispatchCheckpoint(run);
+    if (!checkpoint) {
+      return {
+        status: 'missing_evented_dispatch',
+        run,
+      };
+    }
+
+    if (run.status !== 'running') {
+      return {
+        status: 'already_terminal',
+        run,
+      };
+    }
+
+    if (checkpoint.resultContinuationApplied === true) {
+      return {
+        status: 'already_applied',
+        run,
+      };
+    }
+
+    if (checkpoint.recoveryCandidate === true) {
+      return {
+        status: 'already_marked',
+        markedAt: checkpoint.recoveryCandidateMarkedAt,
+        reason:
+          checkpoint.recoveryCandidateReason === 'manual_operator_mark'
+            ? checkpoint.recoveryCandidateReason
+            : undefined,
+        run,
+      };
+    }
+
+    return {
+      status: 'missing_evented_dispatch',
+      run,
+    };
+  }
+
   private computeErrorSignature(error_message: string): string {
     const normalized = error_message
       .replace(/\/[^\s]+/g, '<PATH>')
@@ -794,6 +890,24 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     const stmt = this.db.prepare('SELECT * FROM runs WHERE id = ?');
     const row = stmt.get(id) as RunRow | undefined;
     return row ? this.parseRunRow(row) : undefined;
+  }
+
+  getRunInspection(id: string): RunInspectionRecord | undefined {
+    const stmt = this.db.prepare(`
+      SELECT
+        runs.*,
+        work_items.status AS work_item_status,
+        work_items.updated_at AS work_item_updated_at
+      FROM runs
+      INNER JOIN work_items ON work_items.id = runs.work_item_id
+      WHERE runs.id = ?
+    `);
+    const row = stmt.get(id) as RunInspectionRow | undefined;
+    if (!row) {
+      return undefined;
+    }
+
+    return this.toRunInspectionRecord(row);
   }
 
   getRunsByWorkItem(work_item_id: string): Run[] {
@@ -905,6 +1019,15 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
   }
 
   private toEventedRunInspectionRecord(row: EventedRunInspectionRow): EventedRunInspectionRecord {
+    const inspection = this.toRunInspectionRecord(row);
+
+    return {
+      ...inspection,
+      executionMode: 'evented',
+    };
+  }
+
+  private toRunInspectionRecord(row: RunInspectionRow): RunInspectionRecord {
     const run = this.parseRunRow(row);
     const checkpoint = this.readEventedDispatchCheckpoint(run);
 
@@ -912,13 +1035,16 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
       run,
       workItemStatus: row.work_item_status,
       workItemUpdatedAt: row.work_item_updated_at,
-      executionMode: 'evented',
+      executionMode: checkpoint ? 'evented' : 'direct',
       laneId: checkpoint?.laneId,
       dispatchedAt: checkpoint?.dispatchedAt,
       resultContinuationApplied: checkpoint?.resultContinuationApplied ?? false,
       resultContinuationAppliedAt: checkpoint?.resultContinuationAppliedAt,
       orphanClassification: checkpoint?.orphanClassification,
       orphanDetectedAt: checkpoint?.orphanDetectedAt,
+      recoveryCandidate: checkpoint?.recoveryCandidate,
+      recoveryCandidateMarkedAt: checkpoint?.recoveryCandidateMarkedAt,
+      recoveryCandidateReason: checkpoint?.recoveryCandidateReason,
     };
   }
 
@@ -929,6 +1055,9 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     resultContinuationAppliedAt?: number;
     orphanClassification?: string;
     orphanDetectedAt?: number;
+    recoveryCandidate?: boolean;
+    recoveryCandidateMarkedAt?: number;
+    recoveryCandidateReason?: string;
   } | null {
     const eventedDispatch = run.context?.evented_dispatch;
     if (!eventedDispatch || typeof eventedDispatch !== 'object' || Array.isArray(eventedDispatch)) {
@@ -954,6 +1083,18 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
       orphanDetectedAt:
         typeof checkpoint.orphan_detected_at === 'number'
           ? checkpoint.orphan_detected_at
+          : undefined,
+      recoveryCandidate:
+        typeof checkpoint.recovery_candidate === 'boolean'
+          ? checkpoint.recovery_candidate
+          : undefined,
+      recoveryCandidateMarkedAt:
+        typeof checkpoint.recovery_candidate_marked_at === 'number'
+          ? checkpoint.recovery_candidate_marked_at
+          : undefined,
+      recoveryCandidateReason:
+        typeof checkpoint.recovery_candidate_reason === 'string'
+          ? checkpoint.recovery_candidate_reason
           : undefined,
     };
   }

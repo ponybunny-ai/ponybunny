@@ -27,6 +27,7 @@ import { getSchedulerConfiguredProviderIds } from '../lib/scheduler-provider-dis
 import type {
   EventedRunInspectionRecord,
   EventedRunReconciliationSummary,
+  RunInspectionRecord,
 } from '../../infra/persistence/repository-interface.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -213,6 +214,27 @@ function printEventedSummary(dbPath: string, summary: EventedRunReconciliationSu
   console.log(`- stale_orphaned: ${summary.staleOrphaned}`);
   console.log(`- continuation_applied: ${summary.continuationApplied}`);
   console.log(`- already_terminal: ${summary.alreadyTerminal}`);
+}
+
+function printRunInspection(dbPath: string, record: RunInspectionRecord): void {
+  console.log(chalk.bold('\nRun Inspection'));
+  console.log(`- Database: ${dbPath}`);
+  console.log(`- runId: ${record.run.id}`);
+  console.log(`- goalId: ${record.run.goal_id}`);
+  console.log(`- workItemId: ${record.run.work_item_id}`);
+  console.log(`- runStatus: ${record.run.status}`);
+  console.log(`- workItemStatus: ${record.workItemStatus}`);
+  console.log(`- executionMode: ${record.executionMode}`);
+  console.log(`- lane: ${formatOptional(record.laneId)}`);
+  console.log(`- dispatchedAt: ${formatTimestamp(record.dispatchedAt)}`);
+  console.log(`- age: ${formatAgeFrom(record.dispatchedAt)}`);
+  console.log(`- resultContinuationApplied: ${record.resultContinuationApplied}`);
+  console.log(`- resultContinuationAppliedAt: ${formatTimestamp(record.resultContinuationAppliedAt)}`);
+  console.log(`- orphanClassification: ${formatOptional(record.orphanClassification)}`);
+  console.log(`- orphanDetectedAt: ${formatTimestamp(record.orphanDetectedAt)}`);
+  console.log(`- recoveryCandidate: ${formatOptional(record.recoveryCandidate)}`);
+  console.log(`- recoveryCandidateMarkedAt: ${formatTimestamp(record.recoveryCandidateMarkedAt)}`);
+  console.log(`- recoveryCandidateReason: ${formatOptional(record.recoveryCandidateReason)}`);
 }
 
 async function runScheduler(
@@ -607,6 +629,25 @@ export const schedulerCommand = new Command('scheduler')
       })
   )
   .addCommand(
+    new Command('inspect-run')
+      .description('Inspect one durable run record for manual recovery review')
+      .argument('<runId>', 'Run ID to inspect')
+      .option('--db <path>', 'Database path (defaults to running scheduler DB or configured path)')
+      .action(async (runId: string, options: { db?: string }) => {
+        const dbPath = resolveSchedulerDbPath(options.db);
+        const record = await withSchedulerRepository(dbPath, (repository) =>
+          repository.getRunInspection(runId)
+        );
+
+        if (!record) {
+          console.log(chalk.red(`Run not found: ${runId}`));
+          process.exit(1);
+        }
+
+        printRunInspection(dbPath, record);
+      })
+  )
+  .addCommand(
     new Command('in-flight')
       .description('Inspect durable evented in-flight reconciliation records')
       .option('--db <path>', 'Database path (defaults to running scheduler DB or configured path)')
@@ -640,6 +681,49 @@ export const schedulerCommand = new Command('scheduler')
           repository.getEventedRunReconciliationSummary()
         );
         printEventedSummary(dbPath, summary);
+      })
+  )
+  .addCommand(
+    new Command('mark-recovery-candidate')
+      .description('Durably mark one evented run as a manual recovery candidate')
+      .argument('<runId>', 'Run ID to mark')
+      .option('--db <path>', 'Database path (defaults to running scheduler DB or configured path)')
+      .action(async (runId: string, options: { db?: string }) => {
+        const dbPath = resolveSchedulerDbPath(options.db);
+        const result = await withSchedulerRepository(dbPath, (repository) =>
+          repository.markEventedRunRecoveryCandidate(runId)
+        );
+
+        if (result.status === 'marked') {
+          console.log(chalk.green(`Recovery candidate marked for run ${runId}.`));
+        } else if (result.status === 'already_marked') {
+          console.log(chalk.yellow(`Recovery candidate already marked for run ${runId}.`));
+        } else if (result.status === 'run_not_found') {
+          console.log(chalk.red(`Run not found: ${runId}`));
+          process.exit(1);
+        } else {
+          console.log(
+            chalk.red(
+              `Could not mark run ${runId} as a recovery candidate (${result.status}).`
+            )
+          );
+          if (result.run) {
+            const record = await withSchedulerRepository(dbPath, (repository) =>
+              repository.getRunInspection(runId)
+            );
+            if (record) {
+              printRunInspection(dbPath, record);
+            }
+          }
+          process.exit(1);
+        }
+
+        const record = await withSchedulerRepository(dbPath, (repository) =>
+          repository.getRunInspection(runId)
+        );
+        if (record) {
+          printRunInspection(dbPath, record);
+        }
       })
   )
   .addCommand(

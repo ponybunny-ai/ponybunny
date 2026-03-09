@@ -8,6 +8,9 @@ export interface EventedDispatchCheckpoint {
   result_continuation_applied_at?: number;
   orphan_classification?: 'stale_timeout';
   orphan_detected_at?: number;
+  recovery_candidate?: boolean;
+  recovery_candidate_marked_at?: number;
+  recovery_candidate_reason?: 'manual_operator_mark';
 }
 
 export type EventedStartupReconciliationClassification =
@@ -44,6 +47,9 @@ export function buildEventedDispatchCheckpoint(params: {
   resultContinuationAppliedAt?: number;
   orphanClassification?: 'stale_timeout';
   orphanDetectedAt?: number;
+  recoveryCandidate?: boolean;
+  recoveryCandidateMarkedAt?: number;
+  recoveryCandidateReason?: 'manual_operator_mark';
 }): EventedDispatchCheckpoint {
   return {
     execution_mode: 'evented',
@@ -53,6 +59,9 @@ export function buildEventedDispatchCheckpoint(params: {
     result_continuation_applied_at: params.resultContinuationAppliedAt,
     orphan_classification: params.orphanClassification,
     orphan_detected_at: params.orphanDetectedAt,
+    recovery_candidate: params.recoveryCandidate,
+    recovery_candidate_marked_at: params.recoveryCandidateMarkedAt,
+    recovery_candidate_reason: params.recoveryCandidateReason,
   };
 }
 
@@ -94,6 +103,27 @@ export function readEventedDispatchCheckpoint(
   if (
     checkpoint.orphan_detected_at !== undefined &&
     typeof checkpoint.orphan_detected_at !== 'number'
+  ) {
+    return null;
+  }
+
+  if (
+    checkpoint.recovery_candidate !== undefined &&
+    typeof checkpoint.recovery_candidate !== 'boolean'
+  ) {
+    return null;
+  }
+
+  if (
+    checkpoint.recovery_candidate_marked_at !== undefined &&
+    typeof checkpoint.recovery_candidate_marked_at !== 'number'
+  ) {
+    return null;
+  }
+
+  if (
+    checkpoint.recovery_candidate_reason !== undefined &&
+    checkpoint.recovery_candidate_reason !== 'manual_operator_mark'
   ) {
     return null;
   }

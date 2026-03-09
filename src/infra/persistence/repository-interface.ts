@@ -28,12 +28,17 @@ export interface IWorkOrderRepository {
   
   createRun(params: CreateRunParams): Run;
   getRun(id: string): Run | undefined;
+  getRunInspection(id: string): RunInspectionRecord | undefined;
   mergeRunContext(id: string, contextPatch: Record<string, unknown>): void;
   claimEventedResultContinuation(id: string, appliedAt?: number): EventedResultContinuationClaim;
   markEventedRunOrphaned(
     id: string,
     params: MarkEventedRunOrphanedParams
   ): EventedRunOrphanMarkResult;
+  markEventedRunRecoveryCandidate(
+    id: string,
+    params?: MarkEventedRunRecoveryCandidateParams
+  ): EventedRunRecoveryCandidateMarkResult;
   completeRun(id: string, params: CompleteRunParams): void;
   getRunsByWorkItem(workItemId: string): Run[];
   listInFlightRunReconciliationCandidates(): InFlightRunReconciliationCandidate[];
@@ -181,6 +186,25 @@ export interface EventedRunInspectionRecord {
   resultContinuationAppliedAt?: number;
   orphanClassification?: string;
   orphanDetectedAt?: number;
+  recoveryCandidate?: boolean;
+  recoveryCandidateMarkedAt?: number;
+  recoveryCandidateReason?: string;
+}
+
+export interface RunInspectionRecord {
+  run: Run;
+  workItemStatus: WorkItem['status'];
+  workItemUpdatedAt: number;
+  executionMode: 'direct' | 'evented';
+  laneId?: string;
+  dispatchedAt?: number;
+  resultContinuationApplied: boolean;
+  resultContinuationAppliedAt?: number;
+  orphanClassification?: string;
+  orphanDetectedAt?: number;
+  recoveryCandidate?: boolean;
+  recoveryCandidateMarkedAt?: number;
+  recoveryCandidateReason?: string;
 }
 
 export interface EventedRunReconciliationSummary {
@@ -201,6 +225,26 @@ export interface CreateArtifactParams {
   file_path?: string;
   content?: string;
   blob_path?: string;
+}
+
+export interface MarkEventedRunRecoveryCandidateParams {
+  markedAt?: number;
+  reason?: 'manual_operator_mark';
+}
+
+export type EventedRunRecoveryCandidateMarkStatus =
+  | 'marked'
+  | 'already_marked'
+  | 'already_applied'
+  | 'already_terminal'
+  | 'missing_evented_dispatch'
+  | 'run_not_found';
+
+export interface EventedRunRecoveryCandidateMarkResult {
+  status: EventedRunRecoveryCandidateMarkStatus;
+  markedAt?: number;
+  reason?: 'manual_operator_mark';
+  run?: Run;
 }
 
 export interface CreateDecisionParams {
