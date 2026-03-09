@@ -125,6 +125,11 @@ describe('LocalToolWorker', () => {
             correlationMatched: true,
             duplicateSuppressed: false,
             duplicateDispatchCount: 0,
+            timedOut: false,
+            lateCompletionObserved: false,
+            lateCompletionCount: 0,
+            invalidCompletionObserved: false,
+            mismatchedCompletionObserved: false,
           }),
         },
       }),
@@ -150,9 +155,15 @@ describe('LocalToolWorker', () => {
           inspection: expect.objectContaining({
             toolRequestId: request.toolRequestId,
             outcome: 'success',
+            terminalPath: 'tool_completed',
             correlationMatched: true,
             duplicateSuppressed: false,
             duplicateDispatchCount: 0,
+            timedOut: false,
+            lateCompletionObserved: false,
+            lateCompletionCount: 0,
+            invalidCompletionObserved: false,
+            mismatchedCompletionObserved: false,
           }),
         },
       }),
@@ -211,8 +222,12 @@ describe('LocalToolWorker', () => {
           inspection: expect.objectContaining({
             toolRequestId: request.toolRequestId,
             outcome: 'failure',
+            terminalPath: 'tool_failed_result',
             correlationMatched: true,
             failureCode: 'TOOL_EXECUTION_FAILED',
+            timedOut: false,
+            invalidCompletionObserved: false,
+            mismatchedCompletionObserved: false,
           }),
         },
       }),
@@ -317,9 +332,14 @@ describe('LocalToolWorker', () => {
           state: 'resolved',
           terminal: expect.objectContaining({
             outcome: 'failure',
+            terminalPath: 'tool_timeout',
             success: false,
             failureCode: 'TOOL_EXECUTION_TIMEOUT',
             ignoredCompletionCount: 0,
+            timedOut: true,
+            lateCompletionObserved: false,
+            invalidCompletionObserved: false,
+            mismatchedCompletionObserved: false,
           }),
         }),
       ],
@@ -382,6 +402,14 @@ describe('LocalToolWorker', () => {
         type: 'tool.failed',
         source: TOOL_WORKER_SOURCE,
         toolRequestId: request.toolRequestId,
+        payload: expect.objectContaining({
+          inspection: expect.objectContaining({
+            outcome: 'invalid',
+            terminalPath: 'tool_invalid_result',
+            invalidCompletionObserved: true,
+            mismatchedCompletionObserved: true,
+          }),
+        }),
       }),
     ]));
   });
@@ -420,8 +448,11 @@ describe('LocalToolWorker', () => {
         payload: expect.objectContaining({
           inspection: expect.objectContaining({
             outcome: 'invalid',
+            terminalPath: 'tool_invalid_request',
             correlationMatched: false,
             failureCode: 'TOOL_REQUEST_INVALID',
+            invalidCompletionObserved: true,
+            mismatchedCompletionObserved: false,
           }),
         }),
       }),
@@ -489,14 +520,31 @@ describe('LocalToolWorker', () => {
     expect(events.filter((event) => event.type === 'tool.started')).toHaveLength(1);
     expect(events.filter((event) => event.type === 'tool.completed')).toHaveLength(1);
     expect(worker.inspect()).toEqual({
+      summary: {
+        totalRequests: 1,
+        inFlightCount: 0,
+        recentCount: 1,
+        successCount: 1,
+        failureCount: 0,
+        invalidCount: 0,
+        timedOutCount: 0,
+        lateCompletionObservedCount: 0,
+        ignoredLateCompletionCount: 0,
+        duplicateSuppressedCount: 1,
+        invalidCompletionCount: 0,
+        mismatchedCompletionCount: 0,
+      },
       inFlight: [],
       recent: [
         expect.objectContaining({
           toolRequestId: request.toolRequestId,
           outcome: 'success',
+          terminalPath: 'tool_completed',
           duplicateSuppressed: true,
           duplicateDispatchCount: 1,
           correlationMatched: true,
+          lateCompletionObserved: false,
+          lateCompletionCount: 0,
         }),
       ],
     });
@@ -548,9 +596,39 @@ describe('LocalToolWorker', () => {
           toolRequestId: request.toolRequestId,
           terminal: expect.objectContaining({
             outcome: 'failure',
+            terminalPath: 'tool_timeout',
             failureCode: 'TOOL_EXECUTION_TIMEOUT',
             ignoredCompletionCount: 1,
+            timedOut: true,
+            lateCompletionObserved: true,
           }),
+        }),
+      ],
+    });
+    expect(worker.inspect()).toEqual({
+      summary: {
+        totalRequests: 1,
+        inFlightCount: 0,
+        recentCount: 1,
+        successCount: 0,
+        failureCount: 1,
+        invalidCount: 0,
+        timedOutCount: 1,
+        lateCompletionObservedCount: 1,
+        ignoredLateCompletionCount: 1,
+        duplicateSuppressedCount: 0,
+        invalidCompletionCount: 0,
+        mismatchedCompletionCount: 0,
+      },
+      inFlight: [],
+      recent: [
+        expect.objectContaining({
+          toolRequestId: request.toolRequestId,
+          outcome: 'failure',
+          terminalPath: 'tool_timeout',
+          timedOut: true,
+          lateCompletionObserved: true,
+          lateCompletionCount: 1,
         }),
       ],
     });
@@ -603,7 +681,9 @@ describe('LocalToolWorker', () => {
           state: 'resolved',
           terminal: expect.objectContaining({
             outcome: 'success',
+            terminalPath: 'tool_completed',
             success: true,
+            timedOut: false,
           }),
         }),
       ],
@@ -688,6 +768,20 @@ describe('LocalToolWorker', () => {
     await worker.dispatch(secondRequest);
 
     expect(worker.inspect()).toEqual({
+      summary: {
+        totalRequests: 2,
+        inFlightCount: 0,
+        recentCount: 2,
+        successCount: 1,
+        failureCount: 1,
+        invalidCount: 0,
+        timedOutCount: 0,
+        lateCompletionObservedCount: 0,
+        ignoredLateCompletionCount: 0,
+        duplicateSuppressedCount: 0,
+        invalidCompletionCount: 0,
+        mismatchedCompletionCount: 0,
+      },
       inFlight: [],
       recent: [
         expect.objectContaining({
@@ -697,6 +791,7 @@ describe('LocalToolWorker', () => {
           toolCallId: firstRequest.toolCallId,
           toolName: firstRequest.toolName,
           outcome: 'success',
+          terminalPath: 'tool_completed',
           correlationMatched: true,
           duplicateSuppressed: false,
         }),
@@ -707,6 +802,7 @@ describe('LocalToolWorker', () => {
           toolCallId: secondRequest.toolCallId,
           toolName: secondRequest.toolName,
           outcome: 'failure',
+          terminalPath: 'tool_failed_result',
           correlationMatched: true,
           failureCode: 'TOOL_EXECUTION_FAILED',
           failureMessage: 'broken',

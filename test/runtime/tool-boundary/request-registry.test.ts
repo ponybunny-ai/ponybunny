@@ -72,7 +72,9 @@ describe('ToolRequestRegistry', () => {
     expect(duplicate.promise).toBe(first.promise);
 
     const successResult = createResult(request);
-    expect(first.owner.resolveSuccess(successResult)).toBe(true);
+    expect(first.owner.resolveSuccess(successResult, {
+      terminalPath: 'tool_completed',
+    })).toBe(true);
     expect(first.owner.resolveFailure(createResult(request, {
       success: false,
       error: {
@@ -91,8 +93,13 @@ describe('ToolRequestRegistry', () => {
           state: 'resolved',
           terminal: expect.objectContaining({
             outcome: 'success',
+            terminalPath: 'tool_completed',
             success: true,
             ignoredCompletionCount: 1,
+            lateCompletionObserved: true,
+            timedOut: false,
+            invalidCompletionObserved: false,
+            mismatchedCompletionObserved: false,
           }),
         }),
       ],

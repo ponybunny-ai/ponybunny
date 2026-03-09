@@ -11,6 +11,7 @@ export {
   ToolRequestResolutionOwner,
   type ToolRequestRegistryState,
   type ToolRequestTerminalOutcome,
+  type ToolRequestTerminalPath,
   type ToolRequestIdentitySnapshot,
   type ToolRequestTerminalMetadata,
   type ToolRequestRegistryEntrySnapshot,

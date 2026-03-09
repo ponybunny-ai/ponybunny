@@ -2,6 +2,13 @@ import type { ToolFailure, ToolRequest, ToolResult } from './types.js';
 
 export type ToolRequestRegistryState = 'pending' | 'resolved';
 export type ToolRequestTerminalOutcome = 'success' | 'failure' | 'invalid';
+export type ToolRequestTerminalPath =
+  | 'tool_completed'
+  | 'tool_failed_result'
+  | 'tool_invalid_request'
+  | 'tool_invalid_result'
+  | 'tool_timeout'
+  | 'tool_worker_exception';
 
 export interface ToolRequestIdentitySnapshot {
   toolRequestId: string;
@@ -14,11 +21,16 @@ export interface ToolRequestIdentitySnapshot {
 
 export interface ToolRequestTerminalMetadata {
   outcome: ToolRequestTerminalOutcome;
+  terminalPath: ToolRequestTerminalPath;
   resolvedAt: number;
   success: boolean;
   failureCode?: string;
   failureMessage?: string;
   ignoredCompletionCount: number;
+  timedOut: boolean;
+  lateCompletionObserved: boolean;
+  invalidCompletionObserved: boolean;
+  mismatchedCompletionObserved: boolean;
 }
 
 export interface ToolRequestRegistryEntrySnapshot extends ToolRequestIdentitySnapshot {
@@ -57,24 +69,35 @@ interface ToolRequestRegistryEntry extends ToolRequestIdentitySnapshot {
   resolve: (result: ToolResult) => void;
 }
 
+interface ToolRequestResolutionMetadata {
+  terminalPath: ToolRequestTerminalPath;
+  timedOut?: boolean;
+  invalidCompletionObserved?: boolean;
+  mismatchedCompletionObserved?: boolean;
+}
+
 export class ToolRequestResolutionOwner {
   private active = true;
 
   constructor(private readonly entry: ToolRequestRegistryEntry) {}
 
-  resolveSuccess(result: ToolResult): boolean {
-    return this.resolveTerminal(result, 'success');
+  resolveSuccess(result: ToolResult, metadata?: ToolRequestResolutionMetadata): boolean {
+    return this.resolveTerminal(result, 'success', metadata);
   }
 
-  resolveFailure(result: ToolResult): boolean {
-    return this.resolveTerminal(result, 'failure');
+  resolveFailure(result: ToolResult, metadata?: ToolRequestResolutionMetadata): boolean {
+    return this.resolveTerminal(result, 'failure', metadata);
   }
 
-  resolveInvalid(result: ToolResult): boolean {
-    return this.resolveTerminal(result, 'invalid');
+  resolveInvalid(result: ToolResult, metadata?: ToolRequestResolutionMetadata): boolean {
+    return this.resolveTerminal(result, 'invalid', metadata);
   }
 
-  private resolveTerminal(result: ToolResult, outcome: ToolRequestTerminalOutcome): boolean {
+  private resolveTerminal(
+    result: ToolResult,
+    outcome: ToolRequestTerminalOutcome,
+    metadata?: ToolRequestResolutionMetadata
+  ): boolean {
     if (!this.active) {
       this.recordIgnoredCompletion();
       return false;
@@ -89,11 +112,16 @@ export class ToolRequestResolutionOwner {
     this.entry.state = 'resolved';
     this.entry.terminal = {
       outcome,
+      terminalPath: metadata?.terminalPath ?? 'tool_failed_result',
       resolvedAt: Date.now(),
       success: result.success,
       failureCode: result.error?.code,
       failureMessage: result.error?.message,
       ignoredCompletionCount: 0,
+      timedOut: metadata?.timedOut ?? false,
+      lateCompletionObserved: false,
+      invalidCompletionObserved: metadata?.invalidCompletionObserved ?? false,
+      mismatchedCompletionObserved: metadata?.mismatchedCompletionObserved ?? false,
     };
     this.entry.resolve(result);
     return true;
@@ -105,6 +133,7 @@ export class ToolRequestResolutionOwner {
     }
 
     this.entry.terminal.ignoredCompletionCount += 1;
+    this.entry.terminal.lateCompletionObserved = true;
   }
 }
 

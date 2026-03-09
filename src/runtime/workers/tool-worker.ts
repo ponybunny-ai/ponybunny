@@ -8,6 +8,7 @@ import {
   type ToolRequest,
   type ToolResult,
   type ToolRequestResolutionOwner,
+  type ToolRequestTerminalPath,
 } from '../tool-boundary/index.js';
 
 export const TOOL_WORKER_SOURCE = 'local-tool-worker';
@@ -68,13 +69,35 @@ export interface ToolWorkerInspectionRecord {
   correlationMatched: boolean;
   duplicateSuppressed: boolean;
   duplicateDispatchCount: number;
+  terminalPath?: ToolRequestTerminalPath;
+  timedOut: boolean;
+  lateCompletionObserved: boolean;
+  lateCompletionCount: number;
+  invalidCompletionObserved: boolean;
+  mismatchedCompletionObserved: boolean;
   dispatchedAt: number;
   completedAt?: number;
   failureCode?: string;
   failureMessage?: string;
 }
 
+export interface ToolWorkerInspectionSummary {
+  totalRequests: number;
+  inFlightCount: number;
+  recentCount: number;
+  successCount: number;
+  failureCount: number;
+  invalidCount: number;
+  timedOutCount: number;
+  lateCompletionObservedCount: number;
+  ignoredLateCompletionCount: number;
+  duplicateSuppressedCount: number;
+  invalidCompletionCount: number;
+  mismatchedCompletionCount: number;
+}
+
 export interface ToolWorkerInspectionSnapshot {
+  summary: ToolWorkerInspectionSummary;
   inFlight: ToolWorkerInspectionRecord[];
   recent: ToolWorkerInspectionRecord[];
 }
@@ -172,7 +195,7 @@ export class LocalToolWorker {
       executionStarted = true;
       const result = await this.toolPort.execute(request);
       if (timeoutState.timedOut) {
-        owner.recordIgnoredCompletion();
+        this.recordLateCompletion(owner, inspection);
         return;
       }
 
@@ -180,7 +203,9 @@ export class LocalToolWorker {
       const normalizedResult = this.normalizeResult(request, result, inspection);
 
       if (normalizedResult.success) {
-        this.completeInspection(inspection, 'success');
+        this.completeInspection(inspection, 'success', undefined, {
+          terminalPath: 'tool_completed',
+        });
         try {
           await this.publish('tool.completed', {
             request,
@@ -190,12 +215,18 @@ export class LocalToolWorker {
           } satisfies ToolWorkerCompletedPayload);
         } catch (error) {
           const failedResult = this.buildWorkerExceptionResult(request, error);
-          this.completeInspection(inspection, 'failure', failedResult.error);
-          owner.resolveFailure(failedResult);
+          this.completeInspection(inspection, 'failure', failedResult.error, {
+            terminalPath: 'tool_worker_exception',
+          });
+          owner.resolveFailure(failedResult, {
+            terminalPath: 'tool_worker_exception',
+          });
           return;
         }
 
-        owner.resolveSuccess(normalizedResult);
+        owner.resolveSuccess(normalizedResult, {
+          terminalPath: 'tool_completed',
+        });
         return;
       }
 
@@ -204,7 +235,16 @@ export class LocalToolWorker {
         normalizedResult.error?.code === 'TOOL_RESULT_MISMATCH' || normalizedResult.error?.code === 'TOOL_RESULT_INVALID'
           ? 'invalid'
           : 'failure',
-        normalizedResult.error
+        normalizedResult.error,
+        {
+          terminalPath:
+            normalizedResult.error?.code === 'TOOL_RESULT_MISMATCH' || normalizedResult.error?.code === 'TOOL_RESULT_INVALID'
+              ? 'tool_invalid_result'
+              : 'tool_failed_result',
+          invalidCompletionObserved:
+            normalizedResult.error?.code === 'TOOL_RESULT_MISMATCH' || normalizedResult.error?.code === 'TOOL_RESULT_INVALID',
+          mismatchedCompletionObserved: normalizedResult.error?.code === 'TOOL_RESULT_MISMATCH',
+        }
       );
       try {
         await this.publish('tool.failed', {
@@ -216,8 +256,12 @@ export class LocalToolWorker {
         } satisfies ToolWorkerFailedPayload);
       } catch (error) {
         const failedResult = this.buildWorkerExceptionResult(request, error);
-        this.completeInspection(inspection, 'failure', failedResult.error);
-        owner.resolveFailure(failedResult);
+        this.completeInspection(inspection, 'failure', failedResult.error, {
+          terminalPath: 'tool_worker_exception',
+        });
+        owner.resolveFailure(failedResult, {
+          terminalPath: 'tool_worker_exception',
+        });
         return;
       }
 
@@ -225,22 +269,30 @@ export class LocalToolWorker {
         normalizedResult.error?.code === 'TOOL_RESULT_MISMATCH'
         || normalizedResult.error?.code === 'TOOL_RESULT_INVALID'
       ) {
-        owner.resolveInvalid(normalizedResult);
+        owner.resolveInvalid(normalizedResult, {
+          terminalPath: 'tool_invalid_result',
+          invalidCompletionObserved: true,
+          mismatchedCompletionObserved: normalizedResult.error?.code === 'TOOL_RESULT_MISMATCH',
+        });
       } else {
-        owner.resolveFailure(normalizedResult);
+        owner.resolveFailure(normalizedResult, {
+          terminalPath: 'tool_failed_result',
+        });
       }
       return;
     } catch (error) {
       if (timeoutState.timedOut) {
         if (executionStarted) {
-          owner.recordIgnoredCompletion();
+          this.recordLateCompletion(owner, inspection);
         }
         return;
       }
 
       this.clearLocalTimeout(timeoutState);
       const failedResult = this.buildWorkerExceptionResult(request, error);
-      this.completeInspection(inspection, 'failure', failedResult.error);
+      this.completeInspection(inspection, 'failure', failedResult.error, {
+        terminalPath: 'tool_worker_exception',
+      });
 
       try {
         await this.publish('tool.failed', {
@@ -254,7 +306,9 @@ export class LocalToolWorker {
         // The await-based caller contract must still terminate even if diagnostics publication fails.
       }
 
-      owner.resolveFailure(failedResult);
+      owner.resolveFailure(failedResult, {
+        terminalPath: 'tool_worker_exception',
+      });
     }
   }
 
@@ -279,8 +333,14 @@ export class LocalToolWorker {
       timeoutState.timedOut = true;
 
       const timedOutResult = this.buildLocalTimeoutResult(request);
-      this.completeInspection(inspection, 'failure', timedOutResult.error);
-      owner.resolveFailure(timedOutResult);
+      this.completeInspection(inspection, 'failure', timedOutResult.error, {
+        terminalPath: 'tool_timeout',
+        timedOut: true,
+      });
+      owner.resolveFailure(timedOutResult, {
+        terminalPath: 'tool_timeout',
+        timedOut: true,
+      });
 
       void this.publish('tool.failed', {
         request,
@@ -314,6 +374,7 @@ export class LocalToolWorker {
       .map((record) => this.cloneInspection(record));
 
     return {
+      summary: this.buildInspectionSummary(records),
       inFlight: records.filter((record) => record.outcome === 'in_flight'),
       recent: records.filter((record) => record.outcome !== 'in_flight'),
     };
@@ -361,6 +422,11 @@ export class LocalToolWorker {
       correlationMatched: true,
       duplicateSuppressed: false,
       duplicateDispatchCount: 0,
+      timedOut: false,
+      lateCompletionObserved: false,
+      lateCompletionCount: 0,
+      invalidCompletionObserved: false,
+      mismatchedCompletionObserved: false,
       dispatchedAt: Date.now(),
       sequence: this.inspectionSequence++,
     };
@@ -372,12 +438,48 @@ export class LocalToolWorker {
   private completeInspection(
     inspection: ToolWorkerMutableInspectionRecord,
     outcome: Exclude<ToolWorkerInspectionOutcome, 'in_flight'>,
-    error?: ToolFailure
+    error?: ToolFailure,
+    metadata?: {
+      terminalPath: ToolRequestTerminalPath;
+      timedOut?: boolean;
+      invalidCompletionObserved?: boolean;
+      mismatchedCompletionObserved?: boolean;
+    }
   ): void {
     inspection.outcome = outcome;
+    inspection.terminalPath = metadata?.terminalPath;
+    inspection.timedOut = metadata?.timedOut ?? false;
+    inspection.invalidCompletionObserved = metadata?.invalidCompletionObserved ?? false;
+    inspection.mismatchedCompletionObserved = metadata?.mismatchedCompletionObserved ?? false;
     inspection.completedAt = Date.now();
     inspection.failureCode = error?.code;
     inspection.failureMessage = error?.message;
+  }
+
+  private recordLateCompletion(
+    owner: ToolRequestResolutionOwner,
+    inspection: ToolWorkerMutableInspectionRecord
+  ): void {
+    owner.recordIgnoredCompletion();
+    inspection.lateCompletionObserved = true;
+    inspection.lateCompletionCount += 1;
+  }
+
+  private buildInspectionSummary(records: ToolWorkerInspectionRecord[]): ToolWorkerInspectionSummary {
+    return {
+      totalRequests: records.length,
+      inFlightCount: records.filter((record) => record.outcome === 'in_flight').length,
+      recentCount: records.filter((record) => record.outcome !== 'in_flight').length,
+      successCount: records.filter((record) => record.outcome === 'success').length,
+      failureCount: records.filter((record) => record.outcome === 'failure').length,
+      invalidCount: records.filter((record) => record.outcome === 'invalid').length,
+      timedOutCount: records.filter((record) => record.timedOut).length,
+      lateCompletionObservedCount: records.filter((record) => record.lateCompletionObserved).length,
+      ignoredLateCompletionCount: records.reduce((count, record) => count + record.lateCompletionCount, 0),
+      duplicateSuppressedCount: records.filter((record) => record.duplicateSuppressed).length,
+      invalidCompletionCount: records.filter((record) => record.invalidCompletionObserved).length,
+      mismatchedCompletionCount: records.filter((record) => record.mismatchedCompletionObserved).length,
+    };
   }
 
   private cloneInspection(record: ToolWorkerInspectionRecord): ToolWorkerInspectionRecord {
@@ -423,7 +525,10 @@ export class LocalToolWorker {
   ): Promise<ToolResult> {
     const failedResult = this.buildFailedResult(request, error);
     inspection.correlationMatched = false;
-    this.completeInspection(inspection, 'invalid', error);
+    this.completeInspection(inspection, 'invalid', error, {
+      terminalPath: 'tool_invalid_request',
+      invalidCompletionObserved: true,
+    });
 
     try {
       await this.publish('tool.failed', {
@@ -450,9 +555,14 @@ export class LocalToolWorker {
   ): Promise<ToolResult> {
     const failedResult = await this.failInvalidRequest(request, inspection, error);
     if (failedResult.error?.code === 'TOOL_WORKER_EXCEPTION') {
-      owner.resolveFailure(failedResult);
+      owner.resolveFailure(failedResult, {
+        terminalPath: 'tool_worker_exception',
+      });
     } else {
-      owner.resolveInvalid(failedResult);
+      owner.resolveInvalid(failedResult, {
+        terminalPath: 'tool_invalid_request',
+        invalidCompletionObserved: true,
+      });
     }
     return failedResult;
   }

@@ -7,6 +7,7 @@ export {
   type ToolWorkerEventContext,
   type ToolWorkerInspectionOutcome,
   type ToolWorkerInspectionRecord,
+  type ToolWorkerInspectionSummary,
   type ToolWorkerInspectionSnapshot,
   type ToolWorkerRequestedPayload,
   type ToolWorkerStartedPayload,
