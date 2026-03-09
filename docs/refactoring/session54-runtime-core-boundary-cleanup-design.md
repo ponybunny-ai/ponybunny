@@ -30,6 +30,42 @@ Session 53 explicitly moved the refactor focus away from local worker seam extra
 | LLM runtime depends on gateway singleton | [`src/infra/llm/provider-manager/provider-manager.ts`](/Users/nickma/Develop/nick-ma/pony/src/infra/llm/provider-manager/provider-manager.ts#L17), [`src/gateway/events/event-bus.ts`](/Users/nickma/Develop/nick-ma/pony/src/gateway/events/event-bus.ts#L123) | The provider manager imports the global `gatewayEventBus` directly, which pulls gateway transport concerns into infra/runtime LLM code and makes non-gateway reuse harder. | dependency-direction, singleton/global-state |
 | Temporary runtime event bus singleton | [`src/runtime/event-bus/runtime-event-bus.ts`](/Users/nickma/Develop/nick-ma/pony/src/runtime/event-bus/runtime-event-bus.ts#L1), [`src/gateway/integration/scheduler-factory.ts`](/Users/nickma/Develop/nick-ma/pony/src/gateway/integration/scheduler-factory.ts#L67), [`src/gateway/gateway-server.ts`](/Users/nickma/Develop/nick-ma/pony/src/gateway/gateway-server.ts#L67) | This singleton was an intentional migration aid. It is still a process-global event spine instance, so lifecycle ownership remains implicit even though the usage is narrower and less ambiguous than the tool-provider path. | singleton/global-state, lifecycle |
 
+## Module-level mutable state and dependency hubs
+
+### Module-level mutable state that still matters
+
+The runtime core still depends on several module-level mutable singletons or caches:
+
+- `globalToolProvider` in [`src/infra/tools/tool-provider.ts`](/Users/nickma/Develop/nick-ma/pony/src/infra/tools/tool-provider.ts#L467)
+- `mcpToolSchemaCache` in [`src/infra/tools/tool-provider.ts`](/Users/nickma/Develop/nick-ma/pony/src/infra/tools/tool-provider.ts#L444)
+- `globalPromptProvider` in [`src/infra/prompts/prompt-provider.ts`](/Users/nickma/Develop/nick-ma/pony/src/infra/prompts/prompt-provider.ts#L215)
+- `runtimeEventBus` in [`src/runtime/event-bus/runtime-event-bus.ts`](/Users/nickma/Develop/nick-ma/pony/src/runtime/event-bus/runtime-event-bus.ts#L7)
+- `llmServiceInstance` in [`src/infra/llm/llm-service.ts`](/Users/nickma/Develop/nick-ma/pony/src/infra/llm/llm-service.ts#L427)
+- `globalRegistry` / `globalRunnerRegistry` in [`src/infra/agents/agent-registry.ts`](/Users/nickma/Develop/nick-ma/pony/src/infra/agents/agent-registry.ts#L240) and [`src/infra/agents/runner-registry.ts`](/Users/nickma/Develop/nick-ma/pony/src/infra/agents/runner-registry.ts#L36)
+
+These do not all carry the same risk. The key distinction is whether the mutable state is merely a process-scoped service cache or whether it changes the runtime capability surface seen by other subsystems. The tool-provider path is the dangerous case because it changes prompt-visible and execution-visible tooling shape.
+
+### Dependency hubs and broad construction graphs
+
+The main dependency hubs left in runtime-core composition are:
+
+- `SchedulerDaemon.start()` in [`src/scheduler-daemon/daemon.ts`](/Users/nickma/Develop/nick-ma/pony/src/scheduler-daemon/daemon.ts#L140), which orchestrates repository initialization, reconciliation, registry loading, IPC, session intake, scheduler composition, runner registration, and periodic loops
+- `createScheduler(...)` in [`src/gateway/integration/scheduler-factory.ts`](/Users/nickma/Develop/nick-ma/pony/src/gateway/integration/scheduler-factory.ts#L58), which instantiates multiple scheduler concerns directly and adapts repository concerns inline
+- `SchedulerSessionIntake` in [`src/scheduler-daemon/session-intake.ts`](/Users/nickma/Develop/nick-ma/pony/src/scheduler-daemon/session-intake.ts#L287), which assembles a large conversation/runtime graph and remains the conversation-side façade
+- `ExecutionService` in [`src/app/lifecycle/execution/execution-service.ts`](/Users/nickma/Develop/nick-ma/pony/src/app/lifecycle/execution/execution-service.ts#L44), which assembles the tool stack, MCP lifecycle, and `ReActIntegration`
+
+These hubs are important because they force broad imports and make safe composition changes harder to localize.
+
+### Cross-cutting infra dependencies still leaking inward
+
+Several runtime-core paths still depend on cross-cutting infrastructure concerns directly:
+
+- `LLMProviderManager` imports `gatewayEventBus` from [`src/infra/llm/provider-manager/provider-manager.ts`](/Users/nickma/Develop/nick-ma/pony/src/infra/llm/provider-manager/provider-manager.ts#L17), creating a direct infra-to-gateway dependency on the gateway singleton defined in [`src/gateway/events/event-bus.ts`](/Users/nickma/Develop/nick-ma/pony/src/gateway/events/event-bus.ts#L123)
+- `LocalExecutionAdapter` reaches into global agent/runner registries in [`src/runtime/execution-boundary/local-execution-adapter.ts`](/Users/nickma/Develop/nick-ma/pony/src/runtime/execution-boundary/local-execution-adapter.ts#L45)
+- `PlanningService`, `ReActIntegration`, and `ResponseGenerator` all still read prompt/tool state through global providers in [`src/app/lifecycle/planning/planning-service.ts`](/Users/nickma/Develop/nick-ma/pony/src/app/lifecycle/planning/planning-service.ts#L20), [`src/autonomy/react-integration.ts`](/Users/nickma/Develop/nick-ma/pony/src/autonomy/react-integration.ts#L68), and [`src/app/conversation/response-generator.ts`](/Users/nickma/Develop/nick-ma/pony/src/app/conversation/response-generator.ts#L68)
+
+These are not yet catastrophic, but they concentrate hidden dependency direction risk. They are the reason runtime-core cleanup should proceed by extracting explicit ownership boundaries rather than by moving files first.
+
 ## Problem classification by type
 
 ### Composition problems
@@ -63,6 +99,11 @@ The most relevant process-global mutable state still active in runtime-core path
 - `runtimeEventBus` and `gatewayEventBus` in [`src/runtime/event-bus/runtime-event-bus.ts`](/Users/nickma/Develop/nick-ma/pony/src/runtime/event-bus/runtime-event-bus.ts#L7) and [`src/gateway/events/event-bus.ts`](/Users/nickma/Develop/nick-ma/pony/src/gateway/events/event-bus.ts#L123)
 
 Not all of these are equally dangerous. The tool-provider path is the one where mutable global state directly changes runtime-visible capability shape.
+
+This session should treat module-level mutable caches that change capability shape differently from read-mostly service caches:
+
+- capability-shaping mutable globals are first-order cleanup targets
+- process-scoped service caches are secondary unless they distort ownership or dependency direction
 
 ### Dependency-direction problems
 
@@ -209,6 +250,7 @@ Suggested shape:
   - `skillRegistry`
   - `initializeSkills(workspaceDir)`
   - `initializeMcpTools()`
+  - `getPromptProvider()` or equivalent prompt-facing tooling view
 
 Key design rules for that boundary:
 
@@ -216,6 +258,7 @@ Key design rules for that boundary:
 - runtime-core code consumes it by constructor injection or narrow dependency object
 - compatibility shims may temporarily mirror it into the current globals, but globals stop being the source of truth
 - gateway-specific tool composition remains outside this first extraction unless it is only consuming the new boundary, not owning it
+- the boundary should remain runtime-local and explicit, not a general-purpose container for every subsystem
 
 This gives runtime-core one clear owner for capability shape without changing outer transport ownership.
 
