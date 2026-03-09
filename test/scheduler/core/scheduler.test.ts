@@ -729,6 +729,9 @@ describe('SchedulerCore', () => {
         'run-1',
         expect.objectContaining({
           status: 'failure',
+          tokens_used: 0,
+          time_seconds: 0,
+          cost_usd: 0,
           error_message: 'worker execution failed',
         })
       );
@@ -764,8 +767,11 @@ describe('SchedulerCore', () => {
           },
           result: {
             runId: 'run-1',
+            goalId: 'goal-1',
             workItemId: 'wi-1',
+            source: 'local-execution-worker',
             success: false,
+            outcome: 'failure',
             tokensUsed: 321,
             timeSeconds: 12,
             costUsd: 0.07,
@@ -792,6 +798,79 @@ describe('SchedulerCore', () => {
           error_message: 'worker execution failed',
           context: expect.objectContaining({
             endpoint_id: 'endpoint-2',
+          }),
+        })
+      );
+    });
+
+    it('should consume the local worker enriched failed result payload by default', async () => {
+      const goal = createGoal();
+      const workItem = createWorkItem();
+      mockRepository.getGoal.mockReturnValue(goal);
+      mockWorkItemManager.getNextWorkItem.mockResolvedValueOnce(workItem).mockResolvedValue(null);
+      scheduler = new SchedulerCore(mockDeps, { executionMode: 'evented' });
+
+      await scheduler.submitGoal(goal);
+      await scheduler.start();
+      await scheduler.tick();
+
+      await runtimeEventHandler!({
+        id: 'evt-2c',
+        type: 'execution.failed',
+        source: 'local-execution-worker',
+        timestamp: Date.now(),
+        runId: 'run-1',
+        goalId: 'goal-1',
+        workItemId: 'wi-1',
+        payload: {
+          request: {
+            runId: 'run-1',
+            goalId: 'goal-1',
+            workItemId: 'wi-1',
+            workItem,
+            model: 'claude-3-5-sonnet',
+            laneId: 'main',
+            budgetRemaining: mockBudgetTracker.getBudgetStatus(goal),
+          },
+          error: {
+            code: 'WORKER_FAILED',
+            message: 'worker execution failed',
+            recoverable: true,
+          },
+          result: {
+            runId: 'run-1',
+            goalId: 'goal-1',
+            workItemId: 'wi-1',
+            source: 'local-execution-worker',
+            success: false,
+            outcome: 'failure',
+            tokensUsed: 88,
+            timeSeconds: 6,
+            costUsd: 0.02,
+            artifacts: [],
+            actualModel: 'claude-3-5-sonnet',
+            endpointId: 'endpoint-9',
+            error: {
+              code: 'WORKER_FAILED',
+              message: 'worker execution failed',
+              recoverable: true,
+            },
+          },
+        },
+      });
+
+      expect(mockBudgetTracker.recordUsage).toHaveBeenCalledWith('goal-1', 88, 0.1, 0.02);
+      expect(mockRepository.completeRun).toHaveBeenCalledWith(
+        'run-1',
+        expect.objectContaining({
+          status: 'failure',
+          tokens_used: 88,
+          time_seconds: 6,
+          cost_usd: 0.02,
+          error_message: 'worker execution failed',
+          context: expect.objectContaining({
+            actual_model: 'claude-3-5-sonnet',
+            endpoint_id: 'endpoint-9',
           }),
         })
       );

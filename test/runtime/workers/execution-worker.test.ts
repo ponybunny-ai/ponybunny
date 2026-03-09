@@ -139,6 +139,71 @@ describe('LocalExecutionWorker', () => {
             message: 'Execution failed',
             recoverable: true,
           },
+          result: {
+            runId: request.runId,
+            goalId: request.goalId,
+            workItemId: request.workItemId,
+            source: 'local-execution-worker',
+            success: false,
+            outcome: 'failure',
+            tokensUsed: 0,
+            timeSeconds: 1,
+            costUsd: 0,
+            artifacts: [],
+            error: {
+              code: 'MODEL_ERROR',
+              message: 'Execution failed',
+              recoverable: true,
+            },
+          },
+        },
+      }),
+    ]));
+  });
+
+  it('emits an enriched failed result when ExecutionPort throws', async () => {
+    executionPort.execute.mockRejectedValue(new Error('boom'));
+    worker.start();
+
+    await bus.publish({
+      id: 'evt-2b',
+      type: 'task.ready',
+      source: 'test',
+      timestamp: 3,
+      payload: request,
+    });
+
+    expect(publishedEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'execution.failed',
+        source: 'local-execution-worker',
+        runId: request.runId,
+        goalId: request.goalId,
+        workItemId: request.workItemId,
+        payload: {
+          request,
+          error: {
+            code: 'EXECUTION_WORKER_EXCEPTION',
+            message: 'boom',
+            recoverable: true,
+          },
+          result: {
+            runId: request.runId,
+            goalId: request.goalId,
+            workItemId: request.workItemId,
+            source: 'local-execution-worker',
+            success: false,
+            outcome: 'failure',
+            tokensUsed: 0,
+            timeSeconds: 0,
+            costUsd: 0,
+            artifacts: [],
+            error: {
+              code: 'EXECUTION_WORKER_EXCEPTION',
+              message: 'boom',
+              recoverable: true,
+            },
+          },
         },
       }),
     ]));
@@ -160,14 +225,14 @@ describe('LocalExecutionWorker', () => {
       id: 'evt-3',
       type: 'task.ready',
       source: 'test',
-      timestamp: 3,
+      timestamp: 4,
       payload: request,
     });
     await bus.publish({
       id: 'evt-4',
       type: 'task.ready',
       source: 'test',
-      timestamp: 4,
+      timestamp: 5,
       payload: request,
     });
 

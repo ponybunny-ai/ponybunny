@@ -7,7 +7,11 @@
 
 import { randomUUID } from 'crypto';
 import type { Goal, WorkItem } from '../../work-order/types/index.js';
-import type { ExecutionRequest, ExecutionResult } from '../../runtime/execution-boundary/index.js';
+import type {
+  ExecutionRequest,
+  ExecutionResult,
+  ExecutionError,
+} from '../../runtime/execution-boundary/index.js';
 import type { RuntimeEvent } from '../../runtime/event-bus/index.js';
 import type {
   LaneId,
@@ -649,24 +653,14 @@ export class SchedulerCore implements ISchedulerCore {
     }
 
     const result = candidate as Partial<ExecutionResult>;
-    if (
-      typeof result.runId !== 'string' ||
-      result.runId.length === 0 ||
-      typeof result.workItemId !== 'string' ||
-      result.workItemId.length === 0 ||
-      typeof result.success !== 'boolean' ||
-      typeof result.tokensUsed !== 'number' ||
-      typeof result.timeSeconds !== 'number' ||
-      typeof result.costUsd !== 'number' ||
-      !Array.isArray(result.artifacts)
-    ) {
+    if (!this.isExecutionResultCandidate(result)) {
       return null;
     }
 
     return result as ExecutionResult;
   }
 
-  private parseExecutionFailedError(event: RuntimeEvent): { code: string; message: string; recoverable: boolean } {
+  private parseExecutionFailedError(event: RuntimeEvent): ExecutionError {
     const payload = event.payload;
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       return {
@@ -685,14 +679,8 @@ export class SchedulerCore implements ISchedulerCore {
       };
     }
 
-    const error = candidate as Partial<{ code: string; message: string; recoverable: boolean }>;
-    if (
-      typeof error.code !== 'string' ||
-      error.code.length === 0 ||
-      typeof error.message !== 'string' ||
-      error.message.length === 0 ||
-      typeof error.recoverable !== 'boolean'
-    ) {
+    const error = candidate as Partial<ExecutionError>;
+    if (!this.isExecutionErrorCandidate(error)) {
       return {
         code: 'EXECUTION_FAILED',
         message: 'Execution failed without an error payload',
@@ -700,7 +688,7 @@ export class SchedulerCore implements ISchedulerCore {
       };
     }
 
-    return error as { code: string; message: string; recoverable: boolean };
+    return error as ExecutionError;
   }
 
   private parseExecutionFailedResult(
@@ -712,19 +700,18 @@ export class SchedulerCore implements ISchedulerCore {
       const candidate = (payload as { result?: unknown }).result;
       if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
         const failedResult = candidate as Partial<ExecutionResult>;
-        if (
-          typeof failedResult.runId === 'string' &&
-          failedResult.runId.length > 0 &&
-          typeof failedResult.workItemId === 'string' &&
-          failedResult.workItemId.length > 0 &&
-          failedResult.success === false &&
-          typeof failedResult.tokensUsed === 'number' &&
-          typeof failedResult.timeSeconds === 'number' &&
-          typeof failedResult.costUsd === 'number' &&
-          Array.isArray(failedResult.artifacts)
-        ) {
+        if (this.isExecutionResultCandidate(failedResult, false)) {
           return {
             ...failedResult,
+            goalId:
+              typeof failedResult.goalId === 'string' && failedResult.goalId.length > 0
+                ? failedResult.goalId
+                : event.goalId ?? context.goal.id,
+            source:
+              typeof failedResult.source === 'string' && failedResult.source.length > 0
+                ? failedResult.source
+                : event.source,
+            outcome: 'failure',
             error: failedResult.error ?? this.parseExecutionFailedError(event),
           } as ExecutionResult;
         }
@@ -733,14 +720,65 @@ export class SchedulerCore implements ISchedulerCore {
 
     return {
       runId: context.run.id,
+      goalId: event.goalId ?? context.goal.id,
       workItemId: context.workItem.id,
+      source: event.source,
       success: false,
+      outcome: 'failure',
       tokensUsed: 0,
       timeSeconds: 0,
       costUsd: 0,
       artifacts: [],
       error: this.parseExecutionFailedError(event),
     };
+  }
+
+  private isExecutionResultCandidate(
+    result: Partial<ExecutionResult>,
+    expectedSuccess?: boolean
+  ): result is ExecutionResult {
+    if (
+      typeof result.runId !== 'string' ||
+      result.runId.length === 0 ||
+      typeof result.workItemId !== 'string' ||
+      result.workItemId.length === 0 ||
+      typeof result.success !== 'boolean' ||
+      typeof result.tokensUsed !== 'number' ||
+      typeof result.timeSeconds !== 'number' ||
+      typeof result.costUsd !== 'number' ||
+      !Array.isArray(result.artifacts)
+    ) {
+      return false;
+    }
+
+    if (expectedSuccess !== undefined && result.success !== expectedSuccess) {
+      return false;
+    }
+
+    if (
+      (result.goalId !== undefined && (typeof result.goalId !== 'string' || result.goalId.length === 0)) ||
+      (result.source !== undefined && (typeof result.source !== 'string' || result.source.length === 0)) ||
+      (result.actualModel !== undefined &&
+        (typeof result.actualModel !== 'string' || result.actualModel.length === 0)) ||
+      (result.endpointId !== undefined &&
+        (typeof result.endpointId !== 'string' || result.endpointId.length === 0)) ||
+      (result.outcome !== undefined && result.outcome !== 'success' && result.outcome !== 'failure') ||
+      (result.error !== undefined && !this.isExecutionErrorCandidate(result.error))
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private isExecutionErrorCandidate(error: Partial<ExecutionError>): error is ExecutionError {
+    return (
+      typeof error.code === 'string' &&
+      error.code.length > 0 &&
+      typeof error.message === 'string' &&
+      error.message.length > 0 &&
+      typeof error.recoverable === 'boolean'
+    );
   }
 
   private async continueAfterExecutionResult(

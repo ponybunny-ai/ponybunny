@@ -1,7 +1,13 @@
 import { randomUUID } from 'crypto';
 import type { EventBus as RuntimeEventBus, RuntimeEvent } from '../event-bus/index.js';
 import { runtimeEventBus } from '../event-bus/index.js';
-import type { ExecutionPort, ExecutionRequest, ExecutionResult } from '../execution-boundary/index.js';
+import type {
+  ExecutionPort,
+  ExecutionRequest,
+  ExecutionResult,
+  FailedExecutionResult,
+  ExecutionError,
+} from '../execution-boundary/index.js';
 
 const EXECUTION_WORKER_SOURCE = 'local-execution-worker';
 
@@ -14,11 +20,8 @@ export type TaskReadyEventPayload = ExecutionRequest;
 
 interface ExecutionWorkerFailurePayload {
   request: ExecutionRequest;
-  error: {
-    code: string;
-    message: string;
-    recoverable: boolean;
-  };
+  error: ExecutionError;
+  result: FailedExecutionResult;
 }
 
 export class LocalExecutionWorker {
@@ -70,17 +73,19 @@ export class LocalExecutionWorker {
         return;
       }
 
-      await this.publishExecutionFailed(request, result.error ?? {
+      const failedResult = this.normalizeFailedExecutionResult(request, result.error ?? {
         code: 'EXECUTION_FAILED',
         message: 'Execution failed without an error payload',
         recoverable: true,
-      });
+      }, result);
+      await this.publishExecutionFailed(request, failedResult);
     } catch (error) {
-      await this.publishExecutionFailed(request, {
+      const failedResult = this.normalizeFailedExecutionResult(request, {
         code: 'EXECUTION_WORKER_EXCEPTION',
         message: error instanceof Error ? error.message : String(error),
         recoverable: true,
       });
+      await this.publishExecutionFailed(request, failedResult);
     }
   }
 
@@ -143,7 +148,7 @@ export class LocalExecutionWorker {
 
   private async publishExecutionFailed(
     request: ExecutionRequest,
-    error: ExecutionWorkerFailurePayload['error']
+    result: FailedExecutionResult
   ): Promise<void> {
     await this.bus.publish({
       id: randomUUID(),
@@ -155,8 +160,31 @@ export class LocalExecutionWorker {
       workItemId: request.workItemId,
       payload: {
         request,
-        error,
+        error: result.error,
+        result,
       } satisfies ExecutionWorkerFailurePayload,
     });
+  }
+
+  private normalizeFailedExecutionResult(
+    request: ExecutionRequest,
+    error: ExecutionError,
+    result?: ExecutionResult
+  ): FailedExecutionResult {
+    return {
+      runId: request.runId,
+      goalId: request.goalId,
+      workItemId: request.workItemId,
+      source: EXECUTION_WORKER_SOURCE,
+      success: false,
+      outcome: 'failure',
+      tokensUsed: result?.success === false ? result.tokensUsed : 0,
+      timeSeconds: result?.success === false ? result.timeSeconds : 0,
+      costUsd: result?.success === false ? result.costUsd : 0,
+      artifacts: result?.success === false ? result.artifacts : [],
+      actualModel: result?.success === false ? result.actualModel : undefined,
+      endpointId: result?.success === false ? result.endpointId : undefined,
+      error: result?.success === false && result.error ? result.error : error,
+    };
   }
 }
