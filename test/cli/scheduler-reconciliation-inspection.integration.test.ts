@@ -353,6 +353,87 @@ async function seedReplayTerminalInspectionDb(dbPath: string): Promise<{
   };
 }
 
+async function seedReplayReplacementOrphanedInspectionDb(dbPath: string): Promise<{
+  originalRunId: string;
+  replacementRunId: string;
+}> {
+  const repository = new WorkOrderDatabase(dbPath);
+  await repository.initialize();
+
+  const goal = repository.createGoal({
+    title: 'goal',
+    description: 'desc',
+    success_criteria: [],
+  });
+
+  const replayItem = repository.createWorkItem({
+    goal_id: goal.id,
+    title: 'replay-replacement-orphaned',
+    description: 'desc',
+    item_type: 'code',
+  });
+  repository.updateWorkItemStatus(replayItem.id, 'in_progress');
+
+  const originalRun = repository.createRun({
+    work_item_id: replayItem.id,
+    goal_id: goal.id,
+    agent_type: 'code',
+    run_sequence: 1,
+  });
+
+  const replacementRun = repository.createRun({
+    work_item_id: replayItem.id,
+    goal_id: goal.id,
+    agent_type: 'code',
+    run_sequence: 2,
+  });
+  repository.mergeRunContext(replacementRun.id, {
+    evented_dispatch: {
+      ...buildEventedDispatchCheckpoint({
+        laneId: 'main',
+        dispatchedAt: 2000,
+        resultContinuationApplied: false,
+      }),
+      replay_of_run_id: originalRun.id,
+      replay_started_at: 2000,
+      orphan_classification: 'stale_timeout',
+      orphan_detected_at: 2600,
+    },
+  });
+
+  repository.mergeRunContext(originalRun.id, {
+    evented_dispatch: {
+      ...buildEventedDispatchCheckpoint({
+        laneId: 'main',
+        dispatchedAt: 1000,
+        resultContinuationApplied: false,
+      }),
+      orphan_classification: 'stale_timeout',
+      orphan_detected_at: 1500,
+      recovery_candidate: true,
+      recovery_candidate_marked_at: 1600,
+      recovery_candidate_reason: 'manual_operator_mark',
+      replay_candidate: true,
+      replay_candidate_marked_at: 1700,
+      replay_candidate_reason: 'manual_operator_mark',
+      manual_replay: {
+        requested_at: 2000,
+        requested_reason: 'manual_operator_request',
+        replacement_run_id: replacementRun.id,
+        replacement_run_created_at: 2000,
+        original_continuation_suppressed_at: 2000,
+      },
+    },
+  });
+
+  repository.close();
+
+  return {
+    originalRunId: originalRun.id,
+    replacementRunId: replacementRun.id,
+  };
+}
+
 async function seedReplayPrecheckDb(dbPath: string): Promise<{
   eligibleRunId: string;
   ineligibleRunId: string;
@@ -618,6 +699,26 @@ describe('pb scheduler reconciliation inspection', () => {
     expect(output).toContain('- replacementResultContinuationApplied: no');
   });
 
+  test('surfaces explicit operator policy when the replacement replay attempt becomes orphaned', async () => {
+    const dbPath = createTempDbPath();
+    const { originalRunId, replacementRunId } =
+      await seedReplayReplacementOrphanedInspectionDb(dbPath);
+
+    const output = execSync(`${pbCommand} scheduler inspect-run ${originalRunId} --db "${dbPath}"`, {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    });
+
+    expect(output).toContain(`- replacementRunId: ${replacementRunId}`);
+    expect(output).toContain('- replayChainState: replay_replacement_orphaned');
+    expect(output).toContain('- replayChainOutcome: unresolved');
+    expect(output).toContain('- operatorPolicyState: replacement_attempt_orphaned');
+    expect(output).toContain('- operatorPolicyReason: replacement_attempt_stale_timeout');
+    expect(output).toContain(
+      '- operatorNextStep: inspect the replacement attempt; do not replay it again; no automatic follow-up exists'
+    );
+  });
+
   test('non-replay runs still inspect cleanly and direct mode remains unaffected', async () => {
     const dbPath = createTempDbPath();
     const { directRunId } = await seedReplayInspectionDb(dbPath);
@@ -650,16 +751,25 @@ describe('pb scheduler reconciliation inspection', () => {
   test('replay-run prints a stable rejection reason and leaves lineage unchanged on rejection', async () => {
     const dbPath = createTempDbPath();
     const { inFlightRunId } = await seedInspectionDb(dbPath);
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'pony-cli-home-'));
 
     execSync(`${pbCommand} scheduler mark-recovery-candidate ${inFlightRunId} --db "${dbPath}"`, {
       encoding: 'utf-8',
       stdio: 'pipe',
+      env: {
+        ...process.env,
+        HOME: tempHome,
+      },
     });
 
     try {
       execSync(`${pbCommand} scheduler replay-run ${inFlightRunId} --db "${dbPath}"`, {
         encoding: 'utf-8',
         stdio: 'pipe',
+        env: {
+          ...process.env,
+          HOME: tempHome,
+        },
       });
       throw new Error('expected replay-run to fail without replay candidate');
     } catch (error) {

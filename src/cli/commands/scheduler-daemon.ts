@@ -9,6 +9,7 @@ import { Command } from 'commander';
 import { homedir } from 'os';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import net from 'node:net';
 import chalk from 'chalk';
 import { spawn, execSync } from 'child_process';
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, appendFileSync, openSync, closeSync } from 'fs';
@@ -46,6 +47,7 @@ interface PidInfo {
   dbPath: string;
   memoryDbPath: string;
   socketPath: string;
+  controlSocketPath?: string;
   mode: 'foreground' | 'background';
 }
 
@@ -148,6 +150,18 @@ function resolveSchedulerDbPath(dbPath?: string): string {
   return pidInfo?.dbPath ?? runtimeConfig.paths.database;
 }
 
+function resolveSchedulerControlSocketPath(pidInfo?: PidInfo | null): string {
+  if (pidInfo?.controlSocketPath) {
+    return pidInfo.controlSocketPath;
+  }
+
+  if (pidInfo?.socketPath) {
+    return `${pidInfo.socketPath}.scheduler-control`;
+  }
+
+  return `${runtimeConfig.paths.schedulerSocket}.scheduler-control`;
+}
+
 async function withSchedulerRepository<T>(
   dbPath: string,
   action: (repository: WorkOrderDatabase) => T
@@ -212,12 +226,15 @@ type ReplayChainState =
   | 'replay_not_started'
   | 'replay_dispatched'
   | 'replay_in_progress'
+  | 'replay_replacement_orphaned'
   | 'replay_result_applied'
   | 'replay_terminal_failed'
   | 'replay_terminal_unapplied'
   | 'replay_unresolved';
 
 type ReplayChainOutcome = 'not_started' | 'active' | 'completed' | 'failed' | 'unresolved';
+type ReplayOperatorPolicyState = 'none' | 'replacement_attempt_orphaned';
+type ReplayOperatorPolicyReason = 'none' | 'replacement_attempt_stale_timeout';
 
 interface ReplayChainDiagnostics {
   originalRecord?: RunInspectionRecord;
@@ -230,6 +247,9 @@ interface ReplayChainDiagnostics {
   replacementResultContinuationApplied?: boolean;
   replayChainState: ReplayChainState;
   replayChainOutcome: ReplayChainOutcome;
+  operatorPolicyState: ReplayOperatorPolicyState;
+  operatorPolicyReason: ReplayOperatorPolicyReason;
+  operatorNextStep: string;
 }
 
 function hasReplayDurableState(record: RunInspectionRecord): boolean {
@@ -274,6 +294,9 @@ function deriveReplayChainDiagnostics(
 
   let replayChainState: ReplayChainState = 'replay_not_started';
   let replayChainOutcome: ReplayChainOutcome = 'not_started';
+  let operatorPolicyState: ReplayOperatorPolicyState = 'none';
+  let operatorPolicyReason: ReplayOperatorPolicyReason = 'none';
+  let operatorNextStep = '-';
 
   if (!replayInitiated) {
     return {
@@ -287,6 +310,9 @@ function deriveReplayChainDiagnostics(
       replacementResultContinuationApplied,
       replayChainState,
       replayChainOutcome,
+      operatorPolicyState,
+      operatorPolicyReason,
+      operatorNextStep,
     };
   }
 
@@ -300,6 +326,16 @@ function deriveReplayChainDiagnostics(
   } else if (replacementRecord.resultContinuationApplied) {
     replayChainState = 'replay_result_applied';
     replayChainOutcome = 'completed';
+  } else if (
+    replacementRecord.run.status === 'running' &&
+    replacementRecord.orphanClassification === 'stale_timeout'
+  ) {
+    replayChainState = 'replay_replacement_orphaned';
+    replayChainOutcome = 'unresolved';
+    operatorPolicyState = 'replacement_attempt_orphaned';
+    operatorPolicyReason = 'replacement_attempt_stale_timeout';
+    operatorNextStep =
+      'inspect the replacement attempt; do not replay it again; no automatic follow-up exists';
   } else if (replacementRecord.run.status === 'running') {
     replayChainState = 'replay_in_progress';
     replayChainOutcome = 'active';
@@ -329,6 +365,9 @@ function deriveReplayChainDiagnostics(
     replacementResultContinuationApplied,
     replayChainState,
     replayChainOutcome,
+    operatorPolicyState,
+    operatorPolicyReason,
+    operatorNextStep,
   };
 }
 
@@ -428,6 +467,9 @@ function printRunInspectionWithReplayOutcome(
   );
   console.log(`- replayChainState: ${diagnostics.replayChainState}`);
   console.log(`- replayChainOutcome: ${diagnostics.replayChainOutcome}`);
+  console.log(`- operatorPolicyState: ${diagnostics.operatorPolicyState}`);
+  console.log(`- operatorPolicyReason: ${diagnostics.operatorPolicyReason}`);
+  console.log(`- operatorNextStep: ${diagnostics.operatorNextStep}`);
   console.log(`- originalRunId: ${formatOptional(originalRunId)}`);
   console.log(`- originalGoalId: ${formatOptional(originalRecord?.run.goal_id)}`);
   console.log(`- originalWorkItemId: ${formatOptional(originalRecord?.run.work_item_id)}`);
@@ -615,6 +657,138 @@ async function createReplayScheduler(dbPath: string) {
   };
 }
 
+async function replayRunViaActiveDaemon(
+  controlSocketPath: string,
+  runId: string
+): Promise<{
+  status:
+    | 'replay_started'
+    | 'run_not_found'
+    | 'missing_evented_dispatch'
+    | 'already_applied'
+    | 'already_terminal'
+    | 'work_item_not_in_progress'
+    | 'recovery_candidate_required'
+    | 'replay_candidate_required'
+    | 'missing_orphan_classification'
+    | 'already_replayed'
+    | 'replay_attempt_not_allowed'
+    | 'not_evented_execution';
+  originalRun?: { id: string };
+  replacementRun?: { id: string };
+}> {
+  const requestId = `scheduler-replay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  return await new Promise((resolve, reject) => {
+    const socket = net.createConnection(controlSocketPath);
+    let buffer = '';
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      socket.destroy();
+      reject(new Error(`Timed out waiting for scheduler daemon replay response on ${controlSocketPath}`));
+    }, 5000);
+
+    const finish = (callback: () => void): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      socket.end();
+      callback();
+    };
+
+    socket.on('connect', () => {
+      socket.write(
+        `${JSON.stringify({
+          type: 'scheduler_command',
+          timestamp: Date.now(),
+          data: {
+            requestId,
+            command: 'replay_run',
+            runId,
+          },
+        })}\n`
+      );
+    });
+
+    socket.on('data', (chunk) => {
+      buffer += chunk.toString();
+      let newlineIndex = buffer.indexOf('\n');
+
+      while (newlineIndex !== -1) {
+        const line = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+        newlineIndex = buffer.indexOf('\n');
+
+        if (!line.trim()) {
+          continue;
+        }
+
+        try {
+          const message = JSON.parse(line) as {
+            type?: string;
+            data?: {
+              requestId?: string;
+              success?: boolean;
+              error?: string;
+              result?: unknown;
+            };
+          };
+
+          if (
+            message.type !== 'scheduler_command_result' ||
+            message.data?.requestId !== requestId
+          ) {
+            continue;
+          }
+
+          finish(() => {
+            if (message.data?.success) {
+              resolve((message.data.result ?? {}) as Awaited<ReturnType<typeof replayRunViaActiveDaemon>>);
+              return;
+            }
+
+            reject(
+              new Error(
+                typeof message.data?.error === 'string'
+                  ? message.data.error
+                  : 'Scheduler daemon replay request failed'
+              )
+            );
+          });
+          return;
+        } catch (error) {
+          finish(() => {
+            reject(error instanceof Error ? error : new Error(String(error)));
+          });
+          return;
+        }
+      }
+    });
+
+    socket.on('error', (error) => {
+      finish(() => {
+        reject(error);
+      });
+    });
+
+    socket.on('close', () => {
+      if (settled) {
+        return;
+      }
+
+      finish(() => {
+        reject(new Error(`Scheduler daemon control socket closed before replying: ${controlSocketPath}`));
+      });
+    });
+  });
+}
+
 async function runScheduler(
   dbPath: string,
   memoryDbPath: string,
@@ -691,6 +865,7 @@ async function runScheduler(
     // Create scheduler daemon
     const tickIntervalMs = runtimeConfig.scheduler.tickIntervalMs;
     const maxConcurrentGoals = runtimeConfig.scheduler.maxConcurrentGoals;
+    const controlSocketPath = `${socketPath}.scheduler-control`;
 
     const daemon = new SchedulerDaemon(
       repository,
@@ -698,6 +873,7 @@ async function runScheduler(
       llmProvider,
       {
         ipcSocketPath: socketPath,
+        controlSocketPath,
         dbPath,
         debug: debugMode,
         tickIntervalMs,
@@ -741,6 +917,7 @@ async function runScheduler(
       dbPath,
       memoryDbPath,
       socketPath,
+      controlSocketPath,
       mode,
     });
 
@@ -755,6 +932,7 @@ async function runScheduler(
     console.log(`  PID: ${process.pid}`);
     console.log(`  Database: ${dbPath}`);
     console.log(`  IPC Socket: ${socketPath}`);
+    console.log(`  Control Socket: ${controlSocketPath}`);
     console.log(`  Tick Interval: ${tickIntervalMs}ms`);
     console.log(`  Max Concurrent Goals: ${maxConcurrentGoals}`);
     console.log(`  Execution Mode: ${runtimeConfig.scheduler.executionMode}`);
@@ -854,6 +1032,7 @@ function startBackground(
       console.log(chalk.gray(`  Database: ${dbPath}`));
       console.log(chalk.gray(`  Memory DB: ${memoryDbPath}`));
       console.log(chalk.gray(`  Socket: ${socketPath}`));
+      console.log(chalk.gray(`  Control Socket: ${pidInfo.controlSocketPath ?? `${pidInfo.socketPath}.scheduler-control`}`));
       console.log(chalk.gray(`  Log: ${LOG_FILE}`));
       console.log(chalk.gray('\nUse `pb scheduler stop` to stop the daemon'));
     } else {
@@ -1242,10 +1421,43 @@ export const schedulerCommand = new Command('scheduler')
       .action(async (runId: string, options: { db?: string }) => {
         const runningScheduler = readPidFile();
         if (runningScheduler && isProcessRunning(runningScheduler.pid)) {
+          const dbPath = resolveSchedulerDbPath(options.db);
+          const controlSocketPath = resolveSchedulerControlSocketPath(runningScheduler);
+          const result = await replayRunViaActiveDaemon(controlSocketPath, runId);
+
+          if (result.status !== 'replay_started' || !result.replacementRun) {
+            console.log(
+              chalk.red(
+                `Could not replay run ${runId} (${result.status}: ${describeReplayRunRejection(result.status)}).`
+              )
+            );
+            const record = await withSchedulerRepository(dbPath, (repo) => repo.getRunInspection(runId));
+            if (record) {
+              printRunInspection(dbPath, record);
+            }
+            process.exit(1);
+          }
+
           console.log(
-            chalk.red('Manual replay requires the scheduler daemon to be stopped before dispatch.')
+            chalk.green(
+              `Replay started for run ${runId}. Replacement run: ${result.replacementRun.id}`
+            )
           );
-          process.exit(1);
+
+          const originalRecord = await withSchedulerRepository(dbPath, (repo) =>
+            repo.getRunInspection(runId)
+          );
+          if (originalRecord) {
+            printRunInspection(dbPath, originalRecord);
+          }
+
+          const replacementRecord = await withSchedulerRepository(dbPath, (repo) =>
+            repo.getRunInspection(result.replacementRun!.id)
+          );
+          if (replacementRecord) {
+            printRunInspection(dbPath, replacementRecord);
+          }
+          return;
         }
 
         const dbPath = resolveSchedulerDbPath(options.db);

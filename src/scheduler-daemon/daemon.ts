@@ -16,6 +16,7 @@ import { LocalExecutionWorker } from '../runtime/workers/index.js';
 import { SchedulerCore } from '../scheduler/core/index.js';
 import { createScheduler } from '../gateway/integration/scheduler-factory.js';
 import { IPCClient } from '../ipc/ipc-client.js';
+import { IPCServer } from '../ipc/ipc-server.js';
 import { debugEmitter } from '../debug/emitter.js';
 import type { AnyIPCMessage, SchedulerCommandRequest } from '../ipc/types.js';
 import { SchedulerSessionIntake } from './session-intake.js';
@@ -34,6 +35,8 @@ import { reconcileEventedStartupCandidates } from './evented-startup-reconciliat
 export interface SchedulerDaemonConfig {
   /** Path to Gateway IPC socket */
   ipcSocketPath: string;
+  /** Path to local scheduler control socket */
+  controlSocketPath?: string;
   /** Database path */
   dbPath: string;
   /** Enable debug mode */
@@ -84,6 +87,7 @@ function resolveMainAgentId(configuredId: string | undefined, availableIds: stri
 export class SchedulerDaemon {
   private scheduler: SchedulerCore | null = null;
   private ipcClient: IPCClient;
+  private controlServer: IPCServer | null = null;
   private repository: IWorkOrderRepository;
   private executionService: IExecutionService;
   private llmProvider: ILLMProvider;
@@ -182,6 +186,8 @@ export class SchedulerDaemon {
       // Connect to Gateway IPC
       await this.ipcClient.connect();
       console.log('[SchedulerDaemon] Connected to Gateway IPC');
+
+      await this.startControlServer();
 
       if (this.memoryDb) {
         this.sessionIntake = new SchedulerSessionIntake({
@@ -317,6 +323,10 @@ export class SchedulerDaemon {
       this.agentScheduler = null;
       this.executionWorker?.stop();
       this.executionWorker = null;
+      if (this.controlServer) {
+        await this.controlServer.stop();
+        this.controlServer = null;
+      }
       if (this.hasPidLock) {
         releaseSchedulerDaemonLock();
         this.hasPidLock = false;
@@ -369,6 +379,11 @@ export class SchedulerDaemon {
 
     // Disconnect from Gateway IPC
     await this.ipcClient.disconnect();
+
+    if (this.controlServer) {
+      await this.controlServer.stop();
+      this.controlServer = null;
+    }
 
     // Close database
     this.repository.close();
@@ -449,6 +464,44 @@ export class SchedulerDaemon {
     void this.handleSchedulerCommand(message.data as SchedulerCommandRequest);
   }
 
+  private async startControlServer(): Promise<void> {
+    const controlSocketPath =
+      this.config.controlSocketPath ??
+      `${this.config.ipcSocketPath}.scheduler-control`;
+    this.controlServer = new IPCServer({
+      socketPath: controlSocketPath,
+    });
+    this.controlServer.onMessage((message, clientId) => {
+      if (message.type !== 'scheduler_command' || !message.data) {
+        return;
+      }
+
+      void this.handleSchedulerCommand(
+        message.data as SchedulerCommandRequest,
+        async (requestId, success, error, result) => {
+          const controlServer = this.controlServer;
+          if (!controlServer) {
+            return;
+          }
+
+          controlServer.sendToClient(clientId, {
+            type: 'scheduler_command_result',
+            timestamp: Date.now(),
+            data: {
+              requestId,
+              success,
+              error,
+              result,
+            },
+          });
+        }
+      );
+    });
+
+    await this.controlServer.start();
+    console.log(`[SchedulerDaemon] Control socket listening on ${controlSocketPath}`);
+  }
+
   private async reconcileEventedInFlightRunsOnStartup(): Promise<void> {
     if ((this.config.executionMode ?? 'direct') !== 'evented') {
       this.startupReconciliationSummary = null;
@@ -508,22 +561,35 @@ export class SchedulerDaemon {
     }
   }
 
-  private async handleSchedulerCommand(command: SchedulerCommandRequest): Promise<void> {
+  private async handleSchedulerCommand(
+    command: SchedulerCommandRequest,
+    responder?: (
+      requestId: string,
+      success: boolean,
+      error?: string,
+      result?: unknown
+    ) => Promise<void>
+  ): Promise<void> {
     const scheduler = this.scheduler;
+    const respond =
+      responder ??
+      (async (requestId: string, success: boolean, error?: string, result?: unknown) => {
+        await this.sendSchedulerCommandResult(requestId, success, error, result);
+      });
 
     if (!scheduler) {
-      await this.sendSchedulerCommandResult(command.requestId, false, 'Scheduler is not initialized');
+      await respond(command.requestId, false, 'Scheduler is not initialized');
       return;
     }
 
     try {
       if (command.command === 'session_open') {
         if (!command.gatewaySessionId) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'gatewaySessionId is required for session_open');
+          await respond(command.requestId, false, 'gatewaySessionId is required for session_open');
           return;
         }
         if (!this.sessionIntake) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'Session intake is not initialized');
+          await respond(command.requestId, false, 'Session intake is not initialized');
           return;
         }
 
@@ -534,13 +600,13 @@ export class SchedulerDaemon {
           channelType: command.channelType,
           channelSessionId: command.channelSessionId,
         });
-        await this.sendSchedulerCommandResult(command.requestId, true, undefined, result);
+        await respond(command.requestId, true, undefined, result);
         return;
       }
 
       if (command.command === 'session_list') {
         if (!this.sessionIntake) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'Session intake is not initialized');
+          await respond(command.requestId, false, 'Session intake is not initialized');
           return;
         }
 
@@ -548,21 +614,21 @@ export class SchedulerDaemon {
           limit: command.limit,
           lifecycleState: command.lifecycleState,
         });
-        await this.sendSchedulerCommandResult(command.requestId, true, undefined, result);
+        await respond(command.requestId, true, undefined, result);
         return;
       }
 
       if (command.command === 'session_message') {
         if (!command.gatewaySessionId) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'gatewaySessionId is required for session_message');
+          await respond(command.requestId, false, 'gatewaySessionId is required for session_message');
           return;
         }
         if (!command.message || command.message.trim().length === 0) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'message is required for session_message');
+          await respond(command.requestId, false, 'message is required for session_message');
           return;
         }
         if (!this.sessionIntake) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'Session intake is not initialized');
+          await respond(command.requestId, false, 'Session intake is not initialized');
           return;
         }
 
@@ -577,17 +643,17 @@ export class SchedulerDaemon {
           message: command.message,
           attachments: command.attachments,
         });
-        await this.sendSchedulerCommandResult(command.requestId, true, undefined, result);
+        await respond(command.requestId, true, undefined, result);
         return;
       }
 
       if (command.command === 'session_history') {
         if (!command.sessionId) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'sessionId is required for session_history');
+          await respond(command.requestId, false, 'sessionId is required for session_history');
           return;
         }
         if (!this.sessionIntake) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'Session intake is not initialized');
+          await respond(command.requestId, false, 'Session intake is not initialized');
           return;
         }
 
@@ -595,90 +661,101 @@ export class SchedulerDaemon {
           sessionId: command.sessionId,
           limit: command.limit,
         });
-        await this.sendSchedulerCommandResult(command.requestId, true, undefined, result);
+        await respond(command.requestId, true, undefined, result);
         return;
       }
 
       if (command.command === 'session_end') {
         if (!command.sessionId) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'sessionId is required for session_end');
+          await respond(command.requestId, false, 'sessionId is required for session_end');
           return;
         }
         if (!this.sessionIntake) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'Session intake is not initialized');
+          await respond(command.requestId, false, 'Session intake is not initialized');
           return;
         }
 
         const result = await this.sessionIntake.endSession({ sessionId: command.sessionId });
-        await this.sendSchedulerCommandResult(command.requestId, true, undefined, result);
+        await respond(command.requestId, true, undefined, result);
         return;
       }
 
       if (command.command === 'session_archive') {
         if (!command.sessionId) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'sessionId is required for session_archive');
+          await respond(command.requestId, false, 'sessionId is required for session_archive');
           return;
         }
         if (!this.sessionIntake) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'Session intake is not initialized');
+          await respond(command.requestId, false, 'Session intake is not initialized');
           return;
         }
 
         const result = await this.sessionIntake.archiveSession({ sessionId: command.sessionId });
-        await this.sendSchedulerCommandResult(command.requestId, true, undefined, result);
+        await respond(command.requestId, true, undefined, result);
         return;
       }
 
       if (command.command === 'session_resume') {
         if (!command.sessionId) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'sessionId is required for session_resume');
+          await respond(command.requestId, false, 'sessionId is required for session_resume');
           return;
         }
         if (!this.sessionIntake) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'Session intake is not initialized');
+          await respond(command.requestId, false, 'Session intake is not initialized');
           return;
         }
 
         const result = await this.sessionIntake.resumeSession({ sessionId: command.sessionId });
-        await this.sendSchedulerCommandResult(command.requestId, true, undefined, result);
+        await respond(command.requestId, true, undefined, result);
         return;
       }
 
       if (command.command === 'session_status') {
         if (!command.sessionId) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'sessionId is required for session_status');
+          await respond(command.requestId, false, 'sessionId is required for session_status');
           return;
         }
         if (!this.sessionIntake) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'Session intake is not initialized');
+          await respond(command.requestId, false, 'Session intake is not initialized');
           return;
         }
 
         const result = this.sessionIntake.getStatus({ sessionId: command.sessionId });
-        await this.sendSchedulerCommandResult(command.requestId, true, undefined, result);
+        await respond(command.requestId, true, undefined, result);
         return;
       }
 
       if (command.command === 'submit_goal') {
         if (!command.goalId) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'goalId is required for submit_goal');
+          await respond(command.requestId, false, 'goalId is required for submit_goal');
           return;
         }
 
         const goal = this.repository.getGoal(command.goalId);
         if (!goal) {
-          await this.sendSchedulerCommandResult(command.requestId, false, `Goal not found: ${command.goalId}`);
+          await respond(command.requestId, false, `Goal not found: ${command.goalId}`);
           return;
         }
 
         await scheduler.submitGoal(goal);
-        await this.sendSchedulerCommandResult(command.requestId, true);
+        await respond(command.requestId, true);
+        return;
+      }
+
+      if (command.command === 'replay_run') {
+        if (!command.runId) {
+          await respond(command.requestId, false, 'runId is required for replay_run');
+          return;
+        }
+
+        const result = await scheduler.replayRun(command.runId);
+        await respond(command.requestId, true, undefined, result);
         return;
       }
 
       if (command.command === 'materialize_goal') {
         if (!command.goalSpec) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'goalSpec is required for materialize_goal');
+          await respond(command.requestId, false, 'goalSpec is required for materialize_goal');
           return;
         }
 
@@ -714,7 +791,7 @@ export class SchedulerDaemon {
           await scheduler.submitGoal(goal);
         }
 
-        await this.sendSchedulerCommandResult(command.requestId, true, undefined, {
+        await respond(command.requestId, true, undefined, {
           goal,
           initialWorkItemId,
         });
@@ -723,18 +800,18 @@ export class SchedulerDaemon {
 
       if (command.command === 'cancel_goal') {
         if (!command.goalId) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'goalId is required for cancel_goal');
+          await respond(command.requestId, false, 'goalId is required for cancel_goal');
           return;
         }
 
         await scheduler.cancelGoal(command.goalId);
-        await this.sendSchedulerCommandResult(command.requestId, true);
+        await respond(command.requestId, true);
         return;
       }
 
       if (command.command === 'apply_runtime_rollout') {
         if (!command.rollout) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'rollout payload is required for apply_runtime_rollout');
+          await respond(command.requestId, false, 'rollout payload is required for apply_runtime_rollout');
           return;
         }
 
@@ -743,7 +820,7 @@ export class SchedulerDaemon {
         this.config.toolRoutingMode = command.rollout.toolRoutingMode;
         this.config.runtimeRollout = command.rollout.runtimeRollout;
         scheduler.applyRuntimeRollout(command.rollout);
-        await this.sendSchedulerCommandResult(command.requestId, true);
+        await respond(command.requestId, true);
         return;
       }
 
@@ -751,11 +828,11 @@ export class SchedulerDaemon {
         const agentId = typeof command.agentId === 'string' ? command.agentId.trim() : '';
         const modelRaw = typeof command.model === 'string' ? command.model.trim() : '';
         if (!agentId) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'agentId is required for set_agent_model_override');
+          await respond(command.requestId, false, 'agentId is required for set_agent_model_override');
           return;
         }
         if (!modelRaw) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'model is required for set_agent_model_override');
+          await respond(command.requestId, false, 'model is required for set_agent_model_override');
           return;
         }
 
@@ -767,7 +844,7 @@ export class SchedulerDaemon {
         runtime.agent.modelOverrides = nextOverrides;
         saveRuntimeConfig(runtime);
 
-        await this.sendSchedulerCommandResult(command.requestId, true, undefined, {
+        await respond(command.requestId, true, undefined, {
           success: true,
           agentId,
           model: nextOverrides[agentId],
@@ -779,7 +856,7 @@ export class SchedulerDaemon {
       if (command.command === 'get_agent_model_override') {
         const agentId = typeof command.agentId === 'string' ? command.agentId.trim() : '';
         if (!agentId) {
-          await this.sendSchedulerCommandResult(command.requestId, false, 'agentId is required for get_agent_model_override');
+          await respond(command.requestId, false, 'agentId is required for get_agent_model_override');
           return;
         }
 
@@ -788,17 +865,17 @@ export class SchedulerDaemon {
         const model = typeof stored === 'string' && stored.trim().length > 0 && stored.trim().toLowerCase() !== 'auto'
           ? stored.trim()
           : null;
-        await this.sendSchedulerCommandResult(command.requestId, true, undefined, {
+        await respond(command.requestId, true, undefined, {
           agentId,
           model,
         });
         return;
       }
 
-      await this.sendSchedulerCommandResult(command.requestId, false, `Unknown scheduler command: ${command.command}`);
+      await respond(command.requestId, false, `Unknown scheduler command: ${command.command}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await this.sendSchedulerCommandResult(command.requestId, false, message);
+      await respond(command.requestId, false, message);
     }
   }
 

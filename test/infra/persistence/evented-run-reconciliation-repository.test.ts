@@ -983,7 +983,7 @@ describe('WorkOrderDatabase evented reconciliation queries', () => {
     expect(repository.getRunsByWorkItem(workItem.id)).toHaveLength(2);
     expect(repository.getRunInspection(originalRun.id)).toEqual(
       expect.objectContaining({
-        replayReplacementRunId: undefined,
+        replayReplacementRunId: replacementRun.id,
       })
     );
     expect(repository.getRunInspection(replacementRun.id)).toEqual(

@@ -77,6 +77,7 @@ export type SchedulerCommandType =
   | 'materialize_goal'
   | 'submit_goal'
   | 'cancel_goal'
+  | 'replay_run'
   | 'apply_runtime_rollout'
   | 'set_agent_model_override'
   | 'get_agent_model_override'
@@ -110,6 +111,7 @@ export interface SchedulerCommandRequest {
   stream?: boolean;
   limit?: number;
   goalId?: string;
+  runId?: string;
   reason?: string;
   goalSpec?: {
     title: string;
