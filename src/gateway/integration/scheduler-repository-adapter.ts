@@ -50,8 +50,16 @@ export class SchedulerRepositoryAdapter implements ISchedulerRepository {
     return this.repository.createRun(params);
   }
 
+  getRun(id: string): Run | undefined {
+    return this.repository.getRun(id);
+  }
+
   mergeRunContext(id: string, contextPatch: Record<string, unknown>): void {
     this.repository.mergeRunContext(id, contextPatch);
+  }
+
+  claimEventedResultContinuation(id: string, appliedAt?: number) {
+    return this.repository.claimEventedResultContinuation(id, appliedAt);
   }
 
   completeRun(

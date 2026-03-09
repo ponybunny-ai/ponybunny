@@ -29,6 +29,7 @@ export interface IWorkOrderRepository {
   createRun(params: CreateRunParams): Run;
   getRun(id: string): Run | undefined;
   mergeRunContext(id: string, contextPatch: Record<string, unknown>): void;
+  claimEventedResultContinuation(id: string, appliedAt?: number): EventedResultContinuationClaim;
   completeRun(id: string, params: CompleteRunParams): void;
   getRunsByWorkItem(workItemId: string): Run[];
   listInFlightRunReconciliationCandidates(): InFlightRunReconciliationCandidate[];
@@ -128,6 +129,19 @@ export interface CompleteRunParams {
   artifacts: string[];
   execution_log?: string;
   context?: Record<string, unknown>;
+}
+
+export type EventedResultContinuationClaimStatus =
+  | 'claimed'
+  | 'already_applied'
+  | 'already_terminal'
+  | 'missing_evented_dispatch'
+  | 'run_not_found';
+
+export interface EventedResultContinuationClaim {
+  status: EventedResultContinuationClaimStatus;
+  appliedAt?: number;
+  run?: Run;
 }
 
 export interface CreateArtifactParams {

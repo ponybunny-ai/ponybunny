@@ -87,7 +87,24 @@ describe('SchedulerCore', () => {
       getWorkItem: jest.fn(),
       updateWorkItemStatus: jest.fn(),
       createRun: jest.fn().mockReturnValue(createRun()),
+      getRun: jest.fn(),
       mergeRunContext: jest.fn(),
+      claimEventedResultContinuation: jest.fn().mockImplementation((id: string, appliedAt?: number) => ({
+        status: 'claimed',
+        appliedAt,
+        run: createRun({
+          id,
+          context: {
+            evented_dispatch: {
+              execution_mode: 'evented',
+              lane_id: 'main',
+              dispatched_at: 1000,
+              result_continuation_applied: true,
+              result_continuation_applied_at: appliedAt,
+            },
+          },
+        }),
+      })),
       completeRun: jest.fn(),
       getRunsByWorkItem: jest.fn().mockReturnValue([]),
       listInFlightRunReconciliationCandidates: jest.fn().mockReturnValue([]),
@@ -606,6 +623,7 @@ describe('SchedulerCore', () => {
       await scheduler.tick();
 
       expect(mockRepository.mergeRunContext).not.toHaveBeenCalled();
+      expect(mockRepository.claimEventedResultContinuation).not.toHaveBeenCalled();
     });
 
     it('should consume execution.completed as the authoritative evented completion signal', async () => {
@@ -656,6 +674,10 @@ describe('SchedulerCore', () => {
         },
       });
 
+      expect(mockRepository.claimEventedResultContinuation).toHaveBeenCalledWith(
+        'run-1',
+        expect.any(Number)
+      );
       expect(mockRepository.completeRun).toHaveBeenCalledWith(
         'run-1',
         expect.objectContaining({
@@ -675,6 +697,65 @@ describe('SchedulerCore', () => {
       expect(mockQualityGateRunner.runVerification).toHaveBeenCalled();
       expect(mockLaneSelector.decrementActive).toHaveBeenCalledWith('main');
       expect(scheduler.getMetrics().currentActiveWorkItems).toBe(0);
+    });
+
+    it('should suppress duplicate execution.completed without reapplying continuation', async () => {
+      const goal = createGoal();
+      const workItem = createWorkItem();
+      mockRepository.getGoal.mockReturnValue(goal);
+      mockWorkItemManager.getNextWorkItem.mockResolvedValueOnce(workItem).mockResolvedValue(null);
+      scheduler = new SchedulerCore(mockDeps, { executionMode: 'evented' });
+
+      const continuationSpy = jest.spyOn(scheduler as any, 'continueAfterExecutionResult');
+
+      await scheduler.submitGoal(goal);
+      await scheduler.start();
+      await scheduler.tick();
+
+      const completedEvent: RuntimeEvent = {
+        id: 'evt-dup-completed',
+        type: 'execution.completed',
+        source: 'local-execution-worker',
+        timestamp: Date.now(),
+        runId: 'run-1',
+        goalId: 'goal-1',
+        workItemId: 'wi-1',
+        payload: {
+          result: {
+            runId: 'run-1',
+            workItemId: 'wi-1',
+            success: true,
+            tokensUsed: 1000,
+            timeSeconds: 60,
+            costUsd: 0.01,
+            artifacts: [],
+          },
+        },
+      };
+
+      await runtimeEventHandler!(completedEvent);
+
+      mockRepository.getRun.mockReturnValue(
+        createRun({
+          id: 'run-1',
+          status: 'success',
+          context: {
+            evented_dispatch: {
+              execution_mode: 'evented',
+              lane_id: 'main',
+              dispatched_at: 1000,
+              result_continuation_applied: true,
+              result_continuation_applied_at: 2000,
+            },
+          },
+        })
+      );
+
+      await runtimeEventHandler!(completedEvent);
+
+      expect(continuationSpy).toHaveBeenCalledTimes(1);
+      expect(mockRepository.completeRun).toHaveBeenCalledTimes(1);
+      expect(mockRepository.claimEventedResultContinuation).toHaveBeenCalledTimes(1);
     });
 
     it('should route evented completion results through the shared post-execution continuation', async () => {
@@ -781,6 +862,61 @@ describe('SchedulerCore', () => {
       expect(mockWorkItemManager.updateStatus).toHaveBeenCalledWith('wi-1', 'failed');
     });
 
+    it('should suppress duplicate execution.failed without reapplying continuation', async () => {
+      const goal = createGoal();
+      const workItem = createWorkItem();
+      mockRepository.getGoal.mockReturnValue(goal);
+      mockWorkItemManager.getNextWorkItem.mockResolvedValueOnce(workItem).mockResolvedValue(null);
+      scheduler = new SchedulerCore(mockDeps, { executionMode: 'evented' });
+
+      const continuationSpy = jest.spyOn(scheduler as any, 'continueAfterExecutionResult');
+
+      await scheduler.submitGoal(goal);
+      await scheduler.start();
+      await scheduler.tick();
+
+      const failedEvent: RuntimeEvent = {
+        id: 'evt-dup-failed',
+        type: 'execution.failed',
+        source: 'local-execution-worker',
+        timestamp: Date.now(),
+        runId: 'run-1',
+        goalId: 'goal-1',
+        workItemId: 'wi-1',
+        payload: {
+          error: {
+            code: 'WORKER_FAILED',
+            message: 'worker execution failed',
+            recoverable: true,
+          },
+        },
+      };
+
+      await runtimeEventHandler!(failedEvent);
+
+      mockRepository.getRun.mockReturnValue(
+        createRun({
+          id: 'run-1',
+          status: 'failure',
+          context: {
+            evented_dispatch: {
+              execution_mode: 'evented',
+              lane_id: 'main',
+              dispatched_at: 1000,
+              result_continuation_applied: true,
+              result_continuation_applied_at: 2000,
+            },
+          },
+        })
+      );
+
+      await runtimeEventHandler!(failedEvent);
+
+      expect(continuationSpy).toHaveBeenCalledTimes(1);
+      expect(mockRepository.completeRun).toHaveBeenCalledTimes(1);
+      expect(mockRepository.claimEventedResultContinuation).toHaveBeenCalledTimes(1);
+    });
+
     it('should record failure-side usage when execution.failed carries a full failed result', async () => {
       const goal = createGoal();
       const workItem = createWorkItem();
@@ -842,6 +978,55 @@ describe('SchedulerCore', () => {
           }),
         })
       );
+    });
+
+    it('should ignore stale evented results after durable terminal state is already recorded', async () => {
+      const goal = createGoal();
+      const workItem = createWorkItem();
+      mockRepository.getGoal.mockReturnValue(goal);
+      mockWorkItemManager.getNextWorkItem.mockResolvedValueOnce(workItem).mockResolvedValue(null);
+      scheduler = new SchedulerCore(mockDeps, { executionMode: 'evented' });
+
+      await scheduler.submitGoal(goal);
+      await scheduler.start();
+      await scheduler.tick();
+
+      (scheduler as any).cleanupExecutionContext('run-1');
+      mockRepository.getRun.mockReturnValue(
+        createRun({
+          id: 'run-1',
+          status: 'failure',
+          context: {
+            evented_dispatch: {
+              execution_mode: 'evented',
+              lane_id: 'main',
+              dispatched_at: 1000,
+              result_continuation_applied: false,
+            },
+          },
+        })
+      );
+
+      await runtimeEventHandler!({
+        id: 'evt-stale-terminal',
+        type: 'execution.failed',
+        source: 'local-execution-worker',
+        timestamp: Date.now(),
+        runId: 'run-1',
+        goalId: 'goal-1',
+        workItemId: 'wi-1',
+        payload: {
+          error: {
+            code: 'WORKER_FAILED',
+            message: 'worker execution failed',
+            recoverable: true,
+          },
+        },
+      });
+
+      expect(mockRepository.claimEventedResultContinuation).not.toHaveBeenCalled();
+      expect(mockRepository.completeRun).not.toHaveBeenCalled();
+      expect(mockWorkItemManager.updateStatus).not.toHaveBeenCalledWith('wi-1', 'failed');
     });
 
     it('should consume the local worker enriched failed result payload by default', async () => {

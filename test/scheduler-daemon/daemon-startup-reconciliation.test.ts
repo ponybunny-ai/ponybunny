@@ -26,6 +26,7 @@ function createRepositoryMock(): jest.Mocked<IWorkOrderRepository> {
     createRun: jest.fn(),
     getRun: jest.fn(),
     mergeRunContext: jest.fn(),
+    claimEventedResultContinuation: jest.fn(),
     completeRun: jest.fn(),
     getRunsByWorkItem: jest.fn().mockReturnValue([]),
     listInFlightRunReconciliationCandidates: jest.fn().mockReturnValue([]),

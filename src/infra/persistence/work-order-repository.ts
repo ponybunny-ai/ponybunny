@@ -1,6 +1,7 @@
 import type {
   IWorkOrderRepository,
   CreateGoalParams,
+  EventedResultContinuationClaim,
   CronJob,
   CronJobRun,
   CronJobRunStatus,
@@ -622,6 +623,70 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     `);
 
     stmt.run(JSON.stringify(mergedContext), id);
+  }
+
+  claimEventedResultContinuation(id: string, appliedAt = Date.now()): EventedResultContinuationClaim {
+    const claimStmt = this.db.prepare(`
+      UPDATE runs
+      SET context = json_set(
+        COALESCE(context, '{}'),
+        '$.evented_dispatch.result_continuation_applied',
+        json('true'),
+        '$.evented_dispatch.result_continuation_applied_at',
+        COALESCE(
+          json_extract(context, '$.evented_dispatch.result_continuation_applied_at'),
+          ?
+        )
+      )
+      WHERE id = ?
+        AND status = 'running'
+        AND json_extract(context, '$.evented_dispatch.execution_mode') = 'evented'
+        AND json_extract(context, '$.evented_dispatch.result_continuation_applied') = 0
+    `);
+
+    const result = claimStmt.run(appliedAt, id);
+    const run = this.getRun(id);
+
+    if (result.changes > 0) {
+      return {
+        status: 'claimed',
+        appliedAt,
+        run,
+      };
+    }
+
+    if (!run) {
+      return { status: 'run_not_found' };
+    }
+
+    const eventedDispatch = run.context?.evented_dispatch;
+    if (!eventedDispatch || typeof eventedDispatch !== 'object' || Array.isArray(eventedDispatch)) {
+      return {
+        status: 'missing_evented_dispatch',
+        run,
+      };
+    }
+
+    if (run.status !== 'running') {
+      return {
+        status: 'already_terminal',
+        run,
+      };
+    }
+
+    const continuationApplied = (eventedDispatch as { result_continuation_applied?: unknown })
+      .result_continuation_applied;
+    if (continuationApplied === true) {
+      return {
+        status: 'already_applied',
+        run,
+      };
+    }
+
+    return {
+      status: 'missing_evented_dispatch',
+      run,
+    };
   }
 
   private computeErrorSignature(error_message: string): string {

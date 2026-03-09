@@ -628,6 +628,7 @@ export class SchedulerCore implements ISchedulerCore {
   private async handleEventedExecutionCompleted(event: RuntimeEvent): Promise<void> {
     const context = this.getActiveExecutionContext(event.runId);
     if (!context) {
+      this.debugSuppressibleEventedResult(event.runId, 'execution.completed');
       return;
     }
 
@@ -637,12 +638,21 @@ export class SchedulerCore implements ISchedulerCore {
       return;
     }
 
+    if (!this.tryClaimEventedResultContinuation(context.run.id, 'execution.completed')) {
+      return;
+    }
+
     await this.continueAfterExecutionResult(context, result, { cleanupBeforeContinuation: true });
   }
 
   private async handleEventedExecutionFailed(event: RuntimeEvent): Promise<void> {
     const context = this.getActiveExecutionContext(event.runId);
     if (!context) {
+      this.debugSuppressibleEventedResult(event.runId, 'execution.failed');
+      return;
+    }
+
+    if (!this.tryClaimEventedResultContinuation(context.run.id, 'execution.failed')) {
       return;
     }
 
@@ -751,6 +761,77 @@ export class SchedulerCore implements ISchedulerCore {
     };
   }
 
+  private tryClaimEventedResultContinuation(
+    runId: string,
+    eventType: 'execution.completed' | 'execution.failed'
+  ): boolean {
+    const claimedAt = Date.now();
+    const claim = this.deps.repository.claimEventedResultContinuation(runId, claimedAt);
+
+    if (claim.status === 'claimed') {
+      const context = this.activeExecutions.get(runId);
+      if (context?.run.context) {
+        context.run.context = claim.run?.context ?? context.run.context;
+      } else if (context) {
+        context.run.context = claim.run?.context;
+      }
+      return true;
+    }
+
+    if (claim.status === 'already_applied') {
+      this.debug(`Suppressing duplicate ${eventType} for run ${runId}: durable continuation already applied`);
+      this.cleanupExecutionContext(runId);
+      return false;
+    }
+
+    if (claim.status === 'already_terminal') {
+      this.debug(`Ignoring stale ${eventType} for run ${runId}: durable run state is already terminal`);
+      this.cleanupExecutionContext(runId);
+      return false;
+    }
+
+    if (claim.status === 'missing_evented_dispatch') {
+      this.debug(`Ignoring ${eventType} for run ${runId}: durable evented dispatch checkpoint is missing`);
+      return false;
+    }
+
+    this.debug(`Ignoring ${eventType} for run ${runId}: durable run row no longer exists`);
+    return false;
+  }
+
+  private debugSuppressibleEventedResult(
+    runId: string | undefined,
+    eventType: 'execution.completed' | 'execution.failed'
+  ): void {
+    if (!runId) {
+      return;
+    }
+
+    const run = this.deps.repository.getRun(runId);
+    if (!run) {
+      this.debug(`Ignoring ${eventType} for run ${runId}: no active execution context and durable run row was not found`);
+      return;
+    }
+
+    const checkpoint = readEventedDispatchCheckpoint(run.context);
+    if (!checkpoint) {
+      this.debug(`Ignoring ${eventType} for run ${runId}: no active execution context and no durable evented dispatch checkpoint`);
+      return;
+    }
+
+    if (checkpoint.result_continuation_applied) {
+      this.debug(`Suppressing duplicate ${eventType} for run ${runId}: durable continuation already applied`);
+      return;
+    }
+
+    if (run.status !== 'running') {
+      this.debug(`Ignoring stale ${eventType} for run ${runId}: durable run state is already terminal`);
+      return;
+    }
+
+    this.debug(`Ignoring ${eventType} for run ${runId}: no active execution context for durable continuation`);
+  }
+
   private isExecutionResultCandidate(
     result: Partial<ExecutionResult>,
     expectedSuccess?: boolean
@@ -815,7 +896,8 @@ export class SchedulerCore implements ISchedulerCore {
       );
 
       const existingCheckpoint = readEventedDispatchCheckpoint(run.context);
-      const resultContinuationAppliedAt = Date.now();
+      const resultContinuationAppliedAt =
+        existingCheckpoint?.result_continuation_applied_at ?? Date.now();
       const completedEventedDispatch = existingCheckpoint
         ? buildEventedDispatchCheckpoint({
             laneId: existingCheckpoint.lane_id,

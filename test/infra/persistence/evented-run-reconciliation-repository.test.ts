@@ -130,4 +130,60 @@ describe('WorkOrderDatabase evented reconciliation queries', () => {
 
     repository.close();
   });
+
+  it('claims evented result continuation durably only once', async () => {
+    const dbPath = createTempDbPath();
+    const repository = new WorkOrderDatabase(dbPath);
+    await repository.initialize();
+
+    const goal = repository.createGoal({
+      title: 'goal',
+      description: 'desc',
+      success_criteria: [],
+    });
+    const workItem = repository.createWorkItem({
+      goal_id: goal.id,
+      title: 'work',
+      description: 'desc',
+      item_type: 'code',
+    });
+    const run = repository.createRun({
+      work_item_id: workItem.id,
+      goal_id: goal.id,
+      agent_type: 'code',
+      run_sequence: 1,
+    });
+
+    repository.mergeRunContext(run.id, {
+      evented_dispatch: buildEventedDispatchCheckpoint({
+        laneId: 'main',
+        dispatchedAt: 1234,
+        resultContinuationApplied: false,
+      }),
+    });
+
+    const firstClaim = repository.claimEventedResultContinuation(run.id, 5678);
+    expect(firstClaim.status).toBe('claimed');
+    expect(firstClaim.run?.context).toEqual(
+      expect.objectContaining({
+        evented_dispatch: expect.objectContaining({
+          result_continuation_applied: true,
+          result_continuation_applied_at: 5678,
+        }),
+      })
+    );
+
+    const duplicateClaim = repository.claimEventedResultContinuation(run.id, 9999);
+    expect(duplicateClaim.status).toBe('already_applied');
+    expect(duplicateClaim.run?.context).toEqual(
+      expect.objectContaining({
+        evented_dispatch: expect.objectContaining({
+          result_continuation_applied: true,
+          result_continuation_applied_at: 5678,
+        }),
+      })
+    );
+
+    repository.close();
+  });
 });
