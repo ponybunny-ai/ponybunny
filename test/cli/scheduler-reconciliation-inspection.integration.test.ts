@@ -194,4 +194,49 @@ describe('pb scheduler reconciliation inspection', () => {
       );
     }
   });
+
+  test('clears an evented run recovery candidate idempotently and leaves direct mode unaffected', async () => {
+    const dbPath = createTempDbPath();
+    const { inFlightRunId, directRunId } = await seedInspectionDb(dbPath);
+
+    execSync(`${pbCommand} scheduler mark-recovery-candidate ${inFlightRunId} --db "${dbPath}"`, {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    });
+
+    const firstOutput = execSync(
+      `${pbCommand} scheduler clear-recovery-candidate ${inFlightRunId} --db "${dbPath}"`,
+      {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      }
+    );
+    expect(firstOutput).toContain(`Recovery candidate cleared for run ${inFlightRunId}.`);
+    expect(firstOutput).toContain('- recoveryCandidate: false');
+    expect(firstOutput).toContain('- recoveryCandidateMarkedAt:');
+    expect(firstOutput).toContain('- recoveryCandidateReason: manual_operator_mark');
+
+    const secondOutput = execSync(
+      `${pbCommand} scheduler clear-recovery-candidate ${inFlightRunId} --db "${dbPath}"`,
+      {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      }
+    );
+    expect(secondOutput).toContain(`Recovery candidate already cleared for run ${inFlightRunId}.`);
+    expect(secondOutput).toContain('- recoveryCandidate: false');
+
+    try {
+      execSync(`${pbCommand} scheduler clear-recovery-candidate ${directRunId} --db "${dbPath}"`, {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      });
+      throw new Error('expected direct run clear to fail');
+    } catch (error) {
+      const execError = error as Error & { stdout?: string };
+      expect(execError.stdout).toContain(
+        `Could not clear recovery candidate for run ${directRunId} (missing_evented_dispatch).`
+      );
+    }
+  });
 });

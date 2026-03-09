@@ -361,10 +361,29 @@ describe('WorkOrderDatabase evented reconciliation queries', () => {
       })
     );
 
+    const firstClear = repository.clearEventedRunRecoveryCandidate(eventedRun.id);
+    expect(firstClear.status).toBe('cleared');
+
+    const secondClear = repository.clearEventedRunRecoveryCandidate(eventedRun.id);
+    expect(secondClear.status).toBe('already_cleared');
+
+    const clearedInspection = repository.getRunInspection(eventedRun.id);
+    expect(clearedInspection).toEqual(
+      expect.objectContaining({
+        executionMode: 'evented',
+        recoveryCandidate: false,
+        recoveryCandidateMarkedAt: 5678,
+        recoveryCandidateReason: 'manual_operator_mark',
+      })
+    );
+
     const directMark = repository.markEventedRunRecoveryCandidate(directRun.id, {
       markedAt: 8888,
     });
     expect(directMark.status).toBe('missing_evented_dispatch');
+
+    const directClear = repository.clearEventedRunRecoveryCandidate(directRun.id);
+    expect(directClear.status).toBe('missing_evented_dispatch');
 
     const persistedDirectRun = repository.getRun(directRun.id);
     expect(persistedDirectRun?.context).toEqual(

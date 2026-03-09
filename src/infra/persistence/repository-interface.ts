@@ -39,6 +39,7 @@ export interface IWorkOrderRepository {
     id: string,
     params?: MarkEventedRunRecoveryCandidateParams
   ): EventedRunRecoveryCandidateMarkResult;
+  clearEventedRunRecoveryCandidate(id: string): EventedRunRecoveryCandidateClearResult;
   completeRun(id: string, params: CompleteRunParams): void;
   getRunsByWorkItem(workItemId: string): Run[];
   listInFlightRunReconciliationCandidates(): InFlightRunReconciliationCandidate[];
@@ -244,6 +245,18 @@ export interface EventedRunRecoveryCandidateMarkResult {
   status: EventedRunRecoveryCandidateMarkStatus;
   markedAt?: number;
   reason?: 'manual_operator_mark';
+  run?: Run;
+}
+
+export type EventedRunRecoveryCandidateClearStatus =
+  | 'cleared'
+  | 'already_cleared'
+  | 'not_marked'
+  | 'missing_evented_dispatch'
+  | 'run_not_found';
+
+export interface EventedRunRecoveryCandidateClearResult {
+  status: EventedRunRecoveryCandidateClearStatus;
   run?: Run;
 }
 

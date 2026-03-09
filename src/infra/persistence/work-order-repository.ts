@@ -5,6 +5,7 @@ import type {
   EventedRunOrphanMarkResult,
   EventedRunInspectionRecord,
   EventedRunRecoveryCandidateMarkResult,
+  EventedRunRecoveryCandidateClearResult,
   EventedRunReconciliationSummary,
   RunInspectionRecord,
   CronJob,
@@ -871,6 +872,54 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
 
     return {
       status: 'missing_evented_dispatch',
+      run,
+    };
+  }
+
+  clearEventedRunRecoveryCandidate(id: string): EventedRunRecoveryCandidateClearResult {
+    const clearStmt = this.db.prepare(`
+      UPDATE runs
+      SET context = json_set(
+        COALESCE(context, '{}'),
+        '$.evented_dispatch.recovery_candidate',
+        json('false')
+      )
+      WHERE id = ?
+        AND json_extract(context, '$.evented_dispatch.execution_mode') = 'evented'
+        AND json_extract(context, '$.evented_dispatch.recovery_candidate') = 1
+    `);
+
+    const result = clearStmt.run(id);
+    const run = this.getRun(id);
+
+    if (result.changes > 0) {
+      return {
+        status: 'cleared',
+        run,
+      };
+    }
+
+    if (!run) {
+      return { status: 'run_not_found' };
+    }
+
+    const checkpoint = this.readEventedDispatchCheckpoint(run);
+    if (!checkpoint) {
+      return {
+        status: 'missing_evented_dispatch',
+        run,
+      };
+    }
+
+    if (checkpoint.recoveryCandidate === false && checkpoint.recoveryCandidateMarkedAt !== undefined) {
+      return {
+        status: 'already_cleared',
+        run,
+      };
+    }
+
+    return {
+      status: 'not_marked',
       run,
     };
   }

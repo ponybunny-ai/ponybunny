@@ -727,6 +727,49 @@ export const schedulerCommand = new Command('scheduler')
       })
   )
   .addCommand(
+    new Command('clear-recovery-candidate')
+      .description('Durably clear one evented run manual recovery candidate marker')
+      .argument('<runId>', 'Run ID to clear')
+      .option('--db <path>', 'Database path (defaults to running scheduler DB or configured path)')
+      .action(async (runId: string, options: { db?: string }) => {
+        const dbPath = resolveSchedulerDbPath(options.db);
+        const result = await withSchedulerRepository(dbPath, (repository) =>
+          repository.clearEventedRunRecoveryCandidate(runId)
+        );
+
+        if (result.status === 'cleared') {
+          console.log(chalk.green(`Recovery candidate cleared for run ${runId}.`));
+        } else if (result.status === 'already_cleared') {
+          console.log(chalk.yellow(`Recovery candidate already cleared for run ${runId}.`));
+        } else if (result.status === 'run_not_found') {
+          console.log(chalk.red(`Run not found: ${runId}`));
+          process.exit(1);
+        } else {
+          console.log(
+            chalk.red(
+              `Could not clear recovery candidate for run ${runId} (${result.status}).`
+            )
+          );
+          if (result.run) {
+            const record = await withSchedulerRepository(dbPath, (repository) =>
+              repository.getRunInspection(runId)
+            );
+            if (record) {
+              printRunInspection(dbPath, record);
+            }
+          }
+          process.exit(1);
+        }
+
+        const record = await withSchedulerRepository(dbPath, (repository) =>
+          repository.getRunInspection(runId)
+        );
+        if (record) {
+          printRunInspection(dbPath, record);
+        }
+      })
+  )
+  .addCommand(
     new Command('logs')
       .description('Show Scheduler logs')
       .option('-f, --follow', 'Follow log output')
