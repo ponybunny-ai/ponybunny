@@ -83,15 +83,30 @@ interface ToolWorkerMutableInspectionRecord extends ToolWorkerInspectionRecord {
   sequence: number;
 }
 
+interface LocalToolWorkerOptions {
+  timeoutMs?: number;
+}
+
+interface LocalToolRequestTimeoutState {
+  timeoutId: ReturnType<typeof setTimeout>;
+  timedOut: boolean;
+}
+
+const DEFAULT_LOCAL_TOOL_TIMEOUT_MS = 30_000;
+
 export class LocalToolWorker {
   private readonly inspectionsByRequestId = new Map<string, ToolWorkerMutableInspectionRecord>();
   private inspectionSequence = 0;
+  private readonly timeoutMs: number;
 
   constructor(
     private readonly toolPort: ToolPort,
     private readonly bus: RuntimeEventBus = runtimeEventBus,
-    private readonly requestRegistry: ToolRequestRegistry = new ToolRequestRegistry()
-  ) {}
+    private readonly requestRegistry: ToolRequestRegistry = new ToolRequestRegistry(),
+    options: LocalToolWorkerOptions = {}
+  ) {
+    this.timeoutMs = this.normalizeTimeoutMs(options.timeoutMs);
+  }
 
   async dispatch(request: ToolRequest): Promise<ToolResult> {
     const inspection = this.getOrCreateInspection(request);
@@ -121,13 +136,19 @@ export class LocalToolWorker {
       return registration.promise;
     }
 
-    void this.executeRequest(request, registration.owner);
+    const timeoutState = this.startLocalTimeout(request, registration.owner, inspection);
+    void this.executeRequest(request, registration.owner, timeoutState);
     return registration.promise;
   }
 
-  private async executeRequest(request: ToolRequest, owner: ToolRequestResolutionOwner): Promise<void> {
+  private async executeRequest(
+    request: ToolRequest,
+    owner: ToolRequestResolutionOwner,
+    timeoutState: LocalToolRequestTimeoutState
+  ): Promise<void> {
     const context = this.buildContext(request);
     const inspection = this.getOrCreateInspection(request);
+    let executionStarted = false;
 
     try {
       await this.publish('tool.requested', {
@@ -135,23 +156,45 @@ export class LocalToolWorker {
         context,
         inspection: this.cloneInspection(inspection),
       } satisfies ToolWorkerRequestedPayload);
+      if (timeoutState.timedOut) {
+        return;
+      }
+
       await this.publish('tool.started', {
         request,
         context,
         inspection: this.cloneInspection(inspection),
       } satisfies ToolWorkerStartedPayload);
+      if (timeoutState.timedOut) {
+        return;
+      }
 
+      executionStarted = true;
       const result = await this.toolPort.execute(request);
+      if (timeoutState.timedOut) {
+        owner.recordIgnoredCompletion();
+        return;
+      }
+
+      this.clearLocalTimeout(timeoutState);
       const normalizedResult = this.normalizeResult(request, result, inspection);
 
       if (normalizedResult.success) {
         this.completeInspection(inspection, 'success');
-        await this.publish('tool.completed', {
-          request,
-          result: normalizedResult,
-          context,
-          inspection: this.cloneInspection(inspection),
-        } satisfies ToolWorkerCompletedPayload);
+        try {
+          await this.publish('tool.completed', {
+            request,
+            result: normalizedResult,
+            context,
+            inspection: this.cloneInspection(inspection),
+          } satisfies ToolWorkerCompletedPayload);
+        } catch (error) {
+          const failedResult = this.buildWorkerExceptionResult(request, error);
+          this.completeInspection(inspection, 'failure', failedResult.error);
+          owner.resolveFailure(failedResult);
+          return;
+        }
+
         owner.resolveSuccess(normalizedResult);
         return;
       }
@@ -163,13 +206,21 @@ export class LocalToolWorker {
           : 'failure',
         normalizedResult.error
       );
-      await this.publish('tool.failed', {
-        request,
-        result: normalizedResult,
-        error: normalizedResult.error!,
-        context,
-        inspection: this.cloneInspection(inspection),
-      } satisfies ToolWorkerFailedPayload);
+      try {
+        await this.publish('tool.failed', {
+          request,
+          result: normalizedResult,
+          error: normalizedResult.error!,
+          context,
+          inspection: this.cloneInspection(inspection),
+        } satisfies ToolWorkerFailedPayload);
+      } catch (error) {
+        const failedResult = this.buildWorkerExceptionResult(request, error);
+        this.completeInspection(inspection, 'failure', failedResult.error);
+        owner.resolveFailure(failedResult);
+        return;
+      }
+
       if (
         normalizedResult.error?.code === 'TOOL_RESULT_MISMATCH'
         || normalizedResult.error?.code === 'TOOL_RESULT_INVALID'
@@ -180,6 +231,14 @@ export class LocalToolWorker {
       }
       return;
     } catch (error) {
+      if (timeoutState.timedOut) {
+        if (executionStarted) {
+          owner.recordIgnoredCompletion();
+        }
+        return;
+      }
+
+      this.clearLocalTimeout(timeoutState);
       const failedResult = this.buildWorkerExceptionResult(request, error);
       this.completeInspection(inspection, 'failure', failedResult.error);
 
@@ -203,6 +262,48 @@ export class LocalToolWorker {
     return this.buildFailedResult(request, {
       code: 'TOOL_WORKER_EXCEPTION',
       message: error instanceof Error ? error.message : String(error),
+      recoverable: true,
+    });
+  }
+
+  private startLocalTimeout(
+    request: ToolRequest,
+    owner: ToolRequestResolutionOwner,
+    inspection: ToolWorkerMutableInspectionRecord
+  ): LocalToolRequestTimeoutState {
+    const timeoutState = {
+      timedOut: false,
+    } as LocalToolRequestTimeoutState;
+
+    timeoutState.timeoutId = setTimeout(() => {
+      timeoutState.timedOut = true;
+
+      const timedOutResult = this.buildLocalTimeoutResult(request);
+      this.completeInspection(inspection, 'failure', timedOutResult.error);
+      owner.resolveFailure(timedOutResult);
+
+      void this.publish('tool.failed', {
+        request,
+        result: timedOutResult,
+        error: timedOutResult.error!,
+        context: this.buildContext(request),
+        inspection: this.cloneInspection(inspection),
+      } satisfies ToolWorkerFailedPayload).catch(() => {
+        // Timeout must still terminate the caller-facing promise even if diagnostics publication fails.
+      });
+    }, this.timeoutMs);
+
+    return timeoutState;
+  }
+
+  private clearLocalTimeout(timeoutState: LocalToolRequestTimeoutState): void {
+    clearTimeout(timeoutState.timeoutId);
+  }
+
+  private buildLocalTimeoutResult(request: ToolRequest): ToolResult {
+    return this.buildFailedResult(request, {
+      code: 'TOOL_EXECUTION_TIMEOUT',
+      message: `Tool '${request.toolName}' did not produce a terminal result before the local worker timeout`,
       recoverable: true,
     });
   }
@@ -414,6 +515,14 @@ export class LocalToolWorker {
 
   private isNonEmptyString(value: unknown): value is string {
     return typeof value === 'string' && value.length > 0;
+  }
+
+  private normalizeTimeoutMs(timeoutMs: number | undefined): number {
+    if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      return DEFAULT_LOCAL_TOOL_TIMEOUT_MS;
+    }
+
+    return timeoutMs;
   }
 
   private buildRequestConflictMessage(
