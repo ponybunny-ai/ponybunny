@@ -111,6 +111,37 @@ export class SchedulerCore implements ISchedulerCore {
     return { ...this.state };
   }
 
+  precheckReplay(runId: string): {
+    status:
+      | 'eligible'
+      | 'run_not_found'
+      | 'missing_evented_dispatch'
+      | 'already_applied'
+      | 'already_terminal'
+      | 'work_item_not_in_progress'
+      | 'recovery_candidate_required'
+      | 'replay_candidate_required'
+      | 'missing_orphan_classification'
+      | 'already_replayed'
+      | 'replay_attempt_not_allowed'
+      | 'not_evented_execution';
+    eligible: boolean;
+    rejectionReasons: string[];
+    expectedConsequences: string[];
+    originalRun?: ReturnType<SchedulerDependencies['repository']['getRun']>;
+  } {
+    if (this.config.executionMode !== 'evented') {
+      return {
+        status: 'not_evented_execution',
+        eligible: false,
+        rejectionReasons: ['not_evented_execution'],
+        expectedConsequences: [],
+      };
+    }
+
+    return this.deps.repository.precheckEventedManualReplay(runId);
+  }
+
   async replayRun(runId: string): Promise<{
     status:
       | 'replay_started'

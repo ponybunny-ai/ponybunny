@@ -1,5 +1,6 @@
 import type {
   IWorkOrderRepository,
+  EventedManualReplayPrecheckResult,
   CreateGoalParams,
   EventedManualReplayStartResult,
   EventedResultContinuationClaim,
@@ -865,6 +866,46 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     );
 
     return startReplay(id, requestedAt, requestedReason);
+  }
+
+  precheckEventedManualReplay(id: string): EventedManualReplayPrecheckResult {
+    const row = this.getRunRowWithWorkItemStatus(id);
+    if (!row) {
+      return {
+        status: 'run_not_found',
+        eligible: false,
+        rejectionReasons: ['run_not_found'],
+        expectedConsequences: [],
+      } as const;
+    }
+
+    const rejection = this.classifyManualReplayRejection(row);
+    if (rejection) {
+      const rejectionStatus = rejection.status as Exclude<
+        EventedManualReplayPrecheckResult['status'],
+        'eligible'
+      >;
+      return {
+        status: rejectionStatus,
+        eligible: false,
+        rejectionReasons: [rejectionStatus],
+        expectedConsequences: [],
+        originalRun: rejection.originalRun,
+      } as const;
+    }
+
+    return {
+      status: 'eligible',
+      eligible: true,
+      rejectionReasons: [],
+      expectedConsequences: [
+        'original run continuation will be durably suppressed before replay dispatch',
+        'a replacement run will be created on the same work item',
+        'the replacement run will be linked to the original run',
+        'the replacement run will be dispatched through the existing evented path',
+      ],
+      originalRun: this.parseRunRow(row),
+    } as const;
   }
 
   private getRunRowWithWorkItemStatus(

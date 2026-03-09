@@ -54,6 +54,10 @@ export class SchedulerRepositoryAdapter implements ISchedulerRepository {
     return this.repository.getRun(id);
   }
 
+  precheckEventedManualReplay(id: string) {
+    return this.repository.precheckEventedManualReplay(id);
+  }
+
   mergeRunContext(id: string, contextPatch: Record<string, unknown>): void {
     this.repository.mergeRunContext(id, contextPatch);
   }

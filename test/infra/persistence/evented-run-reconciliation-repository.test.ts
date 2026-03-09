@@ -709,6 +709,72 @@ describe('WorkOrderDatabase evented reconciliation queries', () => {
     repository.close();
   });
 
+  it('prechecks an eligible replay without mutating durable run state', async () => {
+    const dbPath = createTempDbPath();
+    const repository = new WorkOrderDatabase(dbPath);
+    await repository.initialize();
+
+    const goal = repository.createGoal({
+      title: 'goal',
+      description: 'desc',
+      success_criteria: [],
+    });
+    const workItem = repository.createWorkItem({
+      goal_id: goal.id,
+      title: 'work',
+      description: 'desc',
+      item_type: 'code',
+    });
+    repository.updateWorkItemStatus(workItem.id, 'in_progress');
+
+    const run = repository.createRun({
+      work_item_id: workItem.id,
+      goal_id: goal.id,
+      agent_type: 'code',
+      run_sequence: 1,
+    });
+    repository.mergeRunContext(run.id, {
+      evented_dispatch: {
+        ...buildEventedDispatchCheckpoint({
+          laneId: 'main',
+          dispatchedAt: 1234,
+          resultContinuationApplied: false,
+        }),
+        orphan_classification: 'stale_timeout',
+        orphan_detected_at: 1500,
+        recovery_candidate: true,
+        recovery_candidate_marked_at: 1600,
+        recovery_candidate_reason: 'manual_operator_mark',
+        replay_candidate: true,
+        replay_candidate_marked_at: 1700,
+        replay_candidate_reason: 'manual_operator_mark',
+      },
+    });
+
+    const beforeInspection = repository.getRunInspection(run.id);
+    const beforeRuns = repository.getRunsByWorkItem(workItem.id);
+
+    const result = repository.precheckEventedManualReplay(run.id);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: 'eligible',
+        eligible: true,
+        rejectionReasons: [],
+        expectedConsequences: expect.arrayContaining([
+          'original run continuation will be durably suppressed before replay dispatch',
+          'a replacement run will be created on the same work item',
+          'the replacement run will be linked to the original run',
+          'the replacement run will be dispatched through the existing evented path',
+        ]),
+      })
+    );
+    expect(repository.getRunInspection(run.id)).toEqual(beforeInspection);
+    expect(repository.getRunsByWorkItem(workItem.id)).toEqual(beforeRuns);
+
+    repository.close();
+  });
+
   it('rejects replay when the target run fails the conservative gate set', async () => {
     const dbPath = createTempDbPath();
     const repository = new WorkOrderDatabase(dbPath);
@@ -747,6 +813,57 @@ describe('WorkOrderDatabase evented reconciliation queries', () => {
 
     const result = repository.startEventedManualReplay(run.id, { requestedAt: 2000 });
     expect(result.status).toBe('replay_candidate_required');
+    expect(repository.getRunsByWorkItem(workItem.id)).toHaveLength(1);
+
+    repository.close();
+  });
+
+  it('prechecks an ineligible replay with the same stable rejection code used by replay', async () => {
+    const dbPath = createTempDbPath();
+    const repository = new WorkOrderDatabase(dbPath);
+    await repository.initialize();
+
+    const goal = repository.createGoal({
+      title: 'goal',
+      description: 'desc',
+      success_criteria: [],
+    });
+    const workItem = repository.createWorkItem({
+      goal_id: goal.id,
+      title: 'work',
+      description: 'desc',
+      item_type: 'code',
+    });
+    repository.updateWorkItemStatus(workItem.id, 'in_progress');
+
+    const run = repository.createRun({
+      work_item_id: workItem.id,
+      goal_id: goal.id,
+      agent_type: 'code',
+      run_sequence: 1,
+    });
+    repository.mergeRunContext(run.id, {
+      evented_dispatch: {
+        ...buildEventedDispatchCheckpoint({
+          laneId: 'main',
+          dispatchedAt: 1234,
+          resultContinuationApplied: false,
+        }),
+        orphan_classification: 'stale_timeout',
+        recovery_candidate: true,
+      },
+    });
+
+    const result = repository.precheckEventedManualReplay(run.id);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: 'replay_candidate_required',
+        eligible: false,
+        rejectionReasons: ['replay_candidate_required'],
+        expectedConsequences: [],
+      })
+    );
     expect(repository.getRunsByWorkItem(workItem.id)).toHaveLength(1);
 
     repository.close();

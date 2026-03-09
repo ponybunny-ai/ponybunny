@@ -88,6 +88,7 @@ describe('SchedulerCore', () => {
       updateWorkItemStatus: jest.fn(),
       createRun: jest.fn().mockReturnValue(createRun()),
       getRun: jest.fn(),
+      precheckEventedManualReplay: jest.fn(),
       mergeRunContext: jest.fn(),
       claimEventedResultContinuation: jest.fn().mockImplementation((id: string, appliedAt?: number) => ({
         status: 'claimed',
@@ -791,6 +792,38 @@ describe('SchedulerCore', () => {
       expect(result.status).toBe('not_evented_execution');
       expect(mockRepository.startEventedManualReplay).not.toHaveBeenCalled();
       expect(mockRuntimeEventBus.publish).not.toHaveBeenCalled();
+    });
+
+    it('should precheck replay in evented mode without starting replay', () => {
+      mockRepository.precheckEventedManualReplay.mockReturnValue({
+        status: 'eligible',
+        eligible: true,
+        rejectionReasons: [],
+        expectedConsequences: [
+          'original run continuation will be durably suppressed before replay dispatch',
+        ],
+        originalRun: createRun({ id: 'run-original' }),
+      });
+      scheduler = new SchedulerCore(mockDeps, { executionMode: 'evented' });
+
+      const result = scheduler.precheckReplay('run-original');
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          status: 'eligible',
+          eligible: true,
+        })
+      );
+      expect(mockRepository.precheckEventedManualReplay).toHaveBeenCalledWith('run-original');
+      expect(mockRepository.startEventedManualReplay).not.toHaveBeenCalled();
+    });
+
+    it('should reject replay precheck in direct mode', () => {
+      const result = scheduler.precheckReplay('run-original');
+
+      expect(result.status).toBe('not_evented_execution');
+      expect(result.eligible).toBe(false);
+      expect(mockRepository.precheckEventedManualReplay).not.toHaveBeenCalled();
     });
 
     it('should consume execution.completed as the authoritative evented completion signal', async () => {

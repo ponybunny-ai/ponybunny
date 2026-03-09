@@ -282,6 +282,7 @@ function printRunInspection(dbPath: string, record: RunInspectionRecord): void {
 
 function describeReplayRunRejection(
   status:
+    | 'eligible'
     | 'replay_started'
     | 'run_not_found'
     | 'missing_evented_dispatch'
@@ -296,6 +297,8 @@ function describeReplayRunRejection(
     | 'not_evented_execution'
 ): string {
   switch (status) {
+    case 'eligible':
+      return 'run is eligible for manual replay';
     case 'replay_started':
       return 'replay started';
     case 'run_not_found':
@@ -320,6 +323,37 @@ function describeReplayRunRejection(
       return 'replay attempts cannot themselves be replayed';
     case 'not_evented_execution':
       return 'scheduler is not running in evented execution mode';
+  }
+}
+
+function printReplayPrecheck(
+  runId: string,
+  result: {
+    eligible: boolean;
+    rejectionReasons: string[];
+    expectedConsequences: string[];
+  }
+): void {
+  console.log('Replay Precheck');
+  console.log(`- runId: ${runId}`);
+  console.log(`- eligible: ${result.eligible ? 'yes' : 'no'}`);
+
+  if (result.rejectionReasons.length > 0) {
+    console.log('- rejectionCodes:');
+    for (const code of result.rejectionReasons) {
+      console.log(`  - ${code}: ${describeReplayRunRejection(code as Parameters<typeof describeReplayRunRejection>[0])}`);
+    }
+  } else {
+    console.log('- rejectionCodes: none');
+  }
+
+  if (result.expectedConsequences.length > 0) {
+    console.log('- expectedConsequences:');
+    for (const consequence of result.expectedConsequences) {
+      console.log(`  - ${consequence}`);
+    }
+  } else {
+    console.log('- expectedConsequences: none');
   }
 }
 
@@ -947,6 +981,39 @@ export const schedulerCommand = new Command('scheduler')
         );
         if (record) {
           printRunInspection(dbPath, record);
+        }
+      })
+  )
+  .addCommand(
+    new Command('replay-precheck')
+      .description('Inspect whether a run is eligible for manual replay without executing replay')
+      .argument('<runId>', 'Run ID to precheck for manual replay')
+      .option('--db <path>', 'Database path (defaults to running scheduler DB or configured path)')
+      .action(async (runId: string, options: { db?: string }) => {
+        const dbPath = resolveSchedulerDbPath(options.db);
+        const result =
+          runtimeConfig.scheduler.executionMode !== 'evented'
+            ? {
+                status: 'not_evented_execution',
+                eligible: false,
+                rejectionReasons: ['not_evented_execution'],
+                expectedConsequences: [],
+              }
+            : await withSchedulerRepository(dbPath, (repository) =>
+                repository.precheckEventedManualReplay(runId)
+              );
+
+        printReplayPrecheck(runId, result);
+
+        const record = await withSchedulerRepository(dbPath, (repository) =>
+          repository.getRunInspection(runId)
+        );
+        if (record) {
+          printRunInspection(dbPath, record);
+        }
+
+        if (!result.eligible) {
+          process.exit(1);
         }
       })
   )

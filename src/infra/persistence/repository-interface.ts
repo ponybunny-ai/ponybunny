@@ -29,6 +29,7 @@ export interface IWorkOrderRepository {
   createRun(params: CreateRunParams): Run;
   getRun(id: string): Run | undefined;
   getRunInspection(id: string): RunInspectionRecord | undefined;
+  precheckEventedManualReplay(id: string): EventedManualReplayPrecheckResult;
   mergeRunContext(id: string, contextPatch: Record<string, unknown>): void;
   claimEventedResultContinuation(id: string, appliedAt?: number): EventedResultContinuationClaim;
   startEventedManualReplay(
@@ -282,6 +283,27 @@ export interface EventedManualReplayStartResult {
   requestedReason?: 'manual_operator_request';
   originalRun?: Run;
   replacementRun?: Run;
+}
+
+export type EventedManualReplayPrecheckStatus =
+  | 'eligible'
+  | 'run_not_found'
+  | 'missing_evented_dispatch'
+  | 'already_applied'
+  | 'already_terminal'
+  | 'work_item_not_in_progress'
+  | 'recovery_candidate_required'
+  | 'replay_candidate_required'
+  | 'missing_orphan_classification'
+  | 'already_replayed'
+  | 'replay_attempt_not_allowed';
+
+export interface EventedManualReplayPrecheckResult {
+  status: EventedManualReplayPrecheckStatus;
+  eligible: boolean;
+  rejectionReasons: Exclude<EventedManualReplayPrecheckStatus, 'eligible'>[];
+  expectedConsequences: string[];
+  originalRun?: Run;
 }
 
 export type EventedRunRecoveryCandidateMarkStatus =

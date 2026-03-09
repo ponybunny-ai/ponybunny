@@ -11,6 +11,19 @@ function createTempDbPath(): string {
   return path.join(dir, 'pony.db');
 }
 
+function createEventedConfigDir(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pony-cli-config-'));
+  fs.writeFileSync(
+    path.join(dir, 'ponybunny.json'),
+    JSON.stringify({
+      scheduler: {
+        executionMode: 'evented',
+      },
+    })
+  );
+  return dir;
+}
+
 async function seedInspectionDb(dbPath: string): Promise<{
   inFlightRunId: string;
   orphanedRunId: string;
@@ -193,6 +206,106 @@ async function seedReplayInspectionDb(dbPath: string): Promise<{
   };
 }
 
+async function seedReplayPrecheckDb(dbPath: string): Promise<{
+  eligibleRunId: string;
+  ineligibleRunId: string;
+  directRunId: string;
+}> {
+  const repository = new WorkOrderDatabase(dbPath);
+  await repository.initialize();
+
+  const goal = repository.createGoal({
+    title: 'goal',
+    description: 'desc',
+    success_criteria: [],
+  });
+
+  const eligibleItem = repository.createWorkItem({
+    goal_id: goal.id,
+    title: 'eligible',
+    description: 'desc',
+    item_type: 'code',
+  });
+  repository.updateWorkItemStatus(eligibleItem.id, 'in_progress');
+
+  const ineligibleItem = repository.createWorkItem({
+    goal_id: goal.id,
+    title: 'ineligible',
+    description: 'desc',
+    item_type: 'code',
+  });
+  repository.updateWorkItemStatus(ineligibleItem.id, 'in_progress');
+
+  const directItem = repository.createWorkItem({
+    goal_id: goal.id,
+    title: 'direct',
+    description: 'desc',
+    item_type: 'test',
+  });
+  repository.updateWorkItemStatus(directItem.id, 'in_progress');
+
+  const eligibleRun = repository.createRun({
+    work_item_id: eligibleItem.id,
+    goal_id: goal.id,
+    agent_type: 'code',
+    run_sequence: 1,
+  });
+  repository.mergeRunContext(eligibleRun.id, {
+    evented_dispatch: {
+      ...buildEventedDispatchCheckpoint({
+        laneId: 'main',
+        dispatchedAt: 1000,
+        resultContinuationApplied: false,
+      }),
+      orphan_classification: 'stale_timeout',
+      orphan_detected_at: 1500,
+      recovery_candidate: true,
+      recovery_candidate_marked_at: 1600,
+      recovery_candidate_reason: 'manual_operator_mark',
+      replay_candidate: true,
+      replay_candidate_marked_at: 1700,
+      replay_candidate_reason: 'manual_operator_mark',
+    },
+  });
+
+  const ineligibleRun = repository.createRun({
+    work_item_id: ineligibleItem.id,
+    goal_id: goal.id,
+    agent_type: 'code',
+    run_sequence: 1,
+  });
+  repository.mergeRunContext(ineligibleRun.id, {
+    evented_dispatch: {
+      ...buildEventedDispatchCheckpoint({
+        laneId: 'slow',
+        dispatchedAt: 2000,
+        resultContinuationApplied: false,
+      }),
+      orphan_classification: 'stale_timeout',
+      orphan_detected_at: 2500,
+      recovery_candidate: true,
+      recovery_candidate_marked_at: 2600,
+      recovery_candidate_reason: 'manual_operator_mark',
+    },
+  });
+
+  const directRun = repository.createRun({
+    work_item_id: directItem.id,
+    goal_id: goal.id,
+    agent_type: 'test',
+    run_sequence: 1,
+    context: { selected_model: 'direct-model' },
+  });
+
+  repository.close();
+
+  return {
+    eligibleRunId: eligibleRun.id,
+    ineligibleRunId: ineligibleRun.id,
+    directRunId: directRun.id,
+  };
+}
+
 describe('pb scheduler reconciliation inspection', () => {
   const pbCommand = 'node dist/cli/index.js';
 
@@ -337,6 +450,98 @@ describe('pb scheduler reconciliation inspection', () => {
       expect(execError.stdout).toContain('- replayLineageRole: none');
       expect(execError.stdout).toContain('- replayLineagePeerRunId: -');
       expect(execError.stdout).toContain('- replacement_run_id: -');
+    }
+  });
+
+  test('replay-precheck reports an eligible evented run and its expected consequences', async () => {
+    const dbPath = createTempDbPath();
+    const { eligibleRunId } = await seedReplayPrecheckDb(dbPath);
+    const configDir = createEventedConfigDir();
+
+    const output = execSync(
+      `${pbCommand} scheduler replay-precheck ${eligibleRunId} --db "${dbPath}"`,
+      {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+        env: {
+          ...process.env,
+          PONYBUNNY_CONFIG_DIR: configDir,
+        },
+      }
+    );
+
+    expect(output).toContain('Replay Precheck');
+    expect(output).toContain(`- runId: ${eligibleRunId}`);
+    expect(output).toContain('- eligible: yes');
+    expect(output).toContain('- rejectionCodes: none');
+    expect(output).toContain(
+      'original run continuation will be durably suppressed before replay dispatch'
+    );
+    expect(output).toContain('a replacement run will be created on the same work item');
+    expect(output).toContain('the replacement run will be linked to the original run');
+    expect(output).toContain('the replacement run will be dispatched through the existing evented path');
+    expect(output).toContain('- replacement_run_id: -');
+  });
+
+  test('replay-precheck reports stable rejection codes and remains read-only', async () => {
+    const dbPath = createTempDbPath();
+    const { ineligibleRunId } = await seedReplayPrecheckDb(dbPath);
+    const configDir = createEventedConfigDir();
+    const repository = new WorkOrderDatabase(dbPath);
+    await repository.initialize();
+    const beforeInspection = repository.getRunInspection(ineligibleRunId);
+    const beforeRuns = beforeInspection ? repository.getRunsByWorkItem(beforeInspection.run.work_item_id) : [];
+    repository.close();
+
+    try {
+      execSync(
+        `${pbCommand} scheduler replay-precheck ${ineligibleRunId} --db "${dbPath}"`,
+        {
+          encoding: 'utf-8',
+          stdio: 'pipe',
+          env: {
+            ...process.env,
+            PONYBUNNY_CONFIG_DIR: configDir,
+          },
+        }
+      );
+      throw new Error('expected replay-precheck to fail for ineligible run');
+    } catch (error) {
+      const execError = error as Error & { stdout?: string };
+      expect(execError.stdout).toContain('- eligible: no');
+      expect(execError.stdout).toContain(
+        '- replay_candidate_required: run is missing the replay candidate marker'
+      );
+      expect(execError.stdout).toContain('- expectedConsequences: none');
+      expect(execError.stdout).toContain('- replacement_run_id: -');
+    }
+
+    const verifyRepository = new WorkOrderDatabase(dbPath);
+    await verifyRepository.initialize();
+    expect(verifyRepository.getRunInspection(ineligibleRunId)).toEqual(beforeInspection);
+    expect(
+      verifyRepository.getRunsByWorkItem(beforeInspection!.run.work_item_id)
+    ).toEqual(beforeRuns);
+    verifyRepository.close();
+  });
+
+  test('replay-precheck leaves direct mode unaffected', async () => {
+    const dbPath = createTempDbPath();
+    const { directRunId } = await seedReplayPrecheckDb(dbPath);
+
+    try {
+      execSync(`${pbCommand} scheduler replay-precheck ${directRunId} --db "${dbPath}"`, {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      });
+      throw new Error('expected replay-precheck to fail in direct mode');
+    } catch (error) {
+      const execError = error as Error & { stdout?: string };
+      expect(execError.stdout).toContain('- eligible: no');
+      expect(execError.stdout).toContain(
+        '- not_evented_execution: scheduler is not running in evented execution mode'
+      );
+      expect(execError.stdout).toContain('- executionMode: direct');
     }
   });
 

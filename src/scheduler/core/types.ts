@@ -4,6 +4,7 @@
 
 import type { Goal, WorkItem, Run, InFlightRunReconciliationCandidate } from '../../work-order/types/index.js';
 import type {
+  EventedManualReplayPrecheckResult,
   EventedManualReplayStartResult,
   EventedResultContinuationClaim,
 } from '../../infra/persistence/repository-interface.js';
@@ -160,6 +161,7 @@ export interface ISchedulerRepository {
     context?: Record<string, unknown>;
   }): Run;
   getRun(id: string): Run | undefined;
+  precheckEventedManualReplay(id: string): EventedManualReplayPrecheckResult;
   mergeRunContext(id: string, contextPatch: Record<string, unknown>): void;
   claimEventedResultContinuation(id: string, appliedAt?: number): EventedResultContinuationClaim;
   startEventedManualReplay(
