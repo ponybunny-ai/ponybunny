@@ -12,6 +12,7 @@ import type { IExecutionService } from '../../app/lifecycle/stage-interfaces.js'
 import type { IWorkItemRepository } from '../../scheduler/work-item-manager/work-item-manager.js';
 import type { IEscalationRepository } from '../../scheduler/escalation-handler/escalation-handler.js';
 import type { ILLMReviewer } from '../../scheduler/quality-gate-runner/types.js';
+import type { ExecutionPort } from '../../runtime/execution-boundary/index.js';
 
 import { SchedulerCore } from '../../scheduler/core/index.js';
 import { ModelSelector } from '../../scheduler/model-selector/index.js';
@@ -44,6 +45,7 @@ export interface SchedulerFactoryDependencies {
   repository: IWorkOrderRepository;
   executionService: IExecutionService;
   llmProvider?: ILLMProvider;
+  executionPort?: ExecutionPort;
 }
 
 /**
@@ -57,7 +59,7 @@ export function createScheduler(
 
   // Create adapters
   const repositoryAdapter = new SchedulerRepositoryAdapter(repository);
-  const executionPort = new LocalExecutionAdapter(executionService);
+  const executionPort = deps.executionPort ?? new LocalExecutionAdapter(executionService);
 
   // Create model selector (uses default config and scorer)
   const modelSelector = new ModelSelector();

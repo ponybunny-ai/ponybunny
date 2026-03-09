@@ -11,6 +11,8 @@ import type { IExecutionService } from '../app/lifecycle/stage-interfaces.js';
 import type { ILLMProvider } from '../infra/llm/llm-provider.js';
 import type { SchedulerEvent } from '../scheduler/types.js';
 import type { DebugEvent } from '../debug/types.js';
+import { LocalExecutionAdapter } from '../runtime/execution-boundary/index.js';
+import { LocalExecutionWorker } from '../runtime/workers/index.js';
 import { SchedulerCore } from '../scheduler/core/index.js';
 import { createScheduler } from '../gateway/integration/scheduler-factory.js';
 import { IPCClient } from '../ipc/ipc-client.js';
@@ -92,6 +94,7 @@ export class SchedulerDaemon {
   private sessionIntake: SchedulerSessionIntake | null = null;
   private memoryDb: Database.Database | null = null;
   private schedulerEventEnvelopeResolver: SchedulerEventEnvelopeResolver;
+  private executionWorker: LocalExecutionWorker | null = null;
 
   constructor(
     repository: IWorkOrderRepository,
@@ -199,11 +202,15 @@ export class SchedulerDaemon {
 
       // Create scheduler with all dependencies
       const schedulerTickIntervalMs = this.config.tickIntervalMs ?? 1000;
+      const executionPort = new LocalExecutionAdapter(this.executionService);
+      this.executionWorker = new LocalExecutionWorker(executionPort);
+      this.executionWorker.start();
       this.scheduler = createScheduler(
         {
           repository: this.repository,
           executionService: this.executionService,
           llmProvider: this.llmProvider,
+          executionPort,
         },
         {
           tickIntervalMs: schedulerTickIntervalMs,
@@ -301,6 +308,8 @@ export class SchedulerDaemon {
       }
       this.retentionDispatchActive = false;
       this.agentScheduler = null;
+      this.executionWorker?.stop();
+      this.executionWorker = null;
       if (this.hasPidLock) {
         releaseSchedulerDaemonLock();
         this.hasPidLock = false;
@@ -332,6 +341,8 @@ export class SchedulerDaemon {
     this.retentionDispatchActive = false;
     this.agentScheduler = null;
     this.sessionIntake = null;
+    this.executionWorker?.stop();
+    this.executionWorker = null;
 
     if (this.memoryDb) {
       this.memoryDb.close();
