@@ -15,7 +15,9 @@ import {
   LocalToolAdapter,
   type ToolPort,
   type ToolRequest,
+  type ToolResult,
 } from '../runtime/tool-boundary/index.js';
+import { LocalToolWorker } from '../runtime/workers/index.js';
 
 export interface ReActCycleParams {
   workItem: WorkItem;
@@ -25,6 +27,7 @@ export interface ReActCycleParams {
   goal?: Goal;
   toolEnforcer?: ToolEnforcer;
   toolPort?: ToolPort;
+  toolWorker?: LocalToolWorker;
 }
 
 export interface ReActCycleResult {
@@ -65,16 +68,23 @@ interface ExecutionIntent {
 export class ReActIntegration {
   private promptProvider = getGlobalPromptProvider();
   private toolProvider = getGlobalToolProvider();
+  private readonly toolWorkersByPort = new WeakMap<ToolPort, LocalToolWorker>();
+  private readonly toolWorkersByEnforcer = new WeakMap<ToolEnforcer, LocalToolWorker>();
 
   constructor(
     private llmProvider?: ILLMProvider,
     private toolEnforcer?: ToolEnforcer,
-    private toolPort?: ToolPort
+    private toolPort?: ToolPort,
+    private toolWorker?: LocalToolWorker
   ) {}
 
   async executeWorkCycle(params: ReActCycleParams): Promise<ReActCycleResult> {
     const activeToolEnforcer = params.toolEnforcer ?? this.toolEnforcer;
-    const activeToolPort = this.resolveToolPort(params.toolPort, activeToolEnforcer);
+    const activeToolWorker = this.resolveToolWorker(
+      params.toolWorker,
+      params.toolPort,
+      activeToolEnforcer
+    );
     const activeToolProvider = activeToolEnforcer
       ? new ToolProvider(activeToolEnforcer)
       : this.toolProvider;
@@ -222,7 +232,7 @@ export class ReActIntegration {
               break;
             }
 
-            const result = await this.executeToolCall(context, toolCall, activeToolPort);
+            const result = await this.executeToolCall(context, toolCall, activeToolWorker);
 
             // Add tool result to messages
             messages.push({
@@ -253,7 +263,7 @@ export class ReActIntegration {
                   context,
                   params.workItem,
                   tools,
-                  activeToolPort,
+                  activeToolWorker,
                   messages
                 );
                 if (fallbackResult) {
@@ -347,7 +357,11 @@ export class ReActIntegration {
 
   async chatStep(params: ReActCycleParams, userInput: string): Promise<ReActCycleResult & { reply: string }> {
     const activeToolEnforcer = params.toolEnforcer ?? this.toolEnforcer;
-    const activeToolPort = this.resolveToolPort(params.toolPort, activeToolEnforcer);
+    const activeToolWorker = this.resolveToolWorker(
+      params.toolWorker,
+      params.toolPort,
+      activeToolEnforcer
+    );
     const activeToolProvider = activeToolEnforcer
       ? new ToolProvider(activeToolEnforcer)
       : this.toolProvider;
@@ -431,7 +445,7 @@ export class ReActIntegration {
 
         // Execute each tool call
         for (const toolCall of response.toolCalls) {
-          const result = await this.executeToolCall(context, toolCall, activeToolPort);
+          const result = await this.executeToolCall(context, toolCall, activeToolWorker);
 
           // Add tool result to messages
           messages.push({
@@ -723,10 +737,10 @@ Respond with at most 2 short planning lines, then immediately issue the first co
     context: ReActContext,
     workItem: WorkItem,
     tools: import('../infra/llm/llm-provider.js').ToolDefinition[],
-    toolPort: ToolPort | undefined,
+    toolWorker: LocalToolWorker | undefined,
     messages: LLMMessage[]
   ): Promise<LLMResponse | null> {
-    if (!toolPort || !this.llmProvider) {
+    if (!toolWorker || !this.llmProvider) {
       return null;
     }
 
@@ -749,7 +763,7 @@ Respond with at most 2 short planning lines, then immediately issue the first co
     let successfulButEmptyResultSeen = false;
 
     for (const toolCall of fallbackToolCalls) {
-      const result = await this.executeToolCall(context, toolCall, toolPort);
+      const result = await this.executeToolCall(context, toolCall, toolWorker);
       await this.observation(context, `Fallback tool ${toolCall.function.name}: ${result}`);
 
       if (this.isSuccessfulToolResult(result)) {
@@ -1130,7 +1144,7 @@ Respond with at most 2 short planning lines, then immediately issue the first co
   private async executeToolCall(
     context: ReActContext,
     toolCall: ToolCall,
-    toolPort?: ToolPort
+    toolWorker?: LocalToolWorker
   ): Promise<string> {
     const toolName = toolCall.function.name;
 
@@ -1139,27 +1153,42 @@ Respond with at most 2 short planning lines, then immediately issue the first co
       return 'Task marked as complete.';
     }
 
-    if (!toolPort) {
+    if (!toolWorker) {
       return 'Error: No tool enforcer configured. Cannot execute tools.';
     }
 
-    const result = await toolPort.execute(this.buildToolRequest(context, toolCall));
+    const request = this.buildToolRequest(context, toolCall);
+    const result = await toolWorker.dispatch(request);
+    this.assertCorrelatedToolResult(request, result);
     return formatToolResultForModel(result);
   }
 
-  private resolveToolPort(
+  private resolveToolWorker(
+    requestedToolWorker: LocalToolWorker | undefined,
     requestedToolPort: ToolPort | undefined,
     toolEnforcer: ToolEnforcer | undefined
-  ): ToolPort | undefined {
+  ): LocalToolWorker | undefined {
+    if (requestedToolWorker) {
+      return requestedToolWorker;
+    }
+
     if (requestedToolPort) {
-      return requestedToolPort;
+      return this.getOrCreateToolWorkerForPort(requestedToolPort);
     }
 
     if (toolEnforcer) {
-      return new LocalToolAdapter(toolEnforcer);
+      return this.getOrCreateToolWorkerForEnforcer(toolEnforcer);
     }
 
-    return this.toolPort;
+    if (this.toolWorker) {
+      return this.toolWorker;
+    }
+
+    if (this.toolPort) {
+      return this.getOrCreateToolWorkerForPort(this.toolPort);
+    }
+
+    return undefined;
   }
 
   private buildToolRequest(context: ReActContext, toolCall: ToolCall): ToolRequest {
@@ -1174,6 +1203,36 @@ Respond with at most 2 short planning lines, then immediately issue the first co
       cwd: process.cwd(),
       routeContext: routeContextFromWorkItemContext(context.workItem.context) ?? undefined,
     };
+  }
+
+  private getOrCreateToolWorkerForPort(toolPort: ToolPort): LocalToolWorker {
+    const existingWorker = this.toolWorkersByPort.get(toolPort);
+    if (existingWorker) {
+      return existingWorker;
+    }
+
+    const worker = new LocalToolWorker(toolPort);
+    this.toolWorkersByPort.set(toolPort, worker);
+    return worker;
+  }
+
+  private getOrCreateToolWorkerForEnforcer(toolEnforcer: ToolEnforcer): LocalToolWorker {
+    const existingWorker = this.toolWorkersByEnforcer.get(toolEnforcer);
+    if (existingWorker) {
+      return existingWorker;
+    }
+
+    const worker = new LocalToolWorker(new LocalToolAdapter(toolEnforcer));
+    this.toolWorkersByEnforcer.set(toolEnforcer, worker);
+    return worker;
+  }
+
+  private assertCorrelatedToolResult(request: ToolRequest, result: ToolResult): void {
+    if (result.toolRequestId !== request.toolRequestId) {
+      throw new Error(
+        `Tool result correlation mismatch: expected ${request.toolRequestId}, received ${result.toolRequestId}`
+      );
+    }
   }
 
   private async collectArtifacts(_context: ReActContext): Promise<string[]> {

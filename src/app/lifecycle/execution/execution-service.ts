@@ -71,9 +71,14 @@ export class ExecutionService implements IExecutionService {
     const toolProvider = new ToolProvider(this.toolEnforcer);
     setGlobalToolProvider(toolProvider);
 
-    // Keep direct ToolPort execution authoritative for now while composing the
-    // local worker skeleton in parallel for later migration sessions.
-    this.reactIntegration = new ReActIntegration(llmProvider, this.toolEnforcer, this.toolPort);
+    // The local worker is now the authoritative in-process dispatch seam, while
+    // ReActIntegration still owns synchronous continuation after ToolResult resolution.
+    this.reactIntegration = new ReActIntegration(
+      llmProvider,
+      this.toolEnforcer,
+      this.toolPort,
+      this.toolWorker
+    );
   }
 
   /**

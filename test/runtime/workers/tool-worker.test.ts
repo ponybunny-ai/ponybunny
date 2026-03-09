@@ -219,6 +219,45 @@ describe('LocalToolWorker', () => {
     ]));
   });
 
+  it('normalizes a mismatched toolRequestId into a failed correlated ToolResult', async () => {
+    const request = createRequest();
+    const worker = new LocalToolWorker({
+      execute: jest.fn().mockResolvedValue({
+        toolRequestId: `${request.toolRequestId}:mismatch`,
+        runId: request.runId,
+        workItemId: request.workItemId,
+        goalId: request.goalId,
+        toolCallId: request.toolCallId,
+        toolName: request.toolName,
+        success: true,
+        output: 'ok',
+      }),
+    }, bus);
+
+    await expect(worker.dispatch(request)).resolves.toEqual({
+      toolRequestId: request.toolRequestId,
+      runId: request.runId,
+      workItemId: request.workItemId,
+      goalId: request.goalId,
+      toolCallId: request.toolCallId,
+      toolName: request.toolName,
+      success: false,
+      error: {
+        code: 'TOOL_RESULT_MISMATCH',
+        message: expect.stringContaining(request.toolRequestId),
+        recoverable: false,
+      },
+    });
+
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'tool.failed',
+        source: TOOL_WORKER_SOURCE,
+        toolRequestId: request.toolRequestId,
+      }),
+    ]));
+  });
+
   it('suppresses duplicate in-process requests by toolRequestId', async () => {
     const request = createRequest();
     let resolveResult: (result: ToolResult) => void = () => undefined;

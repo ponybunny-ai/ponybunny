@@ -76,6 +76,22 @@ export class LocalToolWorker {
 
     try {
       const result = await this.toolPort.execute(request);
+      if (result.toolRequestId !== request.toolRequestId) {
+        const mismatchResult = this.buildFailedResult(request, {
+          code: 'TOOL_RESULT_MISMATCH',
+          message: `Tool result correlation mismatch for '${request.toolName}': expected ${request.toolRequestId}, received ${result.toolRequestId}`,
+          recoverable: false,
+        });
+
+        await this.publish('tool.failed', {
+          request,
+          result: mismatchResult,
+          error: mismatchResult.error!,
+          context,
+        } satisfies ToolWorkerFailedPayload);
+        return mismatchResult;
+      }
+
       if (result.success) {
         await this.publish('tool.completed', {
           request,
