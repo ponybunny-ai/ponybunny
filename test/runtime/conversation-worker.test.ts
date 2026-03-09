@@ -1,3 +1,6 @@
+import {
+  ConversationRequestRegistry,
+} from '../../src/runtime/conversation-boundary/index.js';
 import { ConversationWorker } from '../../src/runtime/workers/conversation-worker.js';
 import type { IConversationResponse } from '../../src/app/conversation/session-manager.js';
 
@@ -52,6 +55,45 @@ describe('ConversationWorker', () => {
       state: 'chatting',
       decision: 'response_only',
       decisionReason: 'Session responded conversationally without creating a goal.',
+      taskInfo: undefined,
+    });
+  });
+
+  it('registers the request before orchestration execution begins', async () => {
+    const registry = new ConversationRequestRegistry();
+    const orchestrator = {
+      processMessage: jest.fn(async () => {
+        expect(registry.inspect()).toEqual({
+          pending: [
+            expect.objectContaining({
+              conversationRequestId: 'conv-req-before-exec',
+              state: 'pending',
+            }),
+          ],
+          recent: [],
+        });
+
+        return {
+          sessionId: 'ses-123',
+          response: 'hello back',
+          state: 'chatting' as const,
+        };
+      }),
+    };
+
+    const worker = new ConversationWorker(orchestrator, registry);
+
+    await expect(worker.process({
+      conversationRequestId: 'conv-req-before-exec',
+      sessionId: 'ses-123',
+      message: 'hello',
+    })).resolves.toEqual({
+      conversationRequestId: 'conv-req-before-exec',
+      sessionId: 'ses-123',
+      response: 'hello back',
+      state: 'chatting',
+      decision: undefined,
+      decisionReason: undefined,
       taskInfo: undefined,
     });
   });
@@ -175,6 +217,83 @@ describe('ConversationWorker', () => {
           duplicateSuppressed: false,
           duplicateDispatchCount: 0,
           failureCode: 'CONVERSATION_RESULT_INVALID',
+        }),
+      ],
+    });
+  });
+
+  it('rejects conflicting duplicate request identity safely', async () => {
+    let resolveResult: ((value: IConversationResponse) => void) | undefined;
+    const orchestrator = {
+      processMessage: jest.fn(() => new Promise<IConversationResponse>((resolve) => {
+        resolveResult = resolve;
+      })),
+    };
+
+    const worker = new ConversationWorker(orchestrator);
+    const first = worker.process({
+      conversationRequestId: 'conv-req-conflict',
+      sessionId: 'ses-123',
+      personaId: 'pony-default',
+      message: 'hello',
+    });
+
+    await expect(worker.process({
+      conversationRequestId: 'conv-req-conflict',
+      sessionId: 'ses-123',
+      personaId: 'pony-default',
+      message: 'different',
+    })).rejects.toThrow(
+      "Conversation request 'conv-req-conflict' was re-dispatched with different identity fields while already registered"
+    );
+
+    resolveResult?.({
+      sessionId: 'ses-123',
+      response: 'hello back',
+      state: 'chatting',
+    });
+
+    await expect(first).resolves.toEqual(expect.objectContaining({
+      conversationRequestId: 'conv-req-conflict',
+      sessionId: 'ses-123',
+      response: 'hello back',
+    }));
+    expect(orchestrator.processMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('normalizes an invalid request through the registry-owned promise without executing orchestration', async () => {
+    const orchestrator = {
+      processMessage: jest.fn(),
+    };
+
+    const worker = new ConversationWorker(orchestrator);
+
+    await expect(worker.process({
+      conversationRequestId: 'conv-req-invalid-request',
+      sessionId: 'ses-123',
+      message: '',
+    })).rejects.toThrow(
+      'Invalid conversation request: missing message'
+    );
+
+    expect(orchestrator.processMessage).not.toHaveBeenCalled();
+    expect(worker.inspect()).toEqual({
+      summary: {
+        totalRequests: 1,
+        inFlightCount: 0,
+        recentCount: 1,
+        successCount: 0,
+        failureCount: 0,
+        invalidCount: 1,
+        duplicateSuppressedCount: 0,
+      },
+      inFlight: [],
+      recent: [
+        expect.objectContaining({
+          conversationRequestId: 'conv-req-invalid-request',
+          requestedSessionId: 'ses-123',
+          outcome: 'invalid',
+          failureCode: 'CONVERSATION_REQUEST_INVALID',
         }),
       ],
     });

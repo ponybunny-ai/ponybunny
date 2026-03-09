@@ -304,6 +304,7 @@ describe('SchedulerSessionIntake conversation boundary', () => {
 
   it('routes processMessage through ConversationPort and preserves transport-facing behavior', async () => {
     const db = new Database(':memory:');
+    const repository = createRepositoryStub();
     const events: Array<{ event: string; gatewaySessionId?: string; sessionId?: string; payload?: Record<string, unknown> }> = [];
     const portRequests: ConversationRequest[] = [];
     const conversationPort: ConversationPort = {
@@ -327,7 +328,7 @@ describe('SchedulerSessionIntake conversation boundary', () => {
 
     try {
       const intake = new SchedulerSessionIntake({
-        repository: createRepositoryStub() as never,
+        repository: repository as never,
         memoryDb: db,
         llmService: createLlmServiceStub() as never,
         schedulerProvider: () => null,
@@ -426,6 +427,9 @@ describe('SchedulerSessionIntake conversation boundary', () => {
           },
         },
       ]);
+
+      expect(repository.createGoal).not.toHaveBeenCalled();
+      expect(repository.createWorkItem).not.toHaveBeenCalled();
     } finally {
       db.close();
     }

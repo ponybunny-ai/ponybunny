@@ -1,7 +1,14 @@
 import { createHash } from 'node:crypto';
 
 import type { IConversationResponse } from '../../app/conversation/session-manager.js';
-import type { ConversationPort, ConversationRequest, ConversationResult } from '../conversation-boundary/index.js';
+import {
+  ConversationRequestRegistry,
+  type ConversationPort,
+  type ConversationRequest,
+  type ConversationResult,
+  type ConversationRequestResolutionOwner,
+  type ConversationRequestRegistryEntrySnapshot,
+} from '../conversation-boundary/index.js';
 
 export type ConversationWorkerInspectionOutcome = 'in_flight' | 'success' | 'failure' | 'invalid';
 
@@ -42,11 +49,6 @@ interface ConversationWorkerMutableInspectionRecord extends ConversationWorkerIn
   sequence: number;
 }
 
-interface InFlightConversationRequest {
-  fingerprint: string;
-  promise: Promise<ConversationResult>;
-}
-
 interface ConversationOrchestrator {
   processMessage(
     message: string,
@@ -74,47 +76,47 @@ class ConversationWorkerIntegrityError extends Error {
 
 export class ConversationWorker implements ConversationPort {
   private readonly inspectionsByRequestId = new Map<string, ConversationWorkerMutableInspectionRecord>();
-  private readonly inFlightByRequestId = new Map<string, InFlightConversationRequest>();
   private inspectionSequence = 0;
 
-  constructor(private readonly orchestrator: ConversationOrchestrator) {}
+  constructor(
+    private readonly orchestrator: ConversationOrchestrator,
+    private readonly requestRegistry: ConversationRequestRegistry = new ConversationRequestRegistry(),
+  ) {}
 
   async process(request: ConversationRequest): Promise<ConversationResult> {
-    const validationError = this.validateRequest(request);
-    if (validationError) {
-      throw validationError;
+    const requestIdValidationError = this.validateRequestId(request);
+    if (requestIdValidationError) {
+      throw requestIdValidationError;
     }
 
     const inspection = this.getOrCreateInspection(request);
-    const fingerprint = this.buildRequestFingerprint(request);
-    const inFlight = this.inFlightByRequestId.get(request.conversationRequestId);
-    if (inFlight) {
+    const registration = this.requestRegistry.register(request);
+    if (registration.kind === 'duplicate') {
       inspection.duplicateDispatchCount += 1;
-      if (inFlight.fingerprint !== fingerprint) {
-        throw new ConversationWorkerIntegrityError(
-          'CONVERSATION_REQUEST_CONFLICT',
-          `Conversation request '${request.conversationRequestId}' was re-dispatched with different identity fields while already in flight`
-        );
-      }
-
       inspection.duplicateSuppressed = true;
-      return inFlight.promise;
+      return registration.promise;
     }
 
-    const promise = this.executeRequest(request, inspection);
-    this.inFlightByRequestId.set(request.conversationRequestId, {
-      fingerprint,
-      promise,
-    });
+    if (registration.kind === 'conflict') {
+      inspection.duplicateDispatchCount += 1;
+      throw new ConversationWorkerIntegrityError(
+        'CONVERSATION_REQUEST_CONFLICT',
+        this.buildRequestConflictMessage(request, registration.entry)
+      );
+    }
 
-    try {
-      return await promise;
-    } finally {
-      const current = this.inFlightByRequestId.get(request.conversationRequestId);
-      if (current?.promise === promise) {
-        this.inFlightByRequestId.delete(request.conversationRequestId);
+    const validationError = this.validateRequest(request);
+    if (validationError) {
+      if (registration.owner.resolveInvalid(validationError)) {
+        this.completeInspection(inspection, 'invalid', validationError, {
+          resultMatchedRequestId: false,
+        });
       }
+      return registration.promise;
     }
+
+    void this.executeRequest(request, inspection, registration.owner);
+    return registration.promise;
   }
 
   inspect(): ConversationWorkerInspectionSnapshot {
@@ -131,8 +133,9 @@ export class ConversationWorker implements ConversationPort {
 
   private async executeRequest(
     request: ConversationRequest,
-    inspection: ConversationWorkerMutableInspectionRecord
-  ): Promise<ConversationResult> {
+    inspection: ConversationWorkerMutableInspectionRecord,
+    owner: ConversationRequestResolutionOwner
+  ): Promise<void> {
     try {
       const result = await this.orchestrator.processMessage(
         request.message,
@@ -144,11 +147,15 @@ export class ConversationWorker implements ConversationPort {
       );
 
       const normalizedResult = this.normalizeResult(request, result);
-      this.completeInspection(inspection, 'success', undefined, {
+      if (owner.resolveSuccess(normalizedResult, {
         resultSessionId: normalizedResult.sessionId,
-        resultMatchedRequestId: normalizedResult.conversationRequestId === request.conversationRequestId,
-      });
-      return normalizedResult;
+      })) {
+        this.completeInspection(inspection, 'success', undefined, {
+          resultSessionId: normalizedResult.sessionId,
+          resultMatchedRequestId: normalizedResult.conversationRequestId === request.conversationRequestId,
+        });
+      }
+      return;
     } catch (error) {
       const normalizedError = error instanceof ConversationWorkerIntegrityError
         ? error
@@ -157,10 +164,15 @@ export class ConversationWorker implements ConversationPort {
           error instanceof Error ? error.message : String(error)
         );
 
-      this.completeInspection(inspection, normalizedError.code === 'CONVERSATION_RESULT_INVALID' ? 'invalid' : 'failure', normalizedError, {
-        resultMatchedRequestId: false,
-      });
-      throw normalizedError;
+      const resolved = normalizedError.code === 'CONVERSATION_RESULT_INVALID'
+        ? owner.resolveInvalid(normalizedError)
+        : owner.resolveFailure(normalizedError);
+
+      if (resolved) {
+        this.completeInspection(inspection, normalizedError.code === 'CONVERSATION_RESULT_INVALID' ? 'invalid' : 'failure', normalizedError, {
+          resultMatchedRequestId: false,
+        });
+      }
     }
   }
 
@@ -193,11 +205,19 @@ export class ConversationWorker implements ConversationPort {
     };
   }
 
+  private validateRequestId(request: ConversationRequest): ConversationWorkerIntegrityError | null {
+    if (typeof request.conversationRequestId === 'string' && request.conversationRequestId.trim().length > 0) {
+      return null;
+    }
+
+    return new ConversationWorkerIntegrityError(
+      'CONVERSATION_REQUEST_INVALID',
+      'Invalid conversation request: missing conversationRequestId'
+    );
+  }
+
   private validateRequest(request: ConversationRequest): ConversationWorkerIntegrityError | null {
     const missingFields: string[] = [];
-    if (typeof request.conversationRequestId !== 'string' || request.conversationRequestId.trim().length === 0) {
-      missingFields.push('conversationRequestId');
-    }
     if (typeof request.message !== 'string' || request.message.trim().length === 0) {
       missingFields.push('message');
     }
@@ -254,23 +274,14 @@ export class ConversationWorker implements ConversationPort {
     inspection.failureMessage = error?.message;
   }
 
-  private buildRequestFingerprint(request: ConversationRequest): string {
-    const attachmentFingerprint = (request.attachments ?? []).map((attachment) => ({
-      type: attachment.type,
-      mimeType: attachment.mimeType,
-      filename: attachment.filename,
-      url: attachment.url,
-      hasBase64: typeof attachment.base64 === 'string' && attachment.base64.length > 0,
-    }));
-
-    return JSON.stringify({
-      sessionId: request.sessionId,
-      personaId: request.personaId,
-      userProfileId: request.userProfileId,
-      agentId: request.agentId,
-      messageDigest: this.buildMessageDigest(request.message),
-      attachments: attachmentFingerprint,
-    });
+  private buildRequestConflictMessage(
+    request: ConversationRequest,
+    existing: ConversationRequestRegistryEntrySnapshot
+  ): string {
+    return `Conversation request '${request.conversationRequestId}' was re-dispatched with different identity fields while already registered`
+      + ` (existing sessionId=${String(existing.sessionId)}, personaId=${String(existing.personaId)},`
+      + ` userProfileId=${String(existing.userProfileId)}, agentId=${String(existing.agentId)},`
+      + ` messageDigest=${existing.messageDigest})`;
   }
 
   private buildMessageDigest(message: string): string {
