@@ -314,6 +314,32 @@ describe('pb scheduler reconciliation inspection', () => {
     expect(output).toContain('- original_continuation_suppressed_at: -');
   });
 
+  test('replay-run prints a stable rejection reason and leaves lineage unchanged on rejection', async () => {
+    const dbPath = createTempDbPath();
+    const { inFlightRunId } = await seedInspectionDb(dbPath);
+
+    execSync(`${pbCommand} scheduler mark-recovery-candidate ${inFlightRunId} --db "${dbPath}"`, {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    });
+
+    try {
+      execSync(`${pbCommand} scheduler replay-run ${inFlightRunId} --db "${dbPath}"`, {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      });
+      throw new Error('expected replay-run to fail without replay candidate');
+    } catch (error) {
+      const execError = error as Error & { stdout?: string };
+      expect(execError.stdout).toContain(
+        `Could not replay run ${inFlightRunId} (not_evented_execution: scheduler is not running in evented execution mode).`
+      );
+      expect(execError.stdout).toContain('- replayLineageRole: none');
+      expect(execError.stdout).toContain('- replayLineagePeerRunId: -');
+      expect(execError.stdout).toContain('- replacement_run_id: -');
+    }
+  });
+
   test('marks an evented run as a recovery candidate idempotently without affecting direct runs', async () => {
     const dbPath = createTempDbPath();
     const { inFlightRunId, directRunId } = await seedInspectionDb(dbPath);

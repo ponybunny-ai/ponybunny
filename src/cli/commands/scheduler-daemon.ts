@@ -280,6 +280,49 @@ function printRunInspection(dbPath: string, record: RunInspectionRecord): void {
   console.log(`- replay_started_at: ${formatTimestamp(record.replayStartedAt)}`);
 }
 
+function describeReplayRunRejection(
+  status:
+    | 'replay_started'
+    | 'run_not_found'
+    | 'missing_evented_dispatch'
+    | 'already_applied'
+    | 'already_terminal'
+    | 'work_item_not_in_progress'
+    | 'recovery_candidate_required'
+    | 'replay_candidate_required'
+    | 'missing_orphan_classification'
+    | 'already_replayed'
+    | 'replay_attempt_not_allowed'
+    | 'not_evented_execution'
+): string {
+  switch (status) {
+    case 'replay_started':
+      return 'replay started';
+    case 'run_not_found':
+      return 'run was not found';
+    case 'missing_evented_dispatch':
+      return 'run does not have an eligible evented dispatch checkpoint';
+    case 'already_applied':
+      return 'run already applied its scheduler continuation';
+    case 'already_terminal':
+      return 'run is no longer running';
+    case 'work_item_not_in_progress':
+      return 'work item is no longer in_progress';
+    case 'recovery_candidate_required':
+      return 'run is missing the recovery candidate marker';
+    case 'replay_candidate_required':
+      return 'run is missing the replay candidate marker';
+    case 'missing_orphan_classification':
+      return 'run is missing orphan classification required for replay';
+    case 'already_replayed':
+      return 'run already has replay lineage or a replacement run';
+    case 'replay_attempt_not_allowed':
+      return 'replay attempts cannot themselves be replayed';
+    case 'not_evented_execution':
+      return 'scheduler is not running in evented execution mode';
+  }
+}
+
 async function createReplayScheduler(dbPath: string) {
   const repository = new WorkOrderDatabase(dbPath);
   await repository.initialize();
@@ -929,7 +972,9 @@ export const schedulerCommand = new Command('scheduler')
 
           if (result.status !== 'replay_started' || !result.replacementRun) {
             console.log(
-              chalk.red(`Could not replay run ${runId} (${result.status}).`)
+              chalk.red(
+                `Could not replay run ${runId} (${result.status}: ${describeReplayRunRejection(result.status)}).`
+              )
             );
             const record = await withSchedulerRepository(dbPath, (repo) => repo.getRunInspection(runId));
             if (record) {

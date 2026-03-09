@@ -737,86 +737,16 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
         replayRequestedAt: number,
         replayRequestedReason: 'manual_operator_request'
       ): EventedManualReplayStartResult => {
-        const row = this.db.prepare(`
-          SELECT
-            runs.*,
-            work_items.status AS work_item_status
-          FROM runs
-          INNER JOIN work_items ON work_items.id = runs.work_item_id
-          WHERE runs.id = ?
-        `).get(runId) as (RunRow & { work_item_status: string }) | undefined;
+        const row = this.getRunRowWithWorkItemStatus(runId);
 
         if (!row) {
           return { status: 'run_not_found' };
         }
 
         const originalRun = this.parseRunRow(row);
-        const checkpoint = this.readEventedDispatchCheckpoint(originalRun);
-        if (!checkpoint) {
-          return {
-            status: 'missing_evented_dispatch',
-            originalRun,
-          };
-        }
-
-        if (originalRun.status !== 'running') {
-          return {
-            status: 'already_terminal',
-            originalRun,
-          };
-        }
-
-        if (row.work_item_status !== 'in_progress') {
-          return {
-            status: 'work_item_not_in_progress',
-            originalRun,
-          };
-        }
-
-        if (checkpoint.resultContinuationApplied === true) {
-          return {
-            status: 'already_applied',
-            originalRun,
-          };
-        }
-
-        if (checkpoint.recoveryCandidate !== true) {
-          return {
-            status: 'recovery_candidate_required',
-            originalRun,
-          };
-        }
-
-        if (checkpoint.replayCandidate !== true) {
-          return {
-            status: 'replay_candidate_required',
-            originalRun,
-          };
-        }
-
-        if (typeof checkpoint.orphanClassification !== 'string') {
-          return {
-            status: 'missing_orphan_classification',
-            originalRun,
-          };
-        }
-
-        if (typeof checkpoint.replayOfRunId === 'string' && checkpoint.replayOfRunId.length > 0) {
-          return {
-            status: 'replay_attempt_not_allowed',
-            originalRun,
-          };
-        }
-
-        if (
-          checkpoint.manualReplay &&
-          typeof checkpoint.manualReplay.replacement_run_id === 'string' &&
-          checkpoint.manualReplay.replacement_run_id.length > 0
-        ) {
-          return {
-            status: 'already_replayed',
-            originalRun,
-          };
+        const replayEligibilityFailure = this.classifyManualReplayRejection(row);
+        if (replayEligibilityFailure) {
+          return replayEligibilityFailure;
         }
 
         const nextRunSequenceRow = this.db.prepare(`
@@ -883,36 +813,23 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
             AND json_extract(context, '$.evented_dispatch.orphan_classification') IS NOT NULL
             AND json_extract(context, '$.evented_dispatch.replay_of_run_id') IS NULL
             AND json_extract(context, '$.evented_dispatch.manual_replay.replacement_run_id') IS NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM runs AS replay_runs
+              WHERE json_extract(replay_runs.context, '$.evented_dispatch.replay_of_run_id') = runs.id
+            )
         `);
 
         const suppressionResult = suppressStmt.run(JSON.stringify(updatedOriginalContext), originalRun.id);
         if (suppressionResult.changes === 0) {
-          const refreshedOriginalRun = this.getRun(originalRun.id) ?? originalRun;
-          const refreshedCheckpoint = this.readEventedDispatchCheckpoint(refreshedOriginalRun);
-
-          if (
-            refreshedCheckpoint?.manualReplay &&
-            typeof refreshedCheckpoint.manualReplay.replacement_run_id === 'string'
-          ) {
-            return {
-              status: 'already_replayed',
-              originalRun: refreshedOriginalRun,
-            };
+          const refreshedRow = this.getRunRowWithWorkItemStatus(originalRun.id);
+          if (!refreshedRow) {
+            return { status: 'run_not_found' };
           }
 
-          if (
-            typeof refreshedCheckpoint?.replayOfRunId === 'string' &&
-            refreshedCheckpoint.replayOfRunId.length > 0
-          ) {
-            return {
-              status: 'replay_attempt_not_allowed',
-              originalRun: refreshedOriginalRun,
-            };
-          }
-
-          return {
+          return this.classifyManualReplayRejection(refreshedRow) ?? {
             status: 'missing_evented_dispatch',
-            originalRun: refreshedOriginalRun,
+            originalRun: this.parseRunRow(refreshedRow),
           };
         }
 
@@ -948,6 +865,104 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     );
 
     return startReplay(id, requestedAt, requestedReason);
+  }
+
+  private getRunRowWithWorkItemStatus(
+    runId: string
+  ): (RunRow & { work_item_status: WorkItemStatus }) | undefined {
+    return this.db.prepare(`
+      SELECT
+        runs.*,
+        work_items.status AS work_item_status
+      FROM runs
+      INNER JOIN work_items ON work_items.id = runs.work_item_id
+      WHERE runs.id = ?
+    `).get(runId) as (RunRow & { work_item_status: WorkItemStatus }) | undefined;
+  }
+
+  private findReplacementReplayRunId(originalRunId: string): string | undefined {
+    const row = this.db.prepare(`
+      SELECT id
+      FROM runs
+      WHERE json_extract(context, '$.evented_dispatch.replay_of_run_id') = ?
+      ORDER BY created_at ASC
+      LIMIT 1
+    `).get(originalRunId) as { id: string } | undefined;
+
+    return row?.id;
+  }
+
+  private classifyManualReplayRejection(
+    row: RunRow & { work_item_status: WorkItemStatus }
+  ): EventedManualReplayStartResult | null {
+    const originalRun = this.parseRunRow(row);
+    const checkpoint = this.readEventedDispatchCheckpoint(originalRun);
+    if (!checkpoint) {
+      return {
+        status: 'missing_evented_dispatch',
+        originalRun,
+      };
+    }
+
+    if (typeof checkpoint.replayOfRunId === 'string' && checkpoint.replayOfRunId.length > 0) {
+      return {
+        status: 'replay_attempt_not_allowed',
+        originalRun,
+      };
+    }
+
+    const replacementRunId =
+      checkpoint.manualReplay?.replacement_run_id ?? this.findReplacementReplayRunId(originalRun.id);
+    if (typeof replacementRunId === 'string' && replacementRunId.length > 0) {
+      return {
+        status: 'already_replayed',
+        originalRun,
+      };
+    }
+
+    if (originalRun.status !== 'running') {
+      return {
+        status: 'already_terminal',
+        originalRun,
+      };
+    }
+
+    if (row.work_item_status !== 'in_progress') {
+      return {
+        status: 'work_item_not_in_progress',
+        originalRun,
+      };
+    }
+
+    if (checkpoint.resultContinuationApplied === true) {
+      return {
+        status: 'already_applied',
+        originalRun,
+      };
+    }
+
+    if (checkpoint.recoveryCandidate !== true) {
+      return {
+        status: 'recovery_candidate_required',
+        originalRun,
+      };
+    }
+
+    if (checkpoint.replayCandidate !== true) {
+      return {
+        status: 'replay_candidate_required',
+        originalRun,
+      };
+    }
+
+    if (typeof checkpoint.orphanClassification !== 'string') {
+      return {
+        status: 'missing_orphan_classification',
+        originalRun,
+      };
+    }
+
+    return null;
   }
 
   markEventedRunOrphaned(
