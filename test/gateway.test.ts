@@ -97,11 +97,13 @@ describe('Session', () => {
       permissions: ['read', 'write'],
       connectedAt: 1000,
       lastActivityAt: 1000,
+      metadata: { channelType: 'discord' },
     });
 
     expect(session.id).toBe('sess_123');
     expect(session.publicKey).toBe('abc123');
     expect(session.permissions).toEqual(['read', 'write']);
+    expect(session.metadata).toEqual({ channelType: 'discord' });
   });
 
   test('should check permissions correctly', () => {

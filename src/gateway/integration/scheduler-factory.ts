@@ -12,6 +12,8 @@ import type { IExecutionService } from '../../app/lifecycle/stage-interfaces.js'
 import type { IWorkItemRepository } from '../../scheduler/work-item-manager/work-item-manager.js';
 import type { IEscalationRepository } from '../../scheduler/escalation-handler/escalation-handler.js';
 import type { ILLMReviewer } from '../../scheduler/quality-gate-runner/types.js';
+import type { ExecutionPort } from '../../runtime/execution-boundary/index.js';
+import type { EventBus as RuntimeEventBus } from '../../runtime/event-bus/index.js';
 
 import { SchedulerCore } from '../../scheduler/core/index.js';
 import { ModelSelector } from '../../scheduler/model-selector/index.js';
@@ -21,9 +23,10 @@ import { RetryHandler } from '../../scheduler/retry-handler/index.js';
 import { WorkItemManager } from '../../scheduler/work-item-manager/index.js';
 import { EscalationHandler } from '../../scheduler/escalation-handler/index.js';
 import { QualityGateRunner, DefaultCommandExecutor, MockLLMReviewer } from '../../scheduler/quality-gate-runner/index.js';
+import { LocalExecutionAdapter } from '../../runtime/execution-boundary/index.js';
+import { runtimeEventBus } from '../../runtime/event-bus/index.js';
 
 import { SchedulerRepositoryAdapter } from './scheduler-repository-adapter.js';
-import { ExecutionEngineAdapter } from './execution-engine-adapter.js';
 
 export interface SchedulerFactoryConfig {
   /** Scheduler tick interval in ms (default: 1000) */
@@ -34,6 +37,7 @@ export interface SchedulerFactoryConfig {
   autoStart?: boolean;
   /** Enable debug logging (default: false) */
   debug?: boolean;
+  executionMode?: 'direct' | 'evented';
   deterministicRuntimeEnabled?: boolean;
   planCompilerEnabled?: boolean;
   toolRoutingMode?: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
@@ -44,6 +48,8 @@ export interface SchedulerFactoryDependencies {
   repository: IWorkOrderRepository;
   executionService: IExecutionService;
   llmProvider?: ILLMProvider;
+  executionPort?: ExecutionPort;
+  runtimeEventBus?: RuntimeEventBus;
 }
 
 /**
@@ -57,7 +63,8 @@ export function createScheduler(
 
   // Create adapters
   const repositoryAdapter = new SchedulerRepositoryAdapter(repository);
-  const executionEngineAdapter = new ExecutionEngineAdapter(executionService);
+  const executionPort = deps.executionPort ?? new LocalExecutionAdapter(executionService);
+  const bus = deps.runtimeEventBus ?? runtimeEventBus;
 
   // Create model selector (uses default config and scorer)
   const modelSelector = new ModelSelector();
@@ -158,7 +165,8 @@ export function createScheduler(
       updateStatus: (workItemId, status) => workItemManager.updateStatus(workItemId, status),
       areDependenciesSatisfied: (workItem) => workItemManager.areDependenciesSatisfied(workItem),
     },
-    executionEngine: executionEngineAdapter,
+    executionPort,
+    runtimeEventBus: bus,
   };
 
   // Create scheduler config
@@ -167,6 +175,7 @@ export function createScheduler(
     maxConcurrentGoals: config?.maxConcurrentGoals ?? 5,
     autoStart: config?.autoStart ?? false,
     debug: config?.debug ?? false,
+    executionMode: config?.executionMode ?? 'direct',
     deterministicRuntimeEnabled: config?.deterministicRuntimeEnabled ?? false,
     planCompilerEnabled: config?.planCompilerEnabled ?? false,
     toolRoutingMode: config?.toolRoutingMode ?? 'legacy',

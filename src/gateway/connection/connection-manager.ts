@@ -151,6 +151,7 @@ export class ConnectionManager {
       sessionId: session.id,
       publicKey: session.publicKey,
       permissions: session.permissions,
+      metadata: session.metadata,
     });
 
     return session;

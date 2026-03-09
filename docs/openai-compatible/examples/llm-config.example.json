@@ -39,8 +39,7 @@
   },
   "workloads": {
     "conversation": {
-      "tier": "medium",
-      "llm_model": "openai-compatible.qwen3-30b-a3b-instruct"
+      "tier": "medium"
     }
   },
   "defaults": {

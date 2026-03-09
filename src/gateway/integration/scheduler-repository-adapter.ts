@@ -5,7 +5,7 @@
  * required by SchedulerCore.
  */
 
-import type { Goal, WorkItem, Run } from '../../work-order/types/index.js';
+import type { Goal, WorkItem, Run, InFlightRunReconciliationCandidate } from '../../work-order/types/index.js';
 import type { IWorkOrderRepository } from '../../infra/persistence/repository-interface.js';
 import type { ISchedulerRepository } from '../../scheduler/core/types.js';
 
@@ -50,6 +50,32 @@ export class SchedulerRepositoryAdapter implements ISchedulerRepository {
     return this.repository.createRun(params);
   }
 
+  getRun(id: string): Run | undefined {
+    return this.repository.getRun(id);
+  }
+
+  precheckEventedManualReplay(id: string) {
+    return this.repository.precheckEventedManualReplay(id);
+  }
+
+  mergeRunContext(id: string, contextPatch: Record<string, unknown>): void {
+    this.repository.mergeRunContext(id, contextPatch);
+  }
+
+  claimEventedResultContinuation(id: string, appliedAt?: number) {
+    return this.repository.claimEventedResultContinuation(id, appliedAt);
+  }
+
+  startEventedManualReplay(
+    id: string,
+    params?: {
+      requestedAt?: number;
+      requestedReason?: 'manual_operator_request';
+    }
+  ) {
+    return this.repository.startEventedManualReplay(id, params);
+  }
+
   completeRun(
     id: string,
     params: {
@@ -67,5 +93,9 @@ export class SchedulerRepositoryAdapter implements ISchedulerRepository {
 
   getRunsByWorkItem(workItemId: string): Run[] {
     return this.repository.getRunsByWorkItem(workItemId);
+  }
+
+  listInFlightRunReconciliationCandidates(): InFlightRunReconciliationCandidate[] {
+    return this.repository.listInFlightRunReconciliationCandidates();
   }
 }

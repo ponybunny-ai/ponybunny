@@ -8,7 +8,6 @@ import type {
   IInputAnalysis,
   IIntentAnalysis,
   IEmotionAnalysis,
-  IPurposeAnalysis,
   IntentCategory,
   EmotionalState,
   UrgencyLevel,
@@ -20,7 +19,8 @@ import { debug } from '../../debug/index.js';
 export interface IInputAnalysisService {
   analyze(
     input: string,
-    recentTurns?: IConversationTurn[]
+    recentTurns?: IConversationTurn[],
+    preferredModel?: string
   ): Promise<IInputAnalysis>;
 }
 
@@ -77,7 +77,8 @@ export class InputAnalysisService implements IInputAnalysisService {
 
   async analyze(
     input: string,
-    recentTurns: IConversationTurn[] = []
+    recentTurns: IConversationTurn[] = [],
+    preferredModel?: string
   ): Promise<IInputAnalysis> {
     debug.custom('analysis.start', 'input-analysis', {
       inputLength: input.length,
@@ -88,14 +89,18 @@ export class InputAnalysisService implements IInputAnalysisService {
 
     try {
       debug.custom('analysis.llm.request', 'input-analysis', {
-        tier: 'simple',
+        workload: 'conversation',
         messageCount: contextMessages.length,
+        model: preferredModel,
       });
 
-      const response = await this.llmService.completeWithTier(
+      const response = await this.llmService.completeForWorkload(
+        'conversation',
         contextMessages,
-        'simple',
-        { maxTokens: 1000 }
+        {
+          maxTokens: 1000,
+          ...(preferredModel ? { model: preferredModel } : {}),
+        }
       );
 
       const analysisResult = this.parseAnalysisResponse(response.content || '');
@@ -208,28 +213,41 @@ export class InputAnalysisService implements IInputAnalysisService {
   }
 
   private fallbackAnalysis(input: string): IInputAnalysis {
-    // Simple keyword-based fallback
     const lowerInput = input.toLowerCase();
+    const trimmedInput = input.trim();
+
+    const hasGreeting = /^(hi|hello|hey|你好|嗨)/.test(lowerInput);
+    const hasFarewell = /^(bye|goodbye|再见|拜拜)/.test(lowerInput);
+    const hasCancellation = /(cancel|取消|停止|stop|abort|终止)/.test(lowerInput);
+    const hasStatusInquiry = /(status|progress|update|进度|状态|到哪了|完成了吗)/.test(lowerInput);
+    const hasQuestionForm = /\?$|什么|怎么|为什么|how|what|why|where|when/.test(lowerInput);
+    const hasActionCue = /(please|pls|can you|could you|帮我|请|麻烦|需要你|请你|let's)/.test(lowerInput);
+    const hasActionVerb = /(fix|implement|add|create|build|write|refactor|optimize|investigate|analyze|debug|update|improve|design|test|run|deploy|修复|实现|增加|创建|构建|写|重构|优化|分析|调查|测试|运行)/.test(lowerInput);
 
     let intent: IntentCategory = 'unknown';
-    if (/^(hi|hello|hey|你好|嗨)/.test(lowerInput)) {
+    if (hasGreeting) {
       intent = 'greeting';
-    } else if (/^(bye|goodbye|再见|拜拜)/.test(lowerInput)) {
+    } else if (hasFarewell) {
       intent = 'farewell';
-    } else if (/\?$|什么|怎么|为什么|how|what|why|where/.test(lowerInput)) {
-      intent = 'question';
-    } else if (/请|帮我|help|create|make|do|please/.test(lowerInput)) {
-      intent = 'task_request';
-    } else if (/status|progress|进度|状态/.test(lowerInput)) {
-      intent = 'status_inquiry';
-    } else if (/cancel|取消|停止|stop/.test(lowerInput)) {
+    } else if (hasCancellation) {
       intent = 'cancellation';
+    } else if (hasStatusInquiry) {
+      intent = 'status_inquiry';
+    } else if (hasActionCue || hasActionVerb) {
+      intent = 'task_request';
+    } else if (hasQuestionForm) {
+      intent = 'question';
     }
+
+    const isActionable = intent === 'task_request' || (intent === 'question' && (hasActionCue || hasActionVerb));
+    const missingInfo = isActionable && trimmedInput.length < 8
+      ? ['goal details']
+      : [];
 
     return {
       intent: {
         primary: intent,
-        confidence: 0.5,
+        confidence: isActionable ? 0.65 : 0.5,
         entities: [],
       },
       emotion: {
@@ -238,8 +256,10 @@ export class InputAnalysisService implements IInputAnalysisService {
         urgency: 'medium',
       },
       purpose: {
-        isActionable: intent === 'task_request',
-        missingInfo: intent === 'task_request' ? ['detailed requirements'] : [],
+        isActionable,
+        extractedGoal: isActionable ? trimmedInput : undefined,
+        missingInfo,
+        successCriteria: isActionable ? ['Request completed with verifiable result'] : undefined,
       },
       rawInput: input,
       analyzedAt: Date.now(),

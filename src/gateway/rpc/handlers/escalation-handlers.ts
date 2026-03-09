@@ -145,33 +145,7 @@ export function registerEscalationHandlers(
         const goal = repository.getGoal(escalation.goal_id);
 
         if (workItem && goal) {
-          const resumedContext = {
-            ...(workItem.context ?? {}),
-            approval_granted: true,
-            approval_resolved_by: session.publicKey,
-            approval_resolved_at: Date.now(),
-            approval_resolution_action: params.action,
-            ...(typeof params.data?.selected_skill_override === 'string'
-              ? { selected_skill_override: params.data.selected_skill_override }
-              : {}),
-            ...(typeof params.data?.selected_mcp_tool_override === 'string'
-              ? { selected_mcp_tool_override: params.data.selected_mcp_tool_override }
-              : {}),
-          };
-
-          const resumedWorkItem = repository.createWorkItem({
-            goal_id: workItem.goal_id,
-            title: workItem.title,
-            description: typeof params.data?.command_override === 'string'
-              ? params.data.command_override
-              : workItem.description,
-            item_type: workItem.item_type,
-            priority: workItem.priority,
-            dependencies: [],
-            context: resumedContext,
-          } as unknown as Parameters<IWorkOrderRepository['createWorkItem']>[0]);
-
-          repository.updateWorkItemStatus(resumedWorkItem.id, 'ready');
+          repository.updateWorkItemStatus(workItem.id, 'ready');
           repository.updateGoalStatus(goal.id, 'queued');
 
           const scheduler = getScheduler?.();
@@ -185,7 +159,7 @@ export function registerEscalationHandlers(
             escalationId: params.escalationId,
             goalId: goal.id,
             previousWorkItemId: workItem.id,
-            resumedWorkItemId: resumedWorkItem.id,
+            resumedWorkItemId: workItem.id,
             resumedBy: session.publicKey,
           });
         }

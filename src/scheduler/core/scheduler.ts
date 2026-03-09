@@ -5,7 +5,14 @@
  * to execute goals through the 8-phase lifecycle.
  */
 
+import { randomUUID } from 'crypto';
 import type { Goal, WorkItem } from '../../work-order/types/index.js';
+import type {
+  ExecutionRequest,
+  ExecutionResult,
+  ExecutionError,
+} from '../../runtime/execution-boundary/index.js';
+import type { RuntimeEvent } from '../../runtime/event-bus/index.js';
 import type {
   LaneId,
   SchedulerState,
@@ -22,12 +29,17 @@ import type {
   WorkItemExecutionContext,
 } from './types.js';
 import { debug } from '../../debug/index.js';
+import {
+  buildEventedDispatchCheckpoint,
+  readEventedDispatchCheckpoint,
+} from '../evented-dispatch-checkpoint.js';
 
 const DEFAULT_CONFIG: SchedulerConfig = {
   tickIntervalMs: 1000,
   maxConcurrentGoals: 5,
   autoStart: false,
   debug: false,
+  executionMode: 'direct',
   deterministicRuntimeEnabled: false,
   planCompilerEnabled: false,
   toolRoutingMode: 'legacy',
@@ -59,12 +71,14 @@ export class SchedulerCore implements ISchedulerCore {
   private eventHandlers: Set<SchedulerEventHandler> = new Set();
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private metrics: SchedulerMetrics;
+  private runtimeEventUnsubscribe: (() => void) | null = null;
 
   constructor(deps: SchedulerDependencies, config?: Partial<SchedulerConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.deps = deps;
     this.state = this.createInitialState();
     this.metrics = this.createInitialMetrics();
+    this.ensureRuntimeEventSubscription();
   }
 
   private createInitialState(): SchedulerState {
@@ -97,11 +111,152 @@ export class SchedulerCore implements ISchedulerCore {
     return { ...this.state };
   }
 
+  precheckReplay(runId: string): {
+    status:
+      | 'eligible'
+      | 'run_not_found'
+      | 'missing_evented_dispatch'
+      | 'already_applied'
+      | 'already_terminal'
+      | 'work_item_not_in_progress'
+      | 'recovery_candidate_required'
+      | 'replay_candidate_required'
+      | 'missing_orphan_classification'
+      | 'already_replayed'
+      | 'replay_attempt_not_allowed'
+      | 'not_evented_execution';
+    eligible: boolean;
+    rejectionReasons: string[];
+    expectedConsequences: string[];
+    originalRun?: ReturnType<SchedulerDependencies['repository']['getRun']>;
+  } {
+    if (this.config.executionMode !== 'evented') {
+      return {
+        status: 'not_evented_execution',
+        eligible: false,
+        rejectionReasons: ['not_evented_execution'],
+        expectedConsequences: [],
+      };
+    }
+
+    return this.deps.repository.precheckEventedManualReplay(runId);
+  }
+
+  async replayRun(runId: string): Promise<{
+    status:
+      | 'replay_started'
+      | 'run_not_found'
+      | 'missing_evented_dispatch'
+      | 'already_applied'
+      | 'already_terminal'
+      | 'work_item_not_in_progress'
+      | 'recovery_candidate_required'
+      | 'replay_candidate_required'
+      | 'missing_orphan_classification'
+      | 'already_replayed'
+      | 'replay_attempt_not_allowed'
+      | 'not_evented_execution';
+    originalRun?: ReturnType<SchedulerDependencies['repository']['getRun']>;
+    replacementRun?: ReturnType<SchedulerDependencies['repository']['getRun']>;
+  }> {
+    if (this.config.executionMode !== 'evented') {
+      return { status: 'not_evented_execution' };
+    }
+
+    const replay = this.deps.repository.startEventedManualReplay(runId, {
+      requestedAt: Date.now(),
+      requestedReason: 'manual_operator_request',
+    });
+
+    if (replay.status !== 'replay_started' || !replay.replacementRun) {
+      return {
+        status: replay.status,
+        originalRun: replay.originalRun,
+      };
+    }
+
+    const goal = this.deps.repository.getGoal(replay.replacementRun.goal_id);
+    const workItem = this.deps.repository.getWorkItem(replay.replacementRun.work_item_id);
+    if (!goal || !workItem) {
+      throw new Error(
+        `Replay created replacement run ${replay.replacementRun.id} without a durable goal/work item`
+      );
+    }
+
+    const originalCheckpoint = replay.originalRun
+      ? readEventedDispatchCheckpoint(replay.originalRun.context)
+      : null;
+    const modelResult = this.deps.modelSelector.selectModel(workItem, goal);
+    const laneResult = this.deps.laneSelector.selectLane(workItem, goal);
+    const laneId = (originalCheckpoint?.lane_id ?? laneResult.laneId) as LaneId;
+    const model =
+      typeof replay.replacementRun.context?.selected_model === 'string'
+        ? replay.replacementRun.context.selected_model
+        : modelResult.model;
+
+    const goalState = this.goalStates.get(goal.id) ?? {
+      goalId: goal.id,
+      status: 'running' as const,
+      currentWorkItemId: workItem.id,
+      currentRunId: replay.replacementRun.id,
+      startedAt: Date.now(),
+    };
+    goalState.status = 'running';
+    goalState.currentWorkItemId = workItem.id;
+    goalState.currentRunId = replay.replacementRun.id;
+    this.goalStates.set(goal.id, goalState);
+    if (!this.state.activeGoals.includes(goal.id)) {
+      this.state.activeGoals.push(goal.id);
+    }
+
+    const context: WorkItemExecutionContext = {
+      workItem,
+      goal,
+      run: replay.replacementRun,
+      laneId,
+      model,
+      startedAt: Date.now(),
+    };
+    this.activeExecutions.set(replay.replacementRun.id, context);
+    this.deps.laneSelector.incrementActive(laneId);
+    this.updateLaneStatus(laneId);
+
+    this.emitEvent({
+      type: 'run_started',
+      timestamp: Date.now(),
+      goalId: goal.id,
+      workItemId: workItem.id,
+      runId: replay.replacementRun.id,
+      data: {
+        selected_model: model,
+        replay_of_run_id: replay.originalRun?.id,
+      },
+    });
+
+    this.emitEvent({
+      type: 'work_item_in_progress',
+      timestamp: Date.now(),
+      goalId: goal.id,
+      workItemId: workItem.id,
+      runId: replay.replacementRun.id,
+      data: { stage: 'execution', progress: 10, replay_of_run_id: replay.originalRun?.id },
+    });
+
+    await this.dispatchExecution(context);
+
+    return {
+      status: replay.status,
+      originalRun: replay.originalRun,
+      replacementRun: replay.replacementRun,
+    };
+  }
+
   async start(): Promise<void> {
     if (this.state.status === 'running') {
       return;
     }
 
+    this.ensureRuntimeEventSubscription();
     this.state.status = 'running';
     this.debug('Scheduler started');
 
@@ -163,12 +318,14 @@ export class SchedulerCore implements ISchedulerCore {
     // Abort all active executions
     for (const [runId] of this.activeExecutions) {
       try {
-        await this.deps.executionEngine.abort(runId);
+        await this.deps.executionPort.abort(runId);
       } catch (error) {
         this.debug('Error aborting execution:', runId, error);
       }
     }
     this.activeExecutions.clear();
+    this.runtimeEventUnsubscribe?.();
+    this.runtimeEventUnsubscribe = null;
 
     this.state.status = 'stopped';
     this.debug('Scheduler stopped');
@@ -223,7 +380,7 @@ export class SchedulerCore implements ISchedulerCore {
     for (const [runId, context] of this.activeExecutions) {
       if (context.goal.id === goalId) {
         try {
-          await this.deps.executionEngine.abort(runId);
+          await this.deps.executionPort.abort(runId);
           this.activeExecutions.delete(runId);
         } catch (error) {
           this.debug('Error aborting execution:', runId, error);
@@ -493,29 +650,427 @@ export class SchedulerCore implements ISchedulerCore {
     });
 
     // Execute work item (async, don't await)
-    this.executeWorkItem(context).catch((error) => {
+    this.dispatchExecution(context).catch((error) => {
       this.debug('Execution error:', error);
     });
+  }
+
+  /**
+   * Dispatch a work item through the configured execution mode
+   */
+  private async dispatchExecution(context: WorkItemExecutionContext): Promise<void> {
+    if (this.config.executionMode === 'evented') {
+      await this.publishTaskReady(context);
+      return;
+    }
+
+    await this.executeWorkItem(context);
+  }
+
+  private buildExecutionRequest(context: WorkItemExecutionContext): ExecutionRequest {
+    const { workItem, goal, run, laneId, model } = context;
+    const budgetStatus = this.deps.budgetTracker.getBudgetStatus(goal);
+
+    return {
+      runId: run.id,
+      goalId: goal.id,
+      workItemId: workItem.id,
+      workItem,
+      model,
+      laneId,
+      budgetRemaining: budgetStatus,
+    };
+  }
+
+  private async publishTaskReady(context: WorkItemExecutionContext): Promise<void> {
+    const request = this.buildExecutionRequest(context);
+    const dispatchedAt = Date.now();
+    const eventedDispatch = this.mergeEventedDispatch(
+      context.run.context,
+      buildEventedDispatchCheckpoint({
+        laneId: request.laneId,
+        dispatchedAt,
+        resultContinuationApplied: false,
+      })
+    );
+
+    this.deps.repository.mergeRunContext(request.runId, {
+      evented_dispatch: eventedDispatch,
+    });
+    context.run.context = {
+      ...(context.run.context ?? {}),
+      evented_dispatch: eventedDispatch,
+    };
+
+    await this.deps.runtimeEventBus.publish({
+      id: randomUUID(),
+      type: 'task.ready',
+      source: 'scheduler',
+      timestamp: dispatchedAt,
+      runId: request.runId,
+      goalId: request.goalId,
+      workItemId: request.workItemId,
+      payload: request,
+    });
+  }
+
+  private mergeEventedDispatch(
+    context: WorkItemExecutionContext['run']['context'],
+    patch: object
+  ): Record<string, unknown> {
+    const currentEventedDispatch = context?.evented_dispatch;
+    const currentEventedDispatchRecord =
+      currentEventedDispatch &&
+      typeof currentEventedDispatch === 'object' &&
+      !Array.isArray(currentEventedDispatch)
+        ? (currentEventedDispatch as Record<string, unknown>)
+        : {};
+
+    const patchRecord = Object.fromEntries(
+      Object.entries(patch as Record<string, unknown>).filter(([, value]) => value !== undefined)
+    );
+
+    return {
+      ...currentEventedDispatchRecord,
+      ...patchRecord,
+    };
   }
 
   /**
    * Execute a work item
    */
   private async executeWorkItem(context: WorkItemExecutionContext): Promise<void> {
-    const { workItem, goal, run, laneId, model } = context;
+    const { run } = context;
 
     try {
-      // Get budget info
-      const budgetStatus = this.deps.budgetTracker.getBudgetStatus(goal);
-
       // Execute
-      const result = await this.deps.executionEngine.execute(workItem, {
-        model,
-        laneId,
-        budgetRemaining: budgetStatus,
-      });
+      const result = await this.deps.executionPort.execute(this.buildExecutionRequest(context));
+      await this.continueAfterExecutionResult(context, result);
+    } catch (error) {
+      const result: ExecutionResult = {
+        runId: run.id,
+        workItemId: context.workItem.id,
+        success: false,
+        tokensUsed: 0,
+        timeSeconds: 0,
+        costUsd: 0,
+        artifacts: [],
+        error: {
+          code: 'EXECUTION_ERROR',
+          message: error instanceof Error ? error.message : String(error),
+          recoverable: true,
+        },
+      };
+      await this.continueAfterExecutionResult(context, result);
+    }
+  }
 
-      // Record usage
+  private ensureRuntimeEventSubscription(): void {
+    if (this.runtimeEventUnsubscribe) {
+      return;
+    }
+
+    this.runtimeEventUnsubscribe = this.deps.runtimeEventBus.subscribeAll((event) =>
+      this.handleRuntimeEvent(event)
+    );
+  }
+
+  private async handleRuntimeEvent(event: RuntimeEvent): Promise<void> {
+    if (this.config.executionMode !== 'evented') {
+      return;
+    }
+
+    if (event.type === 'execution.completed') {
+      await this.handleEventedExecutionCompleted(event);
+      return;
+    }
+
+    if (event.type === 'execution.failed') {
+      await this.handleEventedExecutionFailed(event);
+    }
+  }
+
+  private async handleEventedExecutionCompleted(event: RuntimeEvent): Promise<void> {
+    const context = this.getActiveExecutionContext(event.runId);
+    if (!context) {
+      this.debugSuppressibleEventedResult(event.runId, 'execution.completed');
+      return;
+    }
+
+    const result = this.parseExecutionCompletedResult(event);
+    if (!result) {
+      this.debug('Ignoring execution.completed event without valid result for run:', event.runId);
+      return;
+    }
+
+    if (!this.tryClaimEventedResultContinuation(context.run.id, 'execution.completed')) {
+      return;
+    }
+
+    await this.continueAfterExecutionResult(context, result, { cleanupBeforeContinuation: true });
+  }
+
+  private async handleEventedExecutionFailed(event: RuntimeEvent): Promise<void> {
+    const context = this.getActiveExecutionContext(event.runId);
+    if (!context) {
+      this.debugSuppressibleEventedResult(event.runId, 'execution.failed');
+      return;
+    }
+
+    if (!this.tryClaimEventedResultContinuation(context.run.id, 'execution.failed')) {
+      return;
+    }
+
+    const result = this.parseExecutionFailedResult(event, context);
+
+    await this.continueAfterExecutionResult(context, result, { cleanupBeforeContinuation: true });
+  }
+
+  private getActiveExecutionContext(runId?: string): WorkItemExecutionContext | null {
+    if (!runId) {
+      return null;
+    }
+
+    return this.activeExecutions.get(runId) ?? null;
+  }
+
+  private parseExecutionCompletedResult(event: RuntimeEvent): ExecutionResult | null {
+    const payload = event.payload;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return null;
+    }
+
+    const candidate = (payload as { result?: unknown }).result;
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+      return null;
+    }
+
+    const result = candidate as Partial<ExecutionResult>;
+    if (!this.isExecutionResultCandidate(result)) {
+      return null;
+    }
+
+    return result as ExecutionResult;
+  }
+
+  private parseExecutionFailedError(event: RuntimeEvent): ExecutionError {
+    const payload = event.payload;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return {
+        code: 'EXECUTION_FAILED',
+        message: 'Execution failed without an error payload',
+        recoverable: true,
+      };
+    }
+
+    const candidate = (payload as { error?: unknown }).error;
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+      return {
+        code: 'EXECUTION_FAILED',
+        message: 'Execution failed without an error payload',
+        recoverable: true,
+      };
+    }
+
+    const error = candidate as Partial<ExecutionError>;
+    if (!this.isExecutionErrorCandidate(error)) {
+      return {
+        code: 'EXECUTION_FAILED',
+        message: 'Execution failed without an error payload',
+        recoverable: true,
+      };
+    }
+
+    return error as ExecutionError;
+  }
+
+  private parseExecutionFailedResult(
+    event: RuntimeEvent,
+    context: WorkItemExecutionContext
+  ): ExecutionResult {
+    const payload = event.payload;
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      const candidate = (payload as { result?: unknown }).result;
+      if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+        const failedResult = candidate as Partial<ExecutionResult>;
+        if (this.isExecutionResultCandidate(failedResult, false)) {
+          return {
+            ...failedResult,
+            goalId:
+              typeof failedResult.goalId === 'string' && failedResult.goalId.length > 0
+                ? failedResult.goalId
+                : event.goalId ?? context.goal.id,
+            source:
+              typeof failedResult.source === 'string' && failedResult.source.length > 0
+                ? failedResult.source
+                : event.source,
+            outcome: 'failure',
+            error: failedResult.error ?? this.parseExecutionFailedError(event),
+          } as ExecutionResult;
+        }
+      }
+    }
+
+    return {
+      runId: context.run.id,
+      goalId: event.goalId ?? context.goal.id,
+      workItemId: context.workItem.id,
+      source: event.source,
+      success: false,
+      outcome: 'failure',
+      tokensUsed: 0,
+      timeSeconds: 0,
+      costUsd: 0,
+      artifacts: [],
+      error: this.parseExecutionFailedError(event),
+    };
+  }
+
+  private tryClaimEventedResultContinuation(
+    runId: string,
+    eventType: 'execution.completed' | 'execution.failed'
+  ): boolean {
+    const claimedAt = Date.now();
+    const claim = this.deps.repository.claimEventedResultContinuation(runId, claimedAt);
+
+    if (claim.status === 'claimed') {
+      const context = this.activeExecutions.get(runId);
+      if (context?.run.context) {
+        context.run.context = claim.run?.context ?? context.run.context;
+      } else if (context) {
+        context.run.context = claim.run?.context;
+      }
+      return true;
+    }
+
+    if (claim.status === 'already_applied') {
+      this.debug(`Suppressing duplicate ${eventType} for run ${runId}: durable continuation already applied`);
+      this.cleanupExecutionContext(runId);
+      return false;
+    }
+
+    if (claim.status === 'suppressed_by_replay') {
+      this.debug(
+        `Suppressing stale ${eventType} for run ${runId}: durable continuation authority was transferred to a replay run`
+      );
+      this.cleanupExecutionContext(runId);
+      return false;
+    }
+
+    if (claim.status === 'already_terminal') {
+      this.debug(`Ignoring stale ${eventType} for run ${runId}: durable run state is already terminal`);
+      this.cleanupExecutionContext(runId);
+      return false;
+    }
+
+    if (claim.status === 'missing_evented_dispatch') {
+      this.debug(`Ignoring ${eventType} for run ${runId}: durable evented dispatch checkpoint is missing`);
+      return false;
+    }
+
+    this.debug(`Ignoring ${eventType} for run ${runId}: durable run row no longer exists`);
+    return false;
+  }
+
+  private debugSuppressibleEventedResult(
+    runId: string | undefined,
+    eventType: 'execution.completed' | 'execution.failed'
+  ): void {
+    if (!runId) {
+      return;
+    }
+
+    const run = this.deps.repository.getRun(runId);
+    if (!run) {
+      this.debug(`Ignoring ${eventType} for run ${runId}: no active execution context and durable run row was not found`);
+      return;
+    }
+
+    const checkpoint = readEventedDispatchCheckpoint(run.context);
+    if (!checkpoint) {
+      this.debug(`Ignoring ${eventType} for run ${runId}: no active execution context and no durable evented dispatch checkpoint`);
+      return;
+    }
+
+    if (checkpoint.result_continuation_applied) {
+      this.debug(`Suppressing duplicate ${eventType} for run ${runId}: durable continuation already applied`);
+      return;
+    }
+
+    if (
+      checkpoint.manual_replay &&
+      typeof checkpoint.manual_replay.original_continuation_suppressed_at === 'number'
+    ) {
+      this.debug(
+        `Suppressing stale ${eventType} for run ${runId}: durable continuation authority was transferred to replay run ${checkpoint.manual_replay.replacement_run_id}`
+      );
+      return;
+    }
+
+    if (run.status !== 'running') {
+      this.debug(`Ignoring stale ${eventType} for run ${runId}: durable run state is already terminal`);
+      return;
+    }
+
+    this.debug(`Ignoring ${eventType} for run ${runId}: no active execution context for durable continuation`);
+  }
+
+  private isExecutionResultCandidate(
+    result: Partial<ExecutionResult>,
+    expectedSuccess?: boolean
+  ): result is ExecutionResult {
+    if (
+      typeof result.runId !== 'string' ||
+      result.runId.length === 0 ||
+      typeof result.workItemId !== 'string' ||
+      result.workItemId.length === 0 ||
+      typeof result.success !== 'boolean' ||
+      typeof result.tokensUsed !== 'number' ||
+      typeof result.timeSeconds !== 'number' ||
+      typeof result.costUsd !== 'number' ||
+      !Array.isArray(result.artifacts)
+    ) {
+      return false;
+    }
+
+    if (expectedSuccess !== undefined && result.success !== expectedSuccess) {
+      return false;
+    }
+
+    if (
+      (result.goalId !== undefined && (typeof result.goalId !== 'string' || result.goalId.length === 0)) ||
+      (result.source !== undefined && (typeof result.source !== 'string' || result.source.length === 0)) ||
+      (result.actualModel !== undefined &&
+        (typeof result.actualModel !== 'string' || result.actualModel.length === 0)) ||
+      (result.endpointId !== undefined &&
+        (typeof result.endpointId !== 'string' || result.endpointId.length === 0)) ||
+      (result.outcome !== undefined && result.outcome !== 'success' && result.outcome !== 'failure') ||
+      (result.error !== undefined && !this.isExecutionErrorCandidate(result.error))
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private isExecutionErrorCandidate(error: Partial<ExecutionError>): error is ExecutionError {
+    return (
+      typeof error.code === 'string' &&
+      error.code.length > 0 &&
+      typeof error.message === 'string' &&
+      error.message.length > 0 &&
+      typeof error.recoverable === 'boolean'
+    );
+  }
+
+  private async continueAfterExecutionResult(
+    context: WorkItemExecutionContext,
+    result: ExecutionResult,
+    options: { cleanupBeforeContinuation?: boolean } = {}
+  ): Promise<void> {
+    const { workItem, goal, run, model } = context;
+
+    try {
       await this.deps.budgetTracker.recordUsage(
         goal.id,
         result.tokensUsed,
@@ -523,7 +1078,21 @@ export class SchedulerCore implements ISchedulerCore {
         result.costUsd
       );
 
-      // Complete run
+      const existingCheckpoint = readEventedDispatchCheckpoint(run.context);
+      const resultContinuationAppliedAt =
+        existingCheckpoint?.result_continuation_applied_at ?? Date.now();
+      const completedEventedDispatch = existingCheckpoint
+        ? this.mergeEventedDispatch(
+            run.context,
+            buildEventedDispatchCheckpoint({
+              laneId: existingCheckpoint.lane_id,
+              dispatchedAt: existingCheckpoint.dispatched_at,
+              resultContinuationApplied: true,
+              resultContinuationAppliedAt,
+            })
+          )
+        : null;
+
       this.deps.repository.completeRun(run.id, {
         status: result.success ? 'success' : 'failure',
         tokens_used: result.tokensUsed,
@@ -535,8 +1104,15 @@ export class SchedulerCore implements ISchedulerCore {
           selected_model: model,
           actual_model: result.actualModel ?? model,
           endpoint_id: result.endpointId,
+          ...(completedEventedDispatch ? { evented_dispatch: completedEventedDispatch } : {}),
         },
       });
+      if (completedEventedDispatch) {
+        run.context = {
+          ...(run.context ?? {}),
+          evented_dispatch: completedEventedDispatch,
+        };
+      }
 
       this.emitEvent({
         type: 'run_completed',
@@ -554,24 +1130,36 @@ export class SchedulerCore implements ISchedulerCore {
 
       this.metrics.totalRunsExecuted++;
 
+      if (options.cleanupBeforeContinuation) {
+        this.cleanupExecutionContext(run.id);
+      }
+
       if (result.success) {
         await this.handleExecutionSuccess(context);
-      } else {
-        await this.handleExecutionFailure(context, result.error!);
+        return;
       }
-    } catch (error) {
-      const execError = {
-        code: 'EXECUTION_ERROR',
-        message: error instanceof Error ? error.message : String(error),
+
+      await this.handleExecutionFailure(context, result.error ?? {
+        code: 'EXECUTION_FAILED',
+        message: 'Execution failed without an error payload',
         recoverable: true,
-      };
-      await this.handleExecutionFailure(context, execError);
+      });
     } finally {
-      // Clean up
-      this.activeExecutions.delete(run.id);
-      this.deps.laneSelector.decrementActive(laneId);
-      this.updateLaneStatus(laneId);
+      if (!options.cleanupBeforeContinuation) {
+        this.cleanupExecutionContext(run.id);
+      }
     }
+  }
+
+  private cleanupExecutionContext(runId: string): void {
+    const context = this.activeExecutions.get(runId);
+    if (!context) {
+      return;
+    }
+
+    this.activeExecutions.delete(runId);
+    this.deps.laneSelector.decrementActive(context.laneId);
+    this.updateLaneStatus(context.laneId);
   }
 
   /**

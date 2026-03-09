@@ -67,6 +67,9 @@ export class ModelRouter {
         : this.inferProvidersFromModelId(selectorResolution.modelId);
       const firstEndpointId = providerCandidates[0];
       if (!firstEndpointId) return undefined;
+      if (this.useLLMConfig && !getLLMEndpointConfig(firstEndpointId)) {
+        return undefined;
+      }
       const endpoint = safeGetEndpointConfig(firstEndpointId);
       return endpoint?.protocol;
     }
@@ -135,6 +138,10 @@ export class ModelRouter {
         if (!endpoint) return null;
 
         const llmEndpointConfig = getLLMEndpointConfig(endpointId);
+        if (this.useLLMConfig && !llmEndpointConfig) {
+          console.log(`⚠️ [ModelRouter] Provider ${endpointId} not configured in llm-config.providers`);
+          return null;
+        }
         if (llmEndpointConfig && llmEndpointConfig.enabled === false) {
           console.log(`⚠️ [ModelRouter] Provider ${endpointId} disabled in llm-config.providers`);
           return null;
@@ -191,6 +198,11 @@ export class ModelRouter {
   isEndpointAvailable(endpointId: EndpointId): boolean {
     try {
       const llmEndpointConfig = getLLMEndpointConfig(endpointId);
+
+      if (this.useLLMConfig && !llmEndpointConfig) {
+        this.availabilityCache.set(endpointId, false);
+        return false;
+      }
 
       if (llmEndpointConfig?.enabled === false) {
         this.availabilityCache.set(endpointId, false);

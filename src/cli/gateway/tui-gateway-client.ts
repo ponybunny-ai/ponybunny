@@ -107,6 +107,7 @@ export interface ConversationMessageParams {
   sessionId?: string;
   personaId?: string;
   userProfileId?: string;
+  agentId?: string;
   message: string;
   stream?: boolean;
 }
@@ -367,6 +368,57 @@ export interface RuntimeTuiConfig {
   goalSubmitFastPathEnabled: boolean;
 }
 
+export type GatewayChannelType = 'tui' | 'discord' | 'telegram' | 'slack' | 'api';
+
+export interface GatewayChannelAdapterStatus {
+  channel: GatewayChannelType;
+  state: 'running' | 'stopped' | 'error';
+  available: boolean;
+  config: Record<string, unknown>;
+  startCount: number;
+  stopCount: number;
+  errorCount: number;
+  deliveryCount: number;
+  deliveryErrorCount: number;
+  lastError?: string;
+  lastStartedAt?: number;
+  lastStoppedAt?: number;
+  lastDeliveryAt?: number;
+  lastDeliveryError?: string;
+}
+
+export interface GatewayChannelsStatusResponse {
+  enabledChannels: GatewayChannelType[];
+  mirrorToAllEnabledChannels: boolean;
+  adapters: GatewayChannelAdapterStatus[];
+  adapterHealth: {
+    running: number;
+    stopped: number;
+    error: number;
+    available: number;
+  };
+}
+
+export interface GatewayChannelEventsParams {
+  sinceTimestamp?: number;
+  limit?: number;
+  cursor?: string;
+  eventPrefix?: string;
+}
+
+export interface GatewayChannelEventsResponse {
+  events: Array<{
+    event: string;
+    data: unknown;
+    timestamp: number;
+    channelType?: string;
+    sessionId?: string;
+    goalId?: string;
+    runId?: string;
+  }>;
+  nextCursor?: string;
+}
+
 export interface InternalRuntimeConfig {
   deterministicRuntimeEnabled: boolean;
   planCompilerEnabled: boolean;
@@ -381,6 +433,9 @@ export interface InternalRuntimeConfig {
       replay: number;
     };
   };
+  agent: {
+    mainAgentId: string;
+  };
   tui: RuntimeTuiConfig;
 }
 
@@ -392,6 +447,7 @@ export interface RuntimeTuiConfigUpdateParams {
 
 export interface SetMainAgentModelHintParams {
   model: string;
+  agentId?: string;
 }
 
 export interface SetMainAgentModelHintResponse {
@@ -399,6 +455,15 @@ export interface SetMainAgentModelHintResponse {
   agentId: string;
   model: string;
   configPath: string;
+}
+
+export interface GetMainAgentModelHintParams {
+  agentId?: string;
+}
+
+export interface GetMainAgentModelHintResponse {
+  agentId: string;
+  model: string | null;
 }
 
 export class TuiGatewayClient {
@@ -638,8 +703,20 @@ export class TuiGatewayClient {
     return this.client.request('system.runtime.tui.update', params);
   }
 
+  async setAgentModelOverride(params: SetMainAgentModelHintParams): Promise<SetMainAgentModelHintResponse> {
+    return this.client.request('system.agent.model_override.set', params);
+  }
+
+  async getAgentModelOverride(params: GetMainAgentModelHintParams = {}): Promise<GetMainAgentModelHintResponse> {
+    return this.client.request('system.agent.model_override.get', params);
+  }
+
   async setMainAgentModelHint(params: SetMainAgentModelHintParams): Promise<SetMainAgentModelHintResponse> {
-    return this.client.request('system.agent.model_hint.set', params);
+    return this.setAgentModelOverride(params);
+  }
+
+  async getMainAgentModelHint(params: GetMainAgentModelHintParams = {}): Promise<GetMainAgentModelHintResponse> {
+    return this.getAgentModelOverride(params);
   }
 
   async getRuntimeRolloutStatus(): Promise<RuntimeRolloutStatusResponse> {
@@ -648,6 +725,14 @@ export class TuiGatewayClient {
 
   async updateRuntimeRollout(params: RuntimeRolloutUpdateParams): Promise<RuntimeRolloutStatusResponse> {
     return this.client.request('system.runtime.rollout.update', params);
+  }
+
+  async getChannelsStatus(): Promise<GatewayChannelsStatusResponse> {
+    return this.client.request('system.channels.status', {});
+  }
+
+  async getChannelEvents(params: GatewayChannelEventsParams = {}): Promise<GatewayChannelEventsResponse> {
+    return this.client.request('system.channels.events', params);
   }
 
   async getInternalPlan(goalId: string): Promise<Record<string, unknown>> {

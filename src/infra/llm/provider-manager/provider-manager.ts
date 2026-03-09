@@ -125,7 +125,10 @@ export class LLMProviderManager implements ILLMProviderManager {
     messages: LLMMessage[],
     options?: LLMCompletionOptions
   ): Promise<LLMResponse> {
-    const fallbackChain = this.workloadModelResolver.getFallbackChain(workloadId);
+    const fallbackChain = this.workloadModelResolver.getSelectionChainForWorkload(
+      workloadId,
+      options?.model
+    );
     const operation = this.resolveOpenAIOperation(workloadId, options?.openaiOperation);
     return this.completeWithFallback(fallbackChain, messages, options, operation);
   }

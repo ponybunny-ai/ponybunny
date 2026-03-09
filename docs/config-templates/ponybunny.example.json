@@ -12,10 +12,12 @@
     "tickIntervalMs": 1000,
     "maxConcurrentGoals": 5,
     "agentsEnabled": true,
+    "executionMode": "direct",
     "deterministicRuntimeEnabled": false,
     "planCompilerEnabled": false,
-    "toolRoutingMode": "legacy",
+    "toolRoutingMode": "system_preferred",
     "allowModelNativeTools": false,
+    "eventedOrphanTimeoutMs": 1800000,
     "runtimeRollout": {
       "shadowModeEnabled": false,
       "canaryPercent": 0,
@@ -35,7 +37,8 @@
   },
   "agent": {
     "mainAgentId": "lead",
-    "personaEnabled": false
+    "personaEnabled": false,
+    "modelOverrides": {}
   },
   "persona": {
     "directory": "~/.config/ponybunny/personas",

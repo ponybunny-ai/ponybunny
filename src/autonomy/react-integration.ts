@@ -10,6 +10,14 @@ import { getGlobalPromptProvider } from '../infra/prompts/prompt-provider.js';
 import { ToolProvider, getGlobalToolProvider } from '../infra/tools/tool-provider.js';
 import { routeContextFromWorkItemContext } from '../infra/routing/route-context.js';
 import { loadRuntimeConfig } from '../infra/config/runtime-config.js';
+import {
+  formatToolResultForModel,
+  LocalToolAdapter,
+  type ToolPort,
+  type ToolRequest,
+  type ToolResult,
+} from '../runtime/tool-boundary/index.js';
+import { LocalToolWorker } from '../runtime/workers/index.js';
 
 export interface ReActCycleParams {
   workItem: WorkItem;
@@ -18,6 +26,8 @@ export interface ReActCycleParams {
   model?: string;
   goal?: Goal;
   toolEnforcer?: ToolEnforcer;
+  toolPort?: ToolPort;
+  toolWorker?: LocalToolWorker;
 }
 
 export interface ReActCycleResult {
@@ -58,14 +68,23 @@ interface ExecutionIntent {
 export class ReActIntegration {
   private promptProvider = getGlobalPromptProvider();
   private toolProvider = getGlobalToolProvider();
+  private readonly toolWorkersByPort = new WeakMap<ToolPort, LocalToolWorker>();
+  private readonly toolWorkersByEnforcer = new WeakMap<ToolEnforcer, LocalToolWorker>();
 
   constructor(
     private llmProvider?: ILLMProvider,
-    private toolEnforcer?: ToolEnforcer
+    private toolEnforcer?: ToolEnforcer,
+    private toolPort?: ToolPort,
+    private toolWorker?: LocalToolWorker
   ) {}
 
   async executeWorkCycle(params: ReActCycleParams): Promise<ReActCycleResult> {
     const activeToolEnforcer = params.toolEnforcer ?? this.toolEnforcer;
+    const activeToolWorker = this.resolveToolWorker(
+      params.toolWorker,
+      params.toolPort,
+      activeToolEnforcer
+    );
     const activeToolProvider = activeToolEnforcer
       ? new ToolProvider(activeToolEnforcer)
       : this.toolProvider;
@@ -213,7 +232,7 @@ export class ReActIntegration {
               break;
             }
 
-            const result = await this.executeToolCall(context, toolCall, activeToolEnforcer);
+            const result = await this.executeToolCall(context, toolCall, activeToolWorker);
 
             // Add tool result to messages
             messages.push({
@@ -244,7 +263,7 @@ export class ReActIntegration {
                   context,
                   params.workItem,
                   tools,
-                  activeToolEnforcer,
+                  activeToolWorker,
                   messages
                 );
                 if (fallbackResult) {
@@ -338,6 +357,11 @@ export class ReActIntegration {
 
   async chatStep(params: ReActCycleParams, userInput: string): Promise<ReActCycleResult & { reply: string }> {
     const activeToolEnforcer = params.toolEnforcer ?? this.toolEnforcer;
+    const activeToolWorker = this.resolveToolWorker(
+      params.toolWorker,
+      params.toolPort,
+      activeToolEnforcer
+    );
     const activeToolProvider = activeToolEnforcer
       ? new ToolProvider(activeToolEnforcer)
       : this.toolProvider;
@@ -421,7 +445,7 @@ export class ReActIntegration {
 
         // Execute each tool call
         for (const toolCall of response.toolCalls) {
-          const result = await this.executeToolCall(context, toolCall, activeToolEnforcer);
+          const result = await this.executeToolCall(context, toolCall, activeToolWorker);
 
           // Add tool result to messages
           messages.push({
@@ -713,10 +737,10 @@ Respond with at most 2 short planning lines, then immediately issue the first co
     context: ReActContext,
     workItem: WorkItem,
     tools: import('../infra/llm/llm-provider.js').ToolDefinition[],
-    toolEnforcer: ToolEnforcer | undefined,
+    toolWorker: LocalToolWorker | undefined,
     messages: LLMMessage[]
   ): Promise<LLMResponse | null> {
-    if (!toolEnforcer || !this.llmProvider) {
+    if (!toolWorker || !this.llmProvider) {
       return null;
     }
 
@@ -739,7 +763,7 @@ Respond with at most 2 short planning lines, then immediately issue the first co
     let successfulButEmptyResultSeen = false;
 
     for (const toolCall of fallbackToolCalls) {
-      const result = await this.executeToolCall(context, toolCall, toolEnforcer);
+      const result = await this.executeToolCall(context, toolCall, toolWorker);
       await this.observation(context, `Fallback tool ${toolCall.function.name}: ${result}`);
 
       if (this.isSuccessfulToolResult(result)) {
@@ -1118,42 +1142,96 @@ Respond with at most 2 short planning lines, then immediately issue the first co
   }
 
   private async executeToolCall(
-    _context: ReActContext,
+    context: ReActContext,
     toolCall: ToolCall,
-    toolEnforcer?: ToolEnforcer
+    toolWorker?: LocalToolWorker
   ): Promise<string> {
     const toolName = toolCall.function.name;
-    const parameters = JSON.parse(toolCall.function.arguments);
 
     // Special handling for complete_task
     if (toolName === 'complete_task') {
       return 'Task marked as complete.';
     }
 
-    if (!toolEnforcer) {
+    if (!toolWorker) {
       return 'Error: No tool enforcer configured. Cannot execute tools.';
     }
 
-    const check = toolEnforcer.checkToolInvocation(toolName, parameters);
+    const request = this.buildToolRequest(context, toolCall);
+    const result = await toolWorker.dispatch(request);
+    this.assertCorrelatedToolResult(request, result);
+    return formatToolResultForModel(result);
+  }
 
-    if (!check.allowed) {
-      return `Action denied: ${check.reason}`;
+  private resolveToolWorker(
+    requestedToolWorker: LocalToolWorker | undefined,
+    requestedToolPort: ToolPort | undefined,
+    toolEnforcer: ToolEnforcer | undefined
+  ): LocalToolWorker | undefined {
+    if (requestedToolWorker) {
+      return requestedToolWorker;
     }
 
-    const tool = toolEnforcer.registry.getTool(toolName);
-    if (!tool) {
-      return `Error: Tool '${toolName}' not found`;
+    if (requestedToolPort) {
+      return this.getOrCreateToolWorkerForPort(requestedToolPort);
     }
 
-    try {
-      const result = await tool.execute(parameters, {
-        cwd: process.cwd(),
-        allowlist: toolEnforcer.allowlist,
-        enforcer: toolEnforcer,
-      });
-      return result;
-    } catch (error) {
-      return `Tool execution failed: ${error}`;
+    if (toolEnforcer) {
+      return this.getOrCreateToolWorkerForEnforcer(toolEnforcer);
+    }
+
+    if (this.toolWorker) {
+      return this.toolWorker;
+    }
+
+    if (this.toolPort) {
+      return this.getOrCreateToolWorkerForPort(this.toolPort);
+    }
+
+    return undefined;
+  }
+
+  private buildToolRequest(context: ReActContext, toolCall: ToolCall): ToolRequest {
+    return {
+      toolRequestId: `${context.run.id}:${toolCall.id}:${toolCall.function.name}`,
+      runId: context.run.id,
+      workItemId: context.workItem.id,
+      goalId: context.goal?.id ?? context.run.goal_id ?? context.workItem.goal_id,
+      toolCallId: toolCall.id,
+      toolName: toolCall.function.name,
+      arguments: toolCall.function.arguments,
+      cwd: process.cwd(),
+      routeContext: routeContextFromWorkItemContext(context.workItem.context) ?? undefined,
+    };
+  }
+
+  private getOrCreateToolWorkerForPort(toolPort: ToolPort): LocalToolWorker {
+    const existingWorker = this.toolWorkersByPort.get(toolPort);
+    if (existingWorker) {
+      return existingWorker;
+    }
+
+    const worker = new LocalToolWorker(toolPort);
+    this.toolWorkersByPort.set(toolPort, worker);
+    return worker;
+  }
+
+  private getOrCreateToolWorkerForEnforcer(toolEnforcer: ToolEnforcer): LocalToolWorker {
+    const existingWorker = this.toolWorkersByEnforcer.get(toolEnforcer);
+    if (existingWorker) {
+      return existingWorker;
+    }
+
+    const worker = new LocalToolWorker(new LocalToolAdapter(toolEnforcer));
+    this.toolWorkersByEnforcer.set(toolEnforcer, worker);
+    return worker;
+  }
+
+  private assertCorrelatedToolResult(request: ToolRequest, result: ToolResult): void {
+    if (result.toolRequestId !== request.toolRequestId) {
+      throw new Error(
+        `Tool result correlation mismatch: expected ${request.toolRequestId}, received ${result.toolRequestId}`
+      );
     }
   }
 

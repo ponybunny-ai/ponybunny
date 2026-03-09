@@ -43,7 +43,10 @@ export interface ITaskBridge {
   createGoalFromConversation(
     requirements: IExtractedRequirements,
     session: IConversationSession,
-    sourceTurnId: string
+    sourceTurnId: string,
+    options?: {
+      sourceAgentId?: string;
+    }
   ): Promise<IGoalCreationResult>;
 
   subscribeToProgress(goalId: string, callback: ProgressCallback): Unsubscribe;
@@ -76,7 +79,10 @@ export class TaskBridge implements ITaskBridge {
   async createGoalFromConversation(
     requirements: IExtractedRequirements,
     session: IConversationSession,
-    sourceTurnId: string
+    sourceTurnId: string,
+    _options?: {
+      sourceAgentId?: string;
+    }
   ): Promise<IGoalCreationResult> {
     // Create goal from extracted requirements
     const successCriteria: SuccessCriterion[] = requirements.successCriteria.map((criterion, index) => ({

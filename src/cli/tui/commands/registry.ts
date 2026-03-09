@@ -210,6 +210,25 @@ export const commands: CommandDefinition[] = [
     usage: '/status',
   },
   {
+    name: 'channels',
+    aliases: ['ch'],
+    group: 'System',
+    description: 'Show channel routing and adapter health status',
+    usage: '/channels',
+  },
+  {
+    name: 'channel-events',
+    aliases: ['chev'],
+    group: 'System',
+    description: 'Replay channel events with optional limit/cursor/prefix',
+    usage: '/channel-events [limit] [cursor] [eventPrefix]',
+    args: [
+      { name: 'limit', required: false, description: 'Max events to fetch (default 50)' },
+      { name: 'cursor', required: false, description: 'Pagination cursor returned by previous call' },
+      { name: 'eventPrefix', required: false, description: 'Optional event prefix filter' },
+    ],
+  },
+  {
     name: 'ping',
     group: 'System',
     description: 'Ping the gateway',
@@ -244,9 +263,9 @@ export const commands: CommandDefinition[] = [
     name: 'input-mode',
     aliases: ['im'],
     group: 'System',
-    description: 'Show or switch natural input routing mode',
-    usage: '/input-mode [session-first|fast-path|toggle]',
-    args: [{ name: 'mode', required: false, description: 'session-first, fast-path, or toggle' }],
+    description: 'Show or enforce session-first input mode',
+    usage: '/input-mode [session-first]',
+    args: [{ name: 'mode', required: false, description: 'session-first' }],
   },
   {
     name: 'rollout',

@@ -19,6 +19,15 @@ describe('ModelRouter', () => {
     process.env = { ...originalEnv };
     clearConfigCache();
     resetModelRouter();
+
+    const config = getCachedConfig();
+    if (!config.providers.anthropic) {
+      config.providers.anthropic = {
+        enabled: true,
+        protocol: 'anthropic',
+        priority: 1,
+      };
+    }
   });
 
   afterEach(() => {
@@ -62,6 +71,7 @@ describe('ModelRouter', () => {
       expect(router.getProtocolForModel('unknown-model')).toBeUndefined();
       expect(router.getProtocolForModel('claude-haiku-4-5-20251001')).toBeUndefined();
     });
+
   });
 
   describe('getEndpointsForModel', () => {
@@ -156,6 +166,22 @@ describe('ModelRouter', () => {
       const endpoints = router.getEndpointsForModel('claude-haiku-4-5-20251001');
 
       expect(endpoints.length).toBe(0);
+    });
+
+    it('should not route endpoints for providers omitted from llm-config.providers', () => {
+      process.env.ANTHROPIC_API_KEY = 'test-key';
+      const config = getCachedConfig();
+      const previousAnthropic = config.providers.anthropic;
+      Reflect.deleteProperty(config.providers, 'anthropic');
+
+      const router = new ModelRouter();
+      const endpoints = router.getEndpointsForModel('anthropic.claude-opus-4-5-20251101');
+
+      expect(endpoints).toEqual([]);
+
+      if (previousAnthropic) {
+        config.providers.anthropic = previousAnthropic;
+      }
     });
 
   });

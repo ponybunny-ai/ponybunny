@@ -130,11 +130,6 @@ export interface LLMTierConfig {
 export interface LLMWorkloadConfig {
   /** Tier to use for this workload (uses tier's primary/fallback) */
   tier?: ModelTier;
-  /** Override primary model (takes precedence over tier) */
-  primary?: string;
-  llm_model?: string;
-  /** Override fallback chain */
-  fallback?: string[];
   /** Description of the workload purpose */
   description?: string;
 }

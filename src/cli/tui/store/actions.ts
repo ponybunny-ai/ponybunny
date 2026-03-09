@@ -175,6 +175,11 @@ export interface SetSelectedModelAction {
   payload: string | null;
 }
 
+export interface SetSelectedAgentIdAction {
+  type: 'SET_SELECTED_AGENT_ID';
+  payload: string | null;
+}
+
 // Events actions
 export interface AddEventAction {
   type: 'ADD_EVENT';
@@ -275,6 +280,7 @@ export type AppAction =
   | SetPendingEscalationCountAction
   | SetPendingApprovalCountAction
   | SetSchedulerCapabilitiesAction
+  | SetSelectedAgentIdAction
   | SetSelectedModelAction
   | AddEventAction
   | AddEventsAction
@@ -448,6 +454,11 @@ export const actions = {
   setSelectedModel: (model: string | null): SetSelectedModelAction => ({
     type: 'SET_SELECTED_MODEL',
     payload: model,
+  }),
+
+  setSelectedAgentId: (agentId: string | null): SetSelectedAgentIdAction => ({
+    type: 'SET_SELECTED_AGENT_ID',
+    payload: agentId,
   }),
 
   addEvent: (event: GatewayEvent): AddEventAction => ({

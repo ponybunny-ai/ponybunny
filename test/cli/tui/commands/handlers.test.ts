@@ -42,6 +42,7 @@ function createCommandContext(options?: {
   };
   client: {
     createConversationSession: jest.Mock;
+    cancelGoal: jest.Mock;
     listGoals: jest.Mock;
     listWorkItems: jest.Mock;
     listEscalations: jest.Mock;
@@ -55,7 +56,11 @@ function createCommandContext(options?: {
     getInternalRunEvents: jest.Mock;
     pruneInternalRunEvents: jest.Mock;
     updateRuntimeTuiConfig: jest.Mock;
+    setAgentModelOverride: jest.Mock;
+    getAgentModelOverride: jest.Mock;
     setMainAgentModelHint: jest.Mock;
+    getChannelsStatus: jest.Mock;
+    getChannelEvents: jest.Mock;
   };
 } {
   const app = {
@@ -80,6 +85,7 @@ function createCommandContext(options?: {
       state: 'chatting',
       lifecycleState: 'active',
     }),
+    cancelGoal: jest.fn().mockResolvedValue({ success: true }),
     listGoals: options?.listGoalsError
       ? jest.fn().mockRejectedValue(options.listGoalsError)
       : jest.fn().mockResolvedValue({ goals: options?.emptyGoals ? [] : [{ id: 'goal-1' }] }),
@@ -111,11 +117,42 @@ function createCommandContext(options?: {
       sessionFirstEnabled: false,
       goalSubmitFastPathEnabled: true,
     }),
+    setAgentModelOverride: jest.fn().mockResolvedValue({
+      success: true,
+      agentId: 'lead',
+      model: 'openai.gpt-5.2',
+      configPath: '/tmp/agents/lead/agent.json',
+    }),
+    getAgentModelOverride: jest.fn().mockResolvedValue({
+      agentId: 'lead',
+      model: null,
+    }),
     setMainAgentModelHint: jest.fn().mockResolvedValue({
       success: true,
       agentId: 'lead',
       model: 'openai.gpt-5.2',
       configPath: '/tmp/agents/lead/agent.json',
+    }),
+    getChannelsStatus: jest.fn().mockResolvedValue({
+      enabledChannels: ['tui', 'discord'],
+      mirrorToAllEnabledChannels: true,
+      adapters: [],
+      adapterHealth: {
+        running: 1,
+        stopped: 0,
+        error: 0,
+        available: 1,
+      },
+    }),
+    getChannelEvents: jest.fn().mockResolvedValue({
+      events: [
+        {
+          event: 'run.completed',
+          data: { goalId: 'goal-1' },
+          timestamp: Date.now(),
+        },
+      ],
+      nextCursor: '1',
     }),
     getRuntimeRolloutStatus: jest.fn().mockResolvedValue({
       mode: 'legacy',
@@ -201,6 +238,7 @@ function createCommandContext(options?: {
       state: {
         goals: [],
         escalations: [],
+        selectedAgentId: 'lead',
         selectedModel: null,
         schedulerCapabilities: buildCapabilitiesResponse(),
         runtimeTuiConfig: {
@@ -283,6 +321,62 @@ describe('TUI command handlers - refresh', () => {
     expect(result.success).toBe(false);
     expect(result.error).toBe('Not connected to gateway');
     expect(app.setActivityStatus).not.toHaveBeenCalled();
+  });
+
+  it('loads channel status via /channels', async () => {
+    const { ctx, app, client } = createCommandContext();
+
+    const result = await executeCommand('/channels', ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain('Channels enabled=[tui, discord]');
+    expect(client.getChannelsStatus).toHaveBeenCalledTimes(1);
+    expect(app.addEvent).toHaveBeenCalledWith('system.channels.status', expect.any(Object));
+  });
+
+  it('loads channel events page via /channel-events', async () => {
+    const { ctx, app, client } = createCommandContext();
+
+    const result = await executeCommand('/channel-events 25 10 run.', ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain('Channel events loaded');
+    expect(client.getChannelEvents).toHaveBeenCalledWith({
+      limit: 25,
+      cursor: '10',
+      eventPrefix: 'run.',
+    });
+    expect(app.addEvent).toHaveBeenCalledWith(
+      'system.channels.events.loaded',
+      expect.objectContaining({ returned: 1, nextCursor: '1' })
+    );
+  });
+
+  it('returns validation error for malformed /channel-events args', async () => {
+    const { ctx, client } = createCommandContext();
+
+    const result = await executeCommand('/channel-events 0', ctx);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Channel events command failed');
+    expect(client.getChannelEvents).not.toHaveBeenCalled();
+  });
+
+  it('passes optional reason through /cancel confirmation handler', async () => {
+    const { ctx, app, client } = createCommandContext();
+
+    const result = await executeCommand('/cancel goal-123 duplicate-work', ctx);
+
+    expect(result.success).toBe(true);
+    expect(app.openModal).toHaveBeenCalledWith(
+      'confirm',
+      expect.objectContaining({ title: 'Cancel Goal' })
+    );
+
+    const modalData = app.openModal.mock.calls[0]?.[1] as { onConfirm: () => Promise<void> };
+    await modalData.onConfirm();
+
+    expect(client.cancelGoal).toHaveBeenCalledWith('goal-123', 'duplicate-work');
   });
 
   it('returns refresh failure when gateway call throws', async () => {
@@ -673,7 +767,7 @@ describe('TUI command handlers - models', () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
     await new Promise<void>((resolve) => setImmediate(resolve));
 
-    expect(client.setMainAgentModelHint).toHaveBeenCalledWith({ model: 'openai.gpt-5.2' });
+    expect(client.setAgentModelOverride).toHaveBeenCalledWith({ agentId: 'lead', model: 'openai.gpt-5.2' });
     expect(app.setSelectedModel).toHaveBeenCalledWith('openai.gpt-5.2');
     expect(app.addEvent).toHaveBeenCalledWith(
       'model.selection.persisted',
@@ -700,34 +794,41 @@ describe('TUI command handlers - models', () => {
 });
 
 describe('TUI command handlers - input mode routing', () => {
-  it('switches routing mode with /input-mode fast-path through gateway', async () => {
+  it('keeps session-first mode when /input-mode session-first is executed', async () => {
     const { ctx, app, client } = createCommandContext();
 
-    const result = await executeCommand('/input-mode fast-path', ctx);
+    const result = await executeCommand('/input-mode session-first', ctx);
     expect(result.success).toBe(true);
-    expect(result.message).toContain('Input mode switched to fast-path');
+    expect(result.message).toContain('Input mode switched to session-first');
     expect(app.addEvent).toHaveBeenCalledWith(
       'tui.input_mode.updated',
       expect.objectContaining({
-        mode: 'fast-path',
-        sessionFirstEnabled: false,
-        goalSubmitFastPathEnabled: true,
+        mode: 'session-first',
+        sessionFirstEnabled: true,
+        goalSubmitFastPathEnabled: false,
       })
     );
     expect(client.updateRuntimeTuiConfig).toHaveBeenCalledWith({
-      sessionFirstEnabled: false,
-      goalSubmitFastPathEnabled: true,
+      sessionFirstEnabled: true,
+      goalSubmitFastPathEnabled: false,
     });
     expect(app.setRuntimeTuiConfig).toHaveBeenCalled();
   });
 
-  it('routes natural input through fast-path when enabled and emits mode usage event', async () => {
+  it('routes natural input through session-first even when cached runtime says fast-path', async () => {
     const submitGoal = jest.fn().mockResolvedValue({ id: 'goal-fast', title: 'Fast Goal' });
-    const sendConversationMessage = jest.fn();
+    const sendConversationMessage = jest.fn().mockResolvedValue({
+      sessionId: 'ses-fast-1',
+      state: 'chatting',
+      response: 'Need details.',
+      decision: 'clarification_requested',
+      decisionReason: 'Need clarification',
+    });
 
     const app = {
       state: {
         selectedModel: undefined,
+        selectedAgentId: 'planning',
         activeSessionId: 'ses-fast-1',
         activeSessionTitle: undefined,
         runtimeTuiConfig: {
@@ -758,17 +859,13 @@ describe('TUI command handlers - input mode routing', () => {
 
     const result = await handleNaturalInput('Build a quick script', ctx);
     expect(result.success).toBe(true);
-    expect(submitGoal).toHaveBeenCalledTimes(1);
-    expect(submitGoal).toHaveBeenCalledWith(
-      expect.objectContaining({
-        context: expect.objectContaining({
-          sessionId: 'ses-fast-1',
-          inputMode: 'fast-path',
-        }),
-      })
-    );
-    expect(sendConversationMessage).not.toHaveBeenCalled();
-    expect(app.addEvent).toHaveBeenCalledWith('tui.input_mode.used', { mode: 'fast-path' });
+    expect(submitGoal).not.toHaveBeenCalled();
+    expect(sendConversationMessage).toHaveBeenCalledTimes(1);
+    expect(sendConversationMessage).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'ses-fast-1',
+      agentId: 'planning',
+    }));
+    expect(app.addEvent).toHaveBeenCalledWith('tui.input_mode.used', { mode: 'session-first' });
   });
 
   it('routes natural input through session-first pipeline when fast-path is disabled', async () => {
@@ -784,6 +881,7 @@ describe('TUI command handlers - input mode routing', () => {
     const app = {
       state: {
         selectedModel: undefined,
+        selectedAgentId: 'planning',
         activeSessionId: undefined,
         activeSessionTitle: undefined,
         runtimeTuiConfig: {
@@ -816,6 +914,10 @@ describe('TUI command handlers - input mode routing', () => {
     const result = await handleNaturalInput('Can you help me design this?', ctx);
     expect(result.success).toBe(true);
     expect(sendConversationMessage).toHaveBeenCalledTimes(1);
+    expect(sendConversationMessage).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'ses-1',
+      agentId: 'planning',
+    }));
     expect(submitGoal).not.toHaveBeenCalled();
     expect(app.addEvent).toHaveBeenCalledWith('tui.input_mode.used', { mode: 'session-first' });
     expect(app.addEvent).toHaveBeenCalledWith(
@@ -843,6 +945,7 @@ describe('TUI command handlers - input mode routing', () => {
     const app = {
       state: {
         selectedModel: undefined,
+        selectedAgentId: 'planning',
         activeSessionId: undefined,
         activeSessionTitle: undefined,
         runtimeTuiConfig: {
@@ -876,6 +979,10 @@ describe('TUI command handlers - input mode routing', () => {
     const result = await handleNaturalInput('Please implement this and run tests', ctx);
     expect(result.success).toBe(true);
     expect(sendConversationMessage).toHaveBeenCalledTimes(1);
+    expect(sendConversationMessage).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'ses-2',
+      agentId: 'planning',
+    }));
     expect(submitGoal).not.toHaveBeenCalled();
     expect(app.selectGoal).toHaveBeenCalledWith('goal-xyz');
     expect(app.updateSimpleMessage).toHaveBeenCalledWith(
@@ -893,5 +1000,55 @@ describe('TUI command handlers - input mode routing', () => {
         hasTask: true,
       })
     );
+  });
+
+  it('does not block optimistic conversation rendering on runtime config fetch', async () => {
+    const pendingRuntimeConfig = new Promise<never>(() => {});
+    const sendConversationMessage = jest.fn().mockResolvedValue({
+      sessionId: 'ses-3',
+      state: 'chatting',
+      response: 'Acknowledged.',
+      decision: 'response_only',
+    });
+
+    const app = {
+      state: {
+        selectedModel: undefined,
+        selectedAgentId: 'planning',
+        activeSessionId: undefined,
+        activeSessionTitle: undefined,
+        runtimeTuiConfig: undefined,
+      },
+      addSimpleMessage: jest.fn(),
+      updateSimpleMessage: jest.fn(),
+      setActivityStatus: jest.fn(),
+      addGoal: jest.fn(),
+      addEvent: jest.fn(),
+      selectGoal: jest.fn(),
+      setActiveSession: jest.fn(),
+      setRuntimeTuiConfig: jest.fn(),
+    };
+
+    const ctx = {
+      app,
+      gateway: {
+        client: {
+          createConversationSession: jest.fn().mockResolvedValue({ sessionId: 'ses-3' }),
+          sendConversationMessage,
+          getInternalRuntimeConfig: jest.fn().mockReturnValue(pendingRuntimeConfig),
+        },
+      },
+    } as unknown as CommandContext;
+
+    const result = await Promise.race([
+      handleNaturalInput('Please continue with this task', ctx),
+      new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 100)),
+    ]);
+
+    expect(result).not.toBe('timeout');
+    expect(result).toEqual(expect.objectContaining({ success: true }));
+    expect(app.addSimpleMessage).toHaveBeenCalledTimes(1);
+    expect(app.setRuntimeTuiConfig).not.toHaveBeenCalled();
+    expect(sendConversationMessage).toHaveBeenCalledTimes(1);
   });
 });

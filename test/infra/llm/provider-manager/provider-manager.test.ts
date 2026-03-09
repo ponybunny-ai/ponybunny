@@ -25,6 +25,8 @@ import {
   type ModelTier,
 } from '../../../../src/infra/llm/provider-manager/index.js';
 import { clearCredentialsCache } from '../../../../src/infra/config/credentials-loader.js';
+import * as agentRegistry from '../../../../src/infra/agents/agent-registry.js';
+import * as runtimeConfig from '../../../../src/infra/config/runtime-config.js';
 
 // Helper to get config path
 const getConfigPath = () => path.join(os.homedir(), '.ponybunny', 'llm-config.json');
@@ -231,6 +233,53 @@ describe('LLM Provider Manager', () => {
       expect(gpt.endpoints).toEqual([{ name: 'responses', url: '/v1/responses' }]);
       expect(gpt.maxOutputTokens).toBe(128000);
       expect(gpt.capabilities).toEqual(expect.arrayContaining(['text', 'vision', 'function-calling', 'json-mode']));
+    });
+
+    it('should treat explicitly configured providers as authoritative', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-config-providers-'));
+      const tempConfigPath = path.join(tempDir, 'llm-config.json');
+
+      const configPayload = {
+        providers: {
+          cpa: {
+            enabled: true,
+            protocol: 'openai',
+            baseUrl: 'https://api.cpa.example/v1',
+            priority: 1,
+          },
+        },
+        models: {
+          cpa: {
+            'deepseek-v3.1': {
+              displayName: 'DeepSeek V3.1',
+              providers: ['cpa'],
+              costPer1kTokens: { input: 0.001, output: 0.002 },
+              maxContextTokens: 128000,
+            },
+          },
+        },
+        tiers: {
+          simple: { primary: 'cpa.deepseek-v3.1' },
+          medium: { primary: 'cpa.deepseek-v3.1' },
+          complex: { primary: 'cpa.deepseek-v3.1' },
+        },
+        workloads: {
+          conversation: { tier: 'medium' },
+        },
+        defaults: {
+          timeout: 120000,
+          maxTokens: 4096,
+        },
+      };
+
+      fs.writeFileSync(tempConfigPath, JSON.stringify(configPayload, null, 2));
+
+      const loaded = loadLLMConfig(tempConfigPath);
+      expect(Object.keys(loaded.providers)).toEqual(['cpa']);
+      expect(loaded.providers.cpa.enabled).toBe(true);
+      expect(loaded.providers.anthropic).toBeUndefined();
+
+      fs.rmSync(tempDir, { recursive: true, force: true });
     });
 
     it('should save models using provider-grouped structure', () => {
@@ -472,23 +521,118 @@ describe('LLM Provider Manager', () => {
       expect(model).toBe(config.tiers.medium.primary);
     });
 
-    it('should prioritize llm_model selector when provided on workload', () => {
+    it('should ignore legacy workload model overrides and use tier primary', () => {
       const resolver = getWorkloadModelResolver();
       const config = getCachedConfig();
       const previousExecution = config.workloads.execution;
 
       config.workloads.execution = {
         ...(config.workloads.execution || {}),
+        tier: 'simple',
+        primary: 'openai.gpt-5.2',
         llm_model: 'openai.gpt-5.2',
-      };
+      } as unknown as typeof config.workloads.execution;
 
       const model = resolver.getModelForWorkload('execution');
-      expect(model).toBe('openai.gpt-5.2');
+      expect(model).toBe(config.tiers.simple.primary);
 
       if (previousExecution) {
         config.workloads.execution = previousExecution;
       } else {
         delete config.workloads.execution;
+      }
+    });
+
+    it('should prioritize agent configured model over tier model', () => {
+      const resolver = getWorkloadModelResolver();
+      const registrySpy = jest.spyOn(agentRegistry, 'getGlobalAgentRegistry').mockReturnValue({
+        getAgent: (id: string) => {
+          if (id !== 'planning') {
+            return undefined;
+          }
+          return {
+            config: {
+              runner: {
+                config: {
+                  model_hint: 'openai.gpt-5.2',
+                },
+              },
+            },
+          };
+        },
+      } as unknown as ReturnType<typeof agentRegistry.getGlobalAgentRegistry>);
+
+      try {
+        const chain = resolver.getFallbackChain('planning');
+        expect(chain[0]).toBe('openai.gpt-5.2');
+      } finally {
+        registrySpy.mockRestore();
+      }
+    });
+
+    it('should prioritize runtime ponybunny model override over user, agent and tier', () => {
+      const resolver = getWorkloadModelResolver();
+      const runtimeSpy = jest.spyOn(runtimeConfig, 'loadRuntimeConfig').mockReturnValue({
+        ...runtimeConfig.DEFAULT_RUNTIME_CONFIG,
+        agent: {
+          ...runtimeConfig.DEFAULT_RUNTIME_CONFIG.agent,
+          modelOverrides: {
+            planning: 'openai.gpt-5.2',
+          },
+        },
+      });
+
+      const registrySpy = jest.spyOn(agentRegistry, 'getGlobalAgentRegistry').mockReturnValue({
+        getAgent: () => ({
+          config: {
+            runner: {
+              config: {
+                model_hint: 'anthropic.claude-opus-4-5-20251101',
+              },
+            },
+          },
+        }),
+      } as unknown as ReturnType<typeof agentRegistry.getGlobalAgentRegistry>);
+
+      try {
+        const chain = resolver.getSelectionChainForWorkload('planning', 'google-ai-studio.gemini-2.0-pro');
+        expect(chain[0]).toBe('openai.gpt-5.2');
+      } finally {
+        runtimeSpy.mockRestore();
+        registrySpy.mockRestore();
+      }
+    });
+
+    it('should treat runtime AUTO override as disabled and fall back to next priority', () => {
+      const resolver = getWorkloadModelResolver();
+      const runtimeSpy = jest.spyOn(runtimeConfig, 'loadRuntimeConfig').mockReturnValue({
+        ...runtimeConfig.DEFAULT_RUNTIME_CONFIG,
+        agent: {
+          ...runtimeConfig.DEFAULT_RUNTIME_CONFIG.agent,
+          modelOverrides: {
+            planning: 'AUTO',
+          },
+        },
+      });
+
+      const registrySpy = jest.spyOn(agentRegistry, 'getGlobalAgentRegistry').mockReturnValue({
+        getAgent: () => ({
+          config: {
+            runner: {
+              config: {
+                model_hint: 'openai.gpt-5.3',
+              },
+            },
+          },
+        }),
+      } as unknown as ReturnType<typeof agentRegistry.getGlobalAgentRegistry>);
+
+      try {
+        const chain = resolver.getSelectionChainForWorkload('planning');
+        expect(chain[0]).toBe('openai.gpt-5.3');
+      } finally {
+        runtimeSpy.mockRestore();
+        registrySpy.mockRestore();
       }
     });
 
@@ -701,6 +845,34 @@ describe('LLM Provider Manager', () => {
 
       const config = manager.getConfig();
       expect(config).toBeDefined();
+    });
+
+    it('should prioritize user selected model over agent and tier models', async () => {
+      const manager = getLLMProviderManager();
+      const completeWithFallbackSpy = jest
+        .spyOn(manager as unknown as { completeWithFallback: (...args: unknown[]) => Promise<unknown> }, 'completeWithFallback')
+        .mockResolvedValue({ content: 'ok', model: 'openai.gpt-5.2', tokensUsed: 1 });
+      const resolver = (manager as unknown as {
+        workloadModelResolver: { getSelectionChainForWorkload: (w: string, m?: string) => string[] };
+      }).workloadModelResolver;
+      const selectionSpy = jest
+        .spyOn(resolver, 'getSelectionChainForWorkload')
+        .mockReturnValue(['openai.gpt-5.2', 'anthropic.claude-sonnet-4-5-20250929']);
+
+      try {
+        await manager.complete('planning', [{ role: 'user', content: 'test' }], {
+          model: 'openai.gpt-5.2',
+        });
+        expect(completeWithFallbackSpy).toHaveBeenCalledWith(
+          ['openai.gpt-5.2', 'anthropic.claude-sonnet-4-5-20250929'],
+          [{ role: 'user', content: 'test' }],
+          expect.objectContaining({ model: 'openai.gpt-5.2' }),
+          'responses'
+        );
+      } finally {
+        selectionSpy.mockRestore();
+        completeWithFallbackSpy.mockRestore();
+      }
     });
   });
 

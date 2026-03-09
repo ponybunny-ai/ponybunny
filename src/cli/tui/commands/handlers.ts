@@ -25,6 +25,20 @@ type CommandHandler = (
   ctx: CommandContext
 ) => Promise<CommandResult> | CommandResult;
 
+type TuiRuntimeConfig = {
+  inputBackgroundColor: 'gray' | 'black' | 'blue' | 'green' | 'yellow' | 'magenta' | 'cyan' | 'white';
+  sessionFirstEnabled: boolean;
+  goalSubmitFastPathEnabled: boolean;
+};
+
+function enforceSessionFirstConfig(config: TuiRuntimeConfig): TuiRuntimeConfig {
+  return {
+    ...config,
+    sessionFirstEnabled: true,
+    goalSubmitFastPathEnabled: false,
+  };
+}
+
 function parseBooleanValue(value: string): boolean | undefined {
   const normalized = value.trim().toLowerCase();
   if (['1', 'true', 'yes', 'on'].includes(normalized)) {
@@ -292,6 +306,43 @@ function parsePruneEventsOptions(tokens: string[]): {
     eventTypes: options.eventTypes,
     keepLatestPerRun: options.keepLatestPerRun,
   };
+}
+
+function parseChannelEventsArgs(args: string[]): {
+  limit?: number;
+  cursor?: string;
+  eventPrefix?: string;
+} {
+  const [limitArg, cursorArg, prefixArg] = args;
+  const result: {
+    limit?: number;
+    cursor?: string;
+    eventPrefix?: string;
+  } = {};
+
+  if (limitArg !== undefined) {
+    const parsed = Number.parseInt(limitArg, 10);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 500) {
+      throw new Error('limit must be an integer between 1 and 500');
+    }
+    result.limit = parsed;
+  }
+
+  if (cursorArg !== undefined) {
+    if (cursorArg.trim().length === 0) {
+      throw new Error('cursor must be a non-empty string when provided');
+    }
+    result.cursor = cursorArg.trim();
+  }
+
+  if (prefixArg !== undefined) {
+    if (prefixArg.trim().length === 0) {
+      throw new Error('eventPrefix must be a non-empty string when provided');
+    }
+    result.eventPrefix = prefixArg.trim();
+  }
+
+  return result;
 }
 
 async function refreshSchedulerData(ctx: CommandContext): Promise<CommandResult> {
@@ -943,10 +994,11 @@ const handlers: Record<string, CommandHandler> = {
   },
 
   cancel: async (cmd, ctx) => {
-    const [goalId] = cmd.args;
+    const [goalId, ...reasonParts] = cmd.args;
     if (!goalId) {
       return { success: false, error: 'Goal ID is required. Usage: /cancel <id>' };
     }
+    const reason = reasonParts.join(' ').trim();
 
     ctx.app.openModal('confirm', {
       title: 'Cancel Goal',
@@ -955,7 +1007,7 @@ const handlers: Record<string, CommandHandler> = {
         try {
           const client = ctx.gateway.client;
           if (client) {
-            await client.cancelGoal(goalId);
+            await client.cancelGoal(goalId, reason || undefined);
             ctx.app.addEvent('goal.cancelled', { goalId });
           }
         } catch (err) {
@@ -1087,6 +1139,47 @@ const handlers: Record<string, CommandHandler> = {
     };
   },
 
+  channels: async (_cmd, ctx) => {
+    const client = ctx.gateway.client;
+    if (!client) {
+      return { success: false, error: 'Not connected to gateway' };
+    }
+
+    try {
+      const status = await client.getChannelsStatus();
+      ctx.app.addEvent('system.channels.status', status);
+      return {
+        success: true,
+        message: `Channels enabled=[${status.enabledChannels.join(', ')}], mirrorAll=${String(status.mirrorToAllEnabledChannels)}, adapters running=${status.adapterHealth.running} error=${status.adapterHealth.error}`,
+      };
+    } catch (err) {
+      return { success: false, error: `Channels command failed: ${(err as Error).message}` };
+    }
+  },
+
+  'channel-events': async (cmd, ctx) => {
+    const client = ctx.gateway.client;
+    if (!client) {
+      return { success: false, error: 'Not connected to gateway' };
+    }
+
+    try {
+      const params = parseChannelEventsArgs(cmd.args);
+      const page = await client.getChannelEvents(params);
+      ctx.app.addEvent('system.channels.events.loaded', {
+        returned: page.events.length,
+        nextCursor: page.nextCursor,
+        params,
+      });
+      return {
+        success: true,
+        message: `Channel events loaded: returned=${page.events.length}${page.nextCursor ? ` nextCursor=${page.nextCursor}` : ''}`,
+      };
+    } catch (err) {
+      return { success: false, error: `Channel events command failed: ${(err as Error).message}` };
+    }
+  },
+
   ping: async (_cmd, ctx) => {
     try {
       const client = ctx.gateway.client;
@@ -1127,29 +1220,42 @@ const handlers: Record<string, CommandHandler> = {
 
     ctx.app.openModal('model-selector', {
       selectedModel: ctx.app.state.selectedModel,
-      onSelect: (model: string) => {
+      onSelect: (model: string | null) => {
         ctx.app.setSelectedModel(model);
-        ctx.app.addEvent('model.selected', { model, source: 'slash_command' });
+        ctx.app.addEvent('model.selected', { model: model ?? 'AUTO', source: 'slash_command' });
         const clientForPersist = ctx.gateway.client;
         if (!clientForPersist) {
           ctx.app.addEvent('model.selection.persist_failed', {
-            model,
+            model: model ?? 'AUTO',
             error: 'Not connected to gateway',
           });
           return;
         }
 
-        void clientForPersist.setMainAgentModelHint({ model })
+        const activeAgentId = ctx.app.state.selectedAgentId
+          ?? ctx.app.state.schedulerCapabilities?.capabilities.agents?.[0]?.id;
+        if (!activeAgentId) {
+          ctx.app.addEvent('model.selection.persist_failed', {
+            model: model ?? 'AUTO',
+            error: 'No active agent selected',
+          });
+          return;
+        }
+
+        void clientForPersist.setAgentModelOverride({
+          agentId: activeAgentId,
+          model: model ?? 'AUTO',
+        })
           .then((result) => {
             ctx.app.addEvent('model.selection.persisted', {
-              model,
+              model: result.model,
               agentId: result.agentId,
               configPath: result.configPath,
             });
           })
           .catch((error) => {
             ctx.app.addEvent('model.selection.persist_failed', {
-              model,
+              model: model ?? 'AUTO',
               error: (error as Error).message,
             });
           });
@@ -1166,37 +1272,33 @@ const handlers: Record<string, CommandHandler> = {
     }
 
     const runtime = await client.getInternalRuntimeConfig();
+    const effective = enforceSessionFirstConfig(runtime.tui);
     const arg = cmd.args[0]?.toLowerCase();
 
     if (!arg) {
-      const mode = runtime.tui.goalSubmitFastPathEnabled ? 'fast-path' : 'session-first';
       return {
         success: true,
-        message: `Current input mode: ${mode} (sessionFirstEnabled=${String(runtime.tui.sessionFirstEnabled)}, goalSubmitFastPathEnabled=${String(runtime.tui.goalSubmitFastPathEnabled)})`,
+        message: `Current input mode: session-first (sessionFirstEnabled=${String(effective.sessionFirstEnabled)}, goalSubmitFastPathEnabled=${String(effective.goalSubmitFastPathEnabled)})`,
       };
     }
 
-    if (arg !== 'session-first' && arg !== 'fast-path' && arg !== 'toggle') {
-      return { success: false, error: 'Usage: /input-mode [session-first|fast-path|toggle]' };
+    if (arg !== 'session-first') {
+      return { success: false, error: 'Only session-first mode is supported' };
     }
 
-    const nextMode = arg === 'toggle'
-      ? (runtime.tui.goalSubmitFastPathEnabled ? 'session-first' : 'fast-path')
-      : arg;
-
-    const updatedTui = await client.updateRuntimeTuiConfig({
-      sessionFirstEnabled: nextMode === 'session-first',
-      goalSubmitFastPathEnabled: nextMode === 'fast-path',
-    });
+    const updatedTui = enforceSessionFirstConfig(await client.updateRuntimeTuiConfig({
+      sessionFirstEnabled: true,
+      goalSubmitFastPathEnabled: false,
+    }));
     ctx.app.setRuntimeTuiConfig(updatedTui);
 
     ctx.app.addEvent('tui.input_mode.updated', {
-      mode: nextMode,
+      mode: 'session-first',
       sessionFirstEnabled: updatedTui.sessionFirstEnabled,
       goalSubmitFastPathEnabled: updatedTui.goalSubmitFastPathEnabled,
     });
 
-    return { success: true, message: `Input mode switched to ${nextMode}` };
+    return { success: true, message: 'Input mode switched to session-first' };
   },
 
   rollout: async (cmd, ctx) => {
@@ -1457,6 +1559,8 @@ const aliasMap: Record<string, string> = {
   app: 'approvals',
   a: 'approvals',
   s: 'status',
+  ch: 'channels',
+  chev: 'channel-events',
   rc: 'reconnect',
   rf: 'refresh',
   modelpicker: 'models',
@@ -1517,16 +1621,11 @@ export async function handleNaturalInput(
 
   const messageId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   const activeSessionId = ctx.app.state.activeSessionId;
-  const runtimeConfig = ctx.app.state.runtimeTuiConfig ?? (await client.getInternalRuntimeConfig()).tui;
-  if (!ctx.app.state.runtimeTuiConfig) {
-    ctx.app.setRuntimeTuiConfig(runtimeConfig);
-  }
-  const useFastPath = runtimeConfig.goalSubmitFastPathEnabled;
 
   ctx.app.addSimpleMessage({
     id: messageId,
     input,
-    source: useFastPath ? 'goal' : 'conversation',
+    source: 'conversation',
     sessionId: activeSessionId ?? undefined,
     status: 'pending',
     timeline: [{ timestamp: Date.now(), stage: 'Parsing intent', detail: 'Analyzing request and planning execution.' }],
@@ -1534,9 +1633,17 @@ export async function handleNaturalInput(
   });
 
   try {
-    if (useFastPath) {
-      ctx.app.addEvent('tui.input_mode.used', { mode: 'fast-path' });
-      return await handleNaturalInputFastPath(input, ctx, messageId);
+    if (!ctx.app.state.runtimeTuiConfig) {
+      void client.getInternalRuntimeConfig()
+        .then((runtime) => {
+          const runtimeConfig = enforceSessionFirstConfig(runtime.tui as TuiRuntimeConfig);
+          ctx.app.setRuntimeTuiConfig(runtimeConfig);
+        })
+        .catch((error) => {
+          ctx.app.addEvent('error', {
+            message: `Failed to load runtime tui config: ${(error as Error).message}`,
+          });
+        });
     }
 
     ctx.app.addEvent('tui.input_mode.used', { mode: 'session-first' });
@@ -1576,10 +1683,14 @@ export async function handleNaturalInput(
       ctx.app.setActiveSession(sessionId, inferredTitle);
     }
 
+    const activeAgentId = ctx.app.state.selectedAgentId
+      ?? ctx.app.state.schedulerCapabilities?.capabilities.agents?.[0]?.id;
+
     const conversationResult = await client.sendConversationMessage({
       sessionId,
       message: input,
       stream: false,
+      ...(activeAgentId ? { agentId: activeAgentId } : {}),
     });
 
     ctx.app.addEvent('conversation.response', {
@@ -1650,87 +1761,6 @@ export async function handleNaturalInput(
     });
 
     return { success: false, error: `Conversation failed: ${errorMessage}` };
-  }
-}
-
-async function handleNaturalInputFastPath(
-  input: string,
-  ctx: CommandContext,
-  messageId: string
-): Promise<CommandResult> {
-  const client = ctx.gateway.client;
-  if (!client) {
-    return { success: false, error: 'Not connected to gateway' };
-  }
-
-  ctx.app.setActivityStatus('Creating goal...');
-  ctx.app.updateSimpleMessage(messageId, {
-    status: 'processing',
-    statusText: 'Creating task...',
-    timeline: [
-      {
-        timestamp: Date.now(),
-        stage: 'Fast-path',
-        detail: 'Submitting goal directly to scheduler.',
-      },
-    ],
-  });
-
-  try {
-    const selectedModel = ctx.app.state.selectedModel;
-    const activeSessionId = ctx.app.state.activeSessionId;
-    const goalContext: Record<string, unknown> = {};
-
-    if (selectedModel) {
-      goalContext.selected_model = selectedModel;
-      goalContext.model_source = 'tui_selected';
-    }
-
-    if (activeSessionId) {
-      goalContext.sessionId = activeSessionId;
-      goalContext.inputMode = 'fast-path';
-    }
-
-    const goal = await client.submitGoal({
-      title: input.length > 60 ? `${input.slice(0, 60)}...` : input,
-      description: input,
-      success_criteria: [{
-        description: 'Task completed as described',
-        type: 'heuristic',
-        verification_method: 'human review',
-        required: true,
-      }],
-      priority: 50,
-      context: Object.keys(goalContext).length > 0 ? goalContext : undefined,
-    });
-
-    ctx.app.addGoal(goal);
-    ctx.app.addEvent('goal.created', { goalId: goal.id, title: goal.title, source: 'tui_fast_path' });
-    ctx.app.selectGoal(goal.id);
-    ctx.app.setActivityStatus('idle');
-
-    ctx.app.updateSimpleMessage(messageId, {
-      status: 'processing',
-      statusText: 'Queued...',
-      goalId: goal.id,
-      timeline: [
-        {
-          timestamp: Date.now(),
-          stage: 'Queued',
-          detail: 'Waiting for scheduler to start execution.',
-        },
-      ],
-    });
-
-    return { success: true, message: `Goal created: ${goal.title}` };
-  } catch (err) {
-    ctx.app.setActivityStatus('idle');
-    const errorMessage = (err as Error).message;
-    ctx.app.updateSimpleMessage(messageId, {
-      status: 'failed',
-      error: errorMessage,
-    });
-    return { success: false, error: `Failed to create goal: ${errorMessage}` };
   }
 }
 

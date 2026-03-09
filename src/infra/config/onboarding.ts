@@ -230,9 +230,6 @@ export const LLM_CONFIG_SCHEMA_TEMPLATE = {
         type: 'object',
         properties: {
           tier: { type: 'string', enum: ['simple', 'medium', 'complex'] },
-          llm_model: { type: 'string' },
-          primary: { type: 'string' },
-          fallback: { type: 'array', items: { type: 'string' } },
           description: { type: 'string' },
         },
       },
@@ -548,7 +545,6 @@ const DEFAULT_LLM_CONFIG_TEMPLATE = {
     },
     execution: {
       tier: 'medium',
-      llm_model: 'openai.gpt-5.2',
       description: 'ReAct execution loop',
     },
     verification: {
@@ -561,7 +557,6 @@ const DEFAULT_LLM_CONFIG_TEMPLATE = {
     },
     conversation: {
       tier: 'medium',
-      llm_model: 'openai.gpt-5-mini',
       description: 'Conversation agent',
     },
   },
@@ -840,10 +835,12 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
         'tickIntervalMs',
         'maxConcurrentGoals',
         'agentsEnabled',
+        'executionMode',
         'deterministicRuntimeEnabled',
         'planCompilerEnabled',
         'toolRoutingMode',
         'allowModelNativeTools',
+        'eventedOrphanTimeoutMs',
         'runtimeRollout',
         'runEventRetention',
       ],
@@ -851,6 +848,7 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
         tickIntervalMs: { type: 'integer', minimum: 1 },
         maxConcurrentGoals: { type: 'integer', minimum: 1 },
         agentsEnabled: { type: 'boolean' },
+        executionMode: { type: 'string', enum: ['direct', 'evented'] },
         deterministicRuntimeEnabled: { type: 'boolean' },
         planCompilerEnabled: { type: 'boolean' },
         toolRoutingMode: {
@@ -858,6 +856,7 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
           enum: ['legacy', 'system_only', 'system_preferred', 'model_preferred'],
         },
         allowModelNativeTools: { type: 'boolean' },
+        eventedOrphanTimeoutMs: { type: 'integer', minimum: 1 },
         runtimeRollout: {
           type: 'object',
           required: ['shadowModeEnabled', 'canaryPercent', 'rollbackOnFailure', 'lanePercents'],
@@ -898,6 +897,13 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
       properties: {
         mainAgentId: { type: 'string', minLength: 1 },
         personaEnabled: { type: 'boolean' },
+        modelOverrides: {
+          type: 'object',
+          additionalProperties: {
+            type: 'string',
+            minLength: 1,
+          },
+        },
       },
       additionalProperties: false,
     },
@@ -1259,6 +1265,32 @@ export interface InitOptions {
   dryRun?: boolean;
 }
 
+function sanitizeCredentialsTemplateForInit(template: unknown): unknown {
+  if (!template || typeof template !== 'object') {
+    return template;
+  }
+
+  const root = JSON.parse(JSON.stringify(template)) as {
+    providers?: Record<string, Record<string, unknown>>;
+  };
+
+  const providers = root.providers;
+  if (!providers || typeof providers !== 'object') {
+    return root;
+  }
+
+  for (const provider of Object.values(providers)) {
+    if (!provider || typeof provider !== 'object') {
+      continue;
+    }
+    if (typeof provider.apiKey === 'string') {
+      provider.apiKey = '';
+    }
+  }
+
+  return root;
+}
+
 /**
  * Initialize a single config file
  */
@@ -1291,8 +1323,11 @@ export function initConfigFile(file: OnboardingFile, options: InitOptions = {}):
     }
 
     // Write file
+    const templateForWrite = file.name === 'credentials.json'
+      ? sanitizeCredentialsTemplateForInit(file.template)
+      : file.template;
     const payload =
-      file.format === 'raw' ? String(file.template) : JSON.stringify(file.template, null, 2);
+      file.format === 'raw' ? String(templateForWrite) : JSON.stringify(templateForWrite, null, 2);
     fs.writeFileSync(file.path, payload, { mode: file.mode });
 
     return {

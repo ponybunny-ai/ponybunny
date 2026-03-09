@@ -29,6 +29,9 @@ export interface InternalRuntimeConfigResponse {
       replay: number;
     };
   };
+  agent: {
+    mainAgentId: string;
+  };
   tui: {
     inputBackgroundColor: 'gray' | 'black' | 'blue' | 'green' | 'yellow' | 'magenta' | 'cyan' | 'white';
     sessionFirstEnabled: boolean;

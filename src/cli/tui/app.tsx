@@ -16,6 +16,7 @@ import type { GatewayEvent as ClientGatewayEvent, TuiGatewayClient } from '../ga
 import { useTerminalSize } from './hooks/use-terminal-size.js';
 import type { ViewType } from './store/types.js';
 import { getNextReasoningEffortIndex } from './model-variant.js';
+import { resolveInitialAgentIndex } from './utils/agent-selection.js';
 
 interface AppContentProps {
   onExit: () => void;
@@ -64,6 +65,8 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
   const { state, setView, addEvent, setInputFocused: setGlobalInputFocused } = app;
   const [selectedAgentIndex, setSelectedAgentIndex] = useState(0);
   const [selectedReasoningEffortIndex, setSelectedReasoningEffortIndex] = useState(0);
+  const [runtimeMainAgentId, setRuntimeMainAgentId] = useState<string | null>(null);
+  const [runtimeConfigReady, setRuntimeConfigReady] = useState(false);
 
   // Store refs to avoid recreating callbacks
   const appRef = useRef(app);
@@ -205,8 +208,53 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
     return `A ${activeAgent?.id || 'guard'} │ M ${modelLabel}${variantSegment} │ ${variantHint}tab agents ctrl-v views ctrl-p commands`;
   }, [state.schedulerCapabilities, state.selectedModel, selectedAgentIndex, selectedReasoningEffortIndex]);
 
+  useEffect(() => {
+    const agents = state.schedulerCapabilities?.capabilities.agents || [];
+    if (agents.length === 0) {
+      app.setSelectedAgentId(null);
+      app.setSelectedModel(null);
+      return;
+    }
+
+    const activeAgent = agents[selectedAgentIndex % agents.length];
+    const activeAgentId = activeAgent?.id ?? null;
+    app.setSelectedAgentId(activeAgentId);
+
+    const client = gatewayRef.current.client;
+    if (!client || !activeAgentId) {
+      return;
+    }
+
+    void client.getAgentModelOverride({ agentId: activeAgentId })
+      .then((result) => {
+        appRef.current.setSelectedModel(result.model);
+      })
+      .catch((err) => {
+        appRef.current.addEvent('model.selection.load_failed', {
+          agentId: activeAgentId,
+          error: (err as Error).message,
+        });
+      });
+  }, [selectedAgentIndex, state.schedulerCapabilities, gateway.connectionStatus]);
+
   // Track if initial data has been loaded
   const initialLoadDone = useRef(false);
+  const initialAgentSelectionApplied = useRef(false);
+
+  useEffect(() => {
+    if (!runtimeConfigReady || initialAgentSelectionApplied.current) {
+      return;
+    }
+
+    const agents = state.schedulerCapabilities?.capabilities.agents || [];
+    if (agents.length === 0) {
+      return;
+    }
+
+    setSelectedAgentIndex((index) => resolveInitialAgentIndex(agents, runtimeMainAgentId, index));
+
+    initialAgentSelectionApplied.current = true;
+  }, [runtimeConfigReady, runtimeMainAgentId, state.schedulerCapabilities]);
 
   // Load initial data when connected
   useEffect(() => {
@@ -285,8 +333,11 @@ const AppContent: React.FC<AppContentProps> = ({ onExit }) => {
 
       client.getInternalRuntimeConfig().then((runtimeConfig) => {
         appRef.current.setRuntimeTuiConfig(runtimeConfig.tui);
+        setRuntimeMainAgentId(runtimeConfig.agent?.mainAgentId ?? null);
+        setRuntimeConfigReady(true);
       }).catch((err) => {
         appRef.current.addEvent('error', { message: `Failed to load runtime tui config: ${err.message}` });
+        setRuntimeConfigReady(true);
       });
     }
   }, [gateway.connectionStatus]);

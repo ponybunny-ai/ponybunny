@@ -193,6 +193,12 @@ export interface Run {
   };
 }
 
+export interface InFlightRunReconciliationCandidate {
+  run: Run;
+  workItemStatus: WorkItem['status'];
+  workItemUpdatedAt: number;
+}
+
 /**
  * Artifact - Generated output (code patch, test result, etc.)
  */

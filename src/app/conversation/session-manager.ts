@@ -24,6 +24,7 @@ import type { IRetryHandler } from './retry-handler.js';
 import { debug } from '../../debug/index.js';
 import type { IConversationMemoryService, IRecalledMemory } from './memory-service.js';
 import type { IMemoryOwnerScope } from './memory-service.js';
+import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
 
 export interface ISessionRepository {
   createSession(personaId: string): IConversationSession;
@@ -59,7 +60,8 @@ export interface ISessionManager {
     sessionId?: string,
     personaId?: string,
     userProfileId?: string,
-    attachments?: IAttachment[]
+    attachments?: IAttachment[],
+    agentId?: string
   ): Promise<IConversationResponse>;
 
   processMessageWithStream(
@@ -68,6 +70,7 @@ export interface ISessionManager {
     personaId: string | undefined,
     userProfileId: string | undefined,
     attachments: IAttachment[] | undefined,
+    agentId: string | undefined,
     onChunk: (chunk: string) => void
   ): Promise<IConversationResponse>;
 
@@ -113,9 +116,10 @@ export class SessionManager implements ISessionManager {
     sessionId?: string,
     personaId?: string,
     userProfileId?: string,
-    attachments?: IAttachment[]
+    attachments?: IAttachment[],
+    agentId?: string
   ): Promise<IConversationResponse> {
-    return this.processMessageInternal(message, sessionId, personaId, userProfileId, attachments, undefined);
+    return this.processMessageInternal(message, sessionId, personaId, userProfileId, attachments, agentId, undefined);
   }
 
   async processMessageWithStream(
@@ -124,9 +128,10 @@ export class SessionManager implements ISessionManager {
     personaId: string | undefined,
     userProfileId: string | undefined,
     attachments: IAttachment[] | undefined,
+    agentId: string | undefined,
     onChunk: (chunk: string) => void
   ): Promise<IConversationResponse> {
-    return this.processMessageInternal(message, sessionId, personaId, userProfileId, attachments, onChunk);
+    return this.processMessageInternal(message, sessionId, personaId, userProfileId, attachments, agentId, onChunk);
   }
 
   private async processMessageInternal(
@@ -135,6 +140,7 @@ export class SessionManager implements ISessionManager {
     personaId?: string,
     userProfileId?: string,
     attachments?: IAttachment[],
+    agentId?: string,
     onChunk?: (chunk: string) => void
   ): Promise<IConversationResponse> {
     debug.custom('session.process.start', 'session-manager', {
@@ -170,6 +176,16 @@ export class SessionManager implements ISessionManager {
       const metadata = { ...(session.metadata ?? {}) };
       if (metadata.userProfileId !== profileId) {
         metadata.userProfileId = profileId;
+        session.metadata = metadata;
+        this.sessionRepository.updateSession(session);
+      }
+    }
+
+    if (agentId && agentId.trim().length > 0) {
+      const selectedAgentId = agentId.trim();
+      const metadata = { ...(session.metadata ?? {}) };
+      if (metadata.activeAgentId !== selectedAgentId) {
+        metadata.activeAgentId = selectedAgentId;
         session.metadata = metadata;
         this.sessionRepository.updateSession(session);
       }
@@ -212,7 +228,8 @@ export class SessionManager implements ISessionManager {
     const recentTurns = this.getHistory(session.id, 10);
     const recalledMemories = await this.recallMemories(session, message);
     const contextTurns = this.mergeTurnContext(recentTurns, recalledMemories, 16);
-    const analysis = await this.inputAnalyzer.analyze(message, contextTurns);
+    const preferredModel = this.resolvePreferredModelForSession(session);
+    const analysis = await this.inputAnalyzer.analyze(message, contextTurns, preferredModel);
 
     debug.custom('session.analysis.complete', 'session-manager', {
       sessionId: session.id,
@@ -263,6 +280,7 @@ export class SessionManager implements ISessionManager {
           analysis,
           conversationState: stateMachine.getCurrentState(),
           recentTurns: contextTurns,
+          preferredModel,
           taskInfo: session.activeGoalId ? {
             goalId: session.activeGoalId,
             status: 'active',
@@ -335,7 +353,11 @@ export class SessionManager implements ISessionManager {
     };
 
     // Create goal via task bridge
-    const result = await this.taskBridge.createGoalFromConversation(requirements, session, sourceTurnId);
+    const result = await this.taskBridge.createGoalFromConversation(requirements, session, sourceTurnId, {
+      sourceAgentId: typeof session.metadata?.activeAgentId === 'string'
+        ? session.metadata.activeAgentId
+        : undefined,
+    });
 
     // Update session with active goal
     session.activeGoalId = result.goalId;
@@ -358,6 +380,7 @@ export class SessionManager implements ISessionManager {
       analysis,
       conversationState: 'executing',
       recentTurns: this.getHistory(session.id, 5),
+      preferredModel: this.resolvePreferredModelForSession(session),
       taskInfo: {
         goalId: result.goalId,
         status: 'started',
@@ -401,6 +424,7 @@ export class SessionManager implements ISessionManager {
         elapsedTime: Date.now() - progress.startedAt,
       },
       persona,
+      this.resolvePreferredModelForSession(session),
       onChunk
     );
 
@@ -549,7 +573,12 @@ export class SessionManager implements ISessionManager {
     }
 
     try {
-      await this.memoryService.indexTurn(session.id, turn, this.getOwnerScopeForTurn(session, turn));
+      await this.memoryService.indexTurn(
+        session.id,
+        turn,
+        this.getOwnerScopeForTurn(session, turn),
+        this.resolvePreferredModelForSession(session)
+      );
     } catch (error) {
       debug.custom('session.memory.index.error', 'session-manager', {
         sessionId: session.id,
@@ -592,6 +621,25 @@ export class SessionManager implements ISessionManager {
       return value.trim();
     }
     return this.memoryConfig.defaultUserProfileId;
+  }
+
+  private resolvePreferredModelForSession(session: IConversationSession): string | undefined {
+    const runtime = loadRuntimeConfig();
+    const activeAgentId = typeof session.metadata?.activeAgentId === 'string' && session.metadata.activeAgentId.trim().length > 0
+      ? session.metadata.activeAgentId.trim()
+      : runtime.agent.mainAgentId;
+    const rawOverride = runtime.agent.modelOverrides?.[activeAgentId];
+
+    if (typeof rawOverride !== 'string') {
+      return undefined;
+    }
+
+    const model = rawOverride.trim();
+    if (!model || model.toLowerCase() === 'auto') {
+      return undefined;
+    }
+
+    return model;
   }
 
   private deriveSessionTitle(message: string): string {

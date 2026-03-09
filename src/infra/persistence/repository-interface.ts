@@ -1,4 +1,13 @@
-import type { Goal, WorkItem, Run, Artifact, Decision, Escalation, ContextPack } from '../../domain/types.js';
+import type {
+  Goal,
+  WorkItem,
+  Run,
+  Artifact,
+  Decision,
+  Escalation,
+  ContextPack,
+  InFlightRunReconciliationCandidate,
+} from '../../domain/types.js';
 import type { DeterministicRunEvent, DeterministicRunEventType } from '../../deterministic-runtime/run-events.js';
 
 export interface IWorkOrderRepository {
@@ -19,8 +28,33 @@ export interface IWorkOrderRepository {
   
   createRun(params: CreateRunParams): Run;
   getRun(id: string): Run | undefined;
+  getRunInspection(id: string): RunInspectionRecord | undefined;
+  precheckEventedManualReplay(id: string): EventedManualReplayPrecheckResult;
+  mergeRunContext(id: string, contextPatch: Record<string, unknown>): void;
+  claimEventedResultContinuation(id: string, appliedAt?: number): EventedResultContinuationClaim;
+  startEventedManualReplay(
+    id: string,
+    params?: StartEventedManualReplayParams
+  ): EventedManualReplayStartResult;
+  markEventedRunOrphaned(
+    id: string,
+    params: MarkEventedRunOrphanedParams
+  ): EventedRunOrphanMarkResult;
+  markEventedRunRecoveryCandidate(
+    id: string,
+    params?: MarkEventedRunRecoveryCandidateParams
+  ): EventedRunRecoveryCandidateMarkResult;
+  markEventedRunReplayCandidate(
+    id: string,
+    params?: MarkEventedRunReplayCandidateParams
+  ): EventedRunReplayCandidateMarkResult;
+  clearEventedRunRecoveryCandidate(id: string): EventedRunRecoveryCandidateClearResult;
   completeRun(id: string, params: CompleteRunParams): void;
   getRunsByWorkItem(workItemId: string): Run[];
+  listInFlightRunReconciliationCandidates(): InFlightRunReconciliationCandidate[];
+  listEventedInFlightRunInspections(): EventedRunInspectionRecord[];
+  listEventedOrphanedRunInspections(): EventedRunInspectionRecord[];
+  getEventedRunReconciliationSummary(): EventedRunReconciliationSummary;
 
   appendRunEvent?(event: {
     run_id: string;
@@ -119,6 +153,94 @@ export interface CompleteRunParams {
   context?: Record<string, unknown>;
 }
 
+export type EventedResultContinuationClaimStatus =
+  | 'claimed'
+  | 'already_applied'
+  | 'suppressed_by_replay'
+  | 'already_terminal'
+  | 'missing_evented_dispatch'
+  | 'run_not_found';
+
+export interface EventedResultContinuationClaim {
+  status: EventedResultContinuationClaimStatus;
+  appliedAt?: number;
+  run?: Run;
+}
+
+export interface MarkEventedRunOrphanedParams {
+  classification: 'stale_timeout';
+  detectedAt?: number;
+}
+
+export type EventedRunOrphanMarkStatus =
+  | 'marked'
+  | 'already_marked'
+  | 'already_applied'
+  | 'already_terminal'
+  | 'missing_evented_dispatch'
+  | 'run_not_found';
+
+export interface EventedRunOrphanMarkResult {
+  status: EventedRunOrphanMarkStatus;
+  detectedAt?: number;
+  run?: Run;
+}
+
+export interface EventedRunInspectionRecord {
+  run: Run;
+  workItemStatus: WorkItem['status'];
+  workItemUpdatedAt: number;
+  executionMode: 'evented';
+  laneId?: string;
+  dispatchedAt?: number;
+  resultContinuationApplied: boolean;
+  resultContinuationAppliedAt?: number;
+  orphanClassification?: string;
+  orphanDetectedAt?: number;
+  recoveryCandidate?: boolean;
+  recoveryCandidateMarkedAt?: number;
+  recoveryCandidateReason?: string;
+  replayCandidate?: boolean;
+  replayCandidateMarkedAt?: number;
+  replayCandidateReason?: string;
+  replayReplacementRunId?: string;
+  replayRequestedAt?: number;
+  replaySuppressedAt?: number;
+  replayOfRunId?: string;
+  replayStartedAt?: number;
+}
+
+export interface RunInspectionRecord {
+  run: Run;
+  workItemStatus: WorkItem['status'];
+  workItemUpdatedAt: number;
+  executionMode: 'direct' | 'evented';
+  laneId?: string;
+  dispatchedAt?: number;
+  resultContinuationApplied: boolean;
+  resultContinuationAppliedAt?: number;
+  orphanClassification?: string;
+  orphanDetectedAt?: number;
+  recoveryCandidate?: boolean;
+  recoveryCandidateMarkedAt?: number;
+  recoveryCandidateReason?: string;
+  replayCandidate?: boolean;
+  replayCandidateMarkedAt?: number;
+  replayCandidateReason?: string;
+  replayReplacementRunId?: string;
+  replayRequestedAt?: number;
+  replaySuppressedAt?: number;
+  replayOfRunId?: string;
+  replayStartedAt?: number;
+}
+
+export interface EventedRunReconciliationSummary {
+  inFlightEvented: number;
+  staleOrphaned: number;
+  continuationApplied: number;
+  alreadyTerminal: number;
+}
+
 export interface CreateArtifactParams {
   run_id: string;
   work_item_id: string;
@@ -130,6 +252,106 @@ export interface CreateArtifactParams {
   file_path?: string;
   content?: string;
   blob_path?: string;
+}
+
+export interface MarkEventedRunRecoveryCandidateParams {
+  markedAt?: number;
+  reason?: 'manual_operator_mark';
+}
+
+export interface StartEventedManualReplayParams {
+  requestedAt?: number;
+  requestedReason?: 'manual_operator_request';
+}
+
+export type EventedManualReplayStartStatus =
+  | 'replay_started'
+  | 'run_not_found'
+  | 'missing_evented_dispatch'
+  | 'already_applied'
+  | 'already_terminal'
+  | 'work_item_not_in_progress'
+  | 'recovery_candidate_required'
+  | 'replay_candidate_required'
+  | 'missing_orphan_classification'
+  | 'already_replayed'
+  | 'replay_attempt_not_allowed';
+
+export interface EventedManualReplayStartResult {
+  status: EventedManualReplayStartStatus;
+  requestedAt?: number;
+  requestedReason?: 'manual_operator_request';
+  originalRun?: Run;
+  replacementRun?: Run;
+}
+
+export type EventedManualReplayPrecheckStatus =
+  | 'eligible'
+  | 'run_not_found'
+  | 'missing_evented_dispatch'
+  | 'already_applied'
+  | 'already_terminal'
+  | 'work_item_not_in_progress'
+  | 'recovery_candidate_required'
+  | 'replay_candidate_required'
+  | 'missing_orphan_classification'
+  | 'already_replayed'
+  | 'replay_attempt_not_allowed';
+
+export interface EventedManualReplayPrecheckResult {
+  status: EventedManualReplayPrecheckStatus;
+  eligible: boolean;
+  rejectionReasons: Exclude<EventedManualReplayPrecheckStatus, 'eligible'>[];
+  expectedConsequences: string[];
+  originalRun?: Run;
+}
+
+export type EventedRunRecoveryCandidateMarkStatus =
+  | 'marked'
+  | 'already_marked'
+  | 'already_applied'
+  | 'already_terminal'
+  | 'missing_evented_dispatch'
+  | 'run_not_found';
+
+export interface EventedRunRecoveryCandidateMarkResult {
+  status: EventedRunRecoveryCandidateMarkStatus;
+  markedAt?: number;
+  reason?: 'manual_operator_mark';
+  run?: Run;
+}
+
+export interface MarkEventedRunReplayCandidateParams {
+  markedAt?: number;
+  reason?: 'manual_operator_mark';
+}
+
+export type EventedRunReplayCandidateMarkStatus =
+  | 'marked'
+  | 'already_marked'
+  | 'recovery_candidate_required'
+  | 'already_applied'
+  | 'already_terminal'
+  | 'missing_evented_dispatch'
+  | 'run_not_found';
+
+export interface EventedRunReplayCandidateMarkResult {
+  status: EventedRunReplayCandidateMarkStatus;
+  markedAt?: number;
+  reason?: 'manual_operator_mark';
+  run?: Run;
+}
+
+export type EventedRunRecoveryCandidateClearStatus =
+  | 'cleared'
+  | 'already_cleared'
+  | 'not_marked'
+  | 'missing_evented_dispatch'
+  | 'run_not_found';
+
+export interface EventedRunRecoveryCandidateClearResult {
+  status: EventedRunRecoveryCandidateClearStatus;
+  run?: Run;
 }
 
 export interface CreateDecisionParams {

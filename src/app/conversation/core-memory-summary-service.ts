@@ -19,8 +19,10 @@ export class CoreMemorySummaryService implements ICoreMemorySummaryService {
     role: 'user' | 'assistant';
     content: string;
     ownerScope: { ownerType: 'agent' | 'user'; ownerId: string };
+    preferredModel?: string;
   }): Promise<{ summary: string; importance: number }> {
-    const response = await this.llmService.completeWithTier(
+    const response = await this.llmService.completeForWorkload(
+      'conversation',
       [
         { role: 'system', content: SUMMARY_PROMPT },
         {
@@ -30,8 +32,10 @@ export class CoreMemorySummaryService implements ICoreMemorySummaryService {
             `\nownerId=${input.ownerScope.ownerId}\ncontent=${input.content}`,
         },
       ],
-      'simple',
-      { maxTokens: 220 }
+      {
+        maxTokens: 220,
+        ...(input.preferredModel ? { model: input.preferredModel } : {}),
+      }
     );
 
     const text = response.content || '';

@@ -136,7 +136,11 @@ export class MessageRouter {
 
       case 'auth.token': {
         // Direct token authentication for admin/debug tools (no challenge-response)
-        const { token } = params as { token: string };
+        const { token, channelType, channelSessionId } = params as {
+          token: string;
+          channelType?: string;
+          channelSessionId?: string;
+        };
         if (!token) {
           throw GatewayError.invalidParams('token required');
         }
@@ -160,6 +164,10 @@ export class MessageRouter {
           permissions: tokenData.permissions,
           connectedAt: Date.now(),
           lastActivityAt: Date.now(),
+          metadata: {
+            channelType: typeof channelType === 'string' ? channelType : 'tui',
+            ...(typeof channelSessionId === 'string' ? { channelSessionId } : {}),
+          },
         };
 
         this.connectionManager.promoteConnection(ws, session);
@@ -172,7 +180,12 @@ export class MessageRouter {
       }
 
       case 'auth.verify': {
-        const { signature, publicKey } = params as { signature: string; publicKey?: string };
+        const { signature, publicKey, channelType, channelSessionId } = params as {
+          signature: string;
+          publicKey?: string;
+          channelType?: string;
+          channelSessionId?: string;
+        };
         if (!signature) {
           throw GatewayError.invalidParams('signature required');
         }
@@ -180,6 +193,17 @@ export class MessageRouter {
         const result = await this.authManager.handleVerify(connectionId, signature, publicKey);
 
         if (result.success && result.session) {
+          if (typeof channelType === 'string' || typeof channelSessionId === 'string') {
+            result.session = {
+              ...result.session,
+              metadata: {
+                ...(result.session.metadata ?? {}),
+                ...(typeof channelType === 'string' ? { channelType } : {}),
+                ...(typeof channelSessionId === 'string' ? { channelSessionId } : {}),
+              },
+            };
+          }
+
           // Promote connection to authenticated session
           this.connectionManager.promoteConnection(ws, result.session);
           return {

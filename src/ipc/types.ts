@@ -16,6 +16,7 @@ export interface IPCMessage {
   /** Message type identifier */
   type:
     | 'scheduler_event'
+    | 'session_event'
     | 'debug_event'
     | 'run_event_retention'
     | 'scheduler_command'
@@ -40,6 +41,21 @@ export interface IPCSchedulerEventMessage extends IPCMessage {
 }
 
 /**
+ * Session event message sent from Scheduler Daemon to Gateway.
+ * Contains session-scoped conversation/runtime events that must be routed
+ * to the originating gateway websocket session.
+ */
+export interface IPCSessionEventMessage extends IPCMessage {
+  type: 'session_event';
+  data: {
+    event: string;
+    gatewaySessionId?: string;
+    sessionId?: string;
+    payload?: Record<string, unknown>;
+  };
+}
+
+/**
  * Debug event message sent from Daemon to Gateway.
  * Contains detailed instrumentation events for debugging.
  */
@@ -57,13 +73,70 @@ export interface IPCRunEventRetentionMessage extends IPCMessage {
   };
 }
 
-export type SchedulerCommandType = 'submit_goal' | 'cancel_goal' | 'apply_runtime_rollout';
+export type SchedulerCommandType =
+  | 'materialize_goal'
+  | 'submit_goal'
+  | 'cancel_goal'
+  | 'replay_run'
+  | 'apply_runtime_rollout'
+  | 'set_agent_model_override'
+  | 'get_agent_model_override'
+  | 'session_open'
+  | 'session_list'
+  | 'session_message'
+  | 'session_history'
+  | 'session_end'
+  | 'session_archive'
+  | 'session_resume'
+  | 'session_status';
 
 export interface SchedulerCommandRequest {
   requestId: string;
   command: SchedulerCommandType;
+  gatewaySessionId?: string;
+  channelType?: string;
+  channelSessionId?: string;
+  sessionId?: string;
+  personaId?: string;
+  userProfileId?: string;
+  lifecycleState?: 'active' | 'archived';
+  message?: string;
+  attachments?: Array<{
+    type: 'image' | 'file' | 'audio';
+    url?: string;
+    base64?: string;
+    mimeType: string;
+    filename?: string;
+  }>;
+  stream?: boolean;
+  limit?: number;
   goalId?: string;
+  runId?: string;
   reason?: string;
+  goalSpec?: {
+    title: string;
+    description: string;
+    success_criteria: Array<{
+      description: string;
+      type: 'heuristic' | 'deterministic';
+      verification_method: string;
+      required?: boolean;
+    }>;
+    priority?: number;
+    budget_tokens?: number;
+    budget_time_minutes?: number;
+    budget_cost_usd?: number;
+    context?: Record<string, unknown>;
+  };
+  initialWorkItemSpec?: {
+    title: string;
+    description: string;
+    item_type: 'analysis' | 'code' | 'test' | 'doc' | 'refactor';
+    priority?: number;
+    dependencies?: string[];
+    context?: Record<string, unknown>;
+  };
+  autoSubmitGoal?: boolean;
   rollout?: {
     deterministicRuntimeEnabled: boolean;
     planCompilerEnabled: boolean;
@@ -79,12 +152,15 @@ export interface SchedulerCommandRequest {
       };
     };
   };
+  agentId?: string;
+  model?: string;
 }
 
 export interface SchedulerCommandResponse {
   requestId: string;
   success: boolean;
   error?: string;
+  result?: unknown;
 }
 
 export interface IPCSchedulerCommandMessage extends IPCMessage {
@@ -144,6 +220,7 @@ export interface IPCDisconnectMessage extends IPCMessage {
  */
 export type AnyIPCMessage =
   | IPCSchedulerEventMessage
+  | IPCSessionEventMessage
   | IPCDebugEventMessage
   | IPCRunEventRetentionMessage
   | IPCSchedulerCommandMessage

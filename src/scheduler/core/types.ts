@@ -2,12 +2,21 @@
  * Scheduler Core Types
  */
 
-import type { Goal, WorkItem, Run } from '../../work-order/types/index.js';
+import type { Goal, WorkItem, Run, InFlightRunReconciliationCandidate } from '../../work-order/types/index.js';
+import type {
+  EventedManualReplayPrecheckResult,
+  EventedManualReplayStartResult,
+  EventedResultContinuationClaim,
+} from '../../infra/persistence/repository-interface.js';
 import type { LaneId, SchedulerState, SchedulerEvent, SchedulerEventHandler } from '../types.js';
 import type { ModelSelectionResult } from '../model-selector/index.js';
 import type { LaneSelectionResult } from '../lane-selector/index.js';
 import type { BudgetStatus } from '../budget-tracker/index.js';
 import type { VerificationResult } from '../quality-gate-runner/index.js';
+import type { ExecutionPort } from '../../runtime/execution-boundary/index.js';
+import type { EventBus as RuntimeEventBus } from '../../runtime/event-bus/index.js';
+
+export type SchedulerExecutionMode = 'direct' | 'evented';
 
 export interface SchedulerConfig {
   /** Interval between scheduler ticks in ms */
@@ -18,6 +27,7 @@ export interface SchedulerConfig {
   autoStart: boolean;
   /** Enable debug logging */
   debug: boolean;
+  executionMode: SchedulerExecutionMode;
   deterministicRuntimeEnabled: boolean;
   planCompilerEnabled: boolean;
   toolRoutingMode: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
@@ -129,8 +139,10 @@ export interface SchedulerDependencies {
   qualityGateRunner: IQualityGateRunnerAdapter;
   /** Work item manager for dependency tracking */
   workItemManager: IWorkItemManagerAdapter;
-  /** Execution engine for running work items */
-  executionEngine: IExecutionEngineAdapter;
+  /** Execution boundary for running work items */
+  executionPort: ExecutionPort;
+  /** Runtime event bus used for evented execution handoff */
+  runtimeEventBus: RuntimeEventBus;
 }
 
 // Adapter interfaces to decouple from concrete implementations
@@ -148,6 +160,17 @@ export interface ISchedulerRepository {
     run_sequence: number;
     context?: Record<string, unknown>;
   }): Run;
+  getRun(id: string): Run | undefined;
+  precheckEventedManualReplay(id: string): EventedManualReplayPrecheckResult;
+  mergeRunContext(id: string, contextPatch: Record<string, unknown>): void;
+  claimEventedResultContinuation(id: string, appliedAt?: number): EventedResultContinuationClaim;
+  startEventedManualReplay(
+    id: string,
+    params?: {
+      requestedAt?: number;
+      requestedReason?: 'manual_operator_request';
+    }
+  ): EventedManualReplayStartResult;
   completeRun(id: string, params: {
     status: Run['status'];
     tokens_used: number;
@@ -158,6 +181,7 @@ export interface ISchedulerRepository {
     context?: Record<string, unknown>;
   }): void;
   getRunsByWorkItem(workItemId: string): Run[];
+  listInFlightRunReconciliationCandidates(): InFlightRunReconciliationCandidate[];
 }
 
 export interface IModelSelectorAdapter {
@@ -207,21 +231,4 @@ export interface IWorkItemManagerAdapter {
   areAllWorkItemsComplete(goalId: string): Promise<boolean>;
   updateStatus(workItemId: string, status: WorkItem['status']): Promise<void>;
   areDependenciesSatisfied(workItem: WorkItem): Promise<boolean>;
-}
-
-export interface IExecutionEngineAdapter {
-  execute(
-    workItem: WorkItem,
-    context: { model: string; laneId: LaneId; budgetRemaining: unknown }
-  ): Promise<{
-    success: boolean;
-    tokensUsed: number;
-    timeSeconds: number;
-    costUsd: number;
-    artifacts: string[];
-    actualModel?: string;
-    endpointId?: string;
-    error?: { code: string; message: string; recoverable: boolean };
-  }>;
-  abort(runId: string): Promise<void>;
 }

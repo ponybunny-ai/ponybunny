@@ -18,6 +18,8 @@ import { initializeMCPIntegration } from '../../../infra/mcp/adapters/registry-i
 import { extractMCPToolName } from '../../../infra/mcp/adapters/tool-adapter.js';
 import { routeContextFromWorkItemContext } from '../../../infra/routing/route-context.js';
 import { getManagedSkillsDir } from '../../../infra/config/config-paths.js';
+import { LocalToolAdapter, type ToolPort } from '../../../runtime/tool-boundary/index.js';
+import { LocalToolWorker } from '../../../runtime/workers/index.js';
 
 interface ScopedToolEnforcerConfig {
   enforcer: ToolEnforcer;
@@ -44,6 +46,8 @@ export class ExecutionService implements IExecutionService {
   private toolRegistry: ToolRegistry;
   private toolAllowlist: ToolAllowlist;
   private toolEnforcer: ToolEnforcer;
+  private toolPort: ToolPort;
+  private toolWorker: LocalToolWorker;
   private skillRegistry = getGlobalSkillRegistry();
   private mcpInitialized = false;
 
@@ -60,13 +64,21 @@ export class ExecutionService implements IExecutionService {
     this.registerTools();
 
     this.toolEnforcer = new ToolEnforcer(this.toolRegistry, this.toolAllowlist);
+    this.toolPort = new LocalToolAdapter(this.toolEnforcer);
+    this.toolWorker = new LocalToolWorker(this.toolPort);
 
     // Wire up ToolProvider with ToolRegistry so LLM sees all registered tools
     const toolProvider = new ToolProvider(this.toolEnforcer);
     setGlobalToolProvider(toolProvider);
 
-    // Use enhanced ReAct integration with phase-aware prompts
-    this.reactIntegration = new ReActIntegration(llmProvider, this.toolEnforcer);
+    // The local worker is now the authoritative in-process dispatch seam, while
+    // ReActIntegration still owns synchronous continuation after ToolResult resolution.
+    this.reactIntegration = new ReActIntegration(
+      llmProvider,
+      this.toolEnforcer,
+      this.toolPort,
+      this.toolWorker
+    );
   }
 
   /**

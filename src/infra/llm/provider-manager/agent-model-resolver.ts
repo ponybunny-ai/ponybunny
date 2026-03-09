@@ -1,37 +1,101 @@
 import type { WorkloadId, ModelTier, LLMWorkloadConfig, LLMTierConfig } from './types.js';
 import { getCachedConfig } from './config-loader.js';
 import { getEndpointManager } from './endpoint-manager.js';
+import { getGlobalAgentRegistry } from '../../agents/agent-registry.js';
+import { loadRuntimeConfig } from '../../config/runtime-config.js';
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function dedupeModelChain(models: string[]): string[] {
+  const seen = new Set<string>();
+  const chain: string[] = [];
+  for (const model of models) {
+    if (!seen.has(model)) {
+      seen.add(model);
+      chain.push(model);
+    }
+  }
+  return chain;
+}
 
 /**
  * Agent Model Resolver
  * Resolves agent IDs and tiers to specific models with fallback chains
  */
 export class WorkloadModelResolver {
+  private getRuntimeModelOverride(workloadId: WorkloadId): string | undefined {
+    const runtime = loadRuntimeConfig();
+    const rawOverride = runtime.agent.modelOverrides?.[workloadId];
+    const normalized = normalizeOptionalString(rawOverride);
+    if (!normalized) {
+      return undefined;
+    }
+
+    if (normalized.toLowerCase() === 'auto') {
+      return undefined;
+    }
+
+    return normalized;
+  }
+
+  private getAgentModelHint(workloadId: WorkloadId): string | undefined {
+    const agent = getGlobalAgentRegistry().getAgent(workloadId);
+    if (!agent) {
+      return undefined;
+    }
+
+    const runnerConfig = (agent.config.runner.config ?? {}) as Record<string, unknown>;
+    return normalizeOptionalString(runnerConfig.model) ?? normalizeOptionalString(runnerConfig.model_hint);
+  }
+
   /**
    * Get the primary model for an agent
    */
   getModelForWorkload(workloadId: WorkloadId): string {
+    const runtimeOverride = this.getRuntimeModelOverride(workloadId);
+    if (runtimeOverride) {
+      return runtimeOverride;
+    }
+
+    const agentModel = this.getAgentModelHint(workloadId);
+    if (agentModel) {
+      return agentModel;
+    }
+
+    const config = getCachedConfig();
+    const tier = config.workloads[workloadId]?.tier || 'medium';
+
+    return config.tiers[tier].primary;
+  }
+
+  private getTierChainForWorkload(workloadId: WorkloadId): string[] {
     const config = getCachedConfig();
     const workloadConfig = config.workloads[workloadId];
+    const tier = workloadConfig?.tier || 'medium';
+    const tierConfig = config.tiers[tier];
 
-    if (!workloadConfig) {
-      // Unknown agent, use medium tier as default
-      console.warn(`[WorkloadModelResolver] Unknown workload '${workloadId}', using medium tier`);
-      return config.tiers.medium.primary;
-    }
+    return [tierConfig.primary, ...(tierConfig.fallback || [])];
+  }
 
-    // Agent-specific primary model takes precedence
-    if (workloadConfig.llm_model) {
-      return workloadConfig.llm_model;
-    }
+  getSelectionChainForWorkload(workloadId: WorkloadId, userSelectedModel?: string): string[] {
+    const tierChain = this.getTierChainForWorkload(workloadId);
+    const runtimeOverride = this.getRuntimeModelOverride(workloadId);
+    const agentModel = this.getAgentModelHint(workloadId);
+    const userModel = normalizeOptionalString(userSelectedModel);
 
-    if (workloadConfig.primary) {
-      return workloadConfig.primary;
-    }
-
-    // Fall back to tier's primary model
-    const tier = workloadConfig.tier || 'medium';
-    return config.tiers[tier].primary;
+    return dedupeModelChain([
+      ...(runtimeOverride ? [runtimeOverride] : []),
+      ...(userModel ? [userModel] : []),
+      ...(agentModel ? [agentModel] : []),
+      ...tierChain,
+    ]);
   }
 
   /**
@@ -47,27 +111,7 @@ export class WorkloadModelResolver {
    * Returns [primary, ...fallbacks] in order of preference
    */
   getFallbackChain(workloadId: WorkloadId): string[] {
-    const config = getCachedConfig();
-    const workloadConfig = config.workloads[workloadId];
-
-    if (!workloadConfig) {
-      // Unknown agent, use medium tier
-      const tierConfig = config.tiers.medium;
-      return [tierConfig.primary, ...(tierConfig.fallback || [])];
-    }
-
-    // Agent-specific fallback chain takes precedence
-    if (workloadConfig.fallback && workloadConfig.fallback.length > 0) {
-      const primary = workloadConfig.primary || this.getModelForWorkload(workloadId);
-      return [primary, ...workloadConfig.fallback];
-    }
-
-    // Use tier's fallback chain
-    const tier = workloadConfig.tier || 'medium';
-    const tierConfig = config.tiers[tier];
-    const primary = workloadConfig.primary || tierConfig.primary;
-
-    return [primary, ...(tierConfig.fallback || [])];
+    return this.getSelectionChainForWorkload(workloadId);
   }
 
   /**

@@ -175,6 +175,9 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case 'SET_SCHEDULER_CAPABILITIES':
       return { ...state, schedulerCapabilities: action.payload };
 
+    case 'SET_SELECTED_AGENT_ID':
+      return { ...state, selectedAgentId: action.payload };
+
     case 'SET_SELECTED_MODEL':
       return { ...state, selectedModel: action.payload };
 

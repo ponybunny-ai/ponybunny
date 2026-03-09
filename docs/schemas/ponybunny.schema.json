@@ -56,10 +56,12 @@
         "tickIntervalMs",
         "maxConcurrentGoals",
         "agentsEnabled",
+        "executionMode",
         "deterministicRuntimeEnabled",
         "planCompilerEnabled",
         "toolRoutingMode",
         "allowModelNativeTools",
+        "eventedOrphanTimeoutMs",
         "runtimeRollout",
         "runEventRetention"
       ],
@@ -74,6 +76,13 @@
         },
         "agentsEnabled": {
           "type": "boolean"
+        },
+        "executionMode": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "evented"
+          ]
         },
         "deterministicRuntimeEnabled": {
           "type": "boolean"
@@ -92,6 +101,10 @@
         },
         "allowModelNativeTools": {
           "type": "boolean"
+        },
+        "eventedOrphanTimeoutMs": {
+          "type": "integer",
+          "minimum": 1
         },
         "runtimeRollout": {
           "type": "object",
@@ -186,6 +199,13 @@
         },
         "personaEnabled": {
           "type": "boolean"
+        },
+        "modelOverrides": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       },
       "additionalProperties": false

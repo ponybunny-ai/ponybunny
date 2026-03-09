@@ -7,6 +7,7 @@ import { Session } from '../../../src/gateway/connection/session.js';
 import { GatewayError, ErrorCodes } from '../../../src/gateway/errors.js';
 import { registerSystemHandlers } from '../../../src/gateway/rpc/handlers/system-handlers.js';
 import type { ConnectionManager } from '../../../src/gateway/connection/connection-manager.js';
+import type { ChannelRouter } from '../../../src/gateway/channels/channel-router.js';
 import type { ISchedulerCore } from '../../../src/scheduler/core/index.js';
 
 const getSchedulerCapabilitiesMock = jest.fn();
@@ -29,6 +30,7 @@ describe('system handlers', () => {
   let rpc: RpcHandler;
   let mockConnectionManager: ConnectionManager;
   let mockScheduler: ISchedulerCore;
+  let mockChannelRouter: ChannelRouter;
 
   beforeEach(() => {
     rpc = new RpcHandler();
@@ -72,6 +74,16 @@ describe('system handlers', () => {
       applyRuntimeRollout: jest.fn(),
     } as unknown as ISchedulerCore;
 
+    mockChannelRouter = {
+      getEnabledChannels: jest.fn(() => ['tui']),
+      getMirrorToAllEnabledChannels: jest.fn(() => true),
+      setEnabledChannels: jest.fn(),
+      setMirrorToAllEnabledChannels: jest.fn(),
+      setSessionChannel: jest.fn(),
+      clearSessionChannel: jest.fn(),
+      buildSessionFilter: jest.fn(() => () => true),
+    } as unknown as ChannelRouter;
+
     getSchedulerCapabilitiesMock.mockReset();
     getSchedulerCapabilitiesMock.mockReturnValue({
       models: [],
@@ -94,7 +106,12 @@ describe('system handlers', () => {
       rpc,
       () => mockConnectionManager,
       () => mockScheduler,
+      () => mockChannelRouter,
+      () => [],
       () => ({ isRunning: true, daemonConnected: true, schedulerConnected: true }),
+      () => [],
+      undefined,
+      undefined,
       undefined,
       {
         getRuntimeRolloutMetrics: () => ({
@@ -167,7 +184,10 @@ describe('system handlers', () => {
       rpcWithoutScheduler,
       () => mockConnectionManager,
       () => null,
-      () => ({ isRunning: true, daemonConnected: true, schedulerConnected: false })
+      () => mockChannelRouter,
+      () => [],
+      () => ({ isRunning: true, daemonConnected: true, schedulerConnected: false }),
+      () => []
     );
 
     const result = await rpcWithoutScheduler.handle('system.capabilities', {}, createSession(['read']));
@@ -177,6 +197,47 @@ describe('system handlers', () => {
         schedulerConnected: false,
       })
     );
+  });
+
+  it('exposes realtime ack and stream latency metrics in system.status', async () => {
+    const rpcWithRealtime = new RpcHandler();
+    registerSystemHandlers(
+      rpcWithRealtime,
+      () => mockConnectionManager,
+      () => mockScheduler,
+      () => mockChannelRouter,
+      () => [],
+      () => ({ isRunning: true, daemonConnected: true, schedulerConnected: true }),
+      () => [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => ({
+        schedulerCommandAckMsP95: 180,
+        streamChunkLatencyMsP95: 640,
+        ackSampleSize: 42,
+        streamSampleSize: 16,
+      })
+    );
+
+    const result = await rpcWithRealtime.handle('system.status', {}, createSession(['admin'])) as {
+      gateway: {
+        realtime: {
+          schedulerCommandAckMsP95: number;
+          streamChunkLatencyMsP95: number;
+          ackSampleSize: number;
+          streamSampleSize: number;
+        };
+      };
+    };
+
+    expect(result.gateway.realtime).toEqual({
+      schedulerCommandAckMsP95: 180,
+      streamChunkLatencyMsP95: 640,
+      ackSampleSize: 42,
+      streamSampleSize: 16,
+    });
   });
 
   it('returns runtime rollout status', async () => {
@@ -328,7 +389,12 @@ describe('system handlers', () => {
       rpcWithCoverage,
       () => mockConnectionManager,
       () => mockScheduler,
+      () => mockChannelRouter,
+      () => [],
       () => ({ isRunning: true, daemonConnected: true, schedulerConnected: true }),
+      () => [],
+      undefined,
+      undefined,
       undefined,
       {
         getRuntimeRolloutMetrics: () => ({
@@ -397,20 +463,572 @@ describe('system handlers', () => {
       goalSubmitFastPathEnabled: boolean;
     };
 
-    expect(result.sessionFirstEnabled).toBe(false);
-    expect(result.goalSubmitFastPathEnabled).toBe(true);
+    expect(result.sessionFirstEnabled).toBe(true);
+    expect(result.goalSubmitFastPathEnabled).toBe(false);
     expect(saveSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('persists main agent model hint through rpc', async () => {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-system-model-hint-'));
-    const previousConfigDir = process.env.PONYBUNNY_CONFIG_DIR;
-    process.env.PONYBUNNY_CONFIG_DIR = tempRoot;
+  it('returns gateway channel routing status', async () => {
+    (mockChannelRouter.getEnabledChannels as unknown as jest.Mock).mockReturnValue(['tui', 'webui']);
+    (mockChannelRouter.getMirrorToAllEnabledChannels as unknown as jest.Mock).mockReturnValue(false);
 
-    const agentDir = path.join(tempRoot, 'agents', 'lead');
-    fs.mkdirSync(agentDir, { recursive: true });
-    fs.writeFileSync(path.join(agentDir, 'agent.json'), JSON.stringify({ id: 'lead', runner: { id: 'react-goal', config: {} } }, null, 2));
+    const result = await rpc.handle('system.channels.status', {}, createSession(['read'])) as {
+      enabledChannels: string[];
+      mirrorToAllEnabledChannels: boolean;
+      adapters: unknown[];
+      adapterHealth: { total: number; running: number; stopped: number; error: number; available: number };
+    };
 
+    expect(result.enabledChannels).toEqual(['tui', 'webui']);
+    expect(result.mirrorToAllEnabledChannels).toBe(false);
+    expect(result.adapters).toEqual([]);
+    expect(result.adapterHealth).toEqual({ total: 0, running: 0, stopped: 0, error: 0, available: 0 });
+  });
+
+  it('updates gateway channel routing status', async () => {
+    (mockChannelRouter.getEnabledChannels as unknown as jest.Mock).mockReturnValue(['tui', 'discord']);
+    (mockChannelRouter.getMirrorToAllEnabledChannels as unknown as jest.Mock).mockReturnValue(true);
+
+    const result = await rpc.handle(
+      'system.channels.update',
+      {
+        enabledChannels: ['tui', 'discord'],
+        mirrorToAllEnabledChannels: true,
+      },
+      createSession(['admin'])
+    ) as {
+      enabledChannels: string[];
+      mirrorToAllEnabledChannels: boolean;
+      adapters: unknown[];
+      adapterHealth: { total: number; running: number; stopped: number; error: number; available: number };
+    };
+
+    expect(mockChannelRouter.setEnabledChannels).toHaveBeenCalledWith(['tui', 'discord']);
+    expect(mockChannelRouter.setMirrorToAllEnabledChannels).toHaveBeenCalledWith(true);
+    expect(result.enabledChannels).toEqual(['tui', 'discord']);
+    expect(result.mirrorToAllEnabledChannels).toBe(true);
+    expect(result.adapters).toEqual([]);
+    expect(result.adapterHealth).toEqual({ total: 0, running: 0, stopped: 0, error: 0, available: 0 });
+  });
+
+  it('updates adapter configs through channels.update and returns adapter statuses', async () => {
+    const rpcWithAdapters = new RpcHandler();
+    const updateAdapterConfigs = jest.fn(async () => undefined);
+
+    registerSystemHandlers(
+      rpcWithAdapters,
+      () => mockConnectionManager,
+      () => mockScheduler,
+      () => mockChannelRouter,
+      () => [],
+      () => ({ isRunning: true, daemonConnected: true, schedulerConnected: true }),
+      () => [
+        {
+          channel: 'discord',
+          state: 'running',
+          available: true,
+          config: { botTokenPresent: true },
+          startCount: 1,
+          stopCount: 0,
+          errorCount: 0,
+          deliveryCount: 0,
+          deliveryErrorCount: 0,
+        },
+      ],
+      updateAdapterConfigs
+    );
+
+    const result = await rpcWithAdapters.handle(
+      'system.channels.update',
+      {
+        adapterConfigs: {
+          discord: { botToken: 'abc' },
+        },
+      },
+      createSession(['admin'])
+    ) as {
+      adapters: Array<{ channel: string; state: string; config: Record<string, unknown> }>;
+    };
+
+    expect(updateAdapterConfigs).toHaveBeenCalledWith({
+      discord: {
+        botToken: 'abc',
+        webhookUrl: '',
+        guildId: '',
+        applicationId: '',
+        commandsEnabled: true,
+        retryAttempts: 2,
+        retryBackoffMs: 50,
+      },
+    });
+    expect(result.adapters).toEqual([
+      {
+        channel: 'discord',
+        state: 'running',
+        available: true,
+        startCount: 1,
+        stopCount: 0,
+        errorCount: 0,
+        deliveryCount: 0,
+        deliveryErrorCount: 0,
+        config: {
+          botToken: '',
+          webhookUrl: '',
+          guildId: '',
+          applicationId: '',
+          commandsEnabled: true,
+          botTokenPresent: true,
+          retryAttempts: 2,
+          retryBackoffMs: 50,
+        },
+      },
+    ]);
+  });
+
+  it('masks sensitive adapter config fields in channels.status', async () => {
+    const rpcWithAdapters = new RpcHandler();
+
+    registerSystemHandlers(
+      rpcWithAdapters,
+      () => mockConnectionManager,
+      () => mockScheduler,
+      () => mockChannelRouter,
+      () => [],
+      () => ({ isRunning: true, daemonConnected: true, schedulerConnected: true }),
+      () => [
+        {
+          channel: 'discord',
+          state: 'running',
+          available: true,
+          config: { botToken: 'super-secret', commandsEnabled: true },
+          startCount: 1,
+          stopCount: 0,
+          errorCount: 0,
+          deliveryCount: 0,
+          deliveryErrorCount: 0,
+        },
+      ]
+    );
+
+    const result = await rpcWithAdapters.handle('system.channels.status', {}, createSession(['read'])) as {
+      adapters: Array<{ channel: string; config: Record<string, unknown> }>;
+    };
+
+    expect(result.adapters).toEqual([
+      {
+        channel: 'discord',
+        state: 'running',
+        available: true,
+        startCount: 1,
+        stopCount: 0,
+        errorCount: 0,
+        deliveryCount: 0,
+        deliveryErrorCount: 0,
+        config: {
+          botToken: '***',
+          webhookUrl: '',
+          guildId: '',
+          applicationId: '',
+          commandsEnabled: true,
+          retryAttempts: 2,
+          retryBackoffMs: 50,
+        },
+      },
+    ]);
+  });
+
+  it('returns adapterHealth aggregate from adapter statuses', async () => {
+    const rpcWithAdapters = new RpcHandler();
+
+    registerSystemHandlers(
+      rpcWithAdapters,
+      () => mockConnectionManager,
+      () => mockScheduler,
+      () => mockChannelRouter,
+      () => [],
+      () => ({ isRunning: true, daemonConnected: true, schedulerConnected: true }),
+      () => [
+        {
+          channel: 'discord',
+          state: 'running',
+          available: true,
+          config: {},
+          startCount: 1,
+          stopCount: 0,
+          errorCount: 0,
+          deliveryCount: 0,
+          deliveryErrorCount: 0,
+          retryTrail: [],
+        },
+        {
+          channel: 'telegram',
+          state: 'error',
+          available: true,
+          config: {},
+          startCount: 1,
+          stopCount: 0,
+          errorCount: 1,
+          deliveryCount: 0,
+          deliveryErrorCount: 0,
+          retryTrail: [
+            {
+              timestamp: 1700000000000,
+              attempt: 2,
+              phase: 'start',
+              outcome: 'failure',
+              reason: 'startup',
+              source: 'gateway-startup',
+              error: 'network failure',
+            },
+          ],
+        },
+      ]
+    );
+
+    const result = await rpcWithAdapters.handle('system.channels.status', {}, createSession(['read'])) as {
+      adapterHealth: { total: number; running: number; stopped: number; error: number; available: number };
+      adapterRecentFailures: Array<{ channel: string; error: string }>;
+    };
+
+    expect(result.adapterHealth).toEqual({
+      total: 2,
+      running: 1,
+      stopped: 0,
+      error: 1,
+      available: 2,
+    });
+    expect(result.adapterRecentFailures).toEqual([
+      {
+        channel: 'telegram',
+        timestamp: 1700000000000,
+        attempt: 2,
+        error: 'network failure',
+        reason: 'startup',
+        source: 'gateway-startup',
+      },
+    ]);
+  });
+
+  it('validates adapter config schema and rejects invalid adapter fields', async () => {
+    const rpcWithAdapters = new RpcHandler();
+    const updateAdapterConfigs = jest.fn(async () => undefined);
+
+    registerSystemHandlers(
+      rpcWithAdapters,
+      () => mockConnectionManager,
+      () => mockScheduler,
+      () => mockChannelRouter,
+      () => [],
+      () => ({ isRunning: true, daemonConnected: true, schedulerConnected: true }),
+      () => [],
+      updateAdapterConfigs
+    );
+
+    await expect(
+      rpcWithAdapters.handle(
+        'system.channels.update',
+        {
+          adapterConfigs: {
+            telegram: { pollingEnabled: 'yes' },
+          },
+        },
+        createSession(['admin'])
+      )
+    ).rejects.toMatchObject<Partial<GatewayError>>({
+      code: ErrorCodes.INVALID_PARAMS,
+    });
+
+    expect(updateAdapterConfigs).not.toHaveBeenCalled();
+  });
+
+  it('passes validated adapter config payload to update callback', async () => {
+    const rpcWithAdapters = new RpcHandler();
+    const updateAdapterConfigs = jest.fn(async () => undefined);
+
+    registerSystemHandlers(
+      rpcWithAdapters,
+      () => mockConnectionManager,
+      () => mockScheduler,
+      () => mockChannelRouter,
+      () => [],
+      () => ({ isRunning: true, daemonConnected: true, schedulerConnected: true }),
+      () => [],
+      updateAdapterConfigs
+    );
+
+    await rpcWithAdapters.handle(
+      'system.channels.update',
+      {
+        adapterConfigs: {
+          email: {
+            inboundAddress: 'ops@example.com',
+            smtpPort: 587,
+            useTls: true,
+          },
+          whatsapp: {
+            provider: 'meta',
+          },
+        },
+      },
+      createSession(['admin'])
+    );
+
+    expect(updateAdapterConfigs).toHaveBeenCalledWith({
+      email: {
+        inboundAddress: 'ops@example.com',
+        smtpHost: '',
+        smtpPort: 587,
+        useTls: true,
+        retryAttempts: 2,
+        retryBackoffMs: 50,
+      },
+      whatsapp: {
+        provider: 'meta',
+        phoneNumberId: '',
+        webhookVerifyToken: '',
+        retryAttempts: 2,
+        retryBackoffMs: 50,
+      },
+    });
+  });
+
+  it('validates retry policy fields in adapter config payload', async () => {
+    const rpcWithAdapters = new RpcHandler();
+    const updateAdapterConfigs = jest.fn(async () => undefined);
+
+    registerSystemHandlers(
+      rpcWithAdapters,
+      () => mockConnectionManager,
+      () => mockScheduler,
+      () => mockChannelRouter,
+      () => [],
+      () => ({ isRunning: true, daemonConnected: true, schedulerConnected: true }),
+      () => [],
+      updateAdapterConfigs
+    );
+
+    await expect(
+      rpcWithAdapters.handle(
+        'system.channels.update',
+        {
+          adapterConfigs: {
+            discord: { retryAttempts: 10 },
+          },
+        },
+        createSession(['admin'])
+      )
+    ).rejects.toMatchObject<Partial<GatewayError>>({
+      code: ErrorCodes.INVALID_PARAMS,
+    });
+
+    await rpcWithAdapters.handle(
+      'system.channels.update',
+      {
+        adapterConfigs: {
+          discord: { retryAttempts: 3, retryBackoffMs: 120 },
+        },
+      },
+      createSession(['admin'])
+    );
+
+    expect(updateAdapterConfigs).toHaveBeenLastCalledWith({
+      discord: {
+        botToken: '',
+        webhookUrl: '',
+        guildId: '',
+        applicationId: '',
+        commandsEnabled: true,
+        retryAttempts: 3,
+        retryBackoffMs: 120,
+      },
+    });
+  });
+
+  it('applies session channel overrides through channels.update', async () => {
+    (mockChannelRouter.getEnabledChannels as unknown as jest.Mock).mockReturnValue(['tui']);
+    (mockChannelRouter.getMirrorToAllEnabledChannels as unknown as jest.Mock).mockReturnValue(true);
+
+    await rpc.handle(
+      'system.channels.update',
+      {
+        sessionChannelOverrides: [
+          { sessionId: 'sess-1', channel: 'discord' },
+          { sessionId: 'sess-2', channel: 'webui' },
+        ],
+      },
+      createSession(['admin'])
+    );
+
+    expect(mockChannelRouter.setSessionChannel).toHaveBeenNthCalledWith(1, 'sess-1', 'discord');
+    expect(mockChannelRouter.setSessionChannel).toHaveBeenNthCalledWith(2, 'sess-2', 'webui');
+  });
+
+  it('clears session channel overrides through channels.update', async () => {
+    (mockChannelRouter.getEnabledChannels as unknown as jest.Mock).mockReturnValue(['tui']);
+    (mockChannelRouter.getMirrorToAllEnabledChannels as unknown as jest.Mock).mockReturnValue(true);
+
+    await rpc.handle(
+      'system.channels.update',
+      {
+        clearSessionChannelOverrides: ['sess-1', 'sess-2'],
+      },
+      createSession(['admin'])
+    );
+
+    expect(mockChannelRouter.clearSessionChannel).toHaveBeenNthCalledWith(1, 'sess-1');
+    expect(mockChannelRouter.clearSessionChannel).toHaveBeenNthCalledWith(2, 'sess-2');
+  });
+
+  it('filters channel event replay through system.channels.events', async () => {
+    const rpcWithEvents = new RpcHandler();
+    const events = [
+      {
+        id: 'evt-1',
+        event: 'conversation.response',
+        timestamp: 100,
+        channelType: 'discord',
+        channelSessionId: 'discord-1',
+        sessionId: 'session-1',
+        payload: { text: 'a' },
+      },
+      {
+        id: 'evt-2',
+        event: 'conversation.message.succeeded',
+        timestamp: 200,
+        channelType: 'tui',
+        channelSessionId: 'tui-1',
+        sessionId: 'session-2',
+        payload: { text: 'b' },
+      },
+      {
+        id: 'evt-3',
+        event: 'conversation.response',
+        timestamp: 300,
+        channelType: 'discord',
+        channelSessionId: 'discord-2',
+        sessionId: 'session-3',
+        payload: { text: 'c' },
+      },
+    ] as const;
+
+    registerSystemHandlers(
+      rpcWithEvents,
+      () => mockConnectionManager,
+      () => mockScheduler,
+      () => mockChannelRouter,
+      () => [...events],
+      () => ({ isRunning: true, daemonConnected: true, schedulerConnected: true }),
+      () => []
+    );
+
+    const result = await rpcWithEvents.handle(
+      'system.channels.events',
+      {
+        channelType: 'discord',
+        sinceTimestamp: 150,
+        limit: 10,
+      },
+      createSession(['read'])
+    ) as {
+      events: Array<{ id: string }>;
+    };
+
+    expect(result.events.map((item) => item.id)).toEqual(['evt-3']);
+  });
+
+  it('filters channel event replay by event prefix and scheduler identifiers', async () => {
+    const rpcWithEvents = new RpcHandler();
+    const events = [
+      {
+        id: 'evt-run-1',
+        event: 'run.started',
+        timestamp: 100,
+        goalId: 'goal-a',
+        workItemId: 'work-a',
+        runId: 'run-a',
+        payload: { ok: true },
+      },
+      {
+        id: 'evt-run-2',
+        event: 'run.completed',
+        timestamp: 200,
+        goalId: 'goal-b',
+        workItemId: 'work-b',
+        runId: 'run-b',
+        payload: { ok: true },
+      },
+      {
+        id: 'evt-goal-1',
+        event: 'goal.completed',
+        timestamp: 300,
+        goalId: 'goal-b',
+        payload: { ok: true },
+      },
+    ] as const;
+
+    registerSystemHandlers(
+      rpcWithEvents,
+      () => mockConnectionManager,
+      () => mockScheduler,
+      () => mockChannelRouter,
+      () => [...events],
+      () => ({ isRunning: true, daemonConnected: true, schedulerConnected: true }),
+      () => []
+    );
+
+    const result = await rpcWithEvents.handle(
+      'system.channels.events',
+      {
+        eventPrefix: 'run.',
+        goalId: 'goal-b',
+        runId: 'run-b',
+      },
+      createSession(['read'])
+    ) as {
+      events: Array<{ id: string }>;
+    };
+
+    expect(result.events.map((item) => item.id)).toEqual(['evt-run-2']);
+  });
+
+  it('supports cursor pagination for system.channels.events replay', async () => {
+    const rpcWithEvents = new RpcHandler();
+    const events = [
+      { id: 'evt-1', event: 'conversation.response', timestamp: 100, payload: {} },
+      { id: 'evt-2', event: 'conversation.response', timestamp: 200, payload: {} },
+      { id: 'evt-3', event: 'conversation.response', timestamp: 300, payload: {} },
+    ];
+
+    registerSystemHandlers(
+      rpcWithEvents,
+      () => mockConnectionManager,
+      () => mockScheduler,
+      () => mockChannelRouter,
+      () => [...events],
+      () => ({ isRunning: true, daemonConnected: true, schedulerConnected: true }),
+      () => []
+    );
+
+    const firstPage = await rpcWithEvents.handle(
+      'system.channels.events',
+      { limit: 2, cursor: '0' },
+      createSession(['read'])
+    ) as { events: Array<{ id: string }>; nextCursor?: string };
+
+    expect(firstPage.events.map((item) => item.id)).toEqual(['evt-1', 'evt-2']);
+    expect(firstPage.nextCursor).toBe('2');
+
+    const secondPage = await rpcWithEvents.handle(
+      'system.channels.events',
+      { limit: 2, cursor: firstPage.nextCursor },
+      createSession(['read'])
+    ) as { events: Array<{ id: string }>; nextCursor?: string };
+
+    expect(secondPage.events.map((item) => item.id)).toEqual(['evt-3']);
+    expect(secondPage.nextCursor).toBeUndefined();
+  });
+
+  it('routes model hint persistence through scheduler callback', async () => {
     const runtimeSpy = jest.spyOn(runtimeConfig, 'loadRuntimeConfig').mockReturnValue({
       ...runtimeConfig.DEFAULT_RUNTIME_CONFIG,
       agent: {
@@ -418,10 +1036,33 @@ describe('system handlers', () => {
         mainAgentId: 'lead',
       },
     });
+    const setAgentModelOverride = jest.fn(async ({ agentId, model }: { agentId: string; model: string }) => ({
+      success: true,
+      agentId,
+      model,
+      configPath: '/tmp/ponybunny.json',
+    }));
+    const rpcWithOverride = new RpcHandler();
+
+    registerSystemHandlers(
+      rpcWithOverride,
+      () => mockConnectionManager,
+      () => mockScheduler,
+      () => mockChannelRouter,
+      () => [],
+      () => ({ isRunning: true, daemonConnected: true, schedulerConnected: true }),
+      () => [],
+      undefined,
+      undefined,
+      undefined,
+      {
+        setAgentModelOverride,
+      }
+    );
 
     try {
-      const result = await rpc.handle(
-        'system.agent.model_hint.set',
+      const result = await rpcWithOverride.handle(
+        'system.agent.model_override.set',
         { model: 'openai.gpt-5.2' },
         createSession(['admin'])
       ) as {
@@ -433,19 +1074,23 @@ describe('system handlers', () => {
       expect(result.success).toBe(true);
       expect(result.agentId).toBe('lead');
       expect(result.model).toBe('openai.gpt-5.2');
+      expect(setAgentModelOverride).toHaveBeenCalledWith({
+        agentId: 'lead',
+        model: 'openai.gpt-5.2',
+      });
 
-      const persisted = JSON.parse(fs.readFileSync(path.join(agentDir, 'agent.json'), 'utf-8')) as {
-        runner?: { config?: { model_hint?: string } };
-      };
-      expect(persisted.runner?.config?.model_hint).toBe('openai.gpt-5.2');
+      await rpcWithOverride.handle(
+        'system.agent.model_hint.set',
+        { model: 'AUTO' },
+        createSession(['admin'])
+      );
+      expect(setAgentModelOverride).toHaveBeenCalledWith({
+        agentId: 'lead',
+        model: 'AUTO',
+      });
       expect(runtimeSpy).toHaveBeenCalled();
     } finally {
-      if (previousConfigDir === undefined) {
-        delete process.env.PONYBUNNY_CONFIG_DIR;
-      } else {
-        process.env.PONYBUNNY_CONFIG_DIR = previousConfigDir;
-      }
-      fs.rmSync(tempRoot, { recursive: true, force: true });
+      runtimeSpy.mockRestore();
     }
   });
 });

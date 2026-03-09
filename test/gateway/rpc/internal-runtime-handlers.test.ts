@@ -177,6 +177,9 @@ describe('internal runtime handlers', () => {
             replay: 0,
           },
         },
+        agent: {
+          mainAgentId: 'lead',
+        },
         tui: {
           inputBackgroundColor: 'gray',
           sessionFirstEnabled: true,
@@ -327,6 +330,9 @@ describe('internal runtime handlers', () => {
           replay: 0,
         },
       },
+      agent: {
+        mainAgentId: 'lead',
+      },
       tui: {
         sessionFirstEnabled: true,
         goalSubmitFastPathEnabled: false,
@@ -474,6 +480,9 @@ describe('internal runtime handlers', () => {
             compile: 0,
             replay: 0,
           },
+        },
+        agent: {
+          mainAgentId: 'lead',
         },
         tui: {
           inputBackgroundColor: 'gray',
@@ -1889,6 +1898,9 @@ describe('internal runtime handlers', () => {
             replay: 0,
           },
         },
+        agent: {
+          mainAgentId: 'lead',
+        },
         tui: {
           inputBackgroundColor: 'gray',
           sessionFirstEnabled: true,
@@ -1956,6 +1968,9 @@ describe('internal runtime handlers', () => {
             compile: 0,
             replay: 0,
           },
+        },
+        agent: {
+          mainAgentId: 'lead',
         },
         tui: {
           inputBackgroundColor: 'gray',

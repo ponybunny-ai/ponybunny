@@ -59,6 +59,7 @@ export interface AppContextValue {
   removeEscalation: (escalationId: string) => void;
 
   setSchedulerCapabilities: (capabilities: SchedulerCapabilitiesResponse | null) => void;
+  setSelectedAgentId: (agentId: string | null) => void;
   setSelectedModel: (model: string | null) => void;
 
   // Input methods
@@ -244,6 +245,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     dispatch(actions.setSchedulerCapabilities(capabilities));
   }, []);
 
+  const setSelectedAgentId = useCallback((agentId: string | null) => {
+    dispatch(actions.setSelectedAgentId(agentId));
+  }, []);
+
   const setSelectedModel = useCallback((model: string | null) => {
     dispatch(actions.setSelectedModel(model));
   }, []);
@@ -293,6 +298,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     addEscalation,
     removeEscalation,
     setSchedulerCapabilities,
+    setSelectedAgentId,
     setSelectedModel,
     setInputValue,
     addToInputHistory,
@@ -328,6 +334,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children, initialUrl }
     addEscalation,
     removeEscalation,
     setSchedulerCapabilities,
+    setSelectedAgentId,
     setSelectedModel,
     setInputValue,
     addToInputHistory,

@@ -1,6 +1,8 @@
 import type { ILLMProvider, LLMMessage, LLMProviderConfig, LLMResponse } from '../../src/infra/llm/llm-provider.js';
 import type { Run, WorkItem } from '../../src/work-order/types/index.js';
 import type { ToolEnforcer } from '../../src/infra/tools/tool-registry.js';
+import type { ToolPort, ToolRequest } from '../../src/runtime/tool-boundary/index.js';
+import { LocalToolWorker } from '../../src/runtime/workers/index.js';
 
 const mockGenerateExecutionPrompt = jest.fn(() => 'system prompt');
 let mockToolDefinitions: Array<{
@@ -160,6 +162,12 @@ describe('ReActIntegration', () => {
           },
         ],
       },
+      {
+        content: 'Task is complete. All requirements met.',
+        tokensUsed: 6,
+        model: 'gpt-test',
+        finishReason: 'stop',
+      },
     ]);
 
     const integration = new ReActIntegration(provider);
@@ -173,6 +181,152 @@ describe('ReActIntegration', () => {
     expect(result.success).toBe(true);
     expect((provider.complete as jest.Mock).mock.calls.length).toBe(2);
     expect(result.log).toContain('Completion summary: Implemented and verified task output.');
+  });
+
+  it('routes authoritative tool execution through LocalToolWorker with run-scoped identity context', async () => {
+    mockToolDefinitions = [
+      {
+        name: 'search_code',
+        description: 'Search code',
+        parameters: {
+          type: 'object',
+          properties: {
+            pattern: { type: 'string' },
+          },
+          required: ['pattern'],
+        },
+      },
+    ];
+
+    const provider = createMockProvider([
+      {
+        content: null,
+        tokensUsed: 8,
+        model: 'gpt-test',
+        finishReason: 'tool_calls',
+        toolCalls: [
+          {
+            id: 'call-1',
+            type: 'function',
+            function: {
+              name: 'search_code',
+              arguments: JSON.stringify({ pattern: 'ToolPort' }),
+            },
+          },
+        ],
+      },
+      {
+        content: 'Task is complete. All requirements met.',
+        tokensUsed: 6,
+        model: 'gpt-test',
+        finishReason: 'stop',
+      },
+    ]);
+
+    const execute = jest.fn(async (request: ToolRequest) => ({
+      toolRequestId: request.toolRequestId,
+      runId: request.runId,
+      workItemId: request.workItemId,
+      goalId: request.goalId,
+      toolCallId: request.toolCallId,
+      toolName: request.toolName,
+      success: true,
+      output: 'search results',
+    }));
+    const toolPort: ToolPort = { execute };
+    const toolWorker = new LocalToolWorker(toolPort);
+    const dispatchSpy = jest.spyOn(toolWorker, 'dispatch');
+
+    const integration = new ReActIntegration(provider, undefined, toolPort, toolWorker);
+    const result = await integration.executeWorkCycle({
+      workItem: createWorkItem(),
+      run: createRun(),
+      signal: new AbortController().signal,
+      model: 'gpt-5.2-codex',
+    });
+
+    expect(result.success).toBe(true);
+    expect(dispatchSpy).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolRequestId: 'run-1:call-1:search_code',
+        runId: 'run-1',
+        workItemId: 'wi-1',
+        goalId: 'goal-1',
+        toolCallId: 'call-1',
+        toolName: 'search_code',
+        arguments: JSON.stringify({ pattern: 'ToolPort' }),
+        cwd: process.cwd(),
+      })
+    );
+    expect(result.log).toContain('Tool search_code: search results');
+  });
+
+  it('treats a mismatched toolRequestId as an invalid correlated result', async () => {
+    mockToolDefinitions = [
+      {
+        name: 'search_code',
+        description: 'Search code',
+        parameters: {
+          type: 'object',
+          properties: {
+            pattern: { type: 'string' },
+          },
+          required: ['pattern'],
+        },
+      },
+    ];
+
+    const provider = createMockProvider([
+      {
+        content: null,
+        tokensUsed: 8,
+        model: 'gpt-test',
+        finishReason: 'tool_calls',
+        toolCalls: [
+          {
+            id: 'call-1',
+            type: 'function',
+            function: {
+              name: 'search_code',
+              arguments: JSON.stringify({ pattern: 'ToolPort' }),
+            },
+          },
+        ],
+      },
+      {
+        content: 'Task is complete. All requirements met.',
+        tokensUsed: 6,
+        model: 'gpt-test',
+        finishReason: 'stop',
+      },
+    ]);
+
+    const toolPort: ToolPort = {
+      execute: jest.fn(async (request: ToolRequest) => ({
+        toolRequestId: `${request.toolRequestId}:mismatch`,
+        runId: request.runId,
+        workItemId: request.workItemId,
+        goalId: request.goalId,
+        toolCallId: request.toolCallId,
+        toolName: request.toolName,
+        success: true,
+        output: 'search results',
+      })),
+    };
+
+    const integration = new ReActIntegration(provider, undefined, toolPort);
+    const result = await integration.executeWorkCycle({
+      workItem: createWorkItem(),
+      run: createRun(),
+      signal: new AbortController().signal,
+      model: 'gpt-5.2-codex',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.log).toContain('Tool search_code: Tool execution failed: Tool result correlation mismatch');
+    expect(result.log).not.toContain('Tool search_code: search results');
   });
 
   it('fails after repeated non-actionable responses', async () => {

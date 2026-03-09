@@ -13,11 +13,15 @@ import type {
   SchedulerCommandType,
 } from '../../ipc/types.js';
 import { debugEmitter } from '../../debug/emitter.js';
+import type { ConversationLifecycleState, IConversationTurn } from '../../domain/conversation/session.js';
+import type { ConversationState } from '../../domain/conversation/state-machine-rules.js';
+import type { Goal } from '../../work-order/types/index.js';
 
 interface PendingCommand {
-  resolve: () => void;
+  resolve: (value?: unknown) => void;
   reject: (error: Error) => void;
   timeout: NodeJS.Timeout;
+  startedAt: number;
 }
 
 export class IPCBridge {
@@ -25,6 +29,9 @@ export class IPCBridge {
   private ipcServer: IPCServer | null = null;
   private messageHandler: IPCMessageHandler | null = null;
   private pendingCommands = new Map<string, PendingCommand>();
+  private schedulerSessionToGatewaySession = new Map<string, string>();
+  private schedulerCommandAckLatenciesMs: number[] = [];
+  private streamChunkLatenciesMs: number[] = [];
 
   constructor(eventBus: EventBus) {
     this.eventBus = eventBus;
@@ -80,12 +87,221 @@ export class IPCBridge {
     await this.sendSchedulerCommand('submit_goal', { goalId });
   }
 
+  async materializeGoal(params: {
+    goalSpec: {
+      title: string;
+      description: string;
+      success_criteria: Array<{
+        description: string;
+        type: 'heuristic' | 'deterministic';
+        verification_method: string;
+        required?: boolean;
+      }>;
+      priority?: number;
+      budget_tokens?: number;
+      budget_time_minutes?: number;
+      budget_cost_usd?: number;
+      context?: Record<string, unknown>;
+    };
+    initialWorkItemSpec?: {
+      title: string;
+      description: string;
+      item_type: 'analysis' | 'code' | 'test' | 'doc' | 'refactor';
+      priority?: number;
+      dependencies?: string[];
+      context?: Record<string, unknown>;
+    };
+    autoSubmitGoal?: boolean;
+  }): Promise<{
+    goal: Goal;
+    initialWorkItemId?: string;
+  }> {
+    const result = await this.sendSchedulerCommand('materialize_goal', params);
+    return result as { goal: Goal; initialWorkItemId?: string };
+  }
+
   async cancelGoal(goalId: string, reason?: string): Promise<void> {
     await this.sendSchedulerCommand('cancel_goal', { goalId, reason });
   }
 
+  async openSession(params: {
+    gatewaySessionId: string;
+    personaId?: string;
+    userProfileId?: string;
+    channelType?: string;
+    channelSessionId?: string;
+  }): Promise<{
+    sessionId: string;
+    personaId: string;
+    state: ConversationState;
+    lifecycleState: ConversationLifecycleState;
+  }> {
+    const result = await this.sendSchedulerCommand('session_open', params);
+    return result as {
+      sessionId: string;
+      personaId: string;
+      state: ConversationState;
+      lifecycleState: ConversationLifecycleState;
+    };
+  }
+
+  async listSessions(params: {
+    limit?: number;
+    lifecycleState?: 'active' | 'archived';
+  }): Promise<{
+    sessions: Array<{
+      id: string;
+      personaId: string;
+      title?: string;
+      state: ConversationState;
+      lifecycleState: ConversationLifecycleState;
+      archivedAt?: number;
+      archiveSummary?: string;
+      turnCount: number;
+      lastMessage?: string;
+      createdAt: number;
+      updatedAt: number;
+    }>;
+  }> {
+    const result = await this.sendSchedulerCommand('session_list', params);
+    return result as {
+      sessions: Array<{
+        id: string;
+        personaId: string;
+        title?: string;
+        state: ConversationState;
+        lifecycleState: ConversationLifecycleState;
+        archivedAt?: number;
+        archiveSummary?: string;
+        turnCount: number;
+        lastMessage?: string;
+        createdAt: number;
+        updatedAt: number;
+      }>;
+    };
+  }
+
+  async sendSessionMessage(params: {
+    gatewaySessionId: string;
+    sessionId?: string;
+    personaId?: string;
+    userProfileId?: string;
+    agentId?: string;
+    channelType?: string;
+    channelSessionId?: string;
+    message: string;
+    attachments?: Array<{
+      type: 'image' | 'file' | 'audio';
+      url?: string;
+      base64?: string;
+      mimeType: string;
+      filename?: string;
+    }>;
+    stream?: boolean;
+  }): Promise<{
+    sessionId: string;
+    response: string;
+    state: ConversationState;
+    decision?: 'goal_created' | 'clarification_requested' | 'response_only';
+    decisionReason?: string;
+    taskInfo?: {
+      goalId: string;
+      status: string;
+      progress?: number;
+    };
+  }> {
+    const result = await this.sendSchedulerCommand('session_message', params);
+    return result as {
+      sessionId: string;
+      response: string;
+      state: ConversationState;
+      decision?: 'goal_created' | 'clarification_requested' | 'response_only';
+      decisionReason?: string;
+      taskInfo?: {
+        goalId: string;
+        status: string;
+        progress?: number;
+      };
+    };
+  }
+
+  async getSessionHistory(params: {
+    sessionId: string;
+    limit?: number;
+  }): Promise<{
+    turns: IConversationTurn[];
+  }> {
+    const result = await this.sendSchedulerCommand('session_history', params);
+    return result as { turns: IConversationTurn[] };
+  }
+
+  async endSession(params: { sessionId: string }): Promise<{ success: boolean }> {
+    const result = await this.sendSchedulerCommand('session_end', params);
+    return result as { success: boolean };
+  }
+
+  async archiveSession(params: {
+    sessionId: string;
+  }): Promise<{ success: boolean; archivedAt?: number; summary?: string }> {
+    const result = await this.sendSchedulerCommand('session_archive', params);
+    return result as { success: boolean; archivedAt?: number; summary?: string };
+  }
+
+  async resumeSession(params: { sessionId: string }): Promise<{ success: boolean }> {
+    const result = await this.sendSchedulerCommand('session_resume', params);
+    return result as { success: boolean };
+  }
+
+  async getSessionStatus(params: {
+    sessionId: string;
+  }): Promise<{
+    exists: boolean;
+    state?: ConversationState;
+    lifecycleState?: ConversationLifecycleState;
+    archivedAt?: number;
+    turnCount?: number;
+  }> {
+    const result = await this.sendSchedulerCommand('session_status', params);
+    return result as {
+      exists: boolean;
+      state?: ConversationState;
+      lifecycleState?: ConversationLifecycleState;
+      archivedAt?: number;
+      turnCount?: number;
+    };
+  }
+
   async applyRuntimeRollout(rollout: NonNullable<SchedulerCommandRequest['rollout']>): Promise<void> {
     await this.sendSchedulerCommand('apply_runtime_rollout', { rollout });
+  }
+
+  async setAgentModelOverride(params: {
+    agentId: string;
+    model: string;
+  }): Promise<{ success: boolean; agentId: string; model: string; configPath: string }> {
+    const result = await this.sendSchedulerCommand('set_agent_model_override', params);
+    return result as { success: boolean; agentId: string; model: string; configPath: string };
+  }
+
+  async getAgentModelOverride(params: {
+    agentId: string;
+  }): Promise<{ agentId: string; model: string | null }> {
+    const result = await this.sendSchedulerCommand('get_agent_model_override', params);
+    return result as { agentId: string; model: string | null };
+  }
+
+  getRealtimeMetrics(): {
+    schedulerCommandAckMsP95: number;
+    streamChunkLatencyMsP95: number;
+    ackSampleSize: number;
+    streamSampleSize: number;
+  } {
+    return {
+      schedulerCommandAckMsP95: this.computeP95(this.schedulerCommandAckLatenciesMs),
+      streamChunkLatencyMsP95: this.computeP95(this.streamChunkLatenciesMs),
+      ackSampleSize: this.schedulerCommandAckLatenciesMs.length,
+      streamSampleSize: this.streamChunkLatenciesMs.length,
+    };
   }
 
   /**
@@ -95,6 +311,10 @@ export class IPCBridge {
     switch (message.type) {
       case 'scheduler_event':
         this.handleSchedulerEvent(message, clientId);
+        break;
+
+      case 'session_event':
+        this.handleSessionEvent(message);
         break;
 
       case 'debug_event':
@@ -144,12 +364,22 @@ export class IPCBridge {
 
     const event = message.data as any;
 
+    if (typeof event.timestamp === 'number') {
+      const transportLatencyMs = Math.max(0, Date.now() - event.timestamp);
+      if (event.type === 'llm_stream_chunk') {
+        this.recordSample(this.streamChunkLatenciesMs, transportLatencyMs, 500);
+      }
+    }
+
+    const schedulerEnvelope = this.extractSchedulerEnvelope(event.data);
+
     // Route to EventBus based on event type
     // This mirrors the logic in SchedulerBridge
     switch (event.type) {
       case 'goal_started':
         this.eventBus.emit('goal.started', {
           goalId: event.goalId,
+          ...schedulerEnvelope,
           timestamp: event.timestamp,
         });
         break;
@@ -157,6 +387,7 @@ export class IPCBridge {
       case 'goal_completed':
         this.eventBus.emit('goal.completed', {
           goalId: event.goalId,
+          ...schedulerEnvelope,
           timestamp: event.timestamp,
         });
         break;
@@ -165,6 +396,7 @@ export class IPCBridge {
         this.eventBus.emit('goal.failed', {
           goalId: event.goalId,
           error: event.data?.error,
+          ...schedulerEnvelope,
           timestamp: event.timestamp,
         });
         break;
@@ -176,6 +408,7 @@ export class IPCBridge {
           runId: event.runId,
           model: event.data?.model,
           laneId: event.data?.laneId,
+          ...schedulerEnvelope,
           timestamp: event.timestamp,
         });
         break;
@@ -187,6 +420,7 @@ export class IPCBridge {
           runId: event.runId,
           stage: event.data?.stage,
           progress: event.data?.progress,
+          ...schedulerEnvelope,
           timestamp: event.timestamp,
         });
         break;
@@ -198,6 +432,7 @@ export class IPCBridge {
           runId: event.runId,
           outcome: event.data?.outcome,
           error: event.data?.error,
+          ...schedulerEnvelope,
           timestamp: event.timestamp,
         });
         break;
@@ -206,6 +441,7 @@ export class IPCBridge {
         this.eventBus.emit('workitem.completed', {
           workItemId: event.workItemId,
           goalId: event.goalId,
+          ...schedulerEnvelope,
           timestamp: event.timestamp,
         });
         break;
@@ -215,6 +451,7 @@ export class IPCBridge {
           workItemId: event.workItemId,
           goalId: event.goalId,
           error: event.data?.error,
+          ...schedulerEnvelope,
           timestamp: event.timestamp,
         });
         break;
@@ -225,6 +462,7 @@ export class IPCBridge {
           workItemId: event.workItemId,
           goalId: event.goalId,
           selectedModel: event.data?.selected_model,
+          ...schedulerEnvelope,
           timestamp: event.timestamp,
         });
         break;
@@ -238,6 +476,7 @@ export class IPCBridge {
           selectedModel: event.data?.selected_model,
           actualModel: event.data?.actual_model,
           endpointId: event.data?.endpoint_id,
+          ...schedulerEnvelope,
           timestamp: event.timestamp,
         });
         break;
@@ -247,6 +486,7 @@ export class IPCBridge {
           workItemId: event.workItemId,
           goalId: event.goalId,
           runId: event.runId,
+          ...schedulerEnvelope,
           timestamp: event.timestamp,
         });
         break;
@@ -258,6 +498,7 @@ export class IPCBridge {
           runId: event.runId,
           passed: event.data?.passed,
           summary: event.data?.summary,
+          ...schedulerEnvelope,
           timestamp: event.timestamp,
         });
         break;
@@ -268,6 +509,7 @@ export class IPCBridge {
           goalId: event.goalId,
           type: event.data?.type,
           error: event.data?.error,
+          ...schedulerEnvelope,
           timestamp: event.timestamp,
         });
         break;
@@ -276,6 +518,7 @@ export class IPCBridge {
         this.eventBus.emit('escalation.resolved', {
           workItemId: event.workItemId,
           goalId: event.goalId,
+          ...schedulerEnvelope,
           timestamp: event.timestamp,
         });
         break;
@@ -285,6 +528,7 @@ export class IPCBridge {
           goalId: event.goalId,
           level: event.data?.level,
           status: event.data?.status,
+          ...schedulerEnvelope,
           timestamp: event.timestamp,
         });
         break;
@@ -292,6 +536,7 @@ export class IPCBridge {
       case 'budget_exceeded':
         this.eventBus.emit('budget.exceeded', {
           goalId: event.goalId,
+          ...schedulerEnvelope,
           timestamp: event.timestamp,
         });
         break;
@@ -299,6 +544,37 @@ export class IPCBridge {
       default:
         console.warn(`[IPCBridge] Unknown scheduler event type: ${event.type}`);
     }
+  }
+
+  private extractSchedulerEnvelope(data: unknown): {
+    gatewaySessionId?: string;
+    sessionId?: string;
+    channelType?: string;
+    channelSessionId?: string;
+  } {
+    if (!data || typeof data !== 'object') {
+      return {};
+    }
+
+    const payload = data as Record<string, unknown>;
+    const sessionId = typeof payload.sessionId === 'string' && payload.sessionId.length > 0
+      ? payload.sessionId
+      : undefined;
+    const channelSessionId = typeof payload.channelSessionId === 'string' && payload.channelSessionId.length > 0
+      ? payload.channelSessionId
+      : undefined;
+    const channelType = typeof payload.channelType === 'string' && payload.channelType.length > 0
+      ? payload.channelType
+      : undefined;
+
+    const gatewaySessionId = sessionId ? this.schedulerSessionToGatewaySession.get(sessionId) : undefined;
+
+    return {
+      ...(gatewaySessionId ? { gatewaySessionId } : {}),
+      ...(sessionId ? { sessionId } : {}),
+      ...(channelType ? { channelType } : {}),
+      ...(channelSessionId ? { channelSessionId } : {}),
+    };
   }
 
   /**
@@ -341,10 +617,40 @@ export class IPCBridge {
     }
   }
 
+  private handleSessionEvent(message: AnyIPCMessage): void {
+    if (message.type !== 'session_event' || !message.data) {
+      return;
+    }
+
+    const eventData = message.data as {
+      event?: string;
+      gatewaySessionId?: string;
+      sessionId?: string;
+      payload?: Record<string, unknown>;
+    };
+
+    if (typeof eventData.event !== 'string' || eventData.event.length === 0) {
+      return;
+    }
+
+    const payload = {
+      ...(eventData.payload ?? {}),
+      ...(typeof eventData.sessionId === 'string' ? { sessionId: eventData.sessionId } : {}),
+      ...(typeof eventData.gatewaySessionId === 'string' ? { gatewaySessionId: eventData.gatewaySessionId } : {}),
+      timestamp: Date.now(),
+    };
+
+    if (typeof eventData.sessionId === 'string' && typeof eventData.gatewaySessionId === 'string') {
+      this.schedulerSessionToGatewaySession.set(eventData.sessionId, eventData.gatewaySessionId);
+    }
+
+    this.eventBus.emit(eventData.event, payload);
+  }
+
   private async sendSchedulerCommand(
     command: SchedulerCommandType,
     params: Omit<SchedulerCommandRequest, 'requestId' | 'command'>
-  ): Promise<void> {
+  ): Promise<unknown> {
     const ipcServer = this.ipcServer;
     if (!ipcServer) {
       throw new Error('IPC server is not connected');
@@ -357,13 +663,14 @@ export class IPCBridge {
 
     const requestId = `ipc-cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-    await new Promise<void>((resolve, reject) => {
+    return await new Promise<unknown>((resolve, reject) => {
+      const startedAt = Date.now();
       const timeout = setTimeout(() => {
         this.pendingCommands.delete(requestId);
         reject(new Error(`Scheduler command timed out: ${command}`));
       }, 5000);
 
-      this.pendingCommands.set(requestId, { resolve, reject, timeout });
+      this.pendingCommands.set(requestId, { resolve, reject, timeout, startedAt });
 
       try {
         ipcServer.sendToClient(schedulerClientId, {
@@ -400,9 +707,10 @@ export class IPCBridge {
 
     clearTimeout(pending.timeout);
     this.pendingCommands.delete(requestId);
+    this.recordSample(this.schedulerCommandAckLatenciesMs, Math.max(0, Date.now() - pending.startedAt), 500);
 
     if (message.data.success) {
-      pending.resolve();
+      pending.resolve(message.data.result);
       return;
     }
 
@@ -429,5 +737,21 @@ export class IPCBridge {
       pending.reject(new Error(reason));
       this.pendingCommands.delete(requestId);
     }
+  }
+
+  private recordSample(samples: number[], value: number, maxSamples: number): void {
+    samples.push(value);
+    if (samples.length > maxSamples) {
+      samples.splice(0, samples.length - maxSamples);
+    }
+  }
+
+  private computeP95(samples: number[]): number {
+    if (samples.length === 0) {
+      return 0;
+    }
+    const sorted = [...samples].sort((a, b) => a - b);
+    const index = Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1);
+    return sorted[index] ?? 0;
   }
 }

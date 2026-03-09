@@ -155,11 +155,16 @@ export type GatewayEventType =
   | 'connection.authenticated'
   | 'connection.disconnected'
   // Conversation events
+  | 'conversation.new'
+  | 'conversation.message.started'
+  | 'conversation.message.succeeded'
   | 'conversation.response'
   | 'conversation.typing'
   | 'conversation.ended'
   | 'conversation.archived'
   | 'conversation.resumed'
+  | 'channel.adapter.config.updated'
+  | 'channel.adapter.status.updated'
   | 'task.narration'
   | 'task.result'
   // LLM streaming events
