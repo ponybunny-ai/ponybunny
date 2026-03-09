@@ -98,6 +98,101 @@ async function seedInspectionDb(dbPath: string): Promise<{
   };
 }
 
+async function seedReplayInspectionDb(dbPath: string): Promise<{
+  originalRunId: string;
+  replacementRunId: string;
+  directRunId: string;
+}> {
+  const repository = new WorkOrderDatabase(dbPath);
+  await repository.initialize();
+
+  const goal = repository.createGoal({
+    title: 'goal',
+    description: 'desc',
+    success_criteria: [],
+  });
+
+  const replayItem = repository.createWorkItem({
+    goal_id: goal.id,
+    title: 'replay',
+    description: 'desc',
+    item_type: 'code',
+  });
+  repository.updateWorkItemStatus(replayItem.id, 'in_progress');
+
+  const directItem = repository.createWorkItem({
+    goal_id: goal.id,
+    title: 'direct',
+    description: 'desc',
+    item_type: 'test',
+  });
+  repository.updateWorkItemStatus(directItem.id, 'in_progress');
+
+  const originalRun = repository.createRun({
+    work_item_id: replayItem.id,
+    goal_id: goal.id,
+    agent_type: 'code',
+    run_sequence: 1,
+  });
+
+  const replacementRun = repository.createRun({
+    work_item_id: replayItem.id,
+    goal_id: goal.id,
+    agent_type: 'code',
+    run_sequence: 2,
+  });
+  repository.mergeRunContext(replacementRun.id, {
+    evented_dispatch: buildEventedDispatchCheckpoint({
+      laneId: 'main',
+      dispatchedAt: 2000,
+      resultContinuationApplied: false,
+      replayOfRunId: originalRun.id,
+      replayStartedAt: 2000,
+    }),
+  });
+
+  repository.mergeRunContext(originalRun.id, {
+    evented_dispatch: {
+      ...buildEventedDispatchCheckpoint({
+        laneId: 'main',
+        dispatchedAt: 1000,
+        resultContinuationApplied: false,
+      }),
+      orphan_classification: 'stale_timeout',
+      orphan_detected_at: 1500,
+      recovery_candidate: true,
+      recovery_candidate_marked_at: 1600,
+      recovery_candidate_reason: 'manual_operator_mark',
+      replay_candidate: true,
+      replay_candidate_marked_at: 1700,
+      replay_candidate_reason: 'manual_operator_mark',
+      manual_replay: {
+        requested_at: 2000,
+        requested_reason: 'manual_operator_request',
+        replacement_run_id: replacementRun.id,
+        replacement_run_created_at: 2000,
+        original_continuation_suppressed_at: 2000,
+      },
+    },
+  });
+
+  const directRun = repository.createRun({
+    work_item_id: directItem.id,
+    goal_id: goal.id,
+    agent_type: 'test',
+    run_sequence: 1,
+    context: { selected_model: 'direct-model' },
+  });
+
+  repository.close();
+
+  return {
+    originalRunId: originalRun.id,
+    replacementRunId: replacementRun.id,
+    directRunId: directRun.id,
+  };
+}
+
 describe('pb scheduler reconciliation inspection', () => {
   const pbCommand = 'node dist/cli/index.js';
 
@@ -156,6 +251,67 @@ describe('pb scheduler reconciliation inspection', () => {
     expect(output).toContain('- orphanClassification: stale_timeout');
     expect(output).toContain('- recoveryCandidate: -');
     expect(output).toContain('- replayCandidate: -');
+  });
+
+  test('prints replay lineage fields for an original replayed run', async () => {
+    const dbPath = createTempDbPath();
+    const { originalRunId, replacementRunId } = await seedReplayInspectionDb(dbPath);
+
+    const output = execSync(`${pbCommand} scheduler inspect-run ${originalRunId} --db "${dbPath}"`, {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    });
+
+    expect(output).toContain(`- runId: ${originalRunId}`);
+    expect(output).toContain('- isReplayAttempt: false');
+    expect(output).toContain('- replayLineageRole: original');
+    expect(output).toContain(`- replayLineagePeerRunId: ${replacementRunId}`);
+    expect(output).toContain('- replay_of_run_id: -');
+    expect(output).toContain(`- replacement_run_id: ${replacementRunId}`);
+    expect(output).toContain('- replay_started_at: -');
+    expect(output).toContain('- original_continuation_suppressed_at: 1970-01-01T00:00:02.000Z');
+  });
+
+  test('prints replay lineage fields for a replacement replay attempt', async () => {
+    const dbPath = createTempDbPath();
+    const { originalRunId, replacementRunId } = await seedReplayInspectionDb(dbPath);
+
+    const output = execSync(
+      `${pbCommand} scheduler inspect-run ${replacementRunId} --db "${dbPath}"`,
+      {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      }
+    );
+
+    expect(output).toContain(`- runId: ${replacementRunId}`);
+    expect(output).toContain('- isReplayAttempt: true');
+    expect(output).toContain('- replayLineageRole: replacement');
+    expect(output).toContain(`- replayLineagePeerRunId: ${originalRunId}`);
+    expect(output).toContain(`- replay_of_run_id: ${originalRunId}`);
+    expect(output).toContain('- replacement_run_id: -');
+    expect(output).toContain('- replay_started_at: 1970-01-01T00:00:02.000Z');
+    expect(output).toContain('- original_continuation_suppressed_at: -');
+  });
+
+  test('non-replay runs still inspect cleanly and direct mode remains unaffected', async () => {
+    const dbPath = createTempDbPath();
+    const { directRunId } = await seedReplayInspectionDb(dbPath);
+
+    const output = execSync(`${pbCommand} scheduler inspect-run ${directRunId} --db "${dbPath}"`, {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    });
+
+    expect(output).toContain(`- runId: ${directRunId}`);
+    expect(output).toContain('- executionMode: direct');
+    expect(output).toContain('- isReplayAttempt: false');
+    expect(output).toContain('- replayLineageRole: none');
+    expect(output).toContain('- replayLineagePeerRunId: -');
+    expect(output).toContain('- replay_of_run_id: -');
+    expect(output).toContain('- replacement_run_id: -');
+    expect(output).toContain('- replay_started_at: -');
+    expect(output).toContain('- original_continuation_suppressed_at: -');
   });
 
   test('marks an evented run as a recovery candidate idempotently without affecting direct runs', async () => {

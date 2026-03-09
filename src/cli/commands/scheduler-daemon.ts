@@ -186,6 +186,28 @@ function formatOptional(value?: string | number | boolean): string {
   return String(value);
 }
 
+function getReplayLineageRole(
+  record: RunInspectionRecord
+): 'original' | 'replacement' | 'none' {
+  if (record.replayOfRunId) {
+    return 'replacement';
+  }
+
+  if (record.replayReplacementRunId) {
+    return 'original';
+  }
+
+  return 'none';
+}
+
+function getReplayLineagePeerRunId(record: RunInspectionRecord): string | undefined {
+  if (record.replayOfRunId) {
+    return record.replayOfRunId;
+  }
+
+  return record.replayReplacementRunId;
+}
+
 function printEventedInspectionRows(title: string, dbPath: string, rows: EventedRunInspectionRecord[]): void {
   console.log(chalk.bold(`\n${title}`));
   console.log(`- Database: ${dbPath}`);
@@ -220,6 +242,9 @@ function printEventedSummary(dbPath: string, summary: EventedRunReconciliationSu
 }
 
 function printRunInspection(dbPath: string, record: RunInspectionRecord): void {
+  const replayLineageRole = getReplayLineageRole(record);
+  const replayLineagePeerRunId = getReplayLineagePeerRunId(record);
+
   console.log(chalk.bold('\nRun Inspection'));
   console.log(`- Database: ${dbPath}`);
   console.log(`- runId: ${record.run.id}`);
@@ -241,11 +266,18 @@ function printRunInspection(dbPath: string, record: RunInspectionRecord): void {
   console.log(`- replayCandidate: ${formatOptional(record.replayCandidate)}`);
   console.log(`- replayCandidateMarkedAt: ${formatTimestamp(record.replayCandidateMarkedAt)}`);
   console.log(`- replayCandidateReason: ${formatOptional(record.replayCandidateReason)}`);
-  console.log(`- replayReplacementRunId: ${formatOptional(record.replayReplacementRunId)}`);
+
+  console.log('- Replay Lineage:');
+  console.log(`- isReplayAttempt: ${record.replayOfRunId ? 'true' : 'false'}`);
+  console.log(`- replayLineageRole: ${replayLineageRole}`);
+  console.log(`- replayLineagePeerRunId: ${formatOptional(replayLineagePeerRunId)}`);
+  console.log(`- replay_of_run_id: ${formatOptional(record.replayOfRunId)}`);
+  console.log(`- replacement_run_id: ${formatOptional(record.replayReplacementRunId)}`);
   console.log(`- replayRequestedAt: ${formatTimestamp(record.replayRequestedAt)}`);
-  console.log(`- replaySuppressedAt: ${formatTimestamp(record.replaySuppressedAt)}`);
-  console.log(`- replayOfRunId: ${formatOptional(record.replayOfRunId)}`);
-  console.log(`- replayStartedAt: ${formatTimestamp(record.replayStartedAt)}`);
+  console.log(
+    `- original_continuation_suppressed_at: ${formatTimestamp(record.replaySuppressedAt)}`
+  );
+  console.log(`- replay_started_at: ${formatTimestamp(record.replayStartedAt)}`);
 }
 
 async function createReplayScheduler(dbPath: string) {

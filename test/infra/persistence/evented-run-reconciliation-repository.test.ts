@@ -679,6 +679,30 @@ describe('WorkOrderDatabase evented reconciliation queries', () => {
       })
     );
 
+    const originalInspection = repository.getRunInspection(run.id);
+    expect(originalInspection).toEqual(
+      expect.objectContaining({
+        executionMode: 'evented',
+        replayReplacementRunId: result.replacementRun?.id,
+        replayRequestedAt: 2000,
+        replaySuppressedAt: 2000,
+        replayOfRunId: undefined,
+        replayStartedAt: undefined,
+      })
+    );
+
+    const replacementInspection = repository.getRunInspection(result.replacementRun!.id);
+    expect(replacementInspection).toEqual(
+      expect.objectContaining({
+        executionMode: 'evented',
+        replayReplacementRunId: undefined,
+        replayRequestedAt: undefined,
+        replaySuppressedAt: undefined,
+        replayOfRunId: run.id,
+        replayStartedAt: 2000,
+      })
+    );
+
     const suppressedClaim = repository.claimEventedResultContinuation(run.id, 3000);
     expect(suppressedClaim.status).toBe('suppressed_by_replay');
 
