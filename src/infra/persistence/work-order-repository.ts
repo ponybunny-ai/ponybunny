@@ -21,7 +21,7 @@ import type {
   Goal, WorkItem, Run, Artifact, Decision, Escalation, ContextPack,
   GoalRow, WorkItemRow, RunRow, ArtifactRow, DecisionRow, EscalationRow, ContextPackRow,
   GoalStatus, WorkItemStatus, SuccessCriterion, VerificationPlan, ContextSnapshot,
-  EscalationContext, DecisionOption
+  EscalationContext, DecisionOption, InFlightRunReconciliationCandidate
 } from '../../work-order/types/index.js';
 import type { DeterministicRunEvent, DeterministicRunEventType } from '../../deterministic-runtime/run-events.js';
 
@@ -61,6 +61,11 @@ interface RunEventRow {
   event_type: string;
   ts_ms: number;
   payload_json: string;
+}
+
+interface RunReconciliationCandidateRow extends RunRow {
+  work_item_status: WorkItemStatus;
+  work_item_updated_at: number;
 }
 
 export class WorkOrderDatabase implements IWorkOrderRepository {
@@ -603,6 +608,22 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     );
   }
 
+  mergeRunContext(id: string, contextPatch: Record<string, unknown>): void {
+    const existingRun = this.getRun(id);
+    const mergedContext = {
+      ...(existingRun?.context ?? {}),
+      ...contextPatch,
+    };
+
+    const stmt = this.db.prepare(`
+      UPDATE runs SET
+        context = ?
+      WHERE id = ?
+    `);
+
+    stmt.run(JSON.stringify(mergedContext), id);
+  }
+
   private computeErrorSignature(error_message: string): string {
     const normalized = error_message
       .replace(/\/[^\s]+/g, '<PATH>')
@@ -624,6 +645,26 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     const stmt = this.db.prepare('SELECT * FROM runs WHERE work_item_id = ? ORDER BY run_sequence ASC');
     const rows = stmt.all(work_item_id) as RunRow[];
     return rows.map(r => this.parseRunRow(r));
+  }
+
+  listInFlightRunReconciliationCandidates(): InFlightRunReconciliationCandidate[] {
+    const stmt = this.db.prepare(`
+      SELECT
+        runs.*,
+        work_items.status AS work_item_status,
+        work_items.updated_at AS work_item_updated_at
+      FROM runs
+      INNER JOIN work_items ON work_items.id = runs.work_item_id
+      WHERE runs.status = 'running'
+      ORDER BY runs.created_at ASC
+    `);
+    const rows = stmt.all() as RunReconciliationCandidateRow[];
+
+    return rows.map((row) => ({
+      run: this.parseRunRow(row),
+      workItemStatus: row.work_item_status,
+      workItemUpdatedAt: row.work_item_updated_at,
+    }));
   }
 
   appendRunEvent(event: {

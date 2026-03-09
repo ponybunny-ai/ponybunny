@@ -29,6 +29,10 @@ import type {
   WorkItemExecutionContext,
 } from './types.js';
 import { debug } from '../../debug/index.js';
+import {
+  buildEventedDispatchCheckpoint,
+  readEventedDispatchCheckpoint,
+} from '../evented-dispatch-checkpoint.js';
 
 const DEFAULT_CONFIG: SchedulerConfig = {
   tickIntervalMs: 1000,
@@ -540,12 +544,26 @@ export class SchedulerCore implements ISchedulerCore {
 
   private async publishTaskReady(context: WorkItemExecutionContext): Promise<void> {
     const request = this.buildExecutionRequest(context);
+    const dispatchedAt = Date.now();
+    const eventedDispatch = buildEventedDispatchCheckpoint({
+      laneId: request.laneId,
+      dispatchedAt,
+      resultContinuationApplied: false,
+    });
+
+    this.deps.repository.mergeRunContext(request.runId, {
+      evented_dispatch: eventedDispatch,
+    });
+    context.run.context = {
+      ...(context.run.context ?? {}),
+      evented_dispatch: eventedDispatch,
+    };
 
     await this.deps.runtimeEventBus.publish({
       id: randomUUID(),
       type: 'task.ready',
       source: 'scheduler',
-      timestamp: Date.now(),
+      timestamp: dispatchedAt,
       runId: request.runId,
       goalId: request.goalId,
       workItemId: request.workItemId,
@@ -796,6 +814,17 @@ export class SchedulerCore implements ISchedulerCore {
         result.costUsd
       );
 
+      const existingCheckpoint = readEventedDispatchCheckpoint(run.context);
+      const resultContinuationAppliedAt = Date.now();
+      const completedEventedDispatch = existingCheckpoint
+        ? buildEventedDispatchCheckpoint({
+            laneId: existingCheckpoint.lane_id,
+            dispatchedAt: existingCheckpoint.dispatched_at,
+            resultContinuationApplied: true,
+            resultContinuationAppliedAt,
+          })
+        : null;
+
       this.deps.repository.completeRun(run.id, {
         status: result.success ? 'success' : 'failure',
         tokens_used: result.tokensUsed,
@@ -807,8 +836,15 @@ export class SchedulerCore implements ISchedulerCore {
           selected_model: model,
           actual_model: result.actualModel ?? model,
           endpoint_id: result.endpointId,
+          ...(completedEventedDispatch ? { evented_dispatch: completedEventedDispatch } : {}),
         },
       });
+      if (completedEventedDispatch) {
+        run.context = {
+          ...(run.context ?? {}),
+          evented_dispatch: completedEventedDispatch,
+        };
+      }
 
       this.emitEvent({
         type: 'run_completed',

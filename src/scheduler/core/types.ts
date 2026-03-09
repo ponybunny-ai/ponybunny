@@ -2,7 +2,7 @@
  * Scheduler Core Types
  */
 
-import type { Goal, WorkItem, Run } from '../../work-order/types/index.js';
+import type { Goal, WorkItem, Run, InFlightRunReconciliationCandidate } from '../../work-order/types/index.js';
 import type { LaneId, SchedulerState, SchedulerEvent, SchedulerEventHandler } from '../types.js';
 import type { ModelSelectionResult } from '../model-selector/index.js';
 import type { LaneSelectionResult } from '../lane-selector/index.js';
@@ -155,6 +155,7 @@ export interface ISchedulerRepository {
     run_sequence: number;
     context?: Record<string, unknown>;
   }): Run;
+  mergeRunContext(id: string, contextPatch: Record<string, unknown>): void;
   completeRun(id: string, params: {
     status: Run['status'];
     tokens_used: number;
@@ -165,6 +166,7 @@ export interface ISchedulerRepository {
     context?: Record<string, unknown>;
   }): void;
   getRunsByWorkItem(workItemId: string): Run[];
+  listInFlightRunReconciliationCandidates(): InFlightRunReconciliationCandidate[];
 }
 
 export interface IModelSelectorAdapter {

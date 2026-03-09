@@ -1,4 +1,13 @@
-import type { Goal, WorkItem, Run, Artifact, Decision, Escalation, ContextPack } from '../../domain/types.js';
+import type {
+  Goal,
+  WorkItem,
+  Run,
+  Artifact,
+  Decision,
+  Escalation,
+  ContextPack,
+  InFlightRunReconciliationCandidate,
+} from '../../domain/types.js';
 import type { DeterministicRunEvent, DeterministicRunEventType } from '../../deterministic-runtime/run-events.js';
 
 export interface IWorkOrderRepository {
@@ -19,8 +28,10 @@ export interface IWorkOrderRepository {
   
   createRun(params: CreateRunParams): Run;
   getRun(id: string): Run | undefined;
+  mergeRunContext(id: string, contextPatch: Record<string, unknown>): void;
   completeRun(id: string, params: CompleteRunParams): void;
   getRunsByWorkItem(workItemId: string): Run[];
+  listInFlightRunReconciliationCandidates(): InFlightRunReconciliationCandidate[];
 
   appendRunEvent?(event: {
     run_id: string;

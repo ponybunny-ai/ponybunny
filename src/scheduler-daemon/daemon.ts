@@ -28,6 +28,8 @@ import { createSchemaDrivenAgentRunner } from '../infra/agents/schema-driven-age
 import { getLLMService } from '../infra/llm/index.js';
 import { SchedulerEventEnvelopeResolver } from './scheduler-event-envelope.js';
 import { getRuntimeConfigPath, loadRuntimeConfig, saveRuntimeConfig } from '../infra/config/runtime-config.js';
+import type { EventedStartupReconciliationSummary } from '../scheduler/evented-dispatch-checkpoint.js';
+import { reconcileEventedStartupCandidates } from './evented-startup-reconciliation.js';
 
 export interface SchedulerDaemonConfig {
   /** Path to Gateway IPC socket */
@@ -96,6 +98,7 @@ export class SchedulerDaemon {
   private memoryDb: Database.Database | null = null;
   private schedulerEventEnvelopeResolver: SchedulerEventEnvelopeResolver;
   private executionWorker: LocalExecutionWorker | null = null;
+  private startupReconciliationSummary: EventedStartupReconciliationSummary | null = null;
 
   constructor(
     repository: IWorkOrderRepository,
@@ -142,6 +145,7 @@ export class SchedulerDaemon {
     try {
       // Initialize database
       await this.repository.initialize();
+      await this.reconcileEventedInFlightRunsOnStartup();
 
       const registry = getGlobalAgentRegistry();
       try {
@@ -390,6 +394,10 @@ export class SchedulerDaemon {
     return this.ipcClient;
   }
 
+  getStartupReconciliationSummary(): EventedStartupReconciliationSummary | null {
+    return this.startupReconciliationSummary;
+  }
+
   /**
    * Check if daemon is running.
    */
@@ -438,6 +446,37 @@ export class SchedulerDaemon {
     }
 
     void this.handleSchedulerCommand(message.data as SchedulerCommandRequest);
+  }
+
+  private async reconcileEventedInFlightRunsOnStartup(): Promise<void> {
+    if ((this.config.executionMode ?? 'direct') !== 'evented') {
+      this.startupReconciliationSummary = null;
+      return;
+    }
+
+    const summary = reconcileEventedStartupCandidates(
+      this.repository.listInFlightRunReconciliationCandidates(),
+      Date.now()
+    );
+    this.startupReconciliationSummary = summary;
+
+    console.log(
+      '[SchedulerDaemon] Evented startup reconciliation: ' +
+      `scanned=${summary.scanned} ` +
+      `likely_orphaned=${summary.byClassification.likely_orphaned} ` +
+      `maybe_reattachable=${summary.byClassification.maybe_reattachable} ` +
+      `already_terminal_in_db=${summary.byClassification.already_terminal_in_db} ` +
+      `not_evented_candidate=${summary.byClassification.not_evented_candidate}`
+    );
+
+    for (const finding of summary.findings) {
+      console.log(
+        '[SchedulerDaemon] Evented startup finding: ' +
+        `run=${finding.runId} workItem=${finding.workItemId} classification=${finding.classification} ` +
+        `workItemStatus=${finding.workItemStatus} lane=${finding.laneId ?? '-'} ` +
+        `dispatchedAt=${finding.dispatchedAt ?? '-'} reason=${finding.reason}`
+      );
+    }
   }
 
   private async handleSchedulerCommand(command: SchedulerCommandRequest): Promise<void> {

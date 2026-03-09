@@ -87,8 +87,10 @@ describe('SchedulerCore', () => {
       getWorkItem: jest.fn(),
       updateWorkItemStatus: jest.fn(),
       createRun: jest.fn().mockReturnValue(createRun()),
+      mergeRunContext: jest.fn(),
       completeRun: jest.fn(),
       getRunsByWorkItem: jest.fn().mockReturnValue([]),
+      listInFlightRunReconciliationCandidates: jest.fn().mockReturnValue([]),
     };
 
     // Create mock model selector
@@ -558,6 +560,16 @@ describe('SchedulerCore', () => {
           }),
         })
       );
+      expect(mockRepository.mergeRunContext).toHaveBeenCalledWith(
+        'run-1',
+        expect.objectContaining({
+          evented_dispatch: expect.objectContaining({
+            execution_mode: 'evented',
+            lane_id: 'main',
+            result_continuation_applied: false,
+          }),
+        })
+      );
     });
 
     it('should not directly execute work items in evented mode', async () => {
@@ -572,6 +584,28 @@ describe('SchedulerCore', () => {
       await scheduler.tick();
 
       expect(mockExecutionPort.execute).not.toHaveBeenCalled();
+    });
+
+    it('should preserve direct mode behavior without writing an evented checkpoint', async () => {
+      const goal = createGoal();
+      const workItem = createWorkItem();
+      mockRepository.getGoal.mockReturnValue(goal);
+      mockWorkItemManager.getNextWorkItem.mockResolvedValueOnce(workItem).mockResolvedValue(null);
+      mockExecutionPort.execute.mockResolvedValue({
+        runId: 'run-1',
+        workItemId: 'wi-1',
+        success: true,
+        tokensUsed: 10,
+        timeSeconds: 1,
+        costUsd: 0.001,
+        artifacts: [],
+      });
+
+      await scheduler.submitGoal(goal);
+      await scheduler.start();
+      await scheduler.tick();
+
+      expect(mockRepository.mergeRunContext).not.toHaveBeenCalled();
     });
 
     it('should consume execution.completed as the authoritative evented completion signal', async () => {
@@ -629,6 +663,13 @@ describe('SchedulerCore', () => {
           tokens_used: 1000,
           time_seconds: 60,
           cost_usd: 0.01,
+          context: expect.objectContaining({
+            evented_dispatch: expect.objectContaining({
+              execution_mode: 'evented',
+              lane_id: 'main',
+              result_continuation_applied: true,
+            }),
+          }),
         })
       );
       expect(mockQualityGateRunner.runVerification).toHaveBeenCalled();
