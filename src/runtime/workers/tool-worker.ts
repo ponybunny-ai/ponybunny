@@ -1,7 +1,14 @@
 import { randomUUID } from 'crypto';
 import type { EventBus as RuntimeEventBus } from '../event-bus/index.js';
 import { runtimeEventBus } from '../event-bus/index.js';
-import type { ToolFailure, ToolPort, ToolRequest, ToolResult } from '../tool-boundary/index.js';
+import {
+  ToolRequestRegistry,
+  type ToolFailure,
+  type ToolPort,
+  type ToolRequest,
+  type ToolResult,
+  type ToolRequestResolutionOwner,
+} from '../tool-boundary/index.js';
 
 export const TOOL_WORKER_SOURCE = 'local-tool-worker';
 
@@ -77,49 +84,63 @@ interface ToolWorkerMutableInspectionRecord extends ToolWorkerInspectionRecord {
 }
 
 export class LocalToolWorker {
-  private readonly handledRequests = new Map<string, Promise<ToolResult>>();
   private readonly inspectionsByRequestId = new Map<string, ToolWorkerMutableInspectionRecord>();
   private inspectionSequence = 0;
 
   constructor(
     private readonly toolPort: ToolPort,
-    private readonly bus: RuntimeEventBus = runtimeEventBus
+    private readonly bus: RuntimeEventBus = runtimeEventBus,
+    private readonly requestRegistry: ToolRequestRegistry = new ToolRequestRegistry()
   ) {}
 
   async dispatch(request: ToolRequest): Promise<ToolResult> {
     const inspection = this.getOrCreateInspection(request);
-    const duplicate = this.handledRequests.get(request.toolRequestId);
-    if (duplicate) {
+    if (!this.isNonEmptyString(request.toolRequestId)) {
+      const invalidRequest = this.validateRequest(request);
+      return this.failInvalidRequest(request, inspection, invalidRequest!);
+    }
+
+    const registration = this.requestRegistry.register(request);
+    if (registration.kind === 'duplicate') {
       inspection.duplicateSuppressed = true;
       inspection.duplicateDispatchCount += 1;
-      return duplicate;
+      return registration.promise;
+    }
+
+    if (registration.kind === 'conflict') {
+      return this.failInvalidRequest(request, inspection, {
+        code: 'TOOL_REQUEST_CONFLICT',
+        message: this.buildRequestConflictMessage(request, registration.entry),
+        recoverable: false,
+      });
     }
 
     const invalidRequest = this.validateRequest(request);
     if (invalidRequest) {
-      return this.failInvalidRequest(request, inspection, invalidRequest);
+      void this.resolveInvalidRequest(registration.owner, request, inspection, invalidRequest);
+      return registration.promise;
     }
 
-    const execution = this.executeRequest(request);
-    this.handledRequests.set(request.toolRequestId, execution);
-    return execution;
+    void this.executeRequest(request, registration.owner);
+    return registration.promise;
   }
 
-  private async executeRequest(request: ToolRequest): Promise<ToolResult> {
+  private async executeRequest(request: ToolRequest, owner: ToolRequestResolutionOwner): Promise<void> {
     const context = this.buildContext(request);
     const inspection = this.getOrCreateInspection(request);
-    await this.publish('tool.requested', {
-      request,
-      context,
-      inspection: this.cloneInspection(inspection),
-    } satisfies ToolWorkerRequestedPayload);
-    await this.publish('tool.started', {
-      request,
-      context,
-      inspection: this.cloneInspection(inspection),
-    } satisfies ToolWorkerStartedPayload);
 
     try {
+      await this.publish('tool.requested', {
+        request,
+        context,
+        inspection: this.cloneInspection(inspection),
+      } satisfies ToolWorkerRequestedPayload);
+      await this.publish('tool.started', {
+        request,
+        context,
+        inspection: this.cloneInspection(inspection),
+      } satisfies ToolWorkerStartedPayload);
+
       const result = await this.toolPort.execute(request);
       const normalizedResult = this.normalizeResult(request, result, inspection);
 
@@ -131,7 +152,8 @@ export class LocalToolWorker {
           context,
           inspection: this.cloneInspection(inspection),
         } satisfies ToolWorkerCompletedPayload);
-        return normalizedResult;
+        owner.resolveSuccess(normalizedResult);
+        return;
       }
 
       this.completeInspection(
@@ -148,24 +170,41 @@ export class LocalToolWorker {
         context,
         inspection: this.cloneInspection(inspection),
       } satisfies ToolWorkerFailedPayload);
-      return normalizedResult;
+      if (
+        normalizedResult.error?.code === 'TOOL_RESULT_MISMATCH'
+        || normalizedResult.error?.code === 'TOOL_RESULT_INVALID'
+      ) {
+        owner.resolveInvalid(normalizedResult);
+      } else {
+        owner.resolveFailure(normalizedResult);
+      }
+      return;
     } catch (error) {
-      const failedResult = this.buildFailedResult(request, {
-        code: 'TOOL_WORKER_EXCEPTION',
-        message: error instanceof Error ? error.message : String(error),
-        recoverable: true,
-      });
+      const failedResult = this.buildWorkerExceptionResult(request, error);
       this.completeInspection(inspection, 'failure', failedResult.error);
 
-      await this.publish('tool.failed', {
-        request,
-        result: failedResult,
-        error: failedResult.error!,
-        context,
-        inspection: this.cloneInspection(inspection),
-      } satisfies ToolWorkerFailedPayload);
-      return failedResult;
+      try {
+        await this.publish('tool.failed', {
+          request,
+          result: failedResult,
+          error: failedResult.error!,
+          context,
+          inspection: this.cloneInspection(inspection),
+        } satisfies ToolWorkerFailedPayload);
+      } catch {
+        // The await-based caller contract must still terminate even if diagnostics publication fails.
+      }
+
+      owner.resolveFailure(failedResult);
     }
+  }
+
+  private buildWorkerExceptionResult(request: ToolRequest, error: unknown): ToolResult {
+    return this.buildFailedResult(request, {
+      code: 'TOOL_WORKER_EXCEPTION',
+      message: error instanceof Error ? error.message : String(error),
+      recoverable: true,
+    });
   }
 
   inspect(): ToolWorkerInspectionSnapshot {
@@ -285,14 +324,35 @@ export class LocalToolWorker {
     inspection.correlationMatched = false;
     this.completeInspection(inspection, 'invalid', error);
 
-    await this.publish('tool.failed', {
-      request,
-      result: failedResult,
-      error,
-      context: this.buildContext(request),
-      inspection: this.cloneInspection(inspection),
-    } satisfies ToolWorkerFailedPayload);
+    try {
+      await this.publish('tool.failed', {
+        request,
+        result: failedResult,
+        error,
+        context: this.buildContext(request),
+        inspection: this.cloneInspection(inspection),
+      } satisfies ToolWorkerFailedPayload);
+    } catch (publishError) {
+      const publishFailure = this.buildWorkerExceptionResult(request, publishError);
+      this.completeInspection(inspection, 'failure', publishFailure.error);
+      return publishFailure;
+    }
 
+    return failedResult;
+  }
+
+  private async resolveInvalidRequest(
+    owner: ToolRequestResolutionOwner,
+    request: ToolRequest,
+    inspection: ToolWorkerMutableInspectionRecord,
+    error: ToolFailure
+  ): Promise<ToolResult> {
+    const failedResult = await this.failInvalidRequest(request, inspection, error);
+    if (failedResult.error?.code === 'TOOL_WORKER_EXCEPTION') {
+      owner.resolveFailure(failedResult);
+    } else {
+      owner.resolveInvalid(failedResult);
+    }
     return failedResult;
   }
 
@@ -354,6 +414,37 @@ export class LocalToolWorker {
 
   private isNonEmptyString(value: unknown): value is string {
     return typeof value === 'string' && value.length > 0;
+  }
+
+  private buildRequestConflictMessage(
+    request: ToolRequest,
+    existing: {
+      runId: string;
+      workItemId: string;
+      goalId?: string;
+      toolCallId: string;
+      toolName: string;
+    }
+  ): string {
+    const mismatches: string[] = [];
+
+    if (existing.runId !== request.runId) {
+      mismatches.push(`runId expected ${existing.runId}, received ${request.runId}`);
+    }
+    if (existing.workItemId !== request.workItemId) {
+      mismatches.push(`workItemId expected ${existing.workItemId}, received ${request.workItemId}`);
+    }
+    if (existing.toolCallId !== request.toolCallId) {
+      mismatches.push(`toolCallId expected ${existing.toolCallId}, received ${request.toolCallId}`);
+    }
+    if (existing.toolName !== request.toolName) {
+      mismatches.push(`toolName expected ${existing.toolName}, received ${request.toolName}`);
+    }
+    if (existing.goalId !== request.goalId) {
+      mismatches.push(`goalId expected ${String(existing.goalId)}, received ${String(request.goalId)}`);
+    }
+
+    return `Tool request registry conflict for '${request.toolName}' and toolRequestId '${request.toolRequestId}': ${mismatches.join('; ')}`;
   }
 
   private async publish(type: ToolWorkerEventType, payload: ToolWorkerRequestedPayload | ToolWorkerStartedPayload | ToolWorkerCompletedPayload | ToolWorkerFailedPayload): Promise<void> {

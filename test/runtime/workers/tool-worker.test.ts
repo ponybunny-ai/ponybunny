@@ -1,5 +1,10 @@
 import { MemoryEventBus } from '../../../src/runtime/event-bus/index.js';
-import type { ToolPort, ToolRequest, ToolResult } from '../../../src/runtime/tool-boundary/index.js';
+import {
+  ToolRequestRegistry,
+  type ToolPort,
+  type ToolRequest,
+  type ToolResult,
+} from '../../../src/runtime/tool-boundary/index.js';
 import { LocalToolAdapter } from '../../../src/runtime/tool-boundary/index.js';
 import {
   LocalToolWorker,
@@ -239,6 +244,33 @@ describe('LocalToolWorker', () => {
     ]));
   });
 
+  it('resolves one failed ToolResult if internal event publication throws before execution completes', async () => {
+    const request = createRequest();
+    const failingBus = {
+      publish: jest.fn().mockRejectedValue(new Error('event bus unavailable')),
+      subscribe: jest.fn(),
+      subscribeAll: jest.fn(),
+    };
+    const worker = new LocalToolWorker({
+      execute: jest.fn(),
+    }, failingBus as any);
+
+    await expect(worker.dispatch(request)).resolves.toEqual({
+      toolRequestId: request.toolRequestId,
+      runId: request.runId,
+      workItemId: request.workItemId,
+      goalId: request.goalId,
+      toolCallId: request.toolCallId,
+      toolName: request.toolName,
+      success: false,
+      error: {
+        code: 'TOOL_WORKER_EXCEPTION',
+        message: 'event bus unavailable',
+        recoverable: true,
+      },
+    });
+  });
+
   it('normalizes a mismatched correlated identity into a failed invalid ToolResult', async () => {
     const request = createRequest();
     const worker = new LocalToolWorker({
@@ -389,6 +421,60 @@ describe('LocalToolWorker', () => {
           duplicateSuppressed: true,
           duplicateDispatchCount: 1,
           correlationMatched: true,
+        }),
+      ],
+    });
+  });
+
+  it('registers the request before the execution path can complete', async () => {
+    const request = createRequest();
+    const registry = new ToolRequestRegistry();
+    const toolPort: ToolPort = {
+      execute: jest.fn(async () => {
+        expect(registry.inspect()).toEqual({
+          pending: [
+            expect.objectContaining({
+              toolRequestId: request.toolRequestId,
+              runId: request.runId,
+              workItemId: request.workItemId,
+              toolCallId: request.toolCallId,
+              toolName: request.toolName,
+              state: 'pending',
+            }),
+          ],
+          recent: [],
+        });
+
+        return {
+          toolRequestId: request.toolRequestId,
+          runId: request.runId,
+          workItemId: request.workItemId,
+          goalId: request.goalId,
+          toolCallId: request.toolCallId,
+          toolName: request.toolName,
+          success: true,
+          output: 'ok',
+        };
+      }),
+    };
+    const worker = new LocalToolWorker(toolPort, bus, registry);
+
+    await expect(worker.dispatch(request)).resolves.toEqual(expect.objectContaining({
+      toolRequestId: request.toolRequestId,
+      success: true,
+      output: 'ok',
+    }));
+
+    expect(registry.inspect()).toEqual({
+      pending: [],
+      recent: [
+        expect.objectContaining({
+          toolRequestId: request.toolRequestId,
+          state: 'resolved',
+          terminal: expect.objectContaining({
+            outcome: 'success',
+            success: true,
+          }),
         }),
       ],
     });
