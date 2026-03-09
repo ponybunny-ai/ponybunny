@@ -1,7 +1,9 @@
+import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { SchedulerTaskBridge, resolveMainAgentModelHintFromAgentConfig } from '../../src/scheduler-daemon/session-intake.js';
+import type { ConversationPort, ConversationRequest } from '../../src/runtime/conversation-boundary/index.js';
+import { SchedulerSessionIntake, SchedulerTaskBridge, resolveMainAgentModelHintFromAgentConfig } from '../../src/scheduler-daemon/session-intake.js';
 import { DEFAULT_RUNTIME_CONFIG } from '../../src/infra/config/runtime-config.js';
 import type { Goal, WorkItem } from '../../src/work-order/types/index.js';
 
@@ -247,5 +249,184 @@ describe('SchedulerTaskBridge', () => {
         model: 'openai.gpt-5.3',
       }),
     }));
+  });
+});
+
+describe('SchedulerSessionIntake conversation boundary', () => {
+  function createRepositoryStub() {
+    return {
+      createGoal: jest.fn(),
+      createWorkItem: jest.fn(),
+      getGoal: jest.fn(),
+      getWorkItemsByGoal: jest.fn(() => []),
+      listGoals: jest.fn(() => []),
+      updateGoalStatus: jest.fn(),
+      updateWorkItemStatus: jest.fn(),
+      getWorkItem: jest.fn(),
+      listWorkItems: jest.fn(() => []),
+      listRuns: jest.fn(() => []),
+      getRun: jest.fn(),
+      getRunsByWorkItem: jest.fn(() => []),
+      updateRunStatus: jest.fn(),
+      createRun: jest.fn(),
+      completeRun: jest.fn(),
+      listArtifacts: jest.fn(() => []),
+      createArtifact: jest.fn(),
+      getEscalationsByGoal: jest.fn(() => []),
+      createEscalation: jest.fn(),
+      updateEscalationStatus: jest.fn(),
+      initialize: jest.fn(),
+      close: jest.fn(),
+      reset: jest.fn(),
+      migrate: jest.fn(),
+      healthCheck: jest.fn(() => ({ healthy: true, details: [] })),
+      getMetrics: jest.fn(() => ({
+        totalGoals: 0,
+        activeGoals: 0,
+        completedGoals: 0,
+        failedGoals: 0,
+        totalRuns: 0,
+        successRate: 1,
+        averageCompletionTimeMs: 0,
+      })),
+    };
+  }
+
+  function createLlmServiceStub() {
+    return {
+      generateResponse: jest.fn(),
+      generateResponseWithTools: jest.fn(),
+      getModelForTier: jest.fn(),
+      complete: jest.fn(),
+    };
+  }
+
+  it('routes processMessage through ConversationPort and preserves transport-facing behavior', async () => {
+    const db = new Database(':memory:');
+    const events: Array<{ event: string; gatewaySessionId?: string; sessionId?: string; payload?: Record<string, unknown> }> = [];
+    const portRequests: ConversationRequest[] = [];
+    const conversationPort: ConversationPort = {
+      process: jest.fn(async (request) => {
+        portRequests.push(request);
+        return {
+          conversationRequestId: request.conversationRequestId,
+          sessionId: request.sessionId ?? 'ses-1',
+          response: 'worker response',
+          state: 'executing' as const,
+          decision: 'goal_created' as const,
+          decisionReason: 'Task bridge created executable goal from conversation intent.',
+          taskInfo: {
+            goalId: 'goal-1',
+            status: 'started',
+            progress: 0,
+          },
+        };
+      }),
+    };
+
+    try {
+      const intake = new SchedulerSessionIntake({
+        repository: createRepositoryStub() as never,
+        memoryDb: db,
+        llmService: createLlmServiceStub() as never,
+        schedulerProvider: () => null,
+        publishSessionEvent: async (event) => {
+          events.push(event);
+        },
+        conversationPort,
+        conversationRequestIdFactory: () => 'conv-req-1',
+      });
+
+      const result = await intake.processMessage({
+        gatewaySessionId: 'gw-1',
+        sessionId: 'ses-1',
+        personaId: 'pony-default',
+        userProfileId: 'user-1',
+        agentId: 'planning',
+        channelType: 'discord',
+        channelSessionId: 'thread-7',
+        message: 'build this',
+        attachments: [
+          {
+            type: 'file',
+            mimeType: 'text/plain',
+            filename: 'spec.txt',
+            url: 'file:///tmp/spec.txt',
+          },
+        ],
+      });
+
+      expect(conversationPort.process).toHaveBeenCalledTimes(1);
+      expect(portRequests).toEqual([
+        expect.objectContaining({
+          conversationRequestId: 'conv-req-1',
+          sessionId: 'ses-1',
+          personaId: 'pony-default',
+          userProfileId: 'user-1',
+          agentId: 'planning',
+          message: 'build this',
+          attachments: [
+            expect.objectContaining({
+              type: 'file',
+              filename: 'spec.txt',
+            }),
+          ],
+        }),
+      ]);
+
+      expect(result).toEqual({
+        sessionId: 'ses-1',
+        response: 'worker response',
+        state: 'executing',
+        decision: 'goal_created',
+        decisionReason: 'Task bridge created executable goal from conversation intent.',
+        taskInfo: {
+          goalId: 'goal-1',
+          status: 'started',
+          progress: 0,
+        },
+      });
+
+      expect(events).toEqual([
+        {
+          event: 'conversation.message.started',
+          gatewaySessionId: 'gw-1',
+          sessionId: 'ses-1',
+          payload: {
+            stream: false,
+            channelType: 'discord',
+            channelSessionId: 'thread-7',
+          },
+        },
+        {
+          event: 'conversation.response',
+          gatewaySessionId: 'gw-1',
+          sessionId: 'ses-1',
+          payload: {
+            state: 'executing',
+            decision: 'goal_created',
+            decisionReason: 'Task bridge created executable goal from conversation intent.',
+            hasTask: true,
+            channelType: 'discord',
+            channelSessionId: 'thread-7',
+          },
+        },
+        {
+          event: 'conversation.message.succeeded',
+          gatewaySessionId: 'gw-1',
+          sessionId: 'ses-1',
+          payload: {
+            state: 'executing',
+            decision: 'goal_created',
+            hasTask: true,
+            stream: false,
+            channelType: 'discord',
+            channelSessionId: 'thread-7',
+          },
+        },
+      ]);
+    } finally {
+      db.close();
+    }
   });
 });

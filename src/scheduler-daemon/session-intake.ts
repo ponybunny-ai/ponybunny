@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -24,6 +25,8 @@ import { FilePersonaRepository, InMemoryPersonaRepository } from '../infra/conve
 import { getUserAgentsDir } from '../infra/agents/agent-discovery.js';
 import { loadRuntimeConfig, type PonyBunnyRuntimeConfig } from '../infra/config/runtime-config.js';
 import { ToolAllowlist, ToolEnforcer, ToolRegistry } from '../infra/tools/tool-registry.js';
+import type { ConversationPort } from '../runtime/conversation-boundary/index.js';
+import { ConversationWorker } from '../runtime/workers/conversation-worker.js';
 
 export interface SchedulerSessionEvent {
   event: string;
@@ -45,6 +48,8 @@ export interface SessionIntakeDependencies {
   personasDir?: string;
   schedulerProvider: () => SchedulerCore | null;
   publishSessionEvent: (event: SchedulerSessionEvent) => Promise<void>;
+  conversationPort?: ConversationPort;
+  conversationRequestIdFactory?: () => string;
 }
 
 interface SessionStatusResult {
@@ -282,6 +287,7 @@ export class SchedulerTaskBridge {
 export class SchedulerSessionIntake {
   private sessionManager: SessionManager;
   private personaEngine: PersonaEngine;
+  private conversationPort: ConversationPort;
   private bindingsBySchedulerSession = new Map<string, SessionGatewayBinding>();
 
   constructor(private deps: SessionIntakeDependencies) {
@@ -338,6 +344,8 @@ export class SchedulerSessionIntake {
         defaultUserProfileId: runtimeConfig.memory.userProfileId,
       }
     );
+
+    this.conversationPort = deps.conversationPort ?? new ConversationWorker(this.sessionManager);
   }
 
   async openSession(params: {
@@ -420,6 +428,8 @@ export class SchedulerSessionIntake {
       filename?: string;
     }>;
   }): Promise<SessionMessageResult> {
+    const conversationRequestId = this.createConversationRequestId();
+
     await this.publishEvent({
       event: 'conversation.message.started',
       gatewaySessionId: params.gatewaySessionId,
@@ -431,14 +441,15 @@ export class SchedulerSessionIntake {
       },
     });
 
-    const result = await this.sessionManager.processMessage(
-      params.message,
-      params.sessionId,
-      params.personaId,
-      params.userProfileId,
-      params.attachments,
-      params.agentId
-    );
+    const result = await this.conversationPort.process({
+      conversationRequestId,
+      message: params.message,
+      sessionId: params.sessionId,
+      personaId: params.personaId,
+      userProfileId: params.userProfileId,
+      agentId: params.agentId,
+      attachments: params.attachments,
+    });
 
     this.bindingsBySchedulerSession.set(result.sessionId, {
       gatewaySessionId: params.gatewaySessionId,
@@ -590,6 +601,10 @@ export class SchedulerSessionIntake {
 
   private getGatewaySessionId(sessionId: string): string | undefined {
     return this.bindingsBySchedulerSession.get(sessionId)?.gatewaySessionId;
+  }
+
+  private createConversationRequestId(): string {
+    return this.deps.conversationRequestIdFactory?.() ?? randomUUID();
   }
 
   private async publishEvent(event: SchedulerSessionEvent): Promise<void> {
