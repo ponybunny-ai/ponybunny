@@ -21,9 +21,9 @@ import { RetryHandler } from '../../scheduler/retry-handler/index.js';
 import { WorkItemManager } from '../../scheduler/work-item-manager/index.js';
 import { EscalationHandler } from '../../scheduler/escalation-handler/index.js';
 import { QualityGateRunner, DefaultCommandExecutor, MockLLMReviewer } from '../../scheduler/quality-gate-runner/index.js';
+import { LocalExecutionAdapter } from '../../runtime/execution-boundary/index.js';
 
 import { SchedulerRepositoryAdapter } from './scheduler-repository-adapter.js';
-import { ExecutionEngineAdapter } from './execution-engine-adapter.js';
 
 export interface SchedulerFactoryConfig {
   /** Scheduler tick interval in ms (default: 1000) */
@@ -57,7 +57,7 @@ export function createScheduler(
 
   // Create adapters
   const repositoryAdapter = new SchedulerRepositoryAdapter(repository);
-  const executionEngineAdapter = new ExecutionEngineAdapter(executionService);
+  const executionPort = new LocalExecutionAdapter(executionService);
 
   // Create model selector (uses default config and scorer)
   const modelSelector = new ModelSelector();
@@ -158,7 +158,7 @@ export function createScheduler(
       updateStatus: (workItemId, status) => workItemManager.updateStatus(workItemId, status),
       areDependenciesSatisfied: (workItem) => workItemManager.areDependenciesSatisfied(workItem),
     },
-    executionEngine: executionEngineAdapter,
+    executionPort,
   };
 
   // Create scheduler config

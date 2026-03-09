@@ -8,6 +8,7 @@ import type { ModelSelectionResult } from '../model-selector/index.js';
 import type { LaneSelectionResult } from '../lane-selector/index.js';
 import type { BudgetStatus } from '../budget-tracker/index.js';
 import type { VerificationResult } from '../quality-gate-runner/index.js';
+import type { ExecutionPort } from '../../runtime/execution-boundary/index.js';
 
 export interface SchedulerConfig {
   /** Interval between scheduler ticks in ms */
@@ -129,8 +130,8 @@ export interface SchedulerDependencies {
   qualityGateRunner: IQualityGateRunnerAdapter;
   /** Work item manager for dependency tracking */
   workItemManager: IWorkItemManagerAdapter;
-  /** Execution engine for running work items */
-  executionEngine: IExecutionEngineAdapter;
+  /** Execution boundary for running work items */
+  executionPort: ExecutionPort;
 }
 
 // Adapter interfaces to decouple from concrete implementations
@@ -207,21 +208,4 @@ export interface IWorkItemManagerAdapter {
   areAllWorkItemsComplete(goalId: string): Promise<boolean>;
   updateStatus(workItemId: string, status: WorkItem['status']): Promise<void>;
   areDependenciesSatisfied(workItem: WorkItem): Promise<boolean>;
-}
-
-export interface IExecutionEngineAdapter {
-  execute(
-    workItem: WorkItem,
-    context: { model: string; laneId: LaneId; budgetRemaining: unknown }
-  ): Promise<{
-    success: boolean;
-    tokensUsed: number;
-    timeSeconds: number;
-    costUsd: number;
-    artifacts: string[];
-    actualModel?: string;
-    endpointId?: string;
-    error?: { code: string; message: string; recoverable: boolean };
-  }>;
-  abort(runId: string): Promise<void>;
 }

@@ -9,8 +9,8 @@ import type {
   IEscalationHandlerAdapter,
   IQualityGateRunnerAdapter,
   IWorkItemManagerAdapter,
-  IExecutionEngineAdapter,
 } from '../../../src/scheduler/core/types.js';
+import type { ExecutionPort } from '../../../src/runtime/execution-boundary/index.js';
 import type { Goal, WorkItem, Run } from '../../../src/work-order/types/index.js';
 import type { SchedulerEvent } from '../../../src/scheduler/types.js';
 
@@ -25,7 +25,7 @@ describe('SchedulerCore', () => {
   let mockEscalationHandler: jest.Mocked<IEscalationHandlerAdapter>;
   let mockQualityGateRunner: jest.Mocked<IQualityGateRunnerAdapter>;
   let mockWorkItemManager: jest.Mocked<IWorkItemManagerAdapter>;
-  let mockExecutionEngine: jest.Mocked<IExecutionEngineAdapter>;
+  let mockExecutionPort: jest.Mocked<ExecutionPort>;
 
   const createGoal = (overrides: Partial<Goal> = {}): Goal => ({
     id: 'goal-1',
@@ -162,8 +162,9 @@ describe('SchedulerCore', () => {
     };
 
     // Create mock execution engine
-    mockExecutionEngine = {
+    mockExecutionPort = {
       execute: jest.fn().mockResolvedValue({
+        runId: 'run-1',
         success: true,
         tokensUsed: 1000,
         timeSeconds: 60,
@@ -182,7 +183,7 @@ describe('SchedulerCore', () => {
       escalationHandler: mockEscalationHandler,
       qualityGateRunner: mockQualityGateRunner,
       workItemManager: mockWorkItemManager,
-      executionEngine: mockExecutionEngine,
+      executionPort: mockExecutionPort,
     };
 
     scheduler = new SchedulerCore(mockDeps);
@@ -456,12 +457,36 @@ describe('SchedulerCore', () => {
       expect(mockQualityGateRunner.runVerification).toHaveBeenCalled();
     });
 
+    it('should dispatch execution through ExecutionPort keyed by scheduler run id', async () => {
+      const goal = createGoal();
+      const workItem = createWorkItem();
+      mockRepository.getGoal.mockReturnValue(goal);
+      mockWorkItemManager.getNextWorkItem.mockResolvedValueOnce(workItem).mockResolvedValue(null);
+
+      await scheduler.submitGoal(goal);
+      await scheduler.start();
+      await scheduler.tick();
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(mockExecutionPort.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          runId: 'run-1',
+          goalId: 'goal-1',
+          workItem,
+          model: 'claude-3-5-sonnet',
+          laneId: 'main',
+        })
+      );
+    });
+
     it('should handle execution failure with retry', async () => {
       const goal = createGoal();
       const workItem = createWorkItem();
       mockRepository.getGoal.mockReturnValue(goal);
       mockWorkItemManager.getNextWorkItem.mockResolvedValueOnce(workItem).mockResolvedValue(null);
-      mockExecutionEngine.execute.mockResolvedValue({
+      mockExecutionPort.execute.mockResolvedValue({
+        runId: 'run-1',
         success: false,
         tokensUsed: 500,
         timeSeconds: 30,
@@ -490,7 +515,8 @@ describe('SchedulerCore', () => {
       const workItem = createWorkItem();
       mockRepository.getGoal.mockReturnValue(goal);
       mockWorkItemManager.getNextWorkItem.mockResolvedValueOnce(workItem).mockResolvedValue(null);
-      mockExecutionEngine.execute.mockResolvedValue({
+      mockExecutionPort.execute.mockResolvedValue({
+        runId: 'run-1',
         success: false,
         tokensUsed: 500,
         timeSeconds: 30,

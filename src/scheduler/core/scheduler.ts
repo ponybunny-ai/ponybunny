@@ -163,7 +163,7 @@ export class SchedulerCore implements ISchedulerCore {
     // Abort all active executions
     for (const [runId] of this.activeExecutions) {
       try {
-        await this.deps.executionEngine.abort(runId);
+        await this.deps.executionPort.abort(runId);
       } catch (error) {
         this.debug('Error aborting execution:', runId, error);
       }
@@ -223,7 +223,7 @@ export class SchedulerCore implements ISchedulerCore {
     for (const [runId, context] of this.activeExecutions) {
       if (context.goal.id === goalId) {
         try {
-          await this.deps.executionEngine.abort(runId);
+          await this.deps.executionPort.abort(runId);
           this.activeExecutions.delete(runId);
         } catch (error) {
           this.debug('Error aborting execution:', runId, error);
@@ -509,7 +509,10 @@ export class SchedulerCore implements ISchedulerCore {
       const budgetStatus = this.deps.budgetTracker.getBudgetStatus(goal);
 
       // Execute
-      const result = await this.deps.executionEngine.execute(workItem, {
+      const result = await this.deps.executionPort.execute({
+        runId: run.id,
+        goalId: goal.id,
+        workItem,
         model,
         laneId,
         budgetRemaining: budgetStatus,

@@ -69,6 +69,7 @@ export {
 export { SchedulerBridge } from './integration/scheduler-bridge.js';
 export { SchedulerRepositoryAdapter } from './integration/scheduler-repository-adapter.js';
 export { ExecutionEngineAdapter } from './integration/execution-engine-adapter.js';
+export { LocalExecutionAdapter } from '../runtime/execution-boundary/index.js';
 export {
   createScheduler,
   type SchedulerFactoryConfig,

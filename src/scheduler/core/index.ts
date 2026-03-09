@@ -19,7 +19,6 @@ export type {
   IEscalationHandlerAdapter,
   IQualityGateRunnerAdapter,
   IWorkItemManagerAdapter,
-  IExecutionEngineAdapter,
 } from './types.js';
 
 export { SchedulerCore } from './scheduler.js';

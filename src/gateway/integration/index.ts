@@ -14,6 +14,7 @@ export { SchedulerBridge } from './scheduler-bridge.js';
 // Scheduler Adapters (new)
 export { SchedulerRepositoryAdapter } from './scheduler-repository-adapter.js';
 export { ExecutionEngineAdapter } from './execution-engine-adapter.js';
+export { LocalExecutionAdapter } from '../../runtime/execution-boundary/index.js';
 
 // Scheduler Factory (new)
 export { createScheduler } from './scheduler-factory.js';
