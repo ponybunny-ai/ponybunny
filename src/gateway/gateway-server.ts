@@ -56,6 +56,9 @@ import { registerSystemHandlers } from './rpc/handlers/system-handlers.js';
 import { registerInternalRuntimeHandlers } from './rpc/handlers/internal-runtime-handlers.js';
 import { RuntimeRolloutTelemetry } from './runtime/runtime-rollout-telemetry.js';
 import { setupDebugBroadcaster } from './debug-broadcaster.js';
+import { DebugEventAdapter } from '../runtime/event-bus/adapters/debug-event-adapter.js';
+import { GatewayEventAdapter } from '../runtime/event-bus/adapters/gateway-event-adapter.js';
+import { SchedulerEventAdapter } from '../runtime/event-bus/adapters/scheduler-event-adapter.js';
 
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
 import { AuditLogRepository } from '../infra/persistence/audit-repository.js';
@@ -143,6 +146,9 @@ export class GatewayServer {
   private schedulerBridge: SchedulerBridge;
   private ipcServer: IPCServer;
   private ipcBridge: IPCBridge;
+  private debugEventAdapter: DebugEventAdapter;
+  private gatewayEventAdapter: GatewayEventAdapter;
+  private schedulerEventAdapter: SchedulerEventAdapter;
   private scheduler: ISchedulerCore | null = null;
   private debugBroadcasterCleanup: (() => void) | null = null;
   private schedulerEventAuditUnsubscribers: Array<() => void> = [];
@@ -398,6 +404,9 @@ export class GatewayServer {
     this.broadcastManager = new BroadcastManager(this.eventBus, this.eventEmitter, this.channelRouter);
     this.daemonBridge = new DaemonBridge(this.eventBus);
     this.schedulerBridge = new SchedulerBridge(this.eventBus);
+    this.debugEventAdapter = new DebugEventAdapter();
+    this.gatewayEventAdapter = new GatewayEventAdapter(this.eventBus);
+    this.schedulerEventAdapter = new SchedulerEventAdapter();
 
     // Initialize IPC server and bridge
     const runtimeConfig = loadRuntimeConfig();
@@ -675,6 +684,8 @@ export class GatewayServer {
 
         this.wss.on('listening', async () => {
           this.isRunning = true;
+          this.debugEventAdapter.start();
+          this.gatewayEventAdapter.start();
           await this.channelAdapterManager.applyConfig(this.channelAdapterConfigs);
           await this.channelAdapterManager.applyEnabledChannels(this.channelRouter.getEnabledChannels(), {
             reason: 'startup',
@@ -761,6 +772,8 @@ export class GatewayServer {
       this.debugBroadcasterCleanup = null;
     }
 
+    this.debugEventAdapter.stop();
+    this.gatewayEventAdapter.stop();
     this.ipcBridge.disconnect();
     await this.ipcServer.stop();
     await this.channelAdapterManager.stopAll({
@@ -807,6 +820,7 @@ export class GatewayServer {
   connectScheduler(scheduler: ISchedulerCore): void {
     this.scheduler = scheduler;
     this.schedulerBridge.connect(scheduler);
+    this.schedulerEventAdapter.connect(scheduler);
     console.log('[GatewayServer] Scheduler connected');
   }
 
@@ -815,6 +829,7 @@ export class GatewayServer {
    */
   disconnectScheduler(): void {
     this.schedulerBridge.disconnect();
+    this.schedulerEventAdapter.disconnect();
     this.scheduler = null;
     console.log('[GatewayServer] Scheduler disconnected');
   }
