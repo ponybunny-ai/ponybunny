@@ -108,4 +108,108 @@ describe('RuntimeEventStore', () => {
       },
     ]);
   });
+
+  it('returns recent pages in chronological order with a cursor for follow mode', () => {
+    store.append({
+      id: 'evt-1',
+      type: 'goal.started',
+      goalId: 'goal-1',
+      source: 'gateway',
+      timestamp: 100,
+    });
+    store.append({
+      id: 'evt-2',
+      type: 'task.started',
+      goalId: 'goal-1',
+      taskId: 'task-1',
+      source: 'scheduler',
+      timestamp: 200,
+    });
+    store.append({
+      id: 'evt-3',
+      type: 'task.completed',
+      goalId: 'goal-1',
+      taskId: 'task-1',
+      source: 'scheduler',
+      timestamp: 300,
+    });
+
+    expect(store.listRecentPage(2)).toEqual({
+      events: [
+        {
+          id: 'evt-2',
+          type: 'task.started',
+          goalId: 'goal-1',
+          taskId: 'task-1',
+          source: 'scheduler',
+          timestamp: 200,
+        },
+        {
+          id: 'evt-3',
+          type: 'task.completed',
+          goalId: 'goal-1',
+          taskId: 'task-1',
+          source: 'scheduler',
+          timestamp: 300,
+        },
+      ],
+      cursor: {
+        timestamp: 300,
+        rowId: 3,
+      },
+    });
+  });
+
+  it('lists only events after the provided cursor, including duplicate timestamps', () => {
+    store.append({
+      id: 'evt-1',
+      type: 'goal.started',
+      goalId: 'goal-1',
+      source: 'gateway',
+      timestamp: 100,
+    });
+    store.append({
+      id: 'evt-2',
+      type: 'task.started',
+      goalId: 'goal-1',
+      taskId: 'task-1',
+      source: 'scheduler',
+      timestamp: 100,
+    });
+    store.append({
+      id: 'evt-3',
+      type: 'task.completed',
+      goalId: 'goal-1',
+      taskId: 'task-1',
+      source: 'scheduler',
+      timestamp: 200,
+    });
+
+    const page = store.listAfter({ timestamp: 100, rowId: 1 }, 10);
+
+    expect(page).toEqual({
+      events: [
+        {
+          id: 'evt-2',
+          type: 'task.started',
+          goalId: 'goal-1',
+          taskId: 'task-1',
+          source: 'scheduler',
+          timestamp: 100,
+        },
+        {
+          id: 'evt-3',
+          type: 'task.completed',
+          goalId: 'goal-1',
+          taskId: 'task-1',
+          source: 'scheduler',
+          timestamp: 200,
+        },
+      ],
+      cursor: {
+        timestamp: 200,
+        rowId: 3,
+      },
+    });
+  });
 });

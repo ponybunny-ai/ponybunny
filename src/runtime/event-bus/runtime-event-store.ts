@@ -4,6 +4,7 @@ import type { EventBus } from './event-bus.js';
 import type { RuntimeEvent } from './runtime-event.js';
 
 interface RuntimeEventRow {
+  row_id: number;
   id: string;
   type: string;
   task_id: string | null;
@@ -12,6 +13,16 @@ interface RuntimeEventRow {
   source: string;
   timestamp: number;
   payload_json: string | null;
+}
+
+export interface RuntimeEventCursor {
+  timestamp: number;
+  rowId: number;
+}
+
+export interface RuntimeEventPage {
+  events: RuntimeEvent[];
+  cursor: RuntimeEventCursor | null;
 }
 
 export class RuntimeEventStore {
@@ -38,7 +49,7 @@ export class RuntimeEventStore {
 
   listByGoal(goalId: string): RuntimeEvent[] {
     const rows = this.db.prepare(`
-      SELECT *
+      SELECT rowid AS row_id, *
       FROM runtime_events
       WHERE goal_id = ?
       ORDER BY timestamp ASC, rowid ASC
@@ -48,15 +59,40 @@ export class RuntimeEventStore {
   }
 
   listRecent(limit: number): RuntimeEvent[] {
+    return this.listRecentPage(limit).events.slice().reverse();
+  }
+
+  listRecentPage(limit: number): RuntimeEventPage {
     const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 50;
     const rows = this.db.prepare(`
-      SELECT *
+      SELECT rowid AS row_id, *
       FROM runtime_events
       ORDER BY timestamp DESC, rowid DESC
       LIMIT ?
     `).all(normalizedLimit) as RuntimeEventRow[];
 
-    return rows.map((row) => this.parseRow(row));
+    return this.buildPage(rows.reverse());
+  }
+
+  listAfter(cursor: RuntimeEventCursor | null, limit: number): RuntimeEventPage {
+    const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 50;
+    const rows = cursor
+      ? this.db.prepare(`
+          SELECT rowid AS row_id, *
+          FROM runtime_events
+          WHERE timestamp > ?
+             OR (timestamp = ? AND rowid > ?)
+          ORDER BY timestamp ASC, rowid ASC
+          LIMIT ?
+        `).all(cursor.timestamp, cursor.timestamp, cursor.rowId, normalizedLimit) as RuntimeEventRow[]
+      : this.db.prepare(`
+          SELECT rowid AS row_id, *
+          FROM runtime_events
+          ORDER BY timestamp ASC, rowid ASC
+          LIMIT ?
+        `).all(normalizedLimit) as RuntimeEventRow[];
+
+    return this.buildPage(rows);
   }
 
   private parseRow(row: RuntimeEventRow): RuntimeEvent {
@@ -69,6 +105,20 @@ export class RuntimeEventStore {
       ...(row.goal_id ? { goalId: row.goal_id } : {}),
       ...(row.run_id ? { runId: row.run_id } : {}),
       ...(row.payload_json ? { payload: JSON.parse(row.payload_json) as unknown } : {}),
+    };
+  }
+
+  private buildPage(rows: RuntimeEventRow[]): RuntimeEventPage {
+    const cursor = rows.length > 0
+      ? {
+          timestamp: rows[rows.length - 1].timestamp,
+          rowId: rows[rows.length - 1].row_id,
+        }
+      : null;
+
+    return {
+      events: rows.map((row) => this.parseRow(row)),
+      cursor,
     };
   }
 }
