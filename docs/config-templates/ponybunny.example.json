@@ -12,6 +12,7 @@
     "tickIntervalMs": 1000,
     "maxConcurrentGoals": 5,
     "agentsEnabled": true,
+    "executionMode": "direct",
     "deterministicRuntimeEnabled": false,
     "planCompilerEnabled": false,
     "toolRoutingMode": "system_preferred",

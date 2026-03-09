@@ -40,6 +40,7 @@ export interface SchedulerDaemonConfig {
   tickIntervalMs?: number;
   /** Maximum concurrent goals */
   maxConcurrentGoals?: number;
+  executionMode?: 'direct' | 'evented';
   deterministicRuntimeEnabled?: boolean;
   planCompilerEnabled?: boolean;
   toolRoutingMode?: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
@@ -217,6 +218,7 @@ export class SchedulerDaemon {
           maxConcurrentGoals: this.config.maxConcurrentGoals ?? 5,
           autoStart: false,
           debug: this.config.debug ?? false,
+          executionMode: this.config.executionMode ?? 'direct',
           deterministicRuntimeEnabled: this.config.deterministicRuntimeEnabled ?? false,
           planCompilerEnabled: this.config.planCompilerEnabled ?? false,
           toolRoutingMode: this.config.toolRoutingMode ?? 'legacy',

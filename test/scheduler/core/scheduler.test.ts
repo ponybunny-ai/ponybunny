@@ -11,6 +11,7 @@ import type {
   IWorkItemManagerAdapter,
 } from '../../../src/scheduler/core/types.js';
 import type { ExecutionPort } from '../../../src/runtime/execution-boundary/index.js';
+import type { EventBus as RuntimeEventBus, RuntimeEvent } from '../../../src/runtime/event-bus/index.js';
 import type { Goal, WorkItem, Run } from '../../../src/work-order/types/index.js';
 import type { SchedulerEvent } from '../../../src/scheduler/types.js';
 
@@ -26,6 +27,7 @@ describe('SchedulerCore', () => {
   let mockQualityGateRunner: jest.Mocked<IQualityGateRunnerAdapter>;
   let mockWorkItemManager: jest.Mocked<IWorkItemManagerAdapter>;
   let mockExecutionPort: jest.Mocked<ExecutionPort>;
+  let mockRuntimeEventBus: jest.Mocked<RuntimeEventBus>;
 
   const createGoal = (overrides: Partial<Goal> = {}): Goal => ({
     id: 'goal-1',
@@ -175,6 +177,12 @@ describe('SchedulerCore', () => {
       abort: jest.fn().mockResolvedValue(undefined),
     };
 
+    mockRuntimeEventBus = {
+      publish: jest.fn().mockResolvedValue(undefined),
+      subscribe: jest.fn(),
+      subscribeAll: jest.fn().mockReturnValue(() => {}),
+    };
+
     mockDeps = {
       repository: mockRepository,
       modelSelector: mockModelSelector,
@@ -185,6 +193,7 @@ describe('SchedulerCore', () => {
       qualityGateRunner: mockQualityGateRunner,
       workItemManager: mockWorkItemManager,
       executionPort: mockExecutionPort,
+      runtimeEventBus: mockRuntimeEventBus,
     };
 
     scheduler = new SchedulerCore(mockDeps);
@@ -480,6 +489,53 @@ describe('SchedulerCore', () => {
           laneId: 'main',
         })
       );
+      expect(mockRuntimeEventBus.publish).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'task.ready' } as Partial<RuntimeEvent>)
+      );
+    });
+
+    it('should publish task.ready in evented mode', async () => {
+      const goal = createGoal();
+      const workItem = createWorkItem();
+      mockRepository.getGoal.mockReturnValue(goal);
+      mockWorkItemManager.getNextWorkItem.mockResolvedValueOnce(workItem).mockResolvedValue(null);
+      scheduler = new SchedulerCore(mockDeps, { executionMode: 'evented' });
+
+      await scheduler.submitGoal(goal);
+      await scheduler.start();
+      await scheduler.tick();
+
+      expect(mockRuntimeEventBus.publish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'task.ready',
+          source: 'scheduler',
+          runId: 'run-1',
+          goalId: 'goal-1',
+          workItemId: 'wi-1',
+          payload: expect.objectContaining({
+            runId: 'run-1',
+            goalId: 'goal-1',
+            workItemId: 'wi-1',
+            workItem,
+            model: 'claude-3-5-sonnet',
+            laneId: 'main',
+          }),
+        })
+      );
+    });
+
+    it('should not directly execute work items in evented mode', async () => {
+      const goal = createGoal();
+      const workItem = createWorkItem();
+      mockRepository.getGoal.mockReturnValue(goal);
+      mockWorkItemManager.getNextWorkItem.mockResolvedValueOnce(workItem).mockResolvedValue(null);
+      scheduler = new SchedulerCore(mockDeps, { executionMode: 'evented' });
+
+      await scheduler.submitGoal(goal);
+      await scheduler.start();
+      await scheduler.tick();
+
+      expect(mockExecutionPort.execute).not.toHaveBeenCalled();
     });
 
     it('should handle execution failure with retry', async () => {

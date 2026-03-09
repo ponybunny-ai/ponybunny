@@ -13,6 +13,7 @@ import type { IWorkItemRepository } from '../../scheduler/work-item-manager/work
 import type { IEscalationRepository } from '../../scheduler/escalation-handler/escalation-handler.js';
 import type { ILLMReviewer } from '../../scheduler/quality-gate-runner/types.js';
 import type { ExecutionPort } from '../../runtime/execution-boundary/index.js';
+import type { EventBus as RuntimeEventBus } from '../../runtime/event-bus/index.js';
 
 import { SchedulerCore } from '../../scheduler/core/index.js';
 import { ModelSelector } from '../../scheduler/model-selector/index.js';
@@ -23,6 +24,7 @@ import { WorkItemManager } from '../../scheduler/work-item-manager/index.js';
 import { EscalationHandler } from '../../scheduler/escalation-handler/index.js';
 import { QualityGateRunner, DefaultCommandExecutor, MockLLMReviewer } from '../../scheduler/quality-gate-runner/index.js';
 import { LocalExecutionAdapter } from '../../runtime/execution-boundary/index.js';
+import { runtimeEventBus } from '../../runtime/event-bus/index.js';
 
 import { SchedulerRepositoryAdapter } from './scheduler-repository-adapter.js';
 
@@ -35,6 +37,7 @@ export interface SchedulerFactoryConfig {
   autoStart?: boolean;
   /** Enable debug logging (default: false) */
   debug?: boolean;
+  executionMode?: 'direct' | 'evented';
   deterministicRuntimeEnabled?: boolean;
   planCompilerEnabled?: boolean;
   toolRoutingMode?: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
@@ -46,6 +49,7 @@ export interface SchedulerFactoryDependencies {
   executionService: IExecutionService;
   llmProvider?: ILLMProvider;
   executionPort?: ExecutionPort;
+  runtimeEventBus?: RuntimeEventBus;
 }
 
 /**
@@ -60,6 +64,7 @@ export function createScheduler(
   // Create adapters
   const repositoryAdapter = new SchedulerRepositoryAdapter(repository);
   const executionPort = deps.executionPort ?? new LocalExecutionAdapter(executionService);
+  const bus = deps.runtimeEventBus ?? runtimeEventBus;
 
   // Create model selector (uses default config and scorer)
   const modelSelector = new ModelSelector();
@@ -161,6 +166,7 @@ export function createScheduler(
       areDependenciesSatisfied: (workItem) => workItemManager.areDependenciesSatisfied(workItem),
     },
     executionPort,
+    runtimeEventBus: bus,
   };
 
   // Create scheduler config
@@ -169,6 +175,7 @@ export function createScheduler(
     maxConcurrentGoals: config?.maxConcurrentGoals ?? 5,
     autoStart: config?.autoStart ?? false,
     debug: config?.debug ?? false,
+    executionMode: config?.executionMode ?? 'direct',
     deterministicRuntimeEnabled: config?.deterministicRuntimeEnabled ?? false,
     planCompilerEnabled: config?.planCompilerEnabled ?? false,
     toolRoutingMode: config?.toolRoutingMode ?? 'legacy',

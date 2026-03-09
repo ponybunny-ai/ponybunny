@@ -9,6 +9,9 @@ import type { LaneSelectionResult } from '../lane-selector/index.js';
 import type { BudgetStatus } from '../budget-tracker/index.js';
 import type { VerificationResult } from '../quality-gate-runner/index.js';
 import type { ExecutionPort } from '../../runtime/execution-boundary/index.js';
+import type { EventBus as RuntimeEventBus } from '../../runtime/event-bus/index.js';
+
+export type SchedulerExecutionMode = 'direct' | 'evented';
 
 export interface SchedulerConfig {
   /** Interval between scheduler ticks in ms */
@@ -19,6 +22,7 @@ export interface SchedulerConfig {
   autoStart: boolean;
   /** Enable debug logging */
   debug: boolean;
+  executionMode: SchedulerExecutionMode;
   deterministicRuntimeEnabled: boolean;
   planCompilerEnabled: boolean;
   toolRoutingMode: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
@@ -132,6 +136,8 @@ export interface SchedulerDependencies {
   workItemManager: IWorkItemManagerAdapter;
   /** Execution boundary for running work items */
   executionPort: ExecutionPort;
+  /** Runtime event bus used for evented execution handoff */
+  runtimeEventBus: RuntimeEventBus;
 }
 
 // Adapter interfaces to decouple from concrete implementations

@@ -835,6 +835,7 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
         'tickIntervalMs',
         'maxConcurrentGoals',
         'agentsEnabled',
+        'executionMode',
         'deterministicRuntimeEnabled',
         'planCompilerEnabled',
         'toolRoutingMode',
@@ -846,6 +847,7 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
         tickIntervalMs: { type: 'integer', minimum: 1 },
         maxConcurrentGoals: { type: 'integer', minimum: 1 },
         agentsEnabled: { type: 'boolean' },
+        executionMode: { type: 'string', enum: ['direct', 'evented'] },
         deterministicRuntimeEnabled: { type: 'boolean' },
         planCompilerEnabled: { type: 'boolean' },
         toolRoutingMode: {

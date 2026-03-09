@@ -5,7 +5,9 @@
  * to execute goals through the 8-phase lifecycle.
  */
 
+import { randomUUID } from 'crypto';
 import type { Goal, WorkItem } from '../../work-order/types/index.js';
+import type { ExecutionRequest } from '../../runtime/execution-boundary/index.js';
 import type {
   LaneId,
   SchedulerState,
@@ -28,6 +30,7 @@ const DEFAULT_CONFIG: SchedulerConfig = {
   maxConcurrentGoals: 5,
   autoStart: false,
   debug: false,
+  executionMode: 'direct',
   deterministicRuntimeEnabled: false,
   planCompilerEnabled: false,
   toolRoutingMode: 'legacy',
@@ -493,8 +496,50 @@ export class SchedulerCore implements ISchedulerCore {
     });
 
     // Execute work item (async, don't await)
-    this.executeWorkItem(context).catch((error) => {
+    this.dispatchExecution(context).catch((error) => {
       this.debug('Execution error:', error);
+    });
+  }
+
+  /**
+   * Dispatch a work item through the configured execution mode
+   */
+  private async dispatchExecution(context: WorkItemExecutionContext): Promise<void> {
+    if (this.config.executionMode === 'evented') {
+      await this.publishTaskReady(context);
+      return;
+    }
+
+    await this.executeWorkItem(context);
+  }
+
+  private buildExecutionRequest(context: WorkItemExecutionContext): ExecutionRequest {
+    const { workItem, goal, run, laneId, model } = context;
+    const budgetStatus = this.deps.budgetTracker.getBudgetStatus(goal);
+
+    return {
+      runId: run.id,
+      goalId: goal.id,
+      workItemId: workItem.id,
+      workItem,
+      model,
+      laneId,
+      budgetRemaining: budgetStatus,
+    };
+  }
+
+  private async publishTaskReady(context: WorkItemExecutionContext): Promise<void> {
+    const request = this.buildExecutionRequest(context);
+
+    await this.deps.runtimeEventBus.publish({
+      id: randomUUID(),
+      type: 'task.ready',
+      source: 'scheduler',
+      timestamp: Date.now(),
+      runId: request.runId,
+      goalId: request.goalId,
+      workItemId: request.workItemId,
+      payload: request,
     });
   }
 
@@ -505,19 +550,8 @@ export class SchedulerCore implements ISchedulerCore {
     const { workItem, goal, run, laneId, model } = context;
 
     try {
-      // Get budget info
-      const budgetStatus = this.deps.budgetTracker.getBudgetStatus(goal);
-
       // Execute
-      const result = await this.deps.executionPort.execute({
-        runId: run.id,
-        goalId: goal.id,
-        workItemId: workItem.id,
-        workItem,
-        model,
-        laneId,
-        budgetRemaining: budgetStatus,
-      });
+      const result = await this.deps.executionPort.execute(this.buildExecutionRequest(context));
 
       // Record usage
       await this.deps.budgetTracker.recordUsage(

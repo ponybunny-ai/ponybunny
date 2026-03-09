@@ -55,6 +55,7 @@ describe('runtime-config memory user profile id', () => {
 
   it('loads scheduler deterministic runtime flags from environment', () => {
     const config = resolveRuntimeConfigFromEnvironment({
+      PONY_SCHEDULER_EXECUTION_MODE: 'evented',
       PONY_SCHEDULER_DETERMINISTIC_RUNTIME_ENABLED: 'true',
       PONY_SCHEDULER_PLAN_COMPILER_ENABLED: '1',
       PONY_SCHEDULER_TOOL_ROUTING_MODE: 'system_only',
@@ -67,6 +68,7 @@ describe('runtime-config memory user profile id', () => {
       PONY_SCHEDULER_ROLLOUT_ROLLBACK_ON_FAILURE: '0',
     });
 
+    expect(config.scheduler.executionMode).toBe('evented');
     expect(config.scheduler.deterministicRuntimeEnabled).toBe(true);
     expect(config.scheduler.planCompilerEnabled).toBe(true);
     expect(config.scheduler.toolRoutingMode).toBe('system_only');
@@ -83,12 +85,14 @@ describe('runtime-config memory user profile id', () => {
 
   it('falls back to default tool routing mode for invalid values', () => {
     const config = resolveRuntimeConfigFromEnvironment({
+      PONY_SCHEDULER_EXECUTION_MODE: 'invalid-mode',
       PONY_SCHEDULER_TOOL_ROUTING_MODE: 'invalid-mode',
       PONY_SCHEDULER_ROLLOUT_CANARY_PERCENT: '200',
       PONY_SCHEDULER_ROLLOUT_CANARY_PERCENT_DRY_RUN: '-1',
       PONY_SCHEDULER_ROLLOUT_CANARY_PERCENT_COMPILE: '150',
     });
 
+    expect(config.scheduler.executionMode).toBe('direct');
     expect(config.scheduler.toolRoutingMode).toBe('legacy');
     expect(config.scheduler.runtimeRollout.canaryPercent).toBe(100);
     expect(config.scheduler.runtimeRollout.lanePercents.dryRun).toBe(0);
@@ -152,6 +156,36 @@ describe('runtime-config memory user profile id', () => {
       const loaded = loadRuntimeConfig();
       expect(loaded.tui.sessionFirstEnabled).toBe(false);
       expect(loaded.tui.goalSubmitFastPathEnabled).toBe(true);
+    } finally {
+      if (previousConfigDir === undefined) {
+        delete process.env.PONYBUNNY_CONFIG_DIR;
+      } else {
+        process.env.PONYBUNNY_CONFIG_DIR = previousConfigDir;
+      }
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('reads scheduler execution mode from ponybunny.json and normalizes snake_case aliases', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-runtime-config-'));
+    const previousConfigDir = process.env.PONYBUNNY_CONFIG_DIR;
+    process.env.PONYBUNNY_CONFIG_DIR = tempRoot;
+
+    try {
+      const payload = {
+        scheduler: {
+          execution_mode: 'evented',
+        },
+      };
+
+      fs.writeFileSync(
+        path.join(tempRoot, 'ponybunny.json'),
+        JSON.stringify(payload, null, 2),
+        'utf-8'
+      );
+
+      const loaded = loadRuntimeConfig();
+      expect(loaded.scheduler.executionMode).toBe('evented');
     } finally {
       if (previousConfigDir === undefined) {
         delete process.env.PONYBUNNY_CONFIG_DIR;

@@ -5,11 +5,15 @@
 import { createScheduler } from '../../../src/gateway/integration/scheduler-factory.js';
 import type { IWorkOrderRepository } from '../../../src/infra/persistence/repository-interface.js';
 import type { IExecutionService } from '../../../src/app/lifecycle/stage-interfaces.js';
-import type { Goal, Run } from '../../../src/work-order/types/index.js';
+import type { ExecutionPort } from '../../../src/runtime/execution-boundary/index.js';
+import type { EventBus as RuntimeEventBus } from '../../../src/runtime/event-bus/index.js';
+import type { Goal, Run, WorkItem } from '../../../src/work-order/types/index.js';
 
 describe('createScheduler', () => {
   let mockRepository: IWorkOrderRepository;
   let mockExecutionService: IExecutionService;
+  let mockExecutionPort: jest.Mocked<ExecutionPort>;
+  let mockRuntimeEventBus: jest.Mocked<RuntimeEventBus>;
 
   beforeEach(() => {
     // Create mock repository
@@ -82,6 +86,25 @@ describe('createScheduler', () => {
         needsRetry: false,
       }),
     } as unknown as IExecutionService;
+
+    mockExecutionPort = {
+      execute: jest.fn().mockResolvedValue({
+        runId: 'run-1',
+        workItemId: 'wi-1',
+        success: true,
+        tokensUsed: 0,
+        timeSeconds: 0,
+        costUsd: 0,
+        artifacts: [],
+      }),
+      abort: jest.fn().mockResolvedValue(undefined),
+    };
+
+    mockRuntimeEventBus = {
+      publish: jest.fn().mockResolvedValue(undefined),
+      subscribe: jest.fn(),
+      subscribeAll: jest.fn().mockReturnValue(() => {}),
+    };
   });
 
   it('should create a scheduler with default config', () => {
@@ -224,5 +247,79 @@ describe('createScheduler', () => {
       currentActiveGoals: 0,
       currentActiveWorkItems: 0,
     });
+  });
+
+  it('should wire evented execution mode through the factory', async () => {
+    const goal: Goal = {
+      id: 'goal-1',
+      title: 'Test Goal',
+      description: 'A test goal',
+      status: 'queued',
+      priority: 1,
+      success_criteria: [],
+      created_at: Date.now(),
+      updated_at: Date.now(),
+      spent_tokens: 0,
+      spent_time_minutes: 0,
+      spent_cost_usd: 0,
+    };
+    const workItem: WorkItem = {
+      id: 'wi-1',
+      goal_id: 'goal-1',
+      title: 'Test Work Item',
+      description: 'A test work item',
+      item_type: 'code',
+      status: 'ready',
+      priority: 1,
+      dependencies: [],
+      blocks: [],
+      estimated_effort: 'M',
+      created_at: Date.now(),
+      updated_at: Date.now(),
+      retry_count: 0,
+      max_retries: 3,
+      verification_status: 'not_started',
+    };
+    let currentWorkItem = { ...workItem };
+
+    (mockRepository.getGoal as jest.Mock).mockReturnValue(goal);
+    (mockRepository.getWorkItemsByGoal as jest.Mock).mockImplementation(() => [currentWorkItem]);
+    (mockRepository.getWorkItem as jest.Mock).mockImplementation((id: string) =>
+      id === currentWorkItem.id ? currentWorkItem : undefined
+    );
+    (mockRepository.updateWorkItemStatus as jest.Mock).mockImplementation((id: string, status: WorkItem['status']) => {
+      if (id === currentWorkItem.id) {
+        currentWorkItem = { ...currentWorkItem, status };
+      }
+    });
+
+    const scheduler = createScheduler(
+      {
+        repository: mockRepository,
+        executionService: mockExecutionService,
+        executionPort: mockExecutionPort,
+        runtimeEventBus: mockRuntimeEventBus,
+      },
+      {
+        executionMode: 'evented',
+      }
+    );
+
+    await scheduler.submitGoal(goal);
+    await scheduler.start();
+    await scheduler.tick();
+
+    expect(mockRuntimeEventBus.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'task.ready',
+        source: 'scheduler',
+        runId: 'run-1',
+        goalId: 'goal-1',
+        workItemId: 'wi-1',
+      })
+    );
+    expect(mockExecutionPort.execute).not.toHaveBeenCalled();
+
+    await scheduler.stop();
   });
 });

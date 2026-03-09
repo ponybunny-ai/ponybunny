@@ -18,6 +18,7 @@ export interface PonyBunnyRuntimeConfig {
     tickIntervalMs: number;
     maxConcurrentGoals: number;
     agentsEnabled: boolean;
+    executionMode: 'direct' | 'evented';
     deterministicRuntimeEnabled: boolean;
     planCompilerEnabled: boolean;
     toolRoutingMode: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
@@ -94,6 +95,7 @@ export const DEFAULT_RUNTIME_CONFIG: PonyBunnyRuntimeConfig = {
     tickIntervalMs: 1000,
     maxConcurrentGoals: 5,
     agentsEnabled: true,
+    executionMode: 'direct',
     deterministicRuntimeEnabled: false,
     planCompilerEnabled: false,
     toolRoutingMode: 'legacy',
@@ -252,6 +254,22 @@ function toToolRoutingMode(
   return fallback;
 }
 
+function toExecutionMode(
+  value: unknown,
+  fallback: PonyBunnyRuntimeConfig['scheduler']['executionMode']
+): PonyBunnyRuntimeConfig['scheduler']['executionMode'] {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'direct' || normalized === 'evented') {
+    return normalized;
+  }
+
+  return fallback;
+}
+
 function toNumberInRange(value: unknown, fallback: number, min: number, max: number): number {
   const parsed = typeof value === 'number' ? value : Number(value);
   if (Number.isFinite(parsed)) {
@@ -329,6 +347,10 @@ export function resolveRuntimeConfigFromEnvironment(
         DEFAULT_RUNTIME_CONFIG.scheduler.maxConcurrentGoals
       ),
       agentsEnabled: toBoolean(env.PONY_SCHEDULER_AGENTS_ENABLED, DEFAULT_RUNTIME_CONFIG.scheduler.agentsEnabled),
+      executionMode: toExecutionMode(
+        env.PONY_SCHEDULER_EXECUTION_MODE,
+        DEFAULT_RUNTIME_CONFIG.scheduler.executionMode
+      ),
       deterministicRuntimeEnabled: toBoolean(
         env.PONY_SCHEDULER_DETERMINISTIC_RUNTIME_ENABLED,
         DEFAULT_RUNTIME_CONFIG.scheduler.deterministicRuntimeEnabled
@@ -563,6 +585,11 @@ function normalizeConfig(raw: PonyBunnyRuntimeConfig): PonyBunnyRuntimeConfig {
         DEFAULT_RUNTIME_CONFIG.scheduler.maxConcurrentGoals
       ),
       agentsEnabled: toBoolean(raw.scheduler?.agentsEnabled, DEFAULT_RUNTIME_CONFIG.scheduler.agentsEnabled),
+      executionMode: toExecutionMode(
+        schedulerInput.execution_mode
+          ?? schedulerInput.executionMode,
+        DEFAULT_RUNTIME_CONFIG.scheduler.executionMode
+      ),
       deterministicRuntimeEnabled: toBoolean(
         raw.scheduler?.deterministicRuntimeEnabled,
         DEFAULT_RUNTIME_CONFIG.scheduler.deterministicRuntimeEnabled

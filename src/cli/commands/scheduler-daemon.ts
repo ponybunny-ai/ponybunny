@@ -218,6 +218,7 @@ async function runScheduler(
         debug: debugMode,
         tickIntervalMs,
         maxConcurrentGoals,
+        executionMode: runtimeConfig.scheduler.executionMode,
         deterministicRuntimeEnabled: runtimeConfig.scheduler.deterministicRuntimeEnabled,
         planCompilerEnabled: runtimeConfig.scheduler.planCompilerEnabled,
         toolRoutingMode: runtimeConfig.scheduler.toolRoutingMode,
@@ -271,6 +272,7 @@ async function runScheduler(
     console.log(`  IPC Socket: ${socketPath}`);
     console.log(`  Tick Interval: ${tickIntervalMs}ms`);
     console.log(`  Max Concurrent Goals: ${maxConcurrentGoals}`);
+    console.log(`  Execution Mode: ${runtimeConfig.scheduler.executionMode}`);
     console.log(`  Deterministic Runtime: ${runtimeConfig.scheduler.deterministicRuntimeEnabled ? 'Enabled' : 'Disabled'}`);
     console.log(`  Plan Compiler: ${runtimeConfig.scheduler.planCompilerEnabled ? 'Enabled' : 'Disabled'}`);
     console.log(`  Tool Routing Mode: ${runtimeConfig.scheduler.toolRoutingMode}`);
