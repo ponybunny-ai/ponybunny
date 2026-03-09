@@ -7,7 +7,8 @@
 
 import { randomUUID } from 'crypto';
 import type { Goal, WorkItem } from '../../work-order/types/index.js';
-import type { ExecutionRequest } from '../../runtime/execution-boundary/index.js';
+import type { ExecutionRequest, ExecutionResult } from '../../runtime/execution-boundary/index.js';
+import type { RuntimeEvent } from '../../runtime/event-bus/index.js';
 import type {
   LaneId,
   SchedulerState,
@@ -62,12 +63,14 @@ export class SchedulerCore implements ISchedulerCore {
   private eventHandlers: Set<SchedulerEventHandler> = new Set();
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private metrics: SchedulerMetrics;
+  private runtimeEventUnsubscribe: (() => void) | null = null;
 
   constructor(deps: SchedulerDependencies, config?: Partial<SchedulerConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.deps = deps;
     this.state = this.createInitialState();
     this.metrics = this.createInitialMetrics();
+    this.ensureRuntimeEventSubscription();
   }
 
   private createInitialState(): SchedulerState {
@@ -105,6 +108,7 @@ export class SchedulerCore implements ISchedulerCore {
       return;
     }
 
+    this.ensureRuntimeEventSubscription();
     this.state.status = 'running';
     this.debug('Scheduler started');
 
@@ -172,6 +176,8 @@ export class SchedulerCore implements ISchedulerCore {
       }
     }
     this.activeExecutions.clear();
+    this.runtimeEventUnsubscribe?.();
+    this.runtimeEventUnsubscribe = null;
 
     this.state.status = 'stopped';
     this.debug('Scheduler stopped');
@@ -547,69 +553,237 @@ export class SchedulerCore implements ISchedulerCore {
    * Execute a work item
    */
   private async executeWorkItem(context: WorkItemExecutionContext): Promise<void> {
-    const { workItem, goal, run, laneId, model } = context;
+    const { run } = context;
 
     try {
       // Execute
       const result = await this.deps.executionPort.execute(this.buildExecutionRequest(context));
-
-      // Record usage
-      await this.deps.budgetTracker.recordUsage(
-        goal.id,
-        result.tokensUsed,
-        result.timeSeconds / 60,
-        result.costUsd
-      );
-
-      // Complete run
-      this.deps.repository.completeRun(run.id, {
-        status: result.success ? 'success' : 'failure',
-        tokens_used: result.tokensUsed,
-        time_seconds: result.timeSeconds,
-        cost_usd: result.costUsd,
-        artifacts: result.artifacts,
-        error_message: result.error?.message,
-        context: {
-          selected_model: model,
-          actual_model: result.actualModel ?? model,
-          endpoint_id: result.endpointId,
-        },
-      });
-
-      this.emitEvent({
-        type: 'run_completed',
-        timestamp: Date.now(),
-        goalId: goal.id,
-        workItemId: workItem.id,
-        runId: run.id,
-        data: {
-          success: result.success,
-          selected_model: model,
-          actual_model: result.actualModel ?? model,
-          endpoint_id: result.endpointId,
-        },
-      });
-
-      this.metrics.totalRunsExecuted++;
-
-      if (result.success) {
-        await this.handleExecutionSuccess(context);
-      } else {
-        await this.handleExecutionFailure(context, result.error!);
-      }
+      await this.finalizeExecutionResult(context, result);
     } catch (error) {
-      const execError = {
-        code: 'EXECUTION_ERROR',
-        message: error instanceof Error ? error.message : String(error),
+      const result: ExecutionResult = {
+        runId: run.id,
+        workItemId: context.workItem.id,
+        success: false,
+        tokensUsed: 0,
+        timeSeconds: 0,
+        costUsd: 0,
+        artifacts: [],
+        error: {
+          code: 'EXECUTION_ERROR',
+          message: error instanceof Error ? error.message : String(error),
+          recoverable: true,
+        },
+      };
+      await this.finalizeExecutionResult(context, result);
+    } finally {
+      this.cleanupExecutionContext(run.id);
+    }
+  }
+
+  private ensureRuntimeEventSubscription(): void {
+    if (this.runtimeEventUnsubscribe) {
+      return;
+    }
+
+    this.runtimeEventUnsubscribe = this.deps.runtimeEventBus.subscribeAll((event) =>
+      this.handleRuntimeEvent(event)
+    );
+  }
+
+  private async handleRuntimeEvent(event: RuntimeEvent): Promise<void> {
+    if (this.config.executionMode !== 'evented') {
+      return;
+    }
+
+    if (event.type === 'execution.completed') {
+      await this.handleEventedExecutionCompleted(event);
+      return;
+    }
+
+    if (event.type === 'execution.failed') {
+      await this.handleEventedExecutionFailed(event);
+    }
+  }
+
+  private async handleEventedExecutionCompleted(event: RuntimeEvent): Promise<void> {
+    const context = this.getActiveExecutionContext(event.runId);
+    if (!context) {
+      return;
+    }
+
+    const result = this.parseExecutionCompletedResult(event);
+    if (!result) {
+      this.debug('Ignoring execution.completed event without valid result for run:', event.runId);
+      return;
+    }
+
+    await this.finalizeExecutionResult(context, result, { cleanupBeforeContinuation: true });
+  }
+
+  private async handleEventedExecutionFailed(event: RuntimeEvent): Promise<void> {
+    const context = this.getActiveExecutionContext(event.runId);
+    if (!context) {
+      return;
+    }
+
+    const error = this.parseExecutionFailedError(event);
+    const result: ExecutionResult = {
+      runId: context.run.id,
+      workItemId: context.workItem.id,
+      success: false,
+      tokensUsed: 0,
+      timeSeconds: 0,
+      costUsd: 0,
+      artifacts: [],
+      error,
+    };
+
+    await this.finalizeExecutionResult(context, result, { cleanupBeforeContinuation: true });
+  }
+
+  private getActiveExecutionContext(runId?: string): WorkItemExecutionContext | null {
+    if (!runId) {
+      return null;
+    }
+
+    return this.activeExecutions.get(runId) ?? null;
+  }
+
+  private parseExecutionCompletedResult(event: RuntimeEvent): ExecutionResult | null {
+    const payload = event.payload;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return null;
+    }
+
+    const candidate = (payload as { result?: unknown }).result;
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+      return null;
+    }
+
+    const result = candidate as Partial<ExecutionResult>;
+    if (
+      typeof result.runId !== 'string' ||
+      result.runId.length === 0 ||
+      typeof result.workItemId !== 'string' ||
+      result.workItemId.length === 0 ||
+      typeof result.success !== 'boolean' ||
+      typeof result.tokensUsed !== 'number' ||
+      typeof result.timeSeconds !== 'number' ||
+      typeof result.costUsd !== 'number' ||
+      !Array.isArray(result.artifacts)
+    ) {
+      return null;
+    }
+
+    return result as ExecutionResult;
+  }
+
+  private parseExecutionFailedError(event: RuntimeEvent): { code: string; message: string; recoverable: boolean } {
+    const payload = event.payload;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return {
+        code: 'EXECUTION_FAILED',
+        message: 'Execution failed without an error payload',
         recoverable: true,
       };
-      await this.handleExecutionFailure(context, execError);
-    } finally {
-      // Clean up
-      this.activeExecutions.delete(run.id);
-      this.deps.laneSelector.decrementActive(laneId);
-      this.updateLaneStatus(laneId);
     }
+
+    const candidate = (payload as { error?: unknown }).error;
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+      return {
+        code: 'EXECUTION_FAILED',
+        message: 'Execution failed without an error payload',
+        recoverable: true,
+      };
+    }
+
+    const error = candidate as Partial<{ code: string; message: string; recoverable: boolean }>;
+    if (
+      typeof error.code !== 'string' ||
+      error.code.length === 0 ||
+      typeof error.message !== 'string' ||
+      error.message.length === 0 ||
+      typeof error.recoverable !== 'boolean'
+    ) {
+      return {
+        code: 'EXECUTION_FAILED',
+        message: 'Execution failed without an error payload',
+        recoverable: true,
+      };
+    }
+
+    return error as { code: string; message: string; recoverable: boolean };
+  }
+
+  private async finalizeExecutionResult(
+    context: WorkItemExecutionContext,
+    result: ExecutionResult,
+    options: { cleanupBeforeContinuation?: boolean } = {}
+  ): Promise<void> {
+    const { workItem, goal, run, model } = context;
+
+    await this.deps.budgetTracker.recordUsage(
+      goal.id,
+      result.tokensUsed,
+      result.timeSeconds / 60,
+      result.costUsd
+    );
+
+    this.deps.repository.completeRun(run.id, {
+      status: result.success ? 'success' : 'failure',
+      tokens_used: result.tokensUsed,
+      time_seconds: result.timeSeconds,
+      cost_usd: result.costUsd,
+      artifacts: result.artifacts,
+      error_message: result.error?.message,
+      context: {
+        selected_model: model,
+        actual_model: result.actualModel ?? model,
+        endpoint_id: result.endpointId,
+      },
+    });
+
+    this.emitEvent({
+      type: 'run_completed',
+      timestamp: Date.now(),
+      goalId: goal.id,
+      workItemId: workItem.id,
+      runId: run.id,
+      data: {
+        success: result.success,
+        selected_model: model,
+        actual_model: result.actualModel ?? model,
+        endpoint_id: result.endpointId,
+      },
+    });
+
+    this.metrics.totalRunsExecuted++;
+
+    if (options.cleanupBeforeContinuation) {
+      this.cleanupExecutionContext(run.id);
+    }
+
+    if (result.success) {
+      await this.handleExecutionSuccess(context);
+      return;
+    }
+
+    await this.handleExecutionFailure(context, result.error ?? {
+      code: 'EXECUTION_FAILED',
+      message: 'Execution failed without an error payload',
+      recoverable: true,
+    });
+  }
+
+  private cleanupExecutionContext(runId: string): void {
+    const context = this.activeExecutions.get(runId);
+    if (!context) {
+      return;
+    }
+
+    this.activeExecutions.delete(runId);
+    this.deps.laneSelector.decrementActive(context.laneId);
+    this.updateLaneStatus(context.laneId);
   }
 
   /**
