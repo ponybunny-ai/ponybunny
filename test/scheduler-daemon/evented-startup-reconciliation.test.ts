@@ -40,11 +40,14 @@ describe('evented startup reconciliation', () => {
   it('classifies recent evented in-flight runs as maybe_reattachable', () => {
     const finding = classifyEventedStartupCandidate(createCandidate(), 20_000, 30_000);
     expect(finding.classification).toBe('maybe_reattachable');
+    expect(finding.staleTimeoutExceeded).toBe(false);
   });
 
   it('classifies stale non-terminal evented runs as likely_orphaned', () => {
     const finding = classifyEventedStartupCandidate(createCandidate(), 90_000, 30_000);
     expect(finding.classification).toBe('likely_orphaned');
+    expect(finding.staleTimeoutExceeded).toBe(true);
+    expect(finding.ageMs).toBe(89_000);
   });
 
   it('classifies terminal durable state as already_terminal_in_db', () => {
@@ -104,6 +107,7 @@ describe('evented startup reconciliation', () => {
     );
 
     expect(summary.scanned).toBe(3);
+    expect(summary.staleTimeoutExceeded).toBe(2);
     expect(summary.byClassification.likely_orphaned).toBe(2);
     expect(summary.byClassification.not_evented_candidate).toBe(1);
   });

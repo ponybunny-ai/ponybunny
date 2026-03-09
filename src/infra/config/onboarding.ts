@@ -840,6 +840,7 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
         'planCompilerEnabled',
         'toolRoutingMode',
         'allowModelNativeTools',
+        'eventedOrphanTimeoutMs',
         'runtimeRollout',
         'runEventRetention',
       ],
@@ -855,6 +856,7 @@ export const PONYBUNNY_CONFIG_SCHEMA_TEMPLATE = {
           enum: ['legacy', 'system_only', 'system_preferred', 'model_preferred'],
         },
         allowModelNativeTools: { type: 'boolean' },
+        eventedOrphanTimeoutMs: { type: 'integer', minimum: 1 },
         runtimeRollout: {
           type: 'object',
           required: ['shadowModeEnabled', 'canaryPercent', 'rollbackOnFailure', 'lanePercents'],

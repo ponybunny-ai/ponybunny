@@ -23,6 +23,7 @@ export interface PonyBunnyRuntimeConfig {
     planCompilerEnabled: boolean;
     toolRoutingMode: 'legacy' | 'system_only' | 'system_preferred' | 'model_preferred';
     allowModelNativeTools: boolean;
+    eventedOrphanTimeoutMs: number;
     runtimeRollout: {
       shadowModeEnabled: boolean;
       canaryPercent: number;
@@ -100,6 +101,7 @@ export const DEFAULT_RUNTIME_CONFIG: PonyBunnyRuntimeConfig = {
     planCompilerEnabled: false,
     toolRoutingMode: 'legacy',
     allowModelNativeTools: false,
+    eventedOrphanTimeoutMs: 30 * 60 * 1000,
     runtimeRollout: {
       shadowModeEnabled: false,
       canaryPercent: 0,
@@ -367,6 +369,10 @@ export function resolveRuntimeConfigFromEnvironment(
         env.PONY_SCHEDULER_ALLOW_MODEL_NATIVE_TOOLS,
         DEFAULT_RUNTIME_CONFIG.scheduler.allowModelNativeTools
       ),
+      eventedOrphanTimeoutMs: toPositiveInt(
+        env.PONY_SCHEDULER_EVENTED_ORPHAN_TIMEOUT_MS,
+        DEFAULT_RUNTIME_CONFIG.scheduler.eventedOrphanTimeoutMs
+      ),
       runtimeRollout: {
         shadowModeEnabled: toBoolean(
           env.PONY_SCHEDULER_ROLLOUT_SHADOW_ENABLED,
@@ -605,6 +611,10 @@ function normalizeConfig(raw: PonyBunnyRuntimeConfig): PonyBunnyRuntimeConfig {
       allowModelNativeTools: toBoolean(
         raw.scheduler?.allowModelNativeTools,
         DEFAULT_RUNTIME_CONFIG.scheduler.allowModelNativeTools
+      ),
+      eventedOrphanTimeoutMs: toPositiveInt(
+        schedulerInput.evented_orphan_timeout_ms ?? schedulerInput.eventedOrphanTimeoutMs,
+        DEFAULT_RUNTIME_CONFIG.scheduler.eventedOrphanTimeoutMs
       ),
       runtimeRollout: {
         shadowModeEnabled: toBoolean(

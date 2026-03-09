@@ -27,6 +27,7 @@ function createRepositoryMock(): jest.Mocked<IWorkOrderRepository> {
     getRun: jest.fn(),
     mergeRunContext: jest.fn(),
     claimEventedResultContinuation: jest.fn(),
+    markEventedRunOrphaned: jest.fn().mockReturnValue({ status: 'marked' }),
     completeRun: jest.fn(),
     getRunsByWorkItem: jest.fn().mockReturnValue([]),
     listInFlightRunReconciliationCandidates: jest.fn().mockReturnValue([]),
@@ -97,9 +98,64 @@ describe('SchedulerDaemon startup reconciliation', () => {
     await (daemon as any).reconcileEventedInFlightRunsOnStartup();
 
     expect(repository.listInFlightRunReconciliationCandidates).toHaveBeenCalled();
+    expect(repository.markEventedRunOrphaned).toHaveBeenCalledWith(
+      'run-1',
+      expect.objectContaining({ classification: 'stale_timeout' })
+    );
     expect(daemon.getStartupReconciliationSummary()).toEqual(
       expect.objectContaining({
         scanned: 1,
+        staleTimeoutExceeded: 1,
+      })
+    );
+  });
+
+  it('does not mark non-stale evented runs during startup reconciliation', async () => {
+    const repository = createRepositoryMock();
+    repository.listInFlightRunReconciliationCandidates.mockReturnValue([
+      {
+        run: {
+          id: 'run-1',
+          created_at: 1,
+          work_item_id: 'wi-1',
+          goal_id: 'goal-1',
+          agent_type: 'code',
+          run_sequence: 1,
+          status: 'running',
+          tokens_used: 0,
+          cost_usd: 0,
+          artifacts: [],
+          context: {
+            evented_dispatch: buildEventedDispatchCheckpoint({
+              laneId: 'main',
+              dispatchedAt: Date.now(),
+              resultContinuationApplied: false,
+            }),
+          },
+        },
+        workItemStatus: 'in_progress',
+        workItemUpdatedAt: 1,
+      },
+    ]);
+
+    const daemon = new SchedulerDaemon(
+      repository,
+      {} as IExecutionService,
+      {} as ILLMProvider,
+      {
+        ipcSocketPath: path.join(os.tmpdir(), 'scheduler.sock'),
+        dbPath: path.join(os.tmpdir(), 'scheduler.db'),
+        executionMode: 'evented',
+        eventedOrphanTimeoutMs: 30 * 60 * 1000,
+      }
+    );
+
+    await (daemon as any).reconcileEventedInFlightRunsOnStartup();
+
+    expect(repository.markEventedRunOrphaned).not.toHaveBeenCalled();
+    expect(daemon.getStartupReconciliationSummary()).toEqual(
+      expect.objectContaining({
+        staleTimeoutExceeded: 0,
       })
     );
   });

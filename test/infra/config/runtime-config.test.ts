@@ -126,6 +126,14 @@ describe('runtime-config memory user profile id', () => {
     });
   });
 
+  it('loads evented orphan timeout from environment', () => {
+    const config = resolveRuntimeConfigFromEnvironment({
+      PONY_SCHEDULER_EVENTED_ORPHAN_TIMEOUT_MS: '2700000',
+    });
+
+    expect(config.scheduler.eventedOrphanTimeoutMs).toBe(2700000);
+  });
+
   it('uses default TUI routing flags when env overrides are absent', () => {
     const config = resolveRuntimeConfigFromEnvironment({});
 
@@ -186,6 +194,36 @@ describe('runtime-config memory user profile id', () => {
 
       const loaded = loadRuntimeConfig();
       expect(loaded.scheduler.executionMode).toBe('evented');
+    } finally {
+      if (previousConfigDir === undefined) {
+        delete process.env.PONYBUNNY_CONFIG_DIR;
+      } else {
+        process.env.PONYBUNNY_CONFIG_DIR = previousConfigDir;
+      }
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('reads scheduler evented orphan timeout from ponybunny.json and normalizes snake_case aliases', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-runtime-config-'));
+    const previousConfigDir = process.env.PONYBUNNY_CONFIG_DIR;
+    process.env.PONYBUNNY_CONFIG_DIR = tempRoot;
+
+    try {
+      const payload = {
+        scheduler: {
+          evented_orphan_timeout_ms: 2700000,
+        },
+      };
+
+      fs.writeFileSync(
+        path.join(tempRoot, 'ponybunny.json'),
+        JSON.stringify(payload, null, 2),
+        'utf-8'
+      );
+
+      const loaded = loadRuntimeConfig();
+      expect(loaded.scheduler.eventedOrphanTimeoutMs).toBe(2700000);
     } finally {
       if (previousConfigDir === undefined) {
         delete process.env.PONYBUNNY_CONFIG_DIR;

@@ -6,6 +6,8 @@ export interface EventedDispatchCheckpoint {
   dispatched_at: number;
   result_continuation_applied: boolean;
   result_continuation_applied_at?: number;
+  orphan_classification?: 'stale_timeout';
+  orphan_detected_at?: number;
 }
 
 export type EventedStartupReconciliationClassification =
@@ -21,6 +23,8 @@ export interface EventedStartupReconciliationFinding {
   workItemStatus: WorkItem['status'];
   laneId?: string;
   dispatchedAt?: number;
+  ageMs?: number;
+  staleTimeoutExceeded: boolean;
   classification: EventedStartupReconciliationClassification;
   reason: string;
 }
@@ -28,6 +32,7 @@ export interface EventedStartupReconciliationFinding {
 export interface EventedStartupReconciliationSummary {
   startedAt: number;
   scanned: number;
+  staleTimeoutExceeded: number;
   byClassification: Record<EventedStartupReconciliationClassification, number>;
   findings: EventedStartupReconciliationFinding[];
 }
@@ -37,6 +42,8 @@ export function buildEventedDispatchCheckpoint(params: {
   dispatchedAt: number;
   resultContinuationApplied: boolean;
   resultContinuationAppliedAt?: number;
+  orphanClassification?: 'stale_timeout';
+  orphanDetectedAt?: number;
 }): EventedDispatchCheckpoint {
   return {
     execution_mode: 'evented',
@@ -44,6 +51,8 @@ export function buildEventedDispatchCheckpoint(params: {
     dispatched_at: params.dispatchedAt,
     result_continuation_applied: params.resultContinuationApplied,
     result_continuation_applied_at: params.resultContinuationAppliedAt,
+    orphan_classification: params.orphanClassification,
+    orphan_detected_at: params.orphanDetectedAt,
   };
 }
 
@@ -71,6 +80,20 @@ export function readEventedDispatchCheckpoint(
   if (
     checkpoint.result_continuation_applied_at !== undefined &&
     typeof checkpoint.result_continuation_applied_at !== 'number'
+  ) {
+    return null;
+  }
+
+  if (
+    checkpoint.orphan_classification !== undefined &&
+    checkpoint.orphan_classification !== 'stale_timeout'
+  ) {
+    return null;
+  }
+
+  if (
+    checkpoint.orphan_detected_at !== undefined &&
+    typeof checkpoint.orphan_detected_at !== 'number'
   ) {
     return null;
   }

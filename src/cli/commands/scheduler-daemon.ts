@@ -223,6 +223,7 @@ async function runScheduler(
         planCompilerEnabled: runtimeConfig.scheduler.planCompilerEnabled,
         toolRoutingMode: runtimeConfig.scheduler.toolRoutingMode,
         runtimeRollout: runtimeConfig.scheduler.runtimeRollout,
+        eventedOrphanTimeoutMs: runtimeConfig.scheduler.eventedOrphanTimeoutMs,
         runEventRetention: runtimeConfig.scheduler.runEventRetention,
         agentsEnabled,
         mainAgentId,

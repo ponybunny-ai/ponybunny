@@ -105,6 +105,7 @@ describe('SchedulerCore', () => {
           },
         }),
       })),
+      markEventedRunOrphaned: jest.fn(),
       completeRun: jest.fn(),
       getRunsByWorkItem: jest.fn().mockReturnValue([]),
       listInFlightRunReconciliationCandidates: jest.fn().mockReturnValue([]),

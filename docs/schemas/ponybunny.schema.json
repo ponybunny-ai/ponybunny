@@ -61,6 +61,7 @@
         "planCompilerEnabled",
         "toolRoutingMode",
         "allowModelNativeTools",
+        "eventedOrphanTimeoutMs",
         "runtimeRollout",
         "runEventRetention"
       ],
@@ -100,6 +101,10 @@
         },
         "allowModelNativeTools": {
           "type": "boolean"
+        },
+        "eventedOrphanTimeoutMs": {
+          "type": "integer",
+          "minimum": 1
         },
         "runtimeRollout": {
           "type": "object",

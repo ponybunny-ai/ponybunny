@@ -30,6 +30,10 @@ export interface IWorkOrderRepository {
   getRun(id: string): Run | undefined;
   mergeRunContext(id: string, contextPatch: Record<string, unknown>): void;
   claimEventedResultContinuation(id: string, appliedAt?: number): EventedResultContinuationClaim;
+  markEventedRunOrphaned(
+    id: string,
+    params: MarkEventedRunOrphanedParams
+  ): EventedRunOrphanMarkResult;
   completeRun(id: string, params: CompleteRunParams): void;
   getRunsByWorkItem(workItemId: string): Run[];
   listInFlightRunReconciliationCandidates(): InFlightRunReconciliationCandidate[];
@@ -141,6 +145,25 @@ export type EventedResultContinuationClaimStatus =
 export interface EventedResultContinuationClaim {
   status: EventedResultContinuationClaimStatus;
   appliedAt?: number;
+  run?: Run;
+}
+
+export interface MarkEventedRunOrphanedParams {
+  classification: 'stale_timeout';
+  detectedAt?: number;
+}
+
+export type EventedRunOrphanMarkStatus =
+  | 'marked'
+  | 'already_marked'
+  | 'already_applied'
+  | 'already_terminal'
+  | 'missing_evented_dispatch'
+  | 'run_not_found';
+
+export interface EventedRunOrphanMarkResult {
+  status: EventedRunOrphanMarkStatus;
+  detectedAt?: number;
   run?: Run;
 }
 

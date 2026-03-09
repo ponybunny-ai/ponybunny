@@ -2,6 +2,7 @@ import type {
   IWorkOrderRepository,
   CreateGoalParams,
   EventedResultContinuationClaim,
+  EventedRunOrphanMarkResult,
   CronJob,
   CronJobRun,
   CronJobRunStatus,
@@ -679,6 +680,88 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     if (continuationApplied === true) {
       return {
         status: 'already_applied',
+        run,
+      };
+    }
+
+    return {
+      status: 'missing_evented_dispatch',
+      run,
+    };
+  }
+
+  markEventedRunOrphaned(
+    id: string,
+    params: {
+      classification: 'stale_timeout';
+      detectedAt?: number;
+    }
+  ): EventedRunOrphanMarkResult {
+    const detectedAt = params.detectedAt ?? Date.now();
+    const markStmt = this.db.prepare(`
+      UPDATE runs
+      SET context = json_set(
+        COALESCE(context, '{}'),
+        '$.evented_dispatch.orphan_classification',
+        ?,
+        '$.evented_dispatch.orphan_detected_at',
+        COALESCE(
+          json_extract(context, '$.evented_dispatch.orphan_detected_at'),
+          ?
+        )
+      )
+      WHERE id = ?
+        AND status = 'running'
+        AND json_extract(context, '$.evented_dispatch.execution_mode') = 'evented'
+        AND json_extract(context, '$.evented_dispatch.result_continuation_applied') = 0
+        AND json_extract(context, '$.evented_dispatch.orphan_classification') IS NULL
+    `);
+
+    const result = markStmt.run(params.classification, detectedAt, id);
+    const run = this.getRun(id);
+
+    if (result.changes > 0) {
+      return {
+        status: 'marked',
+        detectedAt,
+        run,
+      };
+    }
+
+    if (!run) {
+      return { status: 'run_not_found' };
+    }
+
+    const eventedDispatch = run.context?.evented_dispatch;
+    if (!eventedDispatch || typeof eventedDispatch !== 'object' || Array.isArray(eventedDispatch)) {
+      return {
+        status: 'missing_evented_dispatch',
+        run,
+      };
+    }
+
+    if (run.status !== 'running') {
+      return {
+        status: 'already_terminal',
+        run,
+      };
+    }
+
+    const checkpoint = eventedDispatch as {
+      result_continuation_applied?: unknown;
+      orphan_classification?: unknown;
+    };
+
+    if (checkpoint.result_continuation_applied === true) {
+      return {
+        status: 'already_applied',
+        run,
+      };
+    }
+
+    if (typeof checkpoint.orphan_classification === 'string') {
+      return {
+        status: 'already_marked',
         run,
       };
     }

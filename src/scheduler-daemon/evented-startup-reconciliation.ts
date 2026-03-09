@@ -6,17 +6,21 @@ import type {
 import type { InFlightRunReconciliationCandidate } from '../work-order/types/index.js';
 import { readEventedDispatchCheckpoint } from '../scheduler/evented-dispatch-checkpoint.js';
 
-const DEFAULT_REATTACHABLE_WINDOW_MS = 30_000;
+const DEFAULT_EVENTED_STALE_TIMEOUT_MS = 30_000;
 
 export function classifyEventedStartupCandidate(
   candidate: InFlightRunReconciliationCandidate,
   nowMs: number,
-  reattachableWindowMs = DEFAULT_REATTACHABLE_WINDOW_MS
+  staleTimeoutMs = DEFAULT_EVENTED_STALE_TIMEOUT_MS
 ): EventedStartupReconciliationFinding {
   const checkpoint = readEventedDispatchCheckpoint(candidate.run.context);
 
   if (!checkpoint) {
-    return buildFinding(candidate, 'not_evented_candidate', 'run has no durable evented dispatch checkpoint');
+    return buildFinding(
+      candidate,
+      'not_evented_candidate',
+      'run has no durable evented dispatch checkpoint'
+    );
   }
 
   if (candidate.run.status !== 'running') {
@@ -53,28 +57,32 @@ export function classifyEventedStartupCandidate(
   }
 
   const ageMs = nowMs - checkpoint.dispatched_at;
-  if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs <= reattachableWindowMs) {
+  if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs <= staleTimeoutMs) {
     return buildFinding(
       candidate,
       'maybe_reattachable',
-      `evented dispatch is recent (${Math.max(ageMs, 0)}ms old)`
+      `evented dispatch is recent (${Math.max(ageMs, 0)}ms old)`,
+      ageMs,
+      false
     );
   }
 
   return buildFinding(
     candidate,
     'likely_orphaned',
-    `evented dispatch has been in flight for ${ageMs}ms without durable continuation`
+    `evented dispatch has been in flight for ${ageMs}ms without durable continuation`,
+    ageMs,
+    true
   );
 }
 
 export function reconcileEventedStartupCandidates(
   candidates: InFlightRunReconciliationCandidate[],
   nowMs: number,
-  reattachableWindowMs = DEFAULT_REATTACHABLE_WINDOW_MS
+  staleTimeoutMs = DEFAULT_EVENTED_STALE_TIMEOUT_MS
 ): EventedStartupReconciliationSummary {
   const findings = candidates.map((candidate) =>
-    classifyEventedStartupCandidate(candidate, nowMs, reattachableWindowMs)
+    classifyEventedStartupCandidate(candidate, nowMs, staleTimeoutMs)
   );
 
   const byClassification: Record<EventedStartupReconciliationClassification, number> = {
@@ -91,6 +99,7 @@ export function reconcileEventedStartupCandidates(
   return {
     startedAt: nowMs,
     scanned: candidates.length,
+    staleTimeoutExceeded: findings.filter((finding) => finding.staleTimeoutExceeded).length,
     byClassification,
     findings,
   };
@@ -99,7 +108,9 @@ export function reconcileEventedStartupCandidates(
 function buildFinding(
   candidate: InFlightRunReconciliationCandidate,
   classification: EventedStartupReconciliationClassification,
-  reason: string
+  reason: string,
+  ageMs?: number,
+  staleTimeoutExceeded = false
 ): EventedStartupReconciliationFinding {
   const checkpoint = readEventedDispatchCheckpoint(candidate.run.context);
 
@@ -110,6 +121,8 @@ function buildFinding(
     workItemStatus: candidate.workItemStatus,
     laneId: checkpoint?.lane_id,
     dispatchedAt: checkpoint?.dispatched_at,
+    ageMs,
+    staleTimeoutExceeded,
     classification,
     reason,
   };

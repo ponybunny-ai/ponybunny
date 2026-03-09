@@ -56,6 +56,7 @@ export interface SchedulerDaemonConfig {
       replay: number;
     };
   };
+  eventedOrphanTimeoutMs?: number;
   runEventRetention?: {
     enabled: boolean;
     intervalMs: number;
@@ -456,13 +457,15 @@ export class SchedulerDaemon {
 
     const summary = reconcileEventedStartupCandidates(
       this.repository.listInFlightRunReconciliationCandidates(),
-      Date.now()
+      Date.now(),
+      this.config.eventedOrphanTimeoutMs
     );
     this.startupReconciliationSummary = summary;
 
     console.log(
       '[SchedulerDaemon] Evented startup reconciliation: ' +
       `scanned=${summary.scanned} ` +
+      `stale_timeout_exceeded=${summary.staleTimeoutExceeded} ` +
       `likely_orphaned=${summary.byClassification.likely_orphaned} ` +
       `maybe_reattachable=${summary.byClassification.maybe_reattachable} ` +
       `already_terminal_in_db=${summary.byClassification.already_terminal_in_db} ` +
@@ -470,11 +473,37 @@ export class SchedulerDaemon {
     );
 
     for (const finding of summary.findings) {
+      if (finding.staleTimeoutExceeded) {
+        const markResult = this.repository.markEventedRunOrphaned(finding.runId, {
+          classification: 'stale_timeout',
+        });
+
+        if (markResult.status === 'marked') {
+          console.warn(
+            '[SchedulerDaemon] Evented run marked orphaned: ' +
+            `run=${finding.runId} workItem=${finding.workItemId} lane=${finding.laneId ?? '-'} ` +
+            `ageMs=${finding.ageMs ?? '-'} dispatchedAt=${finding.dispatchedAt ?? '-'} ` +
+            `reason=${finding.reason}`
+          );
+          debugEmitter.emitDebug('evented_run.orphan_marked', 'scheduler-daemon', {
+            runId: finding.runId,
+            goalId: finding.goalId,
+            workItemId: finding.workItemId,
+            laneId: finding.laneId,
+            dispatchedAt: finding.dispatchedAt,
+            ageMs: finding.ageMs,
+            orphanClassification: 'stale_timeout',
+            reason: finding.reason,
+          });
+        }
+      }
+
       console.log(
         '[SchedulerDaemon] Evented startup finding: ' +
         `run=${finding.runId} workItem=${finding.workItemId} classification=${finding.classification} ` +
         `workItemStatus=${finding.workItemStatus} lane=${finding.laneId ?? '-'} ` +
-        `dispatchedAt=${finding.dispatchedAt ?? '-'} reason=${finding.reason}`
+        `dispatchedAt=${finding.dispatchedAt ?? '-'} staleTimeoutExceeded=${finding.staleTimeoutExceeded} ` +
+        `reason=${finding.reason}`
       );
     }
   }

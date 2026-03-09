@@ -17,6 +17,7 @@
     "planCompilerEnabled": false,
     "toolRoutingMode": "system_preferred",
     "allowModelNativeTools": false,
+    "eventedOrphanTimeoutMs": 1800000,
     "runtimeRollout": {
       "shadowModeEnabled": false,
       "canaryPercent": 0,

@@ -186,4 +186,68 @@ describe('WorkOrderDatabase evented reconciliation queries', () => {
 
     repository.close();
   });
+
+  it('marks stale evented runs durably only once', async () => {
+    const dbPath = createTempDbPath();
+    const repository = new WorkOrderDatabase(dbPath);
+    await repository.initialize();
+
+    const goal = repository.createGoal({
+      title: 'goal',
+      description: 'desc',
+      success_criteria: [],
+    });
+    const workItem = repository.createWorkItem({
+      goal_id: goal.id,
+      title: 'work',
+      description: 'desc',
+      item_type: 'code',
+    });
+    repository.updateWorkItemStatus(workItem.id, 'in_progress');
+
+    const run = repository.createRun({
+      work_item_id: workItem.id,
+      goal_id: goal.id,
+      agent_type: 'code',
+      run_sequence: 1,
+    });
+
+    repository.mergeRunContext(run.id, {
+      evented_dispatch: buildEventedDispatchCheckpoint({
+        laneId: 'main',
+        dispatchedAt: 1234,
+        resultContinuationApplied: false,
+      }),
+    });
+
+    const firstMark = repository.markEventedRunOrphaned(run.id, {
+      classification: 'stale_timeout',
+      detectedAt: 5678,
+    });
+    expect(firstMark.status).toBe('marked');
+    expect(firstMark.run?.context).toEqual(
+      expect.objectContaining({
+        evented_dispatch: expect.objectContaining({
+          orphan_classification: 'stale_timeout',
+          orphan_detected_at: 5678,
+        }),
+      })
+    );
+
+    const duplicateMark = repository.markEventedRunOrphaned(run.id, {
+      classification: 'stale_timeout',
+      detectedAt: 9999,
+    });
+    expect(duplicateMark.status).toBe('already_marked');
+    expect(duplicateMark.run?.context).toEqual(
+      expect.objectContaining({
+        evented_dispatch: expect.objectContaining({
+          orphan_classification: 'stale_timeout',
+          orphan_detected_at: 5678,
+        }),
+      })
+    );
+
+    repository.close();
+  });
 });
