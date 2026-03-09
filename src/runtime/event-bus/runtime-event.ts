@@ -4,6 +4,9 @@ export interface RuntimeEvent {
   workItemId?: string;
   goalId?: string;
   runId?: string;
+  toolRequestId?: string;
+  toolCallId?: string;
+  toolName?: string;
   source: string;
   timestamp: number;
   payload?: unknown;
