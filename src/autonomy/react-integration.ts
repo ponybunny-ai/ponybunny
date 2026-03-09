@@ -10,6 +10,12 @@ import { getGlobalPromptProvider } from '../infra/prompts/prompt-provider.js';
 import { ToolProvider, getGlobalToolProvider } from '../infra/tools/tool-provider.js';
 import { routeContextFromWorkItemContext } from '../infra/routing/route-context.js';
 import { loadRuntimeConfig } from '../infra/config/runtime-config.js';
+import {
+  formatToolResultForModel,
+  LocalToolAdapter,
+  type ToolPort,
+  type ToolRequest,
+} from '../runtime/tool-boundary/index.js';
 
 export interface ReActCycleParams {
   workItem: WorkItem;
@@ -18,6 +24,7 @@ export interface ReActCycleParams {
   model?: string;
   goal?: Goal;
   toolEnforcer?: ToolEnforcer;
+  toolPort?: ToolPort;
 }
 
 export interface ReActCycleResult {
@@ -61,11 +68,13 @@ export class ReActIntegration {
 
   constructor(
     private llmProvider?: ILLMProvider,
-    private toolEnforcer?: ToolEnforcer
+    private toolEnforcer?: ToolEnforcer,
+    private toolPort?: ToolPort
   ) {}
 
   async executeWorkCycle(params: ReActCycleParams): Promise<ReActCycleResult> {
     const activeToolEnforcer = params.toolEnforcer ?? this.toolEnforcer;
+    const activeToolPort = this.resolveToolPort(params.toolPort, activeToolEnforcer);
     const activeToolProvider = activeToolEnforcer
       ? new ToolProvider(activeToolEnforcer)
       : this.toolProvider;
@@ -213,7 +222,7 @@ export class ReActIntegration {
               break;
             }
 
-            const result = await this.executeToolCall(context, toolCall, activeToolEnforcer);
+            const result = await this.executeToolCall(context, toolCall, activeToolPort);
 
             // Add tool result to messages
             messages.push({
@@ -244,7 +253,7 @@ export class ReActIntegration {
                   context,
                   params.workItem,
                   tools,
-                  activeToolEnforcer,
+                  activeToolPort,
                   messages
                 );
                 if (fallbackResult) {
@@ -338,6 +347,7 @@ export class ReActIntegration {
 
   async chatStep(params: ReActCycleParams, userInput: string): Promise<ReActCycleResult & { reply: string }> {
     const activeToolEnforcer = params.toolEnforcer ?? this.toolEnforcer;
+    const activeToolPort = this.resolveToolPort(params.toolPort, activeToolEnforcer);
     const activeToolProvider = activeToolEnforcer
       ? new ToolProvider(activeToolEnforcer)
       : this.toolProvider;
@@ -421,7 +431,7 @@ export class ReActIntegration {
 
         // Execute each tool call
         for (const toolCall of response.toolCalls) {
-          const result = await this.executeToolCall(context, toolCall, activeToolEnforcer);
+          const result = await this.executeToolCall(context, toolCall, activeToolPort);
 
           // Add tool result to messages
           messages.push({
@@ -713,10 +723,10 @@ Respond with at most 2 short planning lines, then immediately issue the first co
     context: ReActContext,
     workItem: WorkItem,
     tools: import('../infra/llm/llm-provider.js').ToolDefinition[],
-    toolEnforcer: ToolEnforcer | undefined,
+    toolPort: ToolPort | undefined,
     messages: LLMMessage[]
   ): Promise<LLMResponse | null> {
-    if (!toolEnforcer || !this.llmProvider) {
+    if (!toolPort || !this.llmProvider) {
       return null;
     }
 
@@ -739,7 +749,7 @@ Respond with at most 2 short planning lines, then immediately issue the first co
     let successfulButEmptyResultSeen = false;
 
     for (const toolCall of fallbackToolCalls) {
-      const result = await this.executeToolCall(context, toolCall, toolEnforcer);
+      const result = await this.executeToolCall(context, toolCall, toolPort);
       await this.observation(context, `Fallback tool ${toolCall.function.name}: ${result}`);
 
       if (this.isSuccessfulToolResult(result)) {
@@ -1118,43 +1128,52 @@ Respond with at most 2 short planning lines, then immediately issue the first co
   }
 
   private async executeToolCall(
-    _context: ReActContext,
+    context: ReActContext,
     toolCall: ToolCall,
-    toolEnforcer?: ToolEnforcer
+    toolPort?: ToolPort
   ): Promise<string> {
     const toolName = toolCall.function.name;
-    const parameters = JSON.parse(toolCall.function.arguments);
 
     // Special handling for complete_task
     if (toolName === 'complete_task') {
       return 'Task marked as complete.';
     }
 
-    if (!toolEnforcer) {
+    if (!toolPort) {
       return 'Error: No tool enforcer configured. Cannot execute tools.';
     }
 
-    const check = toolEnforcer.checkToolInvocation(toolName, parameters);
+    const result = await toolPort.execute(this.buildToolRequest(context, toolCall));
+    return formatToolResultForModel(result);
+  }
 
-    if (!check.allowed) {
-      return `Action denied: ${check.reason}`;
+  private resolveToolPort(
+    requestedToolPort: ToolPort | undefined,
+    toolEnforcer: ToolEnforcer | undefined
+  ): ToolPort | undefined {
+    if (requestedToolPort) {
+      return requestedToolPort;
     }
 
-    const tool = toolEnforcer.registry.getTool(toolName);
-    if (!tool) {
-      return `Error: Tool '${toolName}' not found`;
+    if (toolEnforcer) {
+      return new LocalToolAdapter(toolEnforcer);
     }
 
-    try {
-      const result = await tool.execute(parameters, {
-        cwd: process.cwd(),
-        allowlist: toolEnforcer.allowlist,
-        enforcer: toolEnforcer,
-      });
-      return result;
-    } catch (error) {
-      return `Tool execution failed: ${error}`;
-    }
+    return this.toolPort;
+  }
+
+  private buildToolRequest(context: ReActContext, toolCall: ToolCall): ToolRequest {
+    return {
+      toolRequestId: `${context.run.id}:${toolCall.id}:${toolCall.function.name}`,
+      runId: context.run.id,
+      workItemId: context.workItem.id,
+      goalId: context.goal?.id ?? context.run.goal_id ?? context.workItem.goal_id,
+      toolCallId: toolCall.id,
+      toolName: toolCall.function.name,
+      arguments: toolCall.function.arguments,
+      cwd: process.cwd(),
+      routeContext: routeContextFromWorkItemContext(context.workItem.context) ?? undefined,
+    };
   }
 
   private async collectArtifacts(_context: ReActContext): Promise<string[]> {
