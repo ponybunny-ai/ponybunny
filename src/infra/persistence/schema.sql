@@ -148,7 +148,7 @@ CREATE INDEX IF NOT EXISTS idx_run_events_type ON run_events(event_type);
 CREATE TABLE IF NOT EXISTS runtime_events (
     id TEXT PRIMARY KEY,
     type TEXT NOT NULL,
-    task_id TEXT,
+    work_item_id TEXT,
     goal_id TEXT,
     run_id TEXT,
     source TEXT NOT NULL,

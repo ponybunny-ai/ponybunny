@@ -1,7 +1,7 @@
 export interface RuntimeEvent {
   id: string;
   type: string;
-  taskId?: string;
+  workItemId?: string;
   goalId?: string;
   runId?: string;
   source: string;

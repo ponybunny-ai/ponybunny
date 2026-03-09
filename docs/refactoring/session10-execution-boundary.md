@@ -30,6 +30,7 @@ Relevant modules:
 
 - the scheduler-owned `runId`
 - the `goalId`
+- the canonical `workItemId`
 - the `workItem`
 - scheduler-selected execution metadata (`model`, `laneId`, `budgetRemaining`)
 
@@ -39,7 +40,7 @@ Run ownership is now centralized at the boundary contract:
 
 - the scheduler creates the authoritative run record
 - the scheduler passes that `runId` into `ExecutionRequest`
-- the boundary returns `ExecutionResult` keyed to the same `runId`
+- the boundary returns `ExecutionResult` keyed to the same `runId` and `workItemId`
 - the scheduler still completes its own run record after the port returns
 
 This removes run identity ambiguity at the scheduler boundary.

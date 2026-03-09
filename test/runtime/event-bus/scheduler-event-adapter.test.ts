@@ -64,7 +64,7 @@ describe('SchedulerEventAdapter', () => {
       source: 'scheduler',
       timestamp: 1_700_000_000_000,
       goalId: 'goal-123',
-      taskId: 'workitem-123',
+      workItemId: 'workitem-123',
       runId: 'run-123',
       payload: event,
     }));

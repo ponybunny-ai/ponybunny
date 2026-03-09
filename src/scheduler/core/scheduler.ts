@@ -512,6 +512,7 @@ export class SchedulerCore implements ISchedulerCore {
       const result = await this.deps.executionPort.execute({
         runId: run.id,
         goalId: goal.id,
+        workItemId: workItem.id,
         workItem,
         model,
         laneId,

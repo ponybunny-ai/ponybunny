@@ -18,7 +18,7 @@ Phase 2A introduced a dedicated runtime event layer in `src/runtime/event-bus/`:
 - `src/runtime/event-bus/runtime-event-bus.ts`
 - `src/runtime/event-bus/index.ts`
 
-This created a temporary in-process `runtimeEventBus` singleton and a normalized `RuntimeEvent` envelope with `goalId`, `taskId`, `runId`, `source`, `timestamp`, and `payload`.
+This created a temporary in-process `runtimeEventBus` singleton and a normalized `RuntimeEvent` envelope with `goalId`, `workItemId`, `runId`, `source`, `timestamp`, and `payload`.
 
 ### 2. Adapters added
 

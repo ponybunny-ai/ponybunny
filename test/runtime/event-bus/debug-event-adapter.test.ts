@@ -41,7 +41,7 @@ describe('DebugEventAdapter', () => {
       type: 'debug.scheduler.run.started',
       source: 'debug',
       goalId: 'goal-123',
-      taskId: 'workitem-123',
+      workItemId: 'workitem-123',
       runId: 'run-123',
       payload: expect.objectContaining({
         type: 'scheduler.run.started',

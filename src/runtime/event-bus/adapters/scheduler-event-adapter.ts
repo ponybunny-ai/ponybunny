@@ -69,7 +69,7 @@ export class SchedulerEventAdapter {
       payload: event,
       ...(typeof event.goalId === 'string' && event.goalId.length > 0 ? { goalId: event.goalId } : {}),
       ...(typeof event.workItemId === 'string' && event.workItemId.length > 0
-        ? { taskId: event.workItemId }
+        ? { workItemId: event.workItemId }
         : {}),
       ...(typeof event.runId === 'string' && event.runId.length > 0 ? { runId: event.runId } : {}),
     };

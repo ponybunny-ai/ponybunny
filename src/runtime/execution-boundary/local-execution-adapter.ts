@@ -51,6 +51,7 @@ export class LocalExecutionAdapter implements ExecutionPort {
     if (!definition) {
       return {
         runId: request.runId,
+        workItemId: request.workItemId,
         success: false,
         tokensUsed: 0,
         timeSeconds: 0,
@@ -92,6 +93,7 @@ export class LocalExecutionAdapter implements ExecutionPort {
     } catch (error) {
       return {
         runId: request.runId,
+        workItemId: request.workItemId,
         success: false,
         tokensUsed: 0,
         timeSeconds: 0,
@@ -108,6 +110,7 @@ export class LocalExecutionAdapter implements ExecutionPort {
     if (!runner) {
       return {
         runId: request.runId,
+        workItemId: request.workItemId,
         success: false,
         tokensUsed: 0,
         timeSeconds: 0,
@@ -136,6 +139,7 @@ export class LocalExecutionAdapter implements ExecutionPort {
 
       return {
         runId: request.runId,
+        workItemId: request.workItemId,
         success: true,
         tokensUsed: 0,
         timeSeconds: 0,
@@ -145,6 +149,7 @@ export class LocalExecutionAdapter implements ExecutionPort {
     } catch (error) {
       return {
         runId: request.runId,
+        workItemId: request.workItemId,
         success: false,
         tokensUsed: 0,
         timeSeconds: 0,
@@ -190,6 +195,7 @@ export class LocalExecutionAdapter implements ExecutionPort {
 
       return {
         runId: request.runId,
+        workItemId: request.workItemId,
         success: result.success,
         tokensUsed: result.run.tokens_used ?? 0,
         timeSeconds: result.run.time_seconds ?? 0,
@@ -214,6 +220,7 @@ export class LocalExecutionAdapter implements ExecutionPort {
     } catch (error) {
       return {
         runId: request.runId,
+        workItemId: request.workItemId,
         success: false,
         tokensUsed: 0,
         timeSeconds: 0,
