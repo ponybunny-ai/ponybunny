@@ -14,6 +14,15 @@ export interface EventedDispatchCheckpoint {
   replay_candidate?: boolean;
   replay_candidate_marked_at?: number;
   replay_candidate_reason?: 'manual_operator_mark';
+  manual_replay?: {
+    requested_at: number;
+    requested_reason: 'manual_operator_request';
+    replacement_run_id: string;
+    replacement_run_created_at: number;
+    original_continuation_suppressed_at: number;
+  };
+  replay_of_run_id?: string;
+  replay_started_at?: number;
 }
 
 export type EventedStartupReconciliationClassification =
@@ -56,6 +65,9 @@ export function buildEventedDispatchCheckpoint(params: {
   replayCandidate?: boolean;
   replayCandidateMarkedAt?: number;
   replayCandidateReason?: 'manual_operator_mark';
+  manualReplay?: EventedDispatchCheckpoint['manual_replay'];
+  replayOfRunId?: string;
+  replayStartedAt?: number;
 }): EventedDispatchCheckpoint {
   return {
     execution_mode: 'evented',
@@ -71,6 +83,9 @@ export function buildEventedDispatchCheckpoint(params: {
     replay_candidate: params.replayCandidate,
     replay_candidate_marked_at: params.replayCandidateMarkedAt,
     replay_candidate_reason: params.replayCandidateReason,
+    manual_replay: params.manualReplay,
+    replay_of_run_id: params.replayOfRunId,
+    replay_started_at: params.replayStartedAt,
   };
 }
 
@@ -156,6 +171,33 @@ export function readEventedDispatchCheckpoint(
     checkpoint.replay_candidate_reason !== 'manual_operator_mark'
   ) {
     return null;
+  }
+
+  if (checkpoint.replay_of_run_id !== undefined && typeof checkpoint.replay_of_run_id !== 'string') {
+    return null;
+  }
+
+  if (
+    checkpoint.replay_started_at !== undefined &&
+    typeof checkpoint.replay_started_at !== 'number'
+  ) {
+    return null;
+  }
+
+  if (checkpoint.manual_replay !== undefined) {
+    const manualReplay = checkpoint.manual_replay;
+    if (
+      !manualReplay ||
+      typeof manualReplay !== 'object' ||
+      Array.isArray(manualReplay) ||
+      typeof manualReplay.requested_at !== 'number' ||
+      manualReplay.requested_reason !== 'manual_operator_request' ||
+      typeof manualReplay.replacement_run_id !== 'string' ||
+      typeof manualReplay.replacement_run_created_at !== 'number' ||
+      typeof manualReplay.original_continuation_suppressed_at !== 'number'
+    ) {
+      return null;
+    }
   }
 
   return checkpoint as EventedDispatchCheckpoint;

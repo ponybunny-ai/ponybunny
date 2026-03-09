@@ -105,7 +105,7 @@ describe('SchedulerCore', () => {
           },
         }),
       })),
-      markEventedRunOrphaned: jest.fn(),
+      startEventedManualReplay: jest.fn(),
       completeRun: jest.fn(),
       getRunsByWorkItem: jest.fn().mockReturnValue([]),
       listInFlightRunReconciliationCandidates: jest.fn().mockReturnValue([]),
@@ -625,6 +625,172 @@ describe('SchedulerCore', () => {
 
       expect(mockRepository.mergeRunContext).not.toHaveBeenCalled();
       expect(mockRepository.claimEventedResultContinuation).not.toHaveBeenCalled();
+    });
+
+    it('should dispatch a replay replacement run through the existing task.ready path', async () => {
+      const goal = createGoal();
+      const workItem = createWorkItem({ status: 'in_progress' });
+      const originalRun = createRun({
+        id: 'run-original',
+        context: {
+          selected_model: 'claude-3-5-sonnet',
+          evented_dispatch: {
+            execution_mode: 'evented',
+            lane_id: 'main',
+            dispatched_at: 1000,
+            result_continuation_applied: false,
+            orphan_classification: 'stale_timeout',
+            recovery_candidate: true,
+            replay_candidate: true,
+            manual_replay: {
+              requested_at: 2000,
+              requested_reason: 'manual_operator_request',
+              replacement_run_id: 'run-replay',
+              replacement_run_created_at: 2000,
+              original_continuation_suppressed_at: 2000,
+            },
+          },
+        },
+      });
+      const replacementRun = createRun({
+        id: 'run-replay',
+        run_sequence: 2,
+        context: {
+          selected_model: 'claude-3-5-sonnet',
+          evented_dispatch: {
+            replay_of_run_id: 'run-original',
+            replay_started_at: 2000,
+          },
+        },
+      });
+
+      mockRepository.getGoal.mockReturnValue(goal);
+      mockRepository.getWorkItem.mockReturnValue(workItem);
+      mockRepository.startEventedManualReplay.mockReturnValue({
+        status: 'replay_started',
+        requestedAt: 2000,
+        requestedReason: 'manual_operator_request',
+        originalRun,
+        replacementRun,
+      });
+      scheduler = new SchedulerCore(mockDeps, { executionMode: 'evented' });
+
+      const result = await scheduler.replayRun('run-original');
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          status: 'replay_started',
+          replacementRun: expect.objectContaining({ id: 'run-replay' }),
+        })
+      );
+      expect(mockRuntimeEventBus.publish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'task.ready',
+          runId: 'run-replay',
+          workItemId: 'wi-1',
+          payload: expect.objectContaining({
+            runId: 'run-replay',
+            laneId: 'main',
+            model: 'claude-3-5-sonnet',
+          }),
+        })
+      );
+      expect(mockRepository.mergeRunContext).toHaveBeenCalledWith(
+        'run-replay',
+        expect.objectContaining({
+          evented_dispatch: expect.objectContaining({
+            execution_mode: 'evented',
+            lane_id: 'main',
+            replay_of_run_id: 'run-original',
+            replay_started_at: 2000,
+            result_continuation_applied: false,
+          }),
+        })
+      );
+    });
+
+    it('should suppress late original results after replay transferred continuation authority', async () => {
+      const goal = createGoal();
+      const workItem = createWorkItem();
+      mockRepository.getGoal.mockReturnValue(goal);
+      mockWorkItemManager.getNextWorkItem.mockResolvedValueOnce(workItem).mockResolvedValue(null);
+      mockRepository.claimEventedResultContinuation
+        .mockReturnValueOnce({
+          status: 'suppressed_by_replay',
+          run: createRun({
+            id: 'run-1',
+            context: {
+              evented_dispatch: {
+                execution_mode: 'evented',
+                lane_id: 'main',
+                dispatched_at: 1000,
+                result_continuation_applied: false,
+                manual_replay: {
+                  requested_at: 2000,
+                  requested_reason: 'manual_operator_request',
+                  replacement_run_id: 'run-2',
+                  replacement_run_created_at: 2000,
+                  original_continuation_suppressed_at: 2000,
+                },
+              },
+            },
+          }),
+        })
+        .mockReturnValue({
+          status: 'claimed',
+          run: createRun({
+            id: 'run-1',
+            context: {
+              evented_dispatch: {
+                execution_mode: 'evented',
+                lane_id: 'main',
+                dispatched_at: 1000,
+                result_continuation_applied: true,
+                result_continuation_applied_at: 3000,
+              },
+            },
+          }),
+        });
+      scheduler = new SchedulerCore(mockDeps, { executionMode: 'evented' });
+
+      const continuationSpy = jest.spyOn(scheduler as any, 'continueAfterExecutionResult');
+
+      await scheduler.submitGoal(goal);
+      await scheduler.start();
+      await scheduler.tick();
+
+      await runtimeEventHandler!({
+        id: 'evt-replayed-original',
+        type: 'execution.completed',
+        source: 'local-execution-worker',
+        timestamp: Date.now(),
+        runId: 'run-1',
+        goalId: 'goal-1',
+        workItemId: 'wi-1',
+        payload: {
+          result: {
+            runId: 'run-1',
+            workItemId: 'wi-1',
+            success: true,
+            tokensUsed: 1,
+            timeSeconds: 1,
+            costUsd: 0.001,
+            artifacts: [],
+          },
+        },
+      });
+
+      expect(continuationSpy).not.toHaveBeenCalled();
+      expect(mockRepository.completeRun).not.toHaveBeenCalled();
+      expect(mockLaneSelector.decrementActive).toHaveBeenCalledWith('main');
+    });
+
+    it('should reject replay attempts in direct mode', async () => {
+      const result = await scheduler.replayRun('run-original');
+
+      expect(result.status).toBe('not_evented_execution');
+      expect(mockRepository.startEventedManualReplay).not.toHaveBeenCalled();
+      expect(mockRuntimeEventBus.publish).not.toHaveBeenCalled();
     });
 
     it('should consume execution.completed as the authoritative evented completion signal', async () => {

@@ -67,7 +67,7 @@ Update rule from Session 22 onward:
 | RF-035 | Gateway/daemon seam cleanup | Further align code boundaries with runtime process boundaries | planned | low | RF-033 | — | Longer-term architectural cleanup. |
 | RF-036 | Event protocol cleanup | Review legacy `task.*` event names and future protocol normalization | planned | low | RF-020 | — | Only after execution/recovery semantics stabilize. |
 | RF-037 | Manual replay design | Produce safe manual replay design doc for evented execution runs | done | high | RF-019 | 24 | Session 24 defined manual replay as creating one replacement run for the same work item, with original-run continuation suppression and narrow replay lineage in `evented_dispatch`. |
-| RF-038 | Manual replay action 1 | Implement the safest first manual replay action chosen by RF-037 | planned | high | RF-037 | — | Implement one operator-triggered evented-only replay action for orphaned runs using narrow replay linkage and durable suppression of original-run continuation; no retry, reattachment, or automatic recovery. |
+| RF-038 | Manual replay action 1 | Implement the safest first manual replay action chosen by RF-037 | done | high | RF-037 | 25 | Session 25 added `pb scheduler replay-run <runId>` for the first safe evented-only manual replay path: original-run continuation is durably suppressed in `evented_dispatch.manual_replay`, one replacement run is created on the same work item with replay lineage, late original results are suppressed at continuation-claim time, and direct mode behavior remains unchanged. |
 
 ## 3. Suggested Near-Term Sequence
 

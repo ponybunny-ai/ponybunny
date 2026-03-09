@@ -31,6 +31,10 @@ export interface IWorkOrderRepository {
   getRunInspection(id: string): RunInspectionRecord | undefined;
   mergeRunContext(id: string, contextPatch: Record<string, unknown>): void;
   claimEventedResultContinuation(id: string, appliedAt?: number): EventedResultContinuationClaim;
+  startEventedManualReplay(
+    id: string,
+    params?: StartEventedManualReplayParams
+  ): EventedManualReplayStartResult;
   markEventedRunOrphaned(
     id: string,
     params: MarkEventedRunOrphanedParams
@@ -151,6 +155,7 @@ export interface CompleteRunParams {
 export type EventedResultContinuationClaimStatus =
   | 'claimed'
   | 'already_applied'
+  | 'suppressed_by_replay'
   | 'already_terminal'
   | 'missing_evented_dispatch'
   | 'run_not_found';
@@ -197,6 +202,11 @@ export interface EventedRunInspectionRecord {
   replayCandidate?: boolean;
   replayCandidateMarkedAt?: number;
   replayCandidateReason?: string;
+  replayReplacementRunId?: string;
+  replayRequestedAt?: number;
+  replaySuppressedAt?: number;
+  replayOfRunId?: string;
+  replayStartedAt?: number;
 }
 
 export interface RunInspectionRecord {
@@ -216,6 +226,11 @@ export interface RunInspectionRecord {
   replayCandidate?: boolean;
   replayCandidateMarkedAt?: number;
   replayCandidateReason?: string;
+  replayReplacementRunId?: string;
+  replayRequestedAt?: number;
+  replaySuppressedAt?: number;
+  replayOfRunId?: string;
+  replayStartedAt?: number;
 }
 
 export interface EventedRunReconciliationSummary {
@@ -241,6 +256,32 @@ export interface CreateArtifactParams {
 export interface MarkEventedRunRecoveryCandidateParams {
   markedAt?: number;
   reason?: 'manual_operator_mark';
+}
+
+export interface StartEventedManualReplayParams {
+  requestedAt?: number;
+  requestedReason?: 'manual_operator_request';
+}
+
+export type EventedManualReplayStartStatus =
+  | 'replay_started'
+  | 'run_not_found'
+  | 'missing_evented_dispatch'
+  | 'already_applied'
+  | 'already_terminal'
+  | 'work_item_not_in_progress'
+  | 'recovery_candidate_required'
+  | 'replay_candidate_required'
+  | 'missing_orphan_classification'
+  | 'already_replayed'
+  | 'replay_attempt_not_allowed';
+
+export interface EventedManualReplayStartResult {
+  status: EventedManualReplayStartStatus;
+  requestedAt?: number;
+  requestedReason?: 'manual_operator_request';
+  originalRun?: Run;
+  replacementRun?: Run;
 }
 
 export type EventedRunRecoveryCandidateMarkStatus =

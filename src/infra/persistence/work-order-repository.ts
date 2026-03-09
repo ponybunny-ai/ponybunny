@@ -1,6 +1,7 @@
 import type {
   IWorkOrderRepository,
   CreateGoalParams,
+  EventedManualReplayStartResult,
   EventedResultContinuationClaim,
   EventedRunOrphanMarkResult,
   EventedRunInspectionRecord,
@@ -659,6 +660,10 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
         AND status = 'running'
         AND json_extract(context, '$.evented_dispatch.execution_mode') = 'evented'
         AND json_extract(context, '$.evented_dispatch.result_continuation_applied') = 0
+        AND json_extract(
+          context,
+          '$.evented_dispatch.manual_replay.original_continuation_suppressed_at'
+        ) IS NULL
     `);
 
     const result = claimStmt.run(appliedAt, id);
@@ -700,10 +705,249 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
       };
     }
 
+    const continuationSuppressed = (eventedDispatch as {
+      manual_replay?: { original_continuation_suppressed_at?: unknown };
+    }).manual_replay?.original_continuation_suppressed_at;
+    if (typeof continuationSuppressed === 'number') {
+      return {
+        status: 'suppressed_by_replay',
+        run,
+      };
+    }
+
     return {
       status: 'missing_evented_dispatch',
       run,
     };
+  }
+
+  startEventedManualReplay(
+    id: string,
+    params?: {
+      requestedAt?: number;
+      requestedReason?: 'manual_operator_request';
+    }
+  ): EventedManualReplayStartResult {
+    const requestedAt = params?.requestedAt ?? Date.now();
+    const requestedReason = params?.requestedReason ?? 'manual_operator_request';
+
+    const startReplay = this.db.transaction(
+      (
+        runId: string,
+        replayRequestedAt: number,
+        replayRequestedReason: 'manual_operator_request'
+      ): EventedManualReplayStartResult => {
+        const row = this.db.prepare(`
+          SELECT
+            runs.*,
+            work_items.status AS work_item_status
+          FROM runs
+          INNER JOIN work_items ON work_items.id = runs.work_item_id
+          WHERE runs.id = ?
+        `).get(runId) as (RunRow & { work_item_status: string }) | undefined;
+
+        if (!row) {
+          return { status: 'run_not_found' };
+        }
+
+        const originalRun = this.parseRunRow(row);
+        const checkpoint = this.readEventedDispatchCheckpoint(originalRun);
+        if (!checkpoint) {
+          return {
+            status: 'missing_evented_dispatch',
+            originalRun,
+          };
+        }
+
+        if (originalRun.status !== 'running') {
+          return {
+            status: 'already_terminal',
+            originalRun,
+          };
+        }
+
+        if (row.work_item_status !== 'in_progress') {
+          return {
+            status: 'work_item_not_in_progress',
+            originalRun,
+          };
+        }
+
+        if (checkpoint.resultContinuationApplied === true) {
+          return {
+            status: 'already_applied',
+            originalRun,
+          };
+        }
+
+        if (checkpoint.recoveryCandidate !== true) {
+          return {
+            status: 'recovery_candidate_required',
+            originalRun,
+          };
+        }
+
+        if (checkpoint.replayCandidate !== true) {
+          return {
+            status: 'replay_candidate_required',
+            originalRun,
+          };
+        }
+
+        if (typeof checkpoint.orphanClassification !== 'string') {
+          return {
+            status: 'missing_orphan_classification',
+            originalRun,
+          };
+        }
+
+        if (typeof checkpoint.replayOfRunId === 'string' && checkpoint.replayOfRunId.length > 0) {
+          return {
+            status: 'replay_attempt_not_allowed',
+            originalRun,
+          };
+        }
+
+        if (
+          checkpoint.manualReplay &&
+          typeof checkpoint.manualReplay.replacement_run_id === 'string' &&
+          checkpoint.manualReplay.replacement_run_id.length > 0
+        ) {
+          return {
+            status: 'already_replayed',
+            originalRun,
+          };
+        }
+
+        const nextRunSequenceRow = this.db.prepare(`
+          SELECT COALESCE(MAX(run_sequence), 0) AS max_run_sequence
+          FROM runs
+          WHERE work_item_id = ?
+        `).get(originalRun.work_item_id) as { max_run_sequence: number | null };
+        const replacementRunSequence = (nextRunSequenceRow.max_run_sequence ?? 0) + 1;
+        const replacementRunId = randomUUID();
+
+        const originalEventedDispatch = originalRun.context?.evented_dispatch;
+        const originalEventedDispatchRecord =
+          originalEventedDispatch &&
+          typeof originalEventedDispatch === 'object' &&
+          !Array.isArray(originalEventedDispatch)
+            ? (originalEventedDispatch as Record<string, unknown>)
+            : {};
+
+        const replacementContext: Record<string, unknown> = {
+          ...(originalRun.context ?? {}),
+          evented_dispatch: {
+            replay_of_run_id: originalRun.id,
+            replay_started_at: replayRequestedAt,
+          },
+        };
+
+        const replacementRun: Run = {
+          id: replacementRunId,
+          created_at: replayRequestedAt,
+          work_item_id: originalRun.work_item_id,
+          goal_id: originalRun.goal_id,
+          agent_type: originalRun.agent_type,
+          run_sequence: replacementRunSequence,
+          status: 'running',
+          tokens_used: 0,
+          cost_usd: 0,
+          artifacts: [],
+          context: replacementContext,
+        };
+
+        const updatedOriginalContext = {
+          ...(originalRun.context ?? {}),
+          evented_dispatch: {
+            ...originalEventedDispatchRecord,
+            manual_replay: {
+              requested_at: replayRequestedAt,
+              requested_reason: replayRequestedReason,
+              replacement_run_id: replacementRunId,
+              replacement_run_created_at: replayRequestedAt,
+              original_continuation_suppressed_at: replayRequestedAt,
+            },
+          },
+        };
+
+        const suppressStmt = this.db.prepare(`
+          UPDATE runs
+          SET context = ?
+          WHERE id = ?
+            AND status = 'running'
+            AND json_extract(context, '$.evented_dispatch.execution_mode') = 'evented'
+            AND json_extract(context, '$.evented_dispatch.result_continuation_applied') = 0
+            AND json_extract(context, '$.evented_dispatch.recovery_candidate') = 1
+            AND json_extract(context, '$.evented_dispatch.replay_candidate') = 1
+            AND json_extract(context, '$.evented_dispatch.orphan_classification') IS NOT NULL
+            AND json_extract(context, '$.evented_dispatch.replay_of_run_id') IS NULL
+            AND json_extract(context, '$.evented_dispatch.manual_replay.replacement_run_id') IS NULL
+        `);
+
+        const suppressionResult = suppressStmt.run(JSON.stringify(updatedOriginalContext), originalRun.id);
+        if (suppressionResult.changes === 0) {
+          const refreshedOriginalRun = this.getRun(originalRun.id) ?? originalRun;
+          const refreshedCheckpoint = this.readEventedDispatchCheckpoint(refreshedOriginalRun);
+
+          if (
+            refreshedCheckpoint?.manualReplay &&
+            typeof refreshedCheckpoint.manualReplay.replacement_run_id === 'string'
+          ) {
+            return {
+              status: 'already_replayed',
+              originalRun: refreshedOriginalRun,
+            };
+          }
+
+          if (
+            typeof refreshedCheckpoint?.replayOfRunId === 'string' &&
+            refreshedCheckpoint.replayOfRunId.length > 0
+          ) {
+            return {
+              status: 'replay_attempt_not_allowed',
+              originalRun: refreshedOriginalRun,
+            };
+          }
+
+          return {
+            status: 'missing_evented_dispatch',
+            originalRun: refreshedOriginalRun,
+          };
+        }
+
+        const insertStmt = this.db.prepare(`
+          INSERT INTO runs (
+            id, created_at, work_item_id, goal_id, agent_type, run_sequence,
+            status, tokens_used, cost_usd, artifacts, context
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        insertStmt.run(
+          replacementRun.id,
+          replacementRun.created_at,
+          replacementRun.work_item_id,
+          replacementRun.goal_id,
+          replacementRun.agent_type,
+          replacementRun.run_sequence,
+          replacementRun.status,
+          replacementRun.tokens_used,
+          replacementRun.cost_usd,
+          JSON.stringify(replacementRun.artifacts),
+          JSON.stringify(replacementContext)
+        );
+
+        return {
+          status: 'replay_started',
+          requestedAt: replayRequestedAt,
+          requestedReason: replayRequestedReason,
+          originalRun: this.getRun(originalRun.id) ?? originalRun,
+          replacementRun: this.getRun(replacementRun.id) ?? replacementRun,
+        };
+      }
+    );
+
+    return startReplay(id, requestedAt, requestedReason);
   }
 
   markEventedRunOrphaned(
@@ -1195,6 +1439,11 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
       replayCandidate: checkpoint?.replayCandidate,
       replayCandidateMarkedAt: checkpoint?.replayCandidateMarkedAt,
       replayCandidateReason: checkpoint?.replayCandidateReason,
+      replayReplacementRunId: checkpoint?.manualReplay?.replacement_run_id,
+      replayRequestedAt: checkpoint?.manualReplay?.requested_at,
+      replaySuppressedAt: checkpoint?.manualReplay?.original_continuation_suppressed_at,
+      replayOfRunId: checkpoint?.replayOfRunId,
+      replayStartedAt: checkpoint?.replayStartedAt,
     };
   }
 
@@ -1211,6 +1460,15 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     replayCandidate?: boolean;
     replayCandidateMarkedAt?: number;
     replayCandidateReason?: string;
+    manualReplay?: {
+      requested_at: number;
+      requested_reason: 'manual_operator_request';
+      replacement_run_id: string;
+      replacement_run_created_at: number;
+      original_continuation_suppressed_at: number;
+    };
+    replayOfRunId?: string;
+    replayStartedAt?: number;
   } | null {
     const eventedDispatch = run.context?.evented_dispatch;
     if (!eventedDispatch || typeof eventedDispatch !== 'object' || Array.isArray(eventedDispatch)) {
@@ -1260,6 +1518,37 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
       replayCandidateReason:
         typeof checkpoint.replay_candidate_reason === 'string'
           ? checkpoint.replay_candidate_reason
+          : undefined,
+      manualReplay:
+        checkpoint.manual_replay &&
+        typeof checkpoint.manual_replay === 'object' &&
+        !Array.isArray(checkpoint.manual_replay) &&
+        typeof (checkpoint.manual_replay as { requested_at?: unknown }).requested_at === 'number' &&
+        (checkpoint.manual_replay as { requested_reason?: unknown }).requested_reason ===
+          'manual_operator_request' &&
+        typeof (checkpoint.manual_replay as { replacement_run_id?: unknown }).replacement_run_id ===
+          'string' &&
+        typeof (
+          checkpoint.manual_replay as { replacement_run_created_at?: unknown }
+        ).replacement_run_created_at === 'number' &&
+        typeof (
+          checkpoint.manual_replay as {
+            original_continuation_suppressed_at?: unknown;
+          }
+        ).original_continuation_suppressed_at === 'number'
+          ? (checkpoint.manual_replay as {
+              requested_at: number;
+              requested_reason: 'manual_operator_request';
+              replacement_run_id: string;
+              replacement_run_created_at: number;
+              original_continuation_suppressed_at: number;
+            })
+          : undefined,
+      replayOfRunId:
+        typeof checkpoint.replay_of_run_id === 'string' ? checkpoint.replay_of_run_id : undefined,
+      replayStartedAt:
+        typeof checkpoint.replay_started_at === 'number'
+          ? checkpoint.replay_started_at
           : undefined,
     };
   }

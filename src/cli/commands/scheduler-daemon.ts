@@ -17,6 +17,7 @@ import { WorkOrderDatabase } from '../../work-order/database/manager.js';
 import { ExecutionService } from '../../app/lifecycle/execution/execution-service.js';
 import { getLLMService } from '../../infra/llm/index.js';
 import { LLMRouter, MockLLMProvider } from '../../infra/llm/llm-provider.js';
+import { createScheduler } from '../../gateway/integration/scheduler-factory.js';
 import { SchedulerDaemon } from '../../scheduler-daemon/daemon.js';
 import { getGlobalSkillRegistry } from '../../infra/skills/skill-registry.js';
 import { isDebugLoggingEnabled } from '../../infra/config/debug-flags.js';
@@ -24,6 +25,8 @@ import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
 import { getManagedSkillsDir } from '../../infra/config/config-paths.js';
 import { getAsciiArtBanner } from '../../infra/ui/ascii-art-banner.js';
 import { getSchedulerConfiguredProviderIds } from '../lib/scheduler-provider-display.js';
+import { LocalExecutionAdapter } from '../../runtime/execution-boundary/index.js';
+import { LocalExecutionWorker } from '../../runtime/workers/index.js';
 import type {
   EventedRunInspectionRecord,
   EventedRunReconciliationSummary,
@@ -238,6 +241,63 @@ function printRunInspection(dbPath: string, record: RunInspectionRecord): void {
   console.log(`- replayCandidate: ${formatOptional(record.replayCandidate)}`);
   console.log(`- replayCandidateMarkedAt: ${formatTimestamp(record.replayCandidateMarkedAt)}`);
   console.log(`- replayCandidateReason: ${formatOptional(record.replayCandidateReason)}`);
+  console.log(`- replayReplacementRunId: ${formatOptional(record.replayReplacementRunId)}`);
+  console.log(`- replayRequestedAt: ${formatTimestamp(record.replayRequestedAt)}`);
+  console.log(`- replaySuppressedAt: ${formatTimestamp(record.replaySuppressedAt)}`);
+  console.log(`- replayOfRunId: ${formatOptional(record.replayOfRunId)}`);
+  console.log(`- replayStartedAt: ${formatTimestamp(record.replayStartedAt)}`);
+}
+
+async function createReplayScheduler(dbPath: string) {
+  const repository = new WorkOrderDatabase(dbPath);
+  await repository.initialize();
+
+  const llmService = getLLMService();
+  const availableProviders = llmService.getAvailableProviders();
+  const llmProvider =
+    availableProviders.length === 0
+      ? new LLMRouter([new MockLLMProvider('mock-provider')])
+      : llmService;
+
+  const skillRegistry = getGlobalSkillRegistry();
+  await skillRegistry.loadSkills({
+    workspaceDir: process.cwd(),
+    managedSkillsDir: getManagedSkillsDir(),
+  });
+
+  const executionService = new ExecutionService(repository, { maxConsecutiveErrors: 3 }, llmProvider);
+  await executionService.initializeSkills(process.cwd());
+  await executionService.initializeMCP();
+
+  const executionPort = new LocalExecutionAdapter(executionService);
+  const executionWorker = new LocalExecutionWorker(executionPort);
+  executionWorker.start();
+
+  const scheduler = createScheduler(
+    {
+      repository,
+      executionService,
+      llmProvider,
+      executionPort,
+    },
+    {
+      tickIntervalMs: runtimeConfig.scheduler.tickIntervalMs,
+      maxConcurrentGoals: runtimeConfig.scheduler.maxConcurrentGoals,
+      autoStart: false,
+      debug: isDebugLoggingEnabled(),
+      executionMode: runtimeConfig.scheduler.executionMode,
+      deterministicRuntimeEnabled: runtimeConfig.scheduler.deterministicRuntimeEnabled,
+      planCompilerEnabled: runtimeConfig.scheduler.planCompilerEnabled,
+      toolRoutingMode: runtimeConfig.scheduler.toolRoutingMode,
+      runtimeRollout: runtimeConfig.scheduler.runtimeRollout,
+    }
+  );
+
+  return {
+    repository,
+    executionWorker,
+    scheduler,
+  };
 }
 
 async function runScheduler(
@@ -812,6 +872,62 @@ export const schedulerCommand = new Command('scheduler')
         );
         if (record) {
           printRunInspection(dbPath, record);
+        }
+      })
+  )
+  .addCommand(
+    new Command('replay-run')
+      .description('Create one replacement run for an eligible orphaned evented run and dispatch it')
+      .argument('<runId>', 'Run ID to replay')
+      .option('--db <path>', 'Database path (defaults to running scheduler DB or configured path)')
+      .action(async (runId: string, options: { db?: string }) => {
+        const runningScheduler = readPidFile();
+        if (runningScheduler && isProcessRunning(runningScheduler.pid)) {
+          console.log(
+            chalk.red('Manual replay requires the scheduler daemon to be stopped before dispatch.')
+          );
+          process.exit(1);
+        }
+
+        const dbPath = resolveSchedulerDbPath(options.db);
+        const { repository, executionWorker, scheduler } = await createReplayScheduler(dbPath);
+
+        try {
+          const result = await scheduler.replayRun(runId);
+
+          if (result.status !== 'replay_started' || !result.replacementRun) {
+            console.log(
+              chalk.red(`Could not replay run ${runId} (${result.status}).`)
+            );
+            const record = await withSchedulerRepository(dbPath, (repo) => repo.getRunInspection(runId));
+            if (record) {
+              printRunInspection(dbPath, record);
+            }
+            process.exit(1);
+          }
+
+          console.log(
+            chalk.green(
+              `Replay started for run ${runId}. Replacement run: ${result.replacementRun.id}`
+            )
+          );
+
+          const originalRecord = await withSchedulerRepository(dbPath, (repo) =>
+            repo.getRunInspection(runId)
+          );
+          if (originalRecord) {
+            printRunInspection(dbPath, originalRecord);
+          }
+
+          const replacementRecord = await withSchedulerRepository(dbPath, (repo) =>
+            repo.getRunInspection(result.replacementRun!.id)
+          );
+          if (replacementRecord) {
+            printRunInspection(dbPath, replacementRecord);
+          }
+        } finally {
+          executionWorker.stop();
+          repository.close();
         }
       })
   )

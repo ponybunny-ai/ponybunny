@@ -601,4 +601,181 @@ describe('WorkOrderDatabase evented reconciliation queries', () => {
 
     repository.close();
   });
+
+  it('starts one manual replay by suppressing the original run before creating one replacement run', async () => {
+    const dbPath = createTempDbPath();
+    const repository = new WorkOrderDatabase(dbPath);
+    await repository.initialize();
+
+    const goal = repository.createGoal({
+      title: 'goal',
+      description: 'desc',
+      success_criteria: [],
+    });
+    const workItem = repository.createWorkItem({
+      goal_id: goal.id,
+      title: 'work',
+      description: 'desc',
+      item_type: 'code',
+    });
+    repository.updateWorkItemStatus(workItem.id, 'in_progress');
+
+    const run = repository.createRun({
+      work_item_id: workItem.id,
+      goal_id: goal.id,
+      agent_type: 'code',
+      run_sequence: 1,
+      context: { selected_model: 'test-model' },
+    });
+    repository.mergeRunContext(run.id, {
+      evented_dispatch: {
+        ...buildEventedDispatchCheckpoint({
+          laneId: 'main',
+          dispatchedAt: 1234,
+          resultContinuationApplied: false,
+        }),
+        orphan_classification: 'stale_timeout',
+        orphan_detected_at: 1500,
+        recovery_candidate: true,
+        recovery_candidate_marked_at: 1600,
+        recovery_candidate_reason: 'manual_operator_mark',
+        replay_candidate: true,
+        replay_candidate_marked_at: 1700,
+        replay_candidate_reason: 'manual_operator_mark',
+      },
+    });
+
+    const result = repository.startEventedManualReplay(run.id, { requestedAt: 2000 });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: 'replay_started',
+        requestedAt: 2000,
+        replacementRun: expect.objectContaining({
+          run_sequence: 2,
+          work_item_id: workItem.id,
+        }),
+      })
+    );
+
+    const replayedOriginal = repository.getRun(run.id);
+    expect(replayedOriginal?.context?.evented_dispatch).toEqual(
+      expect.objectContaining({
+        manual_replay: expect.objectContaining({
+          requested_at: 2000,
+          requested_reason: 'manual_operator_request',
+          replacement_run_id: result.replacementRun?.id,
+          replacement_run_created_at: 2000,
+          original_continuation_suppressed_at: 2000,
+        }),
+      })
+    );
+
+    const replacement = repository.getRun(result.replacementRun!.id);
+    expect(replacement?.context?.evented_dispatch).toEqual(
+      expect.objectContaining({
+        replay_of_run_id: run.id,
+        replay_started_at: 2000,
+      })
+    );
+
+    const suppressedClaim = repository.claimEventedResultContinuation(run.id, 3000);
+    expect(suppressedClaim.status).toBe('suppressed_by_replay');
+
+    repository.close();
+  });
+
+  it('rejects replay when the target run fails the conservative gate set', async () => {
+    const dbPath = createTempDbPath();
+    const repository = new WorkOrderDatabase(dbPath);
+    await repository.initialize();
+
+    const goal = repository.createGoal({
+      title: 'goal',
+      description: 'desc',
+      success_criteria: [],
+    });
+    const workItem = repository.createWorkItem({
+      goal_id: goal.id,
+      title: 'work',
+      description: 'desc',
+      item_type: 'code',
+    });
+    repository.updateWorkItemStatus(workItem.id, 'in_progress');
+
+    const run = repository.createRun({
+      work_item_id: workItem.id,
+      goal_id: goal.id,
+      agent_type: 'code',
+      run_sequence: 1,
+    });
+    repository.mergeRunContext(run.id, {
+      evented_dispatch: {
+        ...buildEventedDispatchCheckpoint({
+          laneId: 'main',
+          dispatchedAt: 1234,
+          resultContinuationApplied: false,
+        }),
+        orphan_classification: 'stale_timeout',
+        recovery_candidate: true,
+      },
+    });
+
+    const result = repository.startEventedManualReplay(run.id, { requestedAt: 2000 });
+    expect(result.status).toBe('replay_candidate_required');
+    expect(repository.getRunsByWorkItem(workItem.id)).toHaveLength(1);
+
+    repository.close();
+  });
+
+  it('rejects repeated replay requests once an original run has already been replayed', async () => {
+    const dbPath = createTempDbPath();
+    const repository = new WorkOrderDatabase(dbPath);
+    await repository.initialize();
+
+    const goal = repository.createGoal({
+      title: 'goal',
+      description: 'desc',
+      success_criteria: [],
+    });
+    const workItem = repository.createWorkItem({
+      goal_id: goal.id,
+      title: 'work',
+      description: 'desc',
+      item_type: 'code',
+    });
+    repository.updateWorkItemStatus(workItem.id, 'in_progress');
+
+    const run = repository.createRun({
+      work_item_id: workItem.id,
+      goal_id: goal.id,
+      agent_type: 'code',
+      run_sequence: 1,
+    });
+    repository.mergeRunContext(run.id, {
+      evented_dispatch: {
+        ...buildEventedDispatchCheckpoint({
+          laneId: 'main',
+          dispatchedAt: 1234,
+          resultContinuationApplied: false,
+        }),
+        orphan_classification: 'stale_timeout',
+        recovery_candidate: true,
+        recovery_candidate_marked_at: 1600,
+        recovery_candidate_reason: 'manual_operator_mark',
+        replay_candidate: true,
+        replay_candidate_marked_at: 1700,
+        replay_candidate_reason: 'manual_operator_mark',
+      },
+    });
+
+    const firstReplay = repository.startEventedManualReplay(run.id, { requestedAt: 2000 });
+    expect(firstReplay.status).toBe('replay_started');
+
+    const secondReplay = repository.startEventedManualReplay(run.id, { requestedAt: 3000 });
+    expect(secondReplay.status).toBe('already_replayed');
+    expect(repository.getRunsByWorkItem(workItem.id)).toHaveLength(2);
+
+    repository.close();
+  });
 });

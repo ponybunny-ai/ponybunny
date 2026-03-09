@@ -3,7 +3,10 @@
  */
 
 import type { Goal, WorkItem, Run, InFlightRunReconciliationCandidate } from '../../work-order/types/index.js';
-import type { EventedResultContinuationClaim } from '../../infra/persistence/repository-interface.js';
+import type {
+  EventedManualReplayStartResult,
+  EventedResultContinuationClaim,
+} from '../../infra/persistence/repository-interface.js';
 import type { LaneId, SchedulerState, SchedulerEvent, SchedulerEventHandler } from '../types.js';
 import type { ModelSelectionResult } from '../model-selector/index.js';
 import type { LaneSelectionResult } from '../lane-selector/index.js';
@@ -159,6 +162,13 @@ export interface ISchedulerRepository {
   getRun(id: string): Run | undefined;
   mergeRunContext(id: string, contextPatch: Record<string, unknown>): void;
   claimEventedResultContinuation(id: string, appliedAt?: number): EventedResultContinuationClaim;
+  startEventedManualReplay(
+    id: string,
+    params?: {
+      requestedAt?: number;
+      requestedReason?: 'manual_operator_request';
+    }
+  ): EventedManualReplayStartResult;
   completeRun(id: string, params: {
     status: Run['status'];
     tokens_used: number;

@@ -62,6 +62,16 @@ export class SchedulerRepositoryAdapter implements ISchedulerRepository {
     return this.repository.claimEventedResultContinuation(id, appliedAt);
   }
 
+  startEventedManualReplay(
+    id: string,
+    params?: {
+      requestedAt?: number;
+      requestedReason?: 'manual_operator_request';
+    }
+  ) {
+    return this.repository.startEventedManualReplay(id, params);
+  }
+
   completeRun(
     id: string,
     params: {

@@ -111,6 +111,115 @@ export class SchedulerCore implements ISchedulerCore {
     return { ...this.state };
   }
 
+  async replayRun(runId: string): Promise<{
+    status:
+      | 'replay_started'
+      | 'run_not_found'
+      | 'missing_evented_dispatch'
+      | 'already_applied'
+      | 'already_terminal'
+      | 'work_item_not_in_progress'
+      | 'recovery_candidate_required'
+      | 'replay_candidate_required'
+      | 'missing_orphan_classification'
+      | 'already_replayed'
+      | 'replay_attempt_not_allowed'
+      | 'not_evented_execution';
+    originalRun?: ReturnType<SchedulerDependencies['repository']['getRun']>;
+    replacementRun?: ReturnType<SchedulerDependencies['repository']['getRun']>;
+  }> {
+    if (this.config.executionMode !== 'evented') {
+      return { status: 'not_evented_execution' };
+    }
+
+    const replay = this.deps.repository.startEventedManualReplay(runId, {
+      requestedAt: Date.now(),
+      requestedReason: 'manual_operator_request',
+    });
+
+    if (replay.status !== 'replay_started' || !replay.replacementRun) {
+      return {
+        status: replay.status,
+        originalRun: replay.originalRun,
+      };
+    }
+
+    const goal = this.deps.repository.getGoal(replay.replacementRun.goal_id);
+    const workItem = this.deps.repository.getWorkItem(replay.replacementRun.work_item_id);
+    if (!goal || !workItem) {
+      throw new Error(
+        `Replay created replacement run ${replay.replacementRun.id} without a durable goal/work item`
+      );
+    }
+
+    const originalCheckpoint = replay.originalRun
+      ? readEventedDispatchCheckpoint(replay.originalRun.context)
+      : null;
+    const modelResult = this.deps.modelSelector.selectModel(workItem, goal);
+    const laneResult = this.deps.laneSelector.selectLane(workItem, goal);
+    const laneId = (originalCheckpoint?.lane_id ?? laneResult.laneId) as LaneId;
+    const model =
+      typeof replay.replacementRun.context?.selected_model === 'string'
+        ? replay.replacementRun.context.selected_model
+        : modelResult.model;
+
+    const goalState = this.goalStates.get(goal.id) ?? {
+      goalId: goal.id,
+      status: 'running' as const,
+      currentWorkItemId: workItem.id,
+      currentRunId: replay.replacementRun.id,
+      startedAt: Date.now(),
+    };
+    goalState.status = 'running';
+    goalState.currentWorkItemId = workItem.id;
+    goalState.currentRunId = replay.replacementRun.id;
+    this.goalStates.set(goal.id, goalState);
+    if (!this.state.activeGoals.includes(goal.id)) {
+      this.state.activeGoals.push(goal.id);
+    }
+
+    const context: WorkItemExecutionContext = {
+      workItem,
+      goal,
+      run: replay.replacementRun,
+      laneId,
+      model,
+      startedAt: Date.now(),
+    };
+    this.activeExecutions.set(replay.replacementRun.id, context);
+    this.deps.laneSelector.incrementActive(laneId);
+    this.updateLaneStatus(laneId);
+
+    this.emitEvent({
+      type: 'run_started',
+      timestamp: Date.now(),
+      goalId: goal.id,
+      workItemId: workItem.id,
+      runId: replay.replacementRun.id,
+      data: {
+        selected_model: model,
+        replay_of_run_id: replay.originalRun?.id,
+      },
+    });
+
+    this.emitEvent({
+      type: 'work_item_in_progress',
+      timestamp: Date.now(),
+      goalId: goal.id,
+      workItemId: workItem.id,
+      runId: replay.replacementRun.id,
+      data: { stage: 'execution', progress: 10, replay_of_run_id: replay.originalRun?.id },
+    });
+
+    await this.dispatchExecution(context);
+
+    return {
+      status: replay.status,
+      originalRun: replay.originalRun,
+      replacementRun: replay.replacementRun,
+    };
+  }
+
   async start(): Promise<void> {
     if (this.state.status === 'running') {
       return;
@@ -545,11 +654,14 @@ export class SchedulerCore implements ISchedulerCore {
   private async publishTaskReady(context: WorkItemExecutionContext): Promise<void> {
     const request = this.buildExecutionRequest(context);
     const dispatchedAt = Date.now();
-    const eventedDispatch = buildEventedDispatchCheckpoint({
-      laneId: request.laneId,
-      dispatchedAt,
-      resultContinuationApplied: false,
-    });
+    const eventedDispatch = this.mergeEventedDispatch(
+      context.run.context,
+      buildEventedDispatchCheckpoint({
+        laneId: request.laneId,
+        dispatchedAt,
+        resultContinuationApplied: false,
+      })
+    );
 
     this.deps.repository.mergeRunContext(request.runId, {
       evented_dispatch: eventedDispatch,
@@ -569,6 +681,28 @@ export class SchedulerCore implements ISchedulerCore {
       workItemId: request.workItemId,
       payload: request,
     });
+  }
+
+  private mergeEventedDispatch(
+    context: WorkItemExecutionContext['run']['context'],
+    patch: object
+  ): Record<string, unknown> {
+    const currentEventedDispatch = context?.evented_dispatch;
+    const currentEventedDispatchRecord =
+      currentEventedDispatch &&
+      typeof currentEventedDispatch === 'object' &&
+      !Array.isArray(currentEventedDispatch)
+        ? (currentEventedDispatch as Record<string, unknown>)
+        : {};
+
+    const patchRecord = Object.fromEntries(
+      Object.entries(patch as Record<string, unknown>).filter(([, value]) => value !== undefined)
+    );
+
+    return {
+      ...currentEventedDispatchRecord,
+      ...patchRecord,
+    };
   }
 
   /**
@@ -784,6 +918,14 @@ export class SchedulerCore implements ISchedulerCore {
       return false;
     }
 
+    if (claim.status === 'suppressed_by_replay') {
+      this.debug(
+        `Suppressing stale ${eventType} for run ${runId}: durable continuation authority was transferred to a replay run`
+      );
+      this.cleanupExecutionContext(runId);
+      return false;
+    }
+
     if (claim.status === 'already_terminal') {
       this.debug(`Ignoring stale ${eventType} for run ${runId}: durable run state is already terminal`);
       this.cleanupExecutionContext(runId);
@@ -821,6 +963,16 @@ export class SchedulerCore implements ISchedulerCore {
 
     if (checkpoint.result_continuation_applied) {
       this.debug(`Suppressing duplicate ${eventType} for run ${runId}: durable continuation already applied`);
+      return;
+    }
+
+    if (
+      checkpoint.manual_replay &&
+      typeof checkpoint.manual_replay.original_continuation_suppressed_at === 'number'
+    ) {
+      this.debug(
+        `Suppressing stale ${eventType} for run ${runId}: durable continuation authority was transferred to replay run ${checkpoint.manual_replay.replacement_run_id}`
+      );
       return;
     }
 
@@ -899,12 +1051,15 @@ export class SchedulerCore implements ISchedulerCore {
       const resultContinuationAppliedAt =
         existingCheckpoint?.result_continuation_applied_at ?? Date.now();
       const completedEventedDispatch = existingCheckpoint
-        ? buildEventedDispatchCheckpoint({
-            laneId: existingCheckpoint.lane_id,
-            dispatchedAt: existingCheckpoint.dispatched_at,
-            resultContinuationApplied: true,
-            resultContinuationAppliedAt,
-          })
+        ? this.mergeEventedDispatch(
+            run.context,
+            buildEventedDispatchCheckpoint({
+              laneId: existingCheckpoint.lane_id,
+              dispatchedAt: existingCheckpoint.dispatched_at,
+              resultContinuationApplied: true,
+              resultContinuationAppliedAt,
+            })
+          )
         : null;
 
       this.deps.repository.completeRun(run.id, {
