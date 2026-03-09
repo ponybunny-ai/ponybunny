@@ -25,8 +25,8 @@ import { FilePersonaRepository, InMemoryPersonaRepository } from '../infra/conve
 import { getUserAgentsDir } from '../infra/agents/agent-discovery.js';
 import { loadRuntimeConfig, type PonyBunnyRuntimeConfig } from '../infra/config/runtime-config.js';
 import { ToolAllowlist, ToolEnforcer, ToolRegistry } from '../infra/tools/tool-registry.js';
-import type { ConversationPort } from '../runtime/conversation-boundary/index.js';
-import { ConversationWorker } from '../runtime/workers/conversation-worker.js';
+import type { ConversationPort, ConversationRequest, ConversationResult } from '../runtime/conversation-boundary/index.js';
+import { ConversationWorker, type ConversationWorkerInspectionSnapshot } from '../runtime/workers/conversation-worker.js';
 
 export interface SchedulerSessionEvent {
   event: string;
@@ -429,6 +429,15 @@ export class SchedulerSessionIntake {
     }>;
   }): Promise<SessionMessageResult> {
     const conversationRequestId = this.createConversationRequestId();
+    const request: ConversationRequest = {
+      conversationRequestId,
+      message: params.message,
+      sessionId: params.sessionId,
+      personaId: params.personaId,
+      userProfileId: params.userProfileId,
+      agentId: params.agentId,
+      attachments: params.attachments,
+    };
 
     await this.publishEvent({
       event: 'conversation.message.started',
@@ -441,15 +450,10 @@ export class SchedulerSessionIntake {
       },
     });
 
-    const result = await this.conversationPort.process({
-      conversationRequestId,
-      message: params.message,
-      sessionId: params.sessionId,
-      personaId: params.personaId,
-      userProfileId: params.userProfileId,
-      agentId: params.agentId,
-      attachments: params.attachments,
-    });
+    const result = this.validateConversationResult(
+      request,
+      await this.conversationPort.process(request)
+    );
 
     this.bindingsBySchedulerSession.set(result.sessionId, {
       gatewaySessionId: params.gatewaySessionId,
@@ -553,6 +557,16 @@ export class SchedulerSessionIntake {
     return { success };
   }
 
+  inspectConversationWorker(): ConversationWorkerInspectionSnapshot | null {
+    const inspectablePort = this.conversationPort as ConversationPort & {
+      inspect?: () => ConversationWorkerInspectionSnapshot;
+    };
+
+    return typeof inspectablePort.inspect === 'function'
+      ? inspectablePort.inspect()
+      : null;
+  }
+
   getStatus(params: { sessionId: string }): SessionStatusResult {
     const session = this.sessionManager.getSession(params.sessionId);
     if (!session) return { exists: false };
@@ -605,6 +619,39 @@ export class SchedulerSessionIntake {
 
   private createConversationRequestId(): string {
     return this.deps.conversationRequestIdFactory?.() ?? randomUUID();
+  }
+
+  private validateConversationResult(
+    request: ConversationRequest,
+    result: ConversationResult
+  ): ConversationResult {
+    const problems: string[] = [];
+
+    if (result.conversationRequestId !== request.conversationRequestId) {
+      problems.push(
+        `conversationRequestId expected ${request.conversationRequestId}, received ${String(result.conversationRequestId)}`
+      );
+    }
+
+    if (typeof result.sessionId !== 'string' || result.sessionId.trim().length === 0) {
+      problems.push('sessionId must be a non-empty string');
+    }
+
+    if (typeof result.response !== 'string') {
+      problems.push('response must be a string');
+    }
+
+    if (typeof result.state !== 'string') {
+      problems.push('state must be a string');
+    }
+
+    if (problems.length > 0) {
+      throw new Error(
+        `Invalid ConversationResult for request '${request.conversationRequestId}': ${problems.join('; ')}`
+      );
+    }
+
+    return result;
   }
 
   private async publishEvent(event: SchedulerSessionEvent): Promise<void> {

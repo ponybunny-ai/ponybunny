@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ConversationPort, ConversationRequest } from '../../src/runtime/conversation-boundary/index.js';
+import { ConversationWorker } from '../../src/runtime/workers/conversation-worker.js';
 import { SchedulerSessionIntake, SchedulerTaskBridge, resolveMainAgentModelHintFromAgentConfig } from '../../src/scheduler-daemon/session-intake.js';
 import { DEFAULT_RUNTIME_CONFIG } from '../../src/infra/config/runtime-config.js';
 import type { Goal, WorkItem } from '../../src/work-order/types/index.js';
@@ -425,6 +426,109 @@ describe('SchedulerSessionIntake conversation boundary', () => {
           },
         },
       ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects mismatched ConversationResult identity before success events are published', async () => {
+    const db = new Database(':memory:');
+    const events: Array<{ event: string; gatewaySessionId?: string; sessionId?: string; payload?: Record<string, unknown> }> = [];
+    const conversationPort: ConversationPort = {
+      process: jest.fn(async () => ({
+        conversationRequestId: 'conv-req-other',
+        sessionId: 'ses-1',
+        response: 'worker response',
+        state: 'chatting' as const,
+      })),
+    };
+
+    try {
+      const intake = new SchedulerSessionIntake({
+        repository: createRepositoryStub() as never,
+        memoryDb: db,
+        llmService: createLlmServiceStub() as never,
+        schedulerProvider: () => null,
+        publishSessionEvent: async (event) => {
+          events.push(event);
+        },
+        conversationPort,
+        conversationRequestIdFactory: () => 'conv-req-1',
+      });
+
+      await expect(intake.processMessage({
+        gatewaySessionId: 'gw-1',
+        sessionId: 'ses-1',
+        message: 'build this',
+      })).rejects.toThrow(
+        "Invalid ConversationResult for request 'conv-req-1': conversationRequestId expected conv-req-1, received conv-req-other"
+      );
+
+      expect(events).toEqual([
+        {
+          event: 'conversation.message.started',
+          gatewaySessionId: 'gw-1',
+          sessionId: 'ses-1',
+          payload: {
+            stream: false,
+          },
+        },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('exposes local conversation worker inspection through SchedulerSessionIntake', async () => {
+    const db = new Database(':memory:');
+
+    try {
+      const conversationPort = new ConversationWorker({
+        processMessage: jest.fn(async () => ({
+          sessionId: 'ses-1',
+          response: 'worker response',
+          state: 'chatting' as const,
+        })),
+      });
+
+      const intake = new SchedulerSessionIntake({
+        repository: createRepositoryStub() as never,
+        memoryDb: db,
+        llmService: createLlmServiceStub() as never,
+        schedulerProvider: () => null,
+        publishSessionEvent: async () => {},
+        conversationPort,
+        conversationRequestIdFactory: () => 'conv-req-1',
+      });
+
+      await intake.processMessage({
+        gatewaySessionId: 'gw-1',
+        sessionId: 'ses-1',
+        message: 'build this',
+      });
+
+      expect(intake.inspectConversationWorker()).toEqual({
+        summary: {
+          totalRequests: 1,
+          inFlightCount: 0,
+          recentCount: 1,
+          successCount: 1,
+          failureCount: 0,
+          invalidCount: 0,
+          duplicateSuppressedCount: 0,
+        },
+        inFlight: [],
+        recent: [
+          expect.objectContaining({
+            conversationRequestId: 'conv-req-1',
+            requestedSessionId: 'ses-1',
+            resultSessionId: 'ses-1',
+            outcome: 'success',
+            resultMatchedRequestId: true,
+            sessionIdMatched: true,
+          }),
+        ],
+      });
     } finally {
       db.close();
     }
