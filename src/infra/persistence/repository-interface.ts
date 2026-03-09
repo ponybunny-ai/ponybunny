@@ -39,6 +39,10 @@ export interface IWorkOrderRepository {
     id: string,
     params?: MarkEventedRunRecoveryCandidateParams
   ): EventedRunRecoveryCandidateMarkResult;
+  markEventedRunReplayCandidate(
+    id: string,
+    params?: MarkEventedRunReplayCandidateParams
+  ): EventedRunReplayCandidateMarkResult;
   clearEventedRunRecoveryCandidate(id: string): EventedRunRecoveryCandidateClearResult;
   completeRun(id: string, params: CompleteRunParams): void;
   getRunsByWorkItem(workItemId: string): Run[];
@@ -190,6 +194,9 @@ export interface EventedRunInspectionRecord {
   recoveryCandidate?: boolean;
   recoveryCandidateMarkedAt?: number;
   recoveryCandidateReason?: string;
+  replayCandidate?: boolean;
+  replayCandidateMarkedAt?: number;
+  replayCandidateReason?: string;
 }
 
 export interface RunInspectionRecord {
@@ -206,6 +213,9 @@ export interface RunInspectionRecord {
   recoveryCandidate?: boolean;
   recoveryCandidateMarkedAt?: number;
   recoveryCandidateReason?: string;
+  replayCandidate?: boolean;
+  replayCandidateMarkedAt?: number;
+  replayCandidateReason?: string;
 }
 
 export interface EventedRunReconciliationSummary {
@@ -243,6 +253,27 @@ export type EventedRunRecoveryCandidateMarkStatus =
 
 export interface EventedRunRecoveryCandidateMarkResult {
   status: EventedRunRecoveryCandidateMarkStatus;
+  markedAt?: number;
+  reason?: 'manual_operator_mark';
+  run?: Run;
+}
+
+export interface MarkEventedRunReplayCandidateParams {
+  markedAt?: number;
+  reason?: 'manual_operator_mark';
+}
+
+export type EventedRunReplayCandidateMarkStatus =
+  | 'marked'
+  | 'already_marked'
+  | 'recovery_candidate_required'
+  | 'already_applied'
+  | 'already_terminal'
+  | 'missing_evented_dispatch'
+  | 'run_not_found';
+
+export interface EventedRunReplayCandidateMarkResult {
+  status: EventedRunReplayCandidateMarkStatus;
   markedAt?: number;
   reason?: 'manual_operator_mark';
   run?: Run;

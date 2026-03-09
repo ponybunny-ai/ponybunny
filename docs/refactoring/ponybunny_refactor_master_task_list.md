@@ -48,7 +48,7 @@ Update rule from Session 22 onward:
 | RF-016 | Recovery candidate skeleton | Add inspect-one-run and mark-recovery-candidate CLI workflow | done | medium | RF-015 | 20B | Conservative manual recovery preparation added. |
 | RF-017 | Manual recovery design | Produce manual recovery action design doc | done | high | RF-016 | 21 | Session 21 documented clear/unmark as the first safe metadata-only action. |
 | RF-018 | Manual recovery action 1 | Implement safest first manual recovery action chosen by RF-017 | done | high | RF-017 | 22 | `clear-recovery-candidate` clears only `evented_dispatch.recovery_candidate` and preserves direct mode semantics. |
-| RF-019 | Manual recovery action 2 | Add second conservative manual recovery operator action if justified | planned | medium | RF-018 | — | Depends on RF-017 recommendations. |
+| RF-019 | Manual recovery action 2 | Add second conservative manual recovery operator action if justified | done | medium | RF-018 | 23 | Session 23 added metadata-only `mark-replay-candidate` with `recovery_candidate` precondition and inspect support; no replay semantics were introduced. |
 | RF-020 | Recovery readiness review | Reassess evented mode default-readiness after manual recovery baseline | planned | medium | RF-018 | — | Decide what remains before evented can become default. |
 | RF-021 | Tool boundary design | Produce ToolWorker extraction design and dependency map | planned | medium | RF-009 | — | Tool orchestration still lives inside execution flow. |
 | RF-022 | Tool boundary extraction | Introduce ToolPort / tool execution boundary | planned | medium | RF-021 | — | First cut before actual ToolWorker. |

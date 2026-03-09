@@ -155,6 +155,7 @@ describe('pb scheduler reconciliation inspection', () => {
     expect(output).toContain('- resultContinuationApplied: false');
     expect(output).toContain('- orphanClassification: stale_timeout');
     expect(output).toContain('- recoveryCandidate: -');
+    expect(output).toContain('- replayCandidate: -');
   });
 
   test('marks an evented run as a recovery candidate idempotently without affecting direct runs', async () => {
@@ -191,6 +192,62 @@ describe('pb scheduler reconciliation inspection', () => {
       const execError = error as Error & { stdout?: string };
       expect(execError.stdout).toContain(
         `Could not mark run ${directRunId} as a recovery candidate (missing_evented_dispatch).`
+      );
+    }
+  });
+
+  test('marks an evented recovery candidate as a replay candidate idempotently without affecting direct runs', async () => {
+    const dbPath = createTempDbPath();
+    const { inFlightRunId, directRunId } = await seedInspectionDb(dbPath);
+
+    try {
+      execSync(`${pbCommand} scheduler mark-replay-candidate ${inFlightRunId} --db "${dbPath}"`, {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      });
+      throw new Error('expected replay mark without recovery candidate to fail');
+    } catch (error) {
+      const execError = error as Error & { stdout?: string };
+      expect(execError.stdout).toContain(
+        `Could not mark run ${inFlightRunId} as a replay candidate (recovery_candidate_required).`
+      );
+    }
+
+    execSync(`${pbCommand} scheduler mark-recovery-candidate ${inFlightRunId} --db "${dbPath}"`, {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    });
+
+    const firstOutput = execSync(
+      `${pbCommand} scheduler mark-replay-candidate ${inFlightRunId} --db "${dbPath}"`,
+      {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      }
+    );
+    expect(firstOutput).toContain(`Replay candidate marked for run ${inFlightRunId}.`);
+    expect(firstOutput).toContain('- replayCandidate: true');
+    expect(firstOutput).toContain('- replayCandidateReason: manual_operator_mark');
+
+    const secondOutput = execSync(
+      `${pbCommand} scheduler mark-replay-candidate ${inFlightRunId} --db "${dbPath}"`,
+      {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      }
+    );
+    expect(secondOutput).toContain(`Replay candidate already marked for run ${inFlightRunId}.`);
+
+    try {
+      execSync(`${pbCommand} scheduler mark-replay-candidate ${directRunId} --db "${dbPath}"`, {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      });
+      throw new Error('expected direct replay mark to fail');
+    } catch (error) {
+      const execError = error as Error & { stdout?: string };
+      expect(execError.stdout).toContain(
+        `Could not mark run ${directRunId} as a replay candidate (missing_evented_dispatch).`
       );
     }
   });

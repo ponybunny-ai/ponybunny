@@ -235,6 +235,9 @@ function printRunInspection(dbPath: string, record: RunInspectionRecord): void {
   console.log(`- recoveryCandidate: ${formatOptional(record.recoveryCandidate)}`);
   console.log(`- recoveryCandidateMarkedAt: ${formatTimestamp(record.recoveryCandidateMarkedAt)}`);
   console.log(`- recoveryCandidateReason: ${formatOptional(record.recoveryCandidateReason)}`);
+  console.log(`- replayCandidate: ${formatOptional(record.replayCandidate)}`);
+  console.log(`- replayCandidateMarkedAt: ${formatTimestamp(record.replayCandidateMarkedAt)}`);
+  console.log(`- replayCandidateReason: ${formatOptional(record.replayCandidateReason)}`);
 }
 
 async function runScheduler(
@@ -705,6 +708,49 @@ export const schedulerCommand = new Command('scheduler')
           console.log(
             chalk.red(
               `Could not mark run ${runId} as a recovery candidate (${result.status}).`
+            )
+          );
+          if (result.run) {
+            const record = await withSchedulerRepository(dbPath, (repository) =>
+              repository.getRunInspection(runId)
+            );
+            if (record) {
+              printRunInspection(dbPath, record);
+            }
+          }
+          process.exit(1);
+        }
+
+        const record = await withSchedulerRepository(dbPath, (repository) =>
+          repository.getRunInspection(runId)
+        );
+        if (record) {
+          printRunInspection(dbPath, record);
+        }
+      })
+  )
+  .addCommand(
+    new Command('mark-replay-candidate')
+      .description('Durably mark one recovery-candidate evented run as a replay candidate')
+      .argument('<runId>', 'Run ID to mark')
+      .option('--db <path>', 'Database path (defaults to running scheduler DB or configured path)')
+      .action(async (runId: string, options: { db?: string }) => {
+        const dbPath = resolveSchedulerDbPath(options.db);
+        const result = await withSchedulerRepository(dbPath, (repository) =>
+          repository.markEventedRunReplayCandidate(runId)
+        );
+
+        if (result.status === 'marked') {
+          console.log(chalk.green(`Replay candidate marked for run ${runId}.`));
+        } else if (result.status === 'already_marked') {
+          console.log(chalk.yellow(`Replay candidate already marked for run ${runId}.`));
+        } else if (result.status === 'run_not_found') {
+          console.log(chalk.red(`Run not found: ${runId}`));
+          process.exit(1);
+        } else {
+          console.log(
+            chalk.red(
+              `Could not mark run ${runId} as a replay candidate (${result.status}).`
             )
           );
           if (result.run) {

@@ -5,6 +5,7 @@ import type {
   EventedRunOrphanMarkResult,
   EventedRunInspectionRecord,
   EventedRunRecoveryCandidateMarkResult,
+  EventedRunReplayCandidateMarkResult,
   EventedRunRecoveryCandidateClearResult,
   EventedRunReconciliationSummary,
   RunInspectionRecord,
@@ -876,6 +877,103 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     };
   }
 
+  markEventedRunReplayCandidate(
+    id: string,
+    params?: {
+      markedAt?: number;
+      reason?: 'manual_operator_mark';
+    }
+  ): EventedRunReplayCandidateMarkResult {
+    const markedAt = params?.markedAt ?? Date.now();
+    const reason = params?.reason ?? 'manual_operator_mark';
+    const markStmt = this.db.prepare(`
+      UPDATE runs
+      SET context = json_set(
+        COALESCE(context, '{}'),
+        '$.evented_dispatch.replay_candidate',
+        json('true'),
+        '$.evented_dispatch.replay_candidate_marked_at',
+        COALESCE(
+          json_extract(context, '$.evented_dispatch.replay_candidate_marked_at'),
+          ?
+        ),
+        '$.evented_dispatch.replay_candidate_reason',
+        COALESCE(
+          json_extract(context, '$.evented_dispatch.replay_candidate_reason'),
+          ?
+        )
+      )
+      WHERE id = ?
+        AND status = 'running'
+        AND json_extract(context, '$.evented_dispatch.execution_mode') = 'evented'
+        AND json_extract(context, '$.evented_dispatch.result_continuation_applied') = 0
+        AND json_extract(context, '$.evented_dispatch.recovery_candidate') = 1
+        AND COALESCE(json_extract(context, '$.evented_dispatch.replay_candidate'), 0) = 0
+    `);
+
+    const result = markStmt.run(markedAt, reason, id);
+    const run = this.getRun(id);
+
+    if (result.changes > 0) {
+      return {
+        status: 'marked',
+        markedAt,
+        reason,
+        run,
+      };
+    }
+
+    if (!run) {
+      return { status: 'run_not_found' };
+    }
+
+    const checkpoint = this.readEventedDispatchCheckpoint(run);
+    if (!checkpoint) {
+      return {
+        status: 'missing_evented_dispatch',
+        run,
+      };
+    }
+
+    if (run.status !== 'running') {
+      return {
+        status: 'already_terminal',
+        run,
+      };
+    }
+
+    if (checkpoint.resultContinuationApplied === true) {
+      return {
+        status: 'already_applied',
+        run,
+      };
+    }
+
+    if (checkpoint.recoveryCandidate !== true) {
+      return {
+        status: 'recovery_candidate_required',
+        run,
+      };
+    }
+
+    if (checkpoint.replayCandidate === true) {
+      return {
+        status: 'already_marked',
+        markedAt: checkpoint.replayCandidateMarkedAt,
+        reason:
+          checkpoint.replayCandidateReason === 'manual_operator_mark'
+            ? checkpoint.replayCandidateReason
+            : undefined,
+        run,
+      };
+    }
+
+    return {
+      status: 'missing_evented_dispatch',
+      run,
+    };
+  }
+
   clearEventedRunRecoveryCandidate(id: string): EventedRunRecoveryCandidateClearResult {
     const clearStmt = this.db.prepare(`
       UPDATE runs
@@ -1094,6 +1192,9 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
       recoveryCandidate: checkpoint?.recoveryCandidate,
       recoveryCandidateMarkedAt: checkpoint?.recoveryCandidateMarkedAt,
       recoveryCandidateReason: checkpoint?.recoveryCandidateReason,
+      replayCandidate: checkpoint?.replayCandidate,
+      replayCandidateMarkedAt: checkpoint?.replayCandidateMarkedAt,
+      replayCandidateReason: checkpoint?.replayCandidateReason,
     };
   }
 
@@ -1107,6 +1208,9 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     recoveryCandidate?: boolean;
     recoveryCandidateMarkedAt?: number;
     recoveryCandidateReason?: string;
+    replayCandidate?: boolean;
+    replayCandidateMarkedAt?: number;
+    replayCandidateReason?: string;
   } | null {
     const eventedDispatch = run.context?.evented_dispatch;
     if (!eventedDispatch || typeof eventedDispatch !== 'object' || Array.isArray(eventedDispatch)) {
@@ -1144,6 +1248,18 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
       recoveryCandidateReason:
         typeof checkpoint.recovery_candidate_reason === 'string'
           ? checkpoint.recovery_candidate_reason
+          : undefined,
+      replayCandidate:
+        typeof checkpoint.replay_candidate === 'boolean'
+          ? checkpoint.replay_candidate
+          : undefined,
+      replayCandidateMarkedAt:
+        typeof checkpoint.replay_candidate_marked_at === 'number'
+          ? checkpoint.replay_candidate_marked_at
+          : undefined,
+      replayCandidateReason:
+        typeof checkpoint.replay_candidate_reason === 'string'
+          ? checkpoint.replay_candidate_reason
           : undefined,
     };
   }

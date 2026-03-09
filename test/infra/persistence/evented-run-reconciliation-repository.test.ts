@@ -251,7 +251,7 @@ describe('WorkOrderDatabase evented reconciliation queries', () => {
     repository.close();
   });
 
-  it('inspects one run and marks recovery candidates idempotently without affecting direct runs', async () => {
+  it('inspects one run and marks recovery and replay candidates idempotently without affecting direct runs', async () => {
     const dbPath = createTempDbPath();
     const repository = new WorkOrderDatabase(dbPath);
     await repository.initialize();
@@ -316,6 +316,7 @@ describe('WorkOrderDatabase evented reconciliation queries', () => {
         orphanClassification: 'stale_timeout',
         orphanDetectedAt: 1500,
         recoveryCandidate: undefined,
+        replayCandidate: undefined,
       })
     );
 
@@ -326,8 +327,14 @@ describe('WorkOrderDatabase evented reconciliation queries', () => {
         workItemStatus: 'in_progress',
         dispatchedAt: undefined,
         recoveryCandidate: undefined,
+        replayCandidate: undefined,
       })
     );
+
+    const replayBeforeRecovery = repository.markEventedRunReplayCandidate(eventedRun.id, {
+      markedAt: 5555,
+    });
+    expect(replayBeforeRecovery.status).toBe('recovery_candidate_required');
 
     const firstMark = repository.markEventedRunRecoveryCandidate(eventedRun.id, {
       markedAt: 5678,
@@ -351,6 +358,28 @@ describe('WorkOrderDatabase evented reconciliation queries', () => {
       })
     );
 
+    const firstReplayMark = repository.markEventedRunReplayCandidate(eventedRun.id, {
+      markedAt: 6789,
+    });
+    expect(firstReplayMark).toEqual(
+      expect.objectContaining({
+        status: 'marked',
+        markedAt: 6789,
+        reason: 'manual_operator_mark',
+      })
+    );
+
+    const secondReplayMark = repository.markEventedRunReplayCandidate(eventedRun.id, {
+      markedAt: 9998,
+    });
+    expect(secondReplayMark).toEqual(
+      expect.objectContaining({
+        status: 'already_marked',
+        markedAt: 6789,
+        reason: 'manual_operator_mark',
+      })
+    );
+
     const markedInspection = repository.getRunInspection(eventedRun.id);
     expect(markedInspection).toEqual(
       expect.objectContaining({
@@ -358,6 +387,9 @@ describe('WorkOrderDatabase evented reconciliation queries', () => {
         recoveryCandidate: true,
         recoveryCandidateMarkedAt: 5678,
         recoveryCandidateReason: 'manual_operator_mark',
+        replayCandidate: true,
+        replayCandidateMarkedAt: 6789,
+        replayCandidateReason: 'manual_operator_mark',
       })
     );
 
@@ -381,6 +413,11 @@ describe('WorkOrderDatabase evented reconciliation queries', () => {
       markedAt: 8888,
     });
     expect(directMark.status).toBe('missing_evented_dispatch');
+
+    const directReplayMark = repository.markEventedRunReplayCandidate(directRun.id, {
+      markedAt: 9999,
+    });
+    expect(directReplayMark.status).toBe('missing_evented_dispatch');
 
     const directClear = repository.clearEventedRunRecoveryCandidate(directRun.id);
     expect(directClear.status).toBe('missing_evented_dispatch');
