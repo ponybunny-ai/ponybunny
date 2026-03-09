@@ -208,6 +208,130 @@ function getReplayLineagePeerRunId(record: RunInspectionRecord): string | undefi
   return record.replayReplacementRunId;
 }
 
+type ReplayChainState =
+  | 'replay_not_started'
+  | 'replay_dispatched'
+  | 'replay_in_progress'
+  | 'replay_result_applied'
+  | 'replay_terminal_failed'
+  | 'replay_terminal_unapplied'
+  | 'replay_unresolved';
+
+type ReplayChainOutcome = 'not_started' | 'active' | 'completed' | 'failed' | 'unresolved';
+
+interface ReplayChainDiagnostics {
+  originalRecord?: RunInspectionRecord;
+  replacementRecord?: RunInspectionRecord;
+  replayInitiated: boolean;
+  replacementRunExists: boolean;
+  originalContinuationSuppressed: boolean;
+  replacementRunActive?: boolean;
+  replacementRunTerminal?: boolean;
+  replacementResultContinuationApplied?: boolean;
+  replayChainState: ReplayChainState;
+  replayChainOutcome: ReplayChainOutcome;
+}
+
+function hasReplayDurableState(record: RunInspectionRecord): boolean {
+  return (
+    typeof record.replayOfRunId === 'string' ||
+    typeof record.replayReplacementRunId === 'string' ||
+    typeof record.replayRequestedAt === 'number' ||
+    typeof record.replaySuppressedAt === 'number' ||
+    typeof record.replayStartedAt === 'number'
+  );
+}
+
+function isRunTerminal(record: RunInspectionRecord): boolean {
+  return record.run.status !== 'running';
+}
+
+function deriveReplayChainDiagnostics(
+  record: RunInspectionRecord,
+  linkedRecord?: RunInspectionRecord
+): ReplayChainDiagnostics {
+  const replayLineageRole = getReplayLineageRole(record);
+  const originalRecord =
+    replayLineageRole === 'replacement' ? linkedRecord : hasReplayDurableState(record) ? record : undefined;
+  const replacementRecord =
+    replayLineageRole === 'original' ? linkedRecord : replayLineageRole === 'replacement' ? record : undefined;
+  const replayInitiated =
+    hasReplayDurableState(record) ||
+    (linkedRecord ? hasReplayDurableState(linkedRecord) : false);
+  const replacementRunExists =
+    typeof replacementRecord?.run.id === 'string' ||
+    typeof originalRecord?.replayReplacementRunId === 'string';
+  const originalContinuationSuppressed = typeof originalRecord?.replaySuppressedAt === 'number';
+  const replacementRunActive =
+    replacementRecord?.run.status === 'running'
+      ? true
+      : replacementRecord
+        ? false
+        : undefined;
+  const replacementRunTerminal =
+    replacementRecord ? isRunTerminal(replacementRecord) : undefined;
+  const replacementResultContinuationApplied = replacementRecord?.resultContinuationApplied;
+
+  let replayChainState: ReplayChainState = 'replay_not_started';
+  let replayChainOutcome: ReplayChainOutcome = 'not_started';
+
+  if (!replayInitiated) {
+    return {
+      originalRecord,
+      replacementRecord,
+      replayInitiated,
+      replacementRunExists,
+      originalContinuationSuppressed,
+      replacementRunActive,
+      replacementRunTerminal,
+      replacementResultContinuationApplied,
+      replayChainState,
+      replayChainOutcome,
+    };
+  }
+
+  if (!replacementRecord) {
+    replayChainState =
+      typeof originalRecord?.replayReplacementRunId === 'string' ||
+      typeof record.replayOfRunId === 'string'
+        ? 'replay_unresolved'
+        : 'replay_dispatched';
+    replayChainOutcome = replayChainState === 'replay_dispatched' ? 'active' : 'unresolved';
+  } else if (replacementRecord.resultContinuationApplied) {
+    replayChainState = 'replay_result_applied';
+    replayChainOutcome = 'completed';
+  } else if (replacementRecord.run.status === 'running') {
+    replayChainState = 'replay_in_progress';
+    replayChainOutcome = 'active';
+  } else if (
+    replacementRecord.run.status === 'failure' ||
+    replacementRecord.run.status === 'timeout' ||
+    replacementRecord.run.status === 'aborted'
+  ) {
+    replayChainState = 'replay_terminal_failed';
+    replayChainOutcome = 'failed';
+  } else if (replacementRecord.run.status === 'success') {
+    replayChainState = 'replay_terminal_unapplied';
+    replayChainOutcome = 'unresolved';
+  } else {
+    replayChainState = 'replay_unresolved';
+    replayChainOutcome = 'unresolved';
+  }
+
+  return {
+    originalRecord,
+    replacementRecord,
+    replayInitiated,
+    replacementRunExists,
+    originalContinuationSuppressed,
+    replacementRunActive,
+    replacementRunTerminal,
+    replacementResultContinuationApplied,
+    replayChainState,
+    replayChainOutcome,
+  };
+}
+
 function printEventedInspectionRows(title: string, dbPath: string, rows: EventedRunInspectionRecord[]): void {
   console.log(chalk.bold(`\n${title}`));
   console.log(`- Database: ${dbPath}`);
@@ -278,6 +402,88 @@ function printRunInspection(dbPath: string, record: RunInspectionRecord): void {
     `- original_continuation_suppressed_at: ${formatTimestamp(record.replaySuppressedAt)}`
   );
   console.log(`- replay_started_at: ${formatTimestamp(record.replayStartedAt)}`);
+}
+
+function printRunInspectionWithReplayOutcome(
+  dbPath: string,
+  record: RunInspectionRecord,
+  linkedRecord?: RunInspectionRecord
+): void {
+  printRunInspection(dbPath, record);
+
+  const diagnostics = deriveReplayChainDiagnostics(record, linkedRecord);
+  const originalRecord = diagnostics.originalRecord;
+  const replacementRecord = diagnostics.replacementRecord;
+  const originalRunId = originalRecord?.run.id ?? replacementRecord?.replayOfRunId;
+  const replacementRunId =
+    replacementRecord?.run.id ?? originalRecord?.replayReplacementRunId;
+
+  console.log('- Replay Outcome:');
+  console.log(`- replayInitiated: ${diagnostics.replayInitiated ? 'yes' : 'no'}`);
+  console.log(`- replacementRunExists: ${diagnostics.replacementRunExists ? 'yes' : 'no'}`);
+  console.log(
+    `- originalContinuationSuppressed: ${
+      diagnostics.originalRecord ? (diagnostics.originalContinuationSuppressed ? 'yes' : 'no') : '-'
+    }`
+  );
+  console.log(`- replayChainState: ${diagnostics.replayChainState}`);
+  console.log(`- replayChainOutcome: ${diagnostics.replayChainOutcome}`);
+  console.log(`- originalRunId: ${formatOptional(originalRunId)}`);
+  console.log(`- originalGoalId: ${formatOptional(originalRecord?.run.goal_id)}`);
+  console.log(`- originalWorkItemId: ${formatOptional(originalRecord?.run.work_item_id)}`);
+  console.log(`- originalRunStatus: ${formatOptional(originalRecord?.run.status)}`);
+  console.log(
+    `- originalWorkItemStatus: ${formatOptional(originalRecord?.workItemStatus)}`
+  );
+  console.log(
+    `- originalContinuationSuppressedAt: ${formatTimestamp(originalRecord?.replaySuppressedAt)}`
+  );
+  console.log(`- replacementRunId: ${formatOptional(replacementRunId)}`);
+  console.log(`- replacementGoalId: ${formatOptional(replacementRecord?.run.goal_id)}`);
+  console.log(
+    `- replacementWorkItemId: ${formatOptional(replacementRecord?.run.work_item_id)}`
+  );
+  console.log(`- replacementRunStatus: ${formatOptional(replacementRecord?.run.status)}`);
+  console.log(
+    `- replacementWorkItemStatus: ${formatOptional(replacementRecord?.workItemStatus)}`
+  );
+  console.log(
+    `- replacementExecutionMode: ${formatOptional(replacementRecord?.executionMode)}`
+  );
+  console.log(`- replacementDispatchedAt: ${formatTimestamp(replacementRecord?.dispatchedAt)}`);
+  console.log(`- replacementAge: ${formatAgeFrom(replacementRecord?.dispatchedAt)}`);
+  console.log(
+    `- replacementRunActive: ${
+      diagnostics.replacementRunActive === undefined
+        ? '-'
+        : diagnostics.replacementRunActive
+          ? 'yes'
+          : 'no'
+    }`
+  );
+  console.log(
+    `- replacementRunTerminal: ${
+      diagnostics.replacementRunTerminal === undefined
+        ? '-'
+        : diagnostics.replacementRunTerminal
+          ? 'yes'
+          : 'no'
+    }`
+  );
+  console.log(
+    `- replacementResultContinuationApplied: ${
+      diagnostics.replacementResultContinuationApplied === undefined
+        ? '-'
+        : diagnostics.replacementResultContinuationApplied
+          ? 'yes'
+          : 'no'
+    }`
+  );
+  console.log(
+    `- replacementResultContinuationAppliedAt: ${formatTimestamp(
+      replacementRecord?.resultContinuationAppliedAt
+    )}`
+  );
 }
 
 function describeReplayRunRejection(
@@ -807,16 +1013,27 @@ export const schedulerCommand = new Command('scheduler')
       .option('--db <path>', 'Database path (defaults to running scheduler DB or configured path)')
       .action(async (runId: string, options: { db?: string }) => {
         const dbPath = resolveSchedulerDbPath(options.db);
-        const record = await withSchedulerRepository(dbPath, (repository) =>
-          repository.getRunInspection(runId)
-        );
+        const inspection = await withSchedulerRepository(dbPath, (repository) => {
+          const record = repository.getRunInspection(runId);
+          if (!record) {
+            return undefined;
+          }
 
-        if (!record) {
+          const peerRunId = getReplayLineagePeerRunId(record);
+          const peerRecord = peerRunId ? repository.getRunInspection(peerRunId) : undefined;
+
+          return {
+            record,
+            peerRecord,
+          };
+        });
+
+        if (!inspection) {
           console.log(chalk.red(`Run not found: ${runId}`));
           process.exit(1);
         }
 
-        printRunInspection(dbPath, record);
+        printRunInspectionWithReplayOutcome(dbPath, inspection.record, inspection.peerRecord);
       })
   )
   .addCommand(

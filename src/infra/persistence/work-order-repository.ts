@@ -1495,7 +1495,8 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
       replayCandidate: checkpoint?.replayCandidate,
       replayCandidateMarkedAt: checkpoint?.replayCandidateMarkedAt,
       replayCandidateReason: checkpoint?.replayCandidateReason,
-      replayReplacementRunId: checkpoint?.manualReplay?.replacement_run_id,
+      replayReplacementRunId:
+        checkpoint?.manualReplay?.replacement_run_id ?? this.findReplacementReplayRunId(run.id),
       replayRequestedAt: checkpoint?.manualReplay?.requested_at,
       replaySuppressedAt: checkpoint?.manualReplay?.original_continuation_suppressed_at,
       replayOfRunId: checkpoint?.replayOfRunId,

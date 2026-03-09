@@ -206,6 +206,153 @@ async function seedReplayInspectionDb(dbPath: string): Promise<{
   };
 }
 
+async function seedReplayUnresolvedInspectionDb(dbPath: string): Promise<{
+  originalRunId: string;
+  missingReplacementRunId: string;
+}> {
+  const repository = new WorkOrderDatabase(dbPath);
+  await repository.initialize();
+
+  const goal = repository.createGoal({
+    title: 'goal',
+    description: 'desc',
+    success_criteria: [],
+  });
+
+  const replayItem = repository.createWorkItem({
+    goal_id: goal.id,
+    title: 'replay-unresolved',
+    description: 'desc',
+    item_type: 'code',
+  });
+  repository.updateWorkItemStatus(replayItem.id, 'in_progress');
+
+  const originalRun = repository.createRun({
+    work_item_id: replayItem.id,
+    goal_id: goal.id,
+    agent_type: 'code',
+    run_sequence: 1,
+  });
+
+  const missingReplacementRunId = 'run-missing-replacement';
+  repository.mergeRunContext(originalRun.id, {
+    evented_dispatch: {
+      ...buildEventedDispatchCheckpoint({
+        laneId: 'main',
+        dispatchedAt: 1000,
+        resultContinuationApplied: false,
+      }),
+      orphan_classification: 'stale_timeout',
+      orphan_detected_at: 1500,
+      recovery_candidate: true,
+      recovery_candidate_marked_at: 1600,
+      recovery_candidate_reason: 'manual_operator_mark',
+      replay_candidate: true,
+      replay_candidate_marked_at: 1700,
+      replay_candidate_reason: 'manual_operator_mark',
+      manual_replay: {
+        requested_at: 2000,
+        requested_reason: 'manual_operator_request',
+        replacement_run_id: missingReplacementRunId,
+        replacement_run_created_at: 2000,
+        original_continuation_suppressed_at: 2000,
+      },
+    },
+  });
+
+  repository.close();
+
+  return {
+    originalRunId: originalRun.id,
+    missingReplacementRunId,
+  };
+}
+
+async function seedReplayTerminalInspectionDb(dbPath: string): Promise<{
+  originalRunId: string;
+  replacementRunId: string;
+}> {
+  const repository = new WorkOrderDatabase(dbPath);
+  await repository.initialize();
+
+  const goal = repository.createGoal({
+    title: 'goal',
+    description: 'desc',
+    success_criteria: [],
+  });
+
+  const replayItem = repository.createWorkItem({
+    goal_id: goal.id,
+    title: 'replay-terminal',
+    description: 'desc',
+    item_type: 'code',
+  });
+  repository.updateWorkItemStatus(replayItem.id, 'failed');
+
+  const originalRun = repository.createRun({
+    work_item_id: replayItem.id,
+    goal_id: goal.id,
+    agent_type: 'code',
+    run_sequence: 1,
+  });
+
+  const replacementRun = repository.createRun({
+    work_item_id: replayItem.id,
+    goal_id: goal.id,
+    agent_type: 'code',
+    run_sequence: 2,
+  });
+  repository.mergeRunContext(replacementRun.id, {
+    evented_dispatch: buildEventedDispatchCheckpoint({
+      laneId: 'main',
+      dispatchedAt: 2000,
+      resultContinuationApplied: false,
+      replayOfRunId: originalRun.id,
+      replayStartedAt: 2000,
+    }),
+  });
+  repository.completeRun(replacementRun.id, {
+    status: 'failure',
+    error_message: 'replacement failed',
+    tokens_used: 0,
+    time_seconds: 1,
+    cost_usd: 0,
+    artifacts: [],
+  });
+
+  repository.mergeRunContext(originalRun.id, {
+    evented_dispatch: {
+      ...buildEventedDispatchCheckpoint({
+        laneId: 'main',
+        dispatchedAt: 1000,
+        resultContinuationApplied: false,
+      }),
+      orphan_classification: 'stale_timeout',
+      orphan_detected_at: 1500,
+      recovery_candidate: true,
+      recovery_candidate_marked_at: 1600,
+      recovery_candidate_reason: 'manual_operator_mark',
+      replay_candidate: true,
+      replay_candidate_marked_at: 1700,
+      replay_candidate_reason: 'manual_operator_mark',
+      manual_replay: {
+        requested_at: 2000,
+        requested_reason: 'manual_operator_request',
+        replacement_run_id: replacementRun.id,
+        replacement_run_created_at: 2000,
+        original_continuation_suppressed_at: 2000,
+      },
+    },
+  });
+
+  repository.close();
+
+  return {
+    originalRunId: originalRun.id,
+    replacementRunId: replacementRun.id,
+  };
+}
+
 async function seedReplayPrecheckDb(dbPath: string): Promise<{
   eligibleRunId: string;
   ineligibleRunId: string;
@@ -383,6 +530,17 @@ describe('pb scheduler reconciliation inspection', () => {
     expect(output).toContain(`- replacement_run_id: ${replacementRunId}`);
     expect(output).toContain('- replay_started_at: -');
     expect(output).toContain('- original_continuation_suppressed_at: 1970-01-01T00:00:02.000Z');
+    expect(output).toContain('- replayInitiated: yes');
+    expect(output).toContain('- replacementRunExists: yes');
+    expect(output).toContain('- originalContinuationSuppressed: yes');
+    expect(output).toContain('- replayChainState: replay_in_progress');
+    expect(output).toContain('- replayChainOutcome: active');
+    expect(output).toContain(`- originalRunId: ${originalRunId}`);
+    expect(output).toContain(`- replacementRunId: ${replacementRunId}`);
+    expect(output).toContain('- replacementRunStatus: running');
+    expect(output).toContain('- replacementRunActive: yes');
+    expect(output).toContain('- replacementRunTerminal: no');
+    expect(output).toContain('- replacementResultContinuationApplied: no');
   });
 
   test('prints replay lineage fields for a replacement replay attempt', async () => {
@@ -405,6 +563,59 @@ describe('pb scheduler reconciliation inspection', () => {
     expect(output).toContain('- replacement_run_id: -');
     expect(output).toContain('- replay_started_at: 1970-01-01T00:00:02.000Z');
     expect(output).toContain('- original_continuation_suppressed_at: -');
+    expect(output).toContain('- replayInitiated: yes');
+    expect(output).toContain('- replacementRunExists: yes');
+    expect(output).toContain('- originalContinuationSuppressed: yes');
+    expect(output).toContain('- replayChainState: replay_in_progress');
+    expect(output).toContain('- replayChainOutcome: active');
+    expect(output).toContain(`- originalRunId: ${originalRunId}`);
+    expect(output).toContain(`- replacementRunId: ${replacementRunId}`);
+    expect(output).toContain('- originalContinuationSuppressedAt: 1970-01-01T00:00:02.000Z');
+    expect(output).toContain('- replacementRunStatus: running');
+    expect(output).toContain('- replacementRunActive: yes');
+    expect(output).toContain('- replacementRunTerminal: no');
+  });
+
+  test('reports unresolved replay chain state when durable replay linkage points to a missing replacement run', async () => {
+    const dbPath = createTempDbPath();
+    const { originalRunId, missingReplacementRunId } = await seedReplayUnresolvedInspectionDb(dbPath);
+
+    const output = execSync(`${pbCommand} scheduler inspect-run ${originalRunId} --db "${dbPath}"`, {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    });
+
+    expect(output).toContain(`- runId: ${originalRunId}`);
+    expect(output).toContain('- replayInitiated: yes');
+    expect(output).toContain('- replacementRunExists: yes');
+    expect(output).toContain('- originalContinuationSuppressed: yes');
+    expect(output).toContain('- replayChainState: replay_unresolved');
+    expect(output).toContain('- replayChainOutcome: unresolved');
+    expect(output).toContain(`- replacementRunId: ${missingReplacementRunId}`);
+    expect(output).toContain('- replacementRunStatus: -');
+    expect(output).toContain('- replacementRunActive: -');
+    expect(output).toContain('- replacementRunTerminal: -');
+    expect(output).toContain('- replacementResultContinuationApplied: -');
+  });
+
+  test('reports terminal failed replay chain state when the replacement run has failed', async () => {
+    const dbPath = createTempDbPath();
+    const { originalRunId, replacementRunId } = await seedReplayTerminalInspectionDb(dbPath);
+
+    const output = execSync(`${pbCommand} scheduler inspect-run ${originalRunId} --db "${dbPath}"`, {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    });
+
+    expect(output).toContain(`- runId: ${originalRunId}`);
+    expect(output).toContain(`- replacementRunId: ${replacementRunId}`);
+    expect(output).toContain('- replayChainState: replay_terminal_failed');
+    expect(output).toContain('- replayChainOutcome: failed');
+    expect(output).toContain('- replacementRunStatus: failure');
+    expect(output).toContain('- replacementWorkItemStatus: failed');
+    expect(output).toContain('- replacementRunActive: no');
+    expect(output).toContain('- replacementRunTerminal: yes');
+    expect(output).toContain('- replacementResultContinuationApplied: no');
   });
 
   test('non-replay runs still inspect cleanly and direct mode remains unaffected', async () => {
@@ -425,6 +636,15 @@ describe('pb scheduler reconciliation inspection', () => {
     expect(output).toContain('- replacement_run_id: -');
     expect(output).toContain('- replay_started_at: -');
     expect(output).toContain('- original_continuation_suppressed_at: -');
+    expect(output).toContain('- replayInitiated: no');
+    expect(output).toContain('- replacementRunExists: no');
+    expect(output).toContain('- originalContinuationSuppressed: -');
+    expect(output).toContain('- replayChainState: replay_not_started');
+    expect(output).toContain('- replayChainOutcome: not_started');
+    expect(output).toContain('- replacementRunStatus: -');
+    expect(output).toContain('- replacementRunActive: -');
+    expect(output).toContain('- replacementRunTerminal: -');
+    expect(output).toContain('- replacementResultContinuationApplied: -');
   });
 
   test('replay-run prints a stable rejection reason and leaves lineage unchanged on rejection', async () => {
