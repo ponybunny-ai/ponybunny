@@ -23,6 +23,9 @@ export interface ConversationWorkerInspectionRecord {
   sessionIdMatched?: boolean;
   duplicateSuppressed: boolean;
   duplicateDispatchCount: number;
+  timedOut: boolean;
+  lateCompletionObserved: boolean;
+  lateCompletionCount: number;
   dispatchedAt: number;
   completedAt?: number;
   failureCode?: string;
@@ -36,6 +39,9 @@ export interface ConversationWorkerInspectionSummary {
   successCount: number;
   failureCount: number;
   invalidCount: number;
+  timedOutCount: number;
+  lateCompletionObservedCount: number;
+  ignoredLateCompletionCount: number;
   duplicateSuppressedCount: number;
 }
 
@@ -47,6 +53,15 @@ export interface ConversationWorkerInspectionSnapshot {
 
 interface ConversationWorkerMutableInspectionRecord extends ConversationWorkerInspectionRecord {
   sequence: number;
+}
+
+interface ConversationWorkerOptions {
+  timeoutMs?: number;
+}
+
+interface LocalConversationRequestTimeoutState {
+  timeoutId: ReturnType<typeof setTimeout>;
+  timedOut: boolean;
 }
 
 interface ConversationOrchestrator {
@@ -66,6 +81,7 @@ class ConversationWorkerIntegrityError extends Error {
       | 'CONVERSATION_REQUEST_INVALID'
       | 'CONVERSATION_REQUEST_CONFLICT'
       | 'CONVERSATION_RESULT_INVALID'
+      | 'CONVERSATION_EXECUTION_TIMEOUT'
       | 'CONVERSATION_WORKER_EXCEPTION',
     message: string
   ) {
@@ -74,14 +90,43 @@ class ConversationWorkerIntegrityError extends Error {
   }
 }
 
+class ConversationWorkerTimeoutError extends ConversationWorkerIntegrityError {
+  readonly conversationRequestId: string;
+  readonly sessionId?: string;
+  readonly personaId?: string;
+  readonly userProfileId?: string;
+  readonly agentId?: string;
+  readonly messageDigest: string;
+
+  constructor(request: ConversationRequest, messageDigest: string) {
+    super(
+      'CONVERSATION_EXECUTION_TIMEOUT',
+      `Conversation request '${request.conversationRequestId}' did not produce a terminal result before the local worker timeout`
+    );
+    this.name = 'ConversationWorkerTimeoutError';
+    this.conversationRequestId = request.conversationRequestId;
+    this.sessionId = request.sessionId;
+    this.personaId = request.personaId;
+    this.userProfileId = request.userProfileId;
+    this.agentId = request.agentId;
+    this.messageDigest = messageDigest;
+  }
+}
+
+const DEFAULT_LOCAL_CONVERSATION_TIMEOUT_MS = 30_000;
+
 export class ConversationWorker implements ConversationPort {
   private readonly inspectionsByRequestId = new Map<string, ConversationWorkerMutableInspectionRecord>();
   private inspectionSequence = 0;
+  private readonly timeoutMs: number;
 
   constructor(
     private readonly orchestrator: ConversationOrchestrator,
     private readonly requestRegistry: ConversationRequestRegistry = new ConversationRequestRegistry(),
-  ) {}
+    options: ConversationWorkerOptions = {},
+  ) {
+    this.timeoutMs = this.normalizeTimeoutMs(options.timeoutMs);
+  }
 
   async process(request: ConversationRequest): Promise<ConversationResult> {
     const requestIdValidationError = this.validateRequestId(request);
@@ -115,7 +160,8 @@ export class ConversationWorker implements ConversationPort {
       return registration.promise;
     }
 
-    void this.executeRequest(request, inspection, registration.owner);
+    const timeoutState = this.startLocalTimeout(request, inspection, registration.owner);
+    void this.executeRequest(request, inspection, registration.owner, timeoutState);
     return registration.promise;
   }
 
@@ -134,7 +180,8 @@ export class ConversationWorker implements ConversationPort {
   private async executeRequest(
     request: ConversationRequest,
     inspection: ConversationWorkerMutableInspectionRecord,
-    owner: ConversationRequestResolutionOwner
+    owner: ConversationRequestResolutionOwner,
+    timeoutState: LocalConversationRequestTimeoutState
   ): Promise<void> {
     try {
       const result = await this.orchestrator.processMessage(
@@ -146,6 +193,12 @@ export class ConversationWorker implements ConversationPort {
         request.agentId
       );
 
+      if (timeoutState.timedOut) {
+        this.recordLateCompletion(inspection);
+        return;
+      }
+
+      this.clearLocalTimeout(timeoutState);
       const normalizedResult = this.normalizeResult(request, result);
       if (owner.resolveSuccess(normalizedResult, {
         resultSessionId: normalizedResult.sessionId,
@@ -157,6 +210,12 @@ export class ConversationWorker implements ConversationPort {
       }
       return;
     } catch (error) {
+      if (timeoutState.timedOut) {
+        this.recordLateCompletion(inspection);
+        return;
+      }
+
+      this.clearLocalTimeout(timeoutState);
       const normalizedError = error instanceof ConversationWorkerIntegrityError
         ? error
         : new ConversationWorkerIntegrityError(
@@ -174,6 +233,34 @@ export class ConversationWorker implements ConversationPort {
         });
       }
     }
+  }
+
+  private startLocalTimeout(
+    request: ConversationRequest,
+    inspection: ConversationWorkerMutableInspectionRecord,
+    owner: ConversationRequestResolutionOwner
+  ): LocalConversationRequestTimeoutState {
+    const timeoutState = {
+      timedOut: false,
+    } as LocalConversationRequestTimeoutState;
+
+    timeoutState.timeoutId = setTimeout(() => {
+      timeoutState.timedOut = true;
+
+      const timeoutError = new ConversationWorkerTimeoutError(request, inspection.messageDigest);
+      if (owner.resolveFailure(timeoutError)) {
+        this.completeInspection(inspection, 'failure', timeoutError, {
+          resultMatchedRequestId: false,
+          timedOut: true,
+        });
+      }
+    }, this.timeoutMs);
+
+    return timeoutState;
+  }
+
+  private clearLocalTimeout(timeoutState: LocalConversationRequestTimeoutState): void {
+    clearTimeout(timeoutState.timeoutId);
   }
 
   private normalizeResult(
@@ -247,6 +334,9 @@ export class ConversationWorker implements ConversationPort {
       resultMatchedRequestId: true,
       duplicateSuppressed: false,
       duplicateDispatchCount: 0,
+      timedOut: false,
+      lateCompletionObserved: false,
+      lateCompletionCount: 0,
       dispatchedAt: Date.now(),
       sequence: this.inspectionSequence++,
     };
@@ -261,6 +351,7 @@ export class ConversationWorker implements ConversationPort {
     metadata?: {
       resultSessionId?: string;
       resultMatchedRequestId?: boolean;
+      timedOut?: boolean;
     }
   ): void {
     inspection.outcome = outcome;
@@ -270,8 +361,14 @@ export class ConversationWorker implements ConversationPort {
       ? inspection.requestedSessionId === metadata.resultSessionId
       : undefined;
     inspection.completedAt = Date.now();
+    inspection.timedOut = metadata?.timedOut ?? false;
     inspection.failureCode = error?.code;
     inspection.failureMessage = error?.message;
+  }
+
+  private recordLateCompletion(inspection: ConversationWorkerMutableInspectionRecord): void {
+    inspection.lateCompletionObserved = true;
+    inspection.lateCompletionCount += 1;
   }
 
   private buildRequestConflictMessage(
@@ -296,6 +393,9 @@ export class ConversationWorker implements ConversationPort {
       successCount: records.filter((record) => record.outcome === 'success').length,
       failureCount: records.filter((record) => record.outcome === 'failure').length,
       invalidCount: records.filter((record) => record.outcome === 'invalid').length,
+      timedOutCount: records.filter((record) => record.timedOut).length,
+      lateCompletionObservedCount: records.filter((record) => record.lateCompletionObserved).length,
+      ignoredLateCompletionCount: records.reduce((count, record) => count + record.lateCompletionCount, 0),
       duplicateSuppressedCount: records.filter((record) => record.duplicateSuppressed).length,
     };
   }
@@ -304,5 +404,13 @@ export class ConversationWorker implements ConversationPort {
     return {
       ...record,
     };
+  }
+
+  private normalizeTimeoutMs(timeoutMs: number | undefined): number {
+    if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      return DEFAULT_LOCAL_CONVERSATION_TIMEOUT_MS;
+    }
+
+    return timeoutMs;
   }
 }

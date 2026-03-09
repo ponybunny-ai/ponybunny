@@ -519,6 +519,9 @@ describe('SchedulerSessionIntake conversation boundary', () => {
           successCount: 1,
           failureCount: 0,
           invalidCount: 0,
+          timedOutCount: 0,
+          lateCompletionObservedCount: 0,
+          ignoredLateCompletionCount: 0,
           duplicateSuppressedCount: 0,
         },
         inFlight: [],
@@ -530,10 +533,99 @@ describe('SchedulerSessionIntake conversation boundary', () => {
             outcome: 'success',
             resultMatchedRequestId: true,
             sessionIdMatched: true,
+            timedOut: false,
+            lateCompletionObserved: false,
+            lateCompletionCount: 0,
           }),
         ],
       });
     } finally {
+      db.close();
+    }
+  });
+
+  it('preserves one failure path when ConversationWorker times out locally', async () => {
+    jest.useFakeTimers();
+    const db = new Database(':memory:');
+    const events: Array<{ event: string; gatewaySessionId?: string; sessionId?: string; payload?: Record<string, unknown> }> = [];
+
+    try {
+      const conversationPort = new ConversationWorker({
+        processMessage: jest.fn().mockReturnValue(new Promise(() => undefined)),
+      }, undefined, { timeoutMs: 25 });
+
+      const intake = new SchedulerSessionIntake({
+        repository: createRepositoryStub() as never,
+        memoryDb: db,
+        llmService: createLlmServiceStub() as never,
+        schedulerProvider: () => null,
+        publishSessionEvent: async (event) => {
+          events.push(event);
+        },
+        conversationPort,
+        conversationRequestIdFactory: () => 'conv-req-timeout',
+      });
+
+      const resultPromise = intake.processMessage({
+        gatewaySessionId: 'gw-1',
+        sessionId: 'ses-1',
+        personaId: 'pony-default',
+        userProfileId: 'user-1',
+        agentId: 'planning',
+        message: 'build this',
+      });
+      const timeoutExpectation = expect(resultPromise).rejects.toMatchObject({
+        name: 'ConversationWorkerTimeoutError',
+        code: 'CONVERSATION_EXECUTION_TIMEOUT',
+        conversationRequestId: 'conv-req-timeout',
+        sessionId: 'ses-1',
+        personaId: 'pony-default',
+        userProfileId: 'user-1',
+        agentId: 'planning',
+      });
+
+      await jest.advanceTimersByTimeAsync(25);
+
+      await timeoutExpectation;
+
+      expect(events).toEqual([
+        {
+          event: 'conversation.message.started',
+          gatewaySessionId: 'gw-1',
+          sessionId: 'ses-1',
+          payload: {
+            stream: false,
+          },
+        },
+      ]);
+      expect(intake.inspectConversationWorker()).toEqual({
+        summary: {
+          totalRequests: 1,
+          inFlightCount: 0,
+          recentCount: 1,
+          successCount: 0,
+          failureCount: 1,
+          invalidCount: 0,
+          timedOutCount: 1,
+          lateCompletionObservedCount: 0,
+          ignoredLateCompletionCount: 0,
+          duplicateSuppressedCount: 0,
+        },
+        inFlight: [],
+        recent: [
+          expect.objectContaining({
+            conversationRequestId: 'conv-req-timeout',
+            requestedSessionId: 'ses-1',
+            outcome: 'failure',
+            timedOut: true,
+            lateCompletionObserved: false,
+            lateCompletionCount: 0,
+            failureCode: 'CONVERSATION_EXECUTION_TIMEOUT',
+          }),
+        ],
+      });
+    } finally {
+      jest.useRealTimers();
       db.close();
     }
   });
