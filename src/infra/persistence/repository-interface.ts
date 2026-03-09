@@ -37,6 +37,9 @@ export interface IWorkOrderRepository {
   completeRun(id: string, params: CompleteRunParams): void;
   getRunsByWorkItem(workItemId: string): Run[];
   listInFlightRunReconciliationCandidates(): InFlightRunReconciliationCandidate[];
+  listEventedInFlightRunInspections(): EventedRunInspectionRecord[];
+  listEventedOrphanedRunInspections(): EventedRunInspectionRecord[];
+  getEventedRunReconciliationSummary(): EventedRunReconciliationSummary;
 
   appendRunEvent?(event: {
     run_id: string;
@@ -165,6 +168,26 @@ export interface EventedRunOrphanMarkResult {
   status: EventedRunOrphanMarkStatus;
   detectedAt?: number;
   run?: Run;
+}
+
+export interface EventedRunInspectionRecord {
+  run: Run;
+  workItemStatus: WorkItem['status'];
+  workItemUpdatedAt: number;
+  executionMode: 'evented';
+  laneId?: string;
+  dispatchedAt?: number;
+  resultContinuationApplied: boolean;
+  resultContinuationAppliedAt?: number;
+  orphanClassification?: string;
+  orphanDetectedAt?: number;
+}
+
+export interface EventedRunReconciliationSummary {
+  inFlightEvented: number;
+  staleOrphaned: number;
+  continuationApplied: number;
+  alreadyTerminal: number;
 }
 
 export interface CreateArtifactParams {

@@ -24,6 +24,10 @@ import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
 import { getManagedSkillsDir } from '../../infra/config/config-paths.js';
 import { getAsciiArtBanner } from '../../infra/ui/ascii-art-banner.js';
 import { getSchedulerConfiguredProviderIds } from '../lib/scheduler-provider-display.js';
+import type {
+  EventedRunInspectionRecord,
+  EventedRunReconciliationSummary,
+} from '../../infra/persistence/repository-interface.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -129,6 +133,86 @@ function formatUptime(ms: number): string {
   } else {
     return `${seconds}s`;
   }
+}
+
+function resolveSchedulerDbPath(dbPath?: string): string {
+  if (dbPath) {
+    return dbPath;
+  }
+
+  const pidInfo = readPidFile();
+  return pidInfo?.dbPath ?? runtimeConfig.paths.database;
+}
+
+async function withSchedulerRepository<T>(
+  dbPath: string,
+  action: (repository: WorkOrderDatabase) => T
+): Promise<T> {
+  const repository = new WorkOrderDatabase(dbPath);
+  await repository.initialize();
+
+  try {
+    return action(repository);
+  } finally {
+    repository.close();
+  }
+}
+
+function formatTimestamp(ms?: number): string {
+  if (typeof ms !== 'number') {
+    return '-';
+  }
+
+  return new Date(ms).toISOString();
+}
+
+function formatAgeFrom(ms?: number): string {
+  if (typeof ms !== 'number') {
+    return '-';
+  }
+
+  return formatUptime(Math.max(0, Date.now() - ms));
+}
+
+function formatOptional(value?: string | number | boolean): string {
+  if (value === undefined || value === null || value === '') {
+    return '-';
+  }
+
+  return String(value);
+}
+
+function printEventedInspectionRows(title: string, dbPath: string, rows: EventedRunInspectionRecord[]): void {
+  console.log(chalk.bold(`\n${title}`));
+  console.log(`- Database: ${dbPath}`);
+  console.log(`- Count: ${rows.length}`);
+
+  if (rows.length === 0) {
+    console.log(chalk.yellow('- No matching runs found.'));
+    return;
+  }
+
+  for (const row of rows) {
+    console.log(
+      `- runId=${row.run.id} goalId=${row.run.goal_id} workItemId=${row.run.work_item_id} ` +
+      `runStatus=${row.run.status} workItemStatus=${row.workItemStatus} executionMode=${row.executionMode} ` +
+      `lane=${formatOptional(row.laneId)} age=${formatAgeFrom(row.dispatchedAt)}`
+    );
+    console.log(
+      `  dispatchedAt=${formatTimestamp(row.dispatchedAt)} resultContinuationApplied=${row.resultContinuationApplied} ` +
+      `orphanClassification=${formatOptional(row.orphanClassification)} ` +
+      `orphanDetectedAt=${formatTimestamp(row.orphanDetectedAt)}`
+    );
+  }
+}
+
+function printEventedSummary(dbPath: string, summary: EventedRunReconciliationSummary): void {
+  console.log(chalk.bold('\nEvented Reconciliation Summary'));
+  console.log(`- Database: ${dbPath}`);
+  console.log(`- in_flight_evented: ${summary.inFlightEvented}`);
+  console.log(`- stale_orphaned: ${summary.staleOrphaned}`);
+  console.log(`- continuation_applied: ${summary.continuationApplied}`);
+  console.log(`- already_terminal: ${summary.alreadyTerminal}`);
 }
 
 async function runScheduler(
@@ -520,6 +604,42 @@ export const schedulerCommand = new Command('scheduler')
           console.log(chalk.gray('  Run `pb scheduler start` to start a new instance'));
         }
         console.log();
+      })
+  )
+  .addCommand(
+    new Command('in-flight')
+      .description('Inspect durable evented in-flight reconciliation records')
+      .option('--db <path>', 'Database path (defaults to running scheduler DB or configured path)')
+      .action(async (options: { db?: string }) => {
+        const dbPath = resolveSchedulerDbPath(options.db);
+        const rows = await withSchedulerRepository(dbPath, (repository) =>
+          repository.listEventedInFlightRunInspections()
+        );
+        printEventedInspectionRows('Evented In-Flight Runs', dbPath, rows);
+      })
+  )
+  .addCommand(
+    new Command('orphaned')
+      .description('Inspect stale/orphan-marked evented runs')
+      .option('--db <path>', 'Database path (defaults to running scheduler DB or configured path)')
+      .action(async (options: { db?: string }) => {
+        const dbPath = resolveSchedulerDbPath(options.db);
+        const rows = await withSchedulerRepository(dbPath, (repository) =>
+          repository.listEventedOrphanedRunInspections()
+        );
+        printEventedInspectionRows('Evented Orphaned Runs', dbPath, rows);
+      })
+  )
+  .addCommand(
+    new Command('reconciliation-summary')
+      .description('Show a narrow evented reconciliation count summary')
+      .option('--db <path>', 'Database path (defaults to running scheduler DB or configured path)')
+      .action(async (options: { db?: string }) => {
+        const dbPath = resolveSchedulerDbPath(options.db);
+        const summary = await withSchedulerRepository(dbPath, (repository) =>
+          repository.getEventedRunReconciliationSummary()
+        );
+        printEventedSummary(dbPath, summary);
       })
   )
   .addCommand(

@@ -3,6 +3,8 @@ import type {
   CreateGoalParams,
   EventedResultContinuationClaim,
   EventedRunOrphanMarkResult,
+  EventedRunInspectionRecord,
+  EventedRunReconciliationSummary,
   CronJob,
   CronJobRun,
   CronJobRunStatus,
@@ -66,6 +68,11 @@ interface RunEventRow {
 }
 
 interface RunReconciliationCandidateRow extends RunRow {
+  work_item_status: WorkItemStatus;
+  work_item_updated_at: number;
+}
+
+interface EventedRunInspectionRow extends RunRow {
   work_item_status: WorkItemStatus;
   work_item_updated_at: number;
 }
@@ -813,6 +820,142 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
       workItemStatus: row.work_item_status,
       workItemUpdatedAt: row.work_item_updated_at,
     }));
+  }
+
+  listEventedInFlightRunInspections(): EventedRunInspectionRecord[] {
+    return this.listEventedRunInspections(`
+      runs.status = 'running'
+      AND json_extract(runs.context, '$.evented_dispatch.execution_mode') = 'evented'
+      AND json_extract(runs.context, '$.evented_dispatch.result_continuation_applied') = 0
+    `);
+  }
+
+  listEventedOrphanedRunInspections(): EventedRunInspectionRecord[] {
+    return this.listEventedRunInspections(`
+      runs.status = 'running'
+      AND json_extract(runs.context, '$.evented_dispatch.execution_mode') = 'evented'
+      AND json_extract(runs.context, '$.evented_dispatch.result_continuation_applied') = 0
+      AND json_extract(runs.context, '$.evented_dispatch.orphan_classification') IS NOT NULL
+    `);
+  }
+
+  getEventedRunReconciliationSummary(): EventedRunReconciliationSummary {
+    const row = this.db.prepare(`
+      SELECT
+        SUM(
+          CASE
+            WHEN status = 'running'
+              AND json_extract(context, '$.evented_dispatch.execution_mode') = 'evented'
+              AND json_extract(context, '$.evented_dispatch.result_continuation_applied') = 0
+            THEN 1 ELSE 0
+          END
+        ) AS in_flight_evented,
+        SUM(
+          CASE
+            WHEN status = 'running'
+              AND json_extract(context, '$.evented_dispatch.execution_mode') = 'evented'
+              AND json_extract(context, '$.evented_dispatch.result_continuation_applied') = 0
+              AND json_extract(context, '$.evented_dispatch.orphan_classification') IS NOT NULL
+            THEN 1 ELSE 0
+          END
+        ) AS stale_orphaned,
+        SUM(
+          CASE
+            WHEN json_extract(context, '$.evented_dispatch.execution_mode') = 'evented'
+              AND json_extract(context, '$.evented_dispatch.result_continuation_applied') = 1
+            THEN 1 ELSE 0
+          END
+        ) AS continuation_applied,
+        SUM(
+          CASE
+            WHEN status <> 'running'
+              AND json_extract(context, '$.evented_dispatch.execution_mode') = 'evented'
+            THEN 1 ELSE 0
+          END
+        ) AS already_terminal
+      FROM runs
+    `).get() as {
+      in_flight_evented: number | null;
+      stale_orphaned: number | null;
+      continuation_applied: number | null;
+      already_terminal: number | null;
+    };
+
+    return {
+      inFlightEvented: row.in_flight_evented ?? 0,
+      staleOrphaned: row.stale_orphaned ?? 0,
+      continuationApplied: row.continuation_applied ?? 0,
+      alreadyTerminal: row.already_terminal ?? 0,
+    };
+  }
+
+  private listEventedRunInspections(whereClause: string): EventedRunInspectionRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT
+        runs.*,
+        work_items.status AS work_item_status,
+        work_items.updated_at AS work_item_updated_at
+      FROM runs
+      INNER JOIN work_items ON work_items.id = runs.work_item_id
+      WHERE ${whereClause}
+      ORDER BY COALESCE(json_extract(runs.context, '$.evented_dispatch.dispatched_at'), runs.created_at) ASC
+    `);
+    const rows = stmt.all() as EventedRunInspectionRow[];
+    return rows.map((row) => this.toEventedRunInspectionRecord(row));
+  }
+
+  private toEventedRunInspectionRecord(row: EventedRunInspectionRow): EventedRunInspectionRecord {
+    const run = this.parseRunRow(row);
+    const checkpoint = this.readEventedDispatchCheckpoint(run);
+
+    return {
+      run,
+      workItemStatus: row.work_item_status,
+      workItemUpdatedAt: row.work_item_updated_at,
+      executionMode: 'evented',
+      laneId: checkpoint?.laneId,
+      dispatchedAt: checkpoint?.dispatchedAt,
+      resultContinuationApplied: checkpoint?.resultContinuationApplied ?? false,
+      resultContinuationAppliedAt: checkpoint?.resultContinuationAppliedAt,
+      orphanClassification: checkpoint?.orphanClassification,
+      orphanDetectedAt: checkpoint?.orphanDetectedAt,
+    };
+  }
+
+  private readEventedDispatchCheckpoint(run: Run): {
+    laneId?: string;
+    dispatchedAt?: number;
+    resultContinuationApplied?: boolean;
+    resultContinuationAppliedAt?: number;
+    orphanClassification?: string;
+    orphanDetectedAt?: number;
+  } | null {
+    const eventedDispatch = run.context?.evented_dispatch;
+    if (!eventedDispatch || typeof eventedDispatch !== 'object' || Array.isArray(eventedDispatch)) {
+      return null;
+    }
+
+    const checkpoint = eventedDispatch as Record<string, unknown>;
+    return {
+      laneId: typeof checkpoint.lane_id === 'string' ? checkpoint.lane_id : undefined,
+      dispatchedAt: typeof checkpoint.dispatched_at === 'number' ? checkpoint.dispatched_at : undefined,
+      resultContinuationApplied:
+        typeof checkpoint.result_continuation_applied === 'boolean'
+          ? checkpoint.result_continuation_applied
+          : undefined,
+      resultContinuationAppliedAt:
+        typeof checkpoint.result_continuation_applied_at === 'number'
+          ? checkpoint.result_continuation_applied_at
+          : undefined,
+      orphanClassification:
+        typeof checkpoint.orphan_classification === 'string'
+          ? checkpoint.orphan_classification
+          : undefined,
+      orphanDetectedAt:
+        typeof checkpoint.orphan_detected_at === 'number'
+          ? checkpoint.orphan_detected_at
+          : undefined,
+    };
   }
 
   appendRunEvent(event: {
