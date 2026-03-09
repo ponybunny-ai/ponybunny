@@ -293,7 +293,7 @@ This document defines the internal RuntimeEvent protocol used to normalize runti
 export interface RuntimeEvent {
   id: string
   type: string
-  taskId?: string
+  workItemId?: string
   goalId?: string
   runId?: string
   source: string
@@ -539,7 +539,7 @@ Requirements:
 1. Define RuntimeEvent:
    - id: string
    - type: string
-   - taskId?: string
+   - workItemId?: string
    - goalId?: string
    - runId?: string
    - source: string
@@ -626,7 +626,7 @@ Requirements:
    - source = "gateway"
    - timestamp = Date.now()
    - payload = original payload
-   - include goalId/taskId/runId when available from payload
+   - include goalId/workItemId/runId when available from payload
 4. Add the smallest possible integration point so the adapter is activated when Gateway starts.
 5. Do not alter any existing event payloads or subscriptions.
 6. If integration location is ambiguous, choose the narrowest startup composition point.
@@ -742,7 +742,7 @@ Requirements:
 1. Add a new table `runtime_events` with columns:
    - id TEXT PRIMARY KEY
    - type TEXT NOT NULL
-   - task_id TEXT NULL
+   - work_item_id TEXT NULL
    - goal_id TEXT NULL
    - run_id TEXT NULL
    - source TEXT NOT NULL
@@ -807,7 +807,7 @@ Requirements:
 2. Prefer reading from runtimeEventBus if attached to current process.
 3. If that is not practical in current architecture, allow fallback to reading recent persisted events from runtime_events.
 4. Output format:
-   timestamp | type | goalId | taskId | source
+   timestamp | type | goalId | workItemId | source
 5. Keep implementation conservative.
 6. Register the command cleanly in existing CLI structure.
 

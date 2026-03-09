@@ -10,7 +10,7 @@ This document defines the internal RuntimeEvent protocol used to normalize runti
 export interface RuntimeEvent {
   id: string
   type: string
-  taskId?: string
+  workItemId?: string
   goalId?: string
   runId?: string
   source: string
@@ -86,7 +86,7 @@ export interface RuntimeEvent {
 
 Existing event names may remain in current systems.
 
-During migration, adapters are responsible for translating legacy event streams into RuntimeEvents.
+During migration, adapters are responsible for translating legacy event streams into RuntimeEvents and normalizing legacy payload identity fields to `workItemId`.
 
 ## Persistence Principle
 

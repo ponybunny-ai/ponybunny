@@ -3,6 +3,7 @@ import type { WorkItem } from '../../work-order/types/index.js';
 export interface ExecutionRequest {
   runId: string;
   goalId: string;
+  workItemId: string;
   workItem: WorkItem;
   model: string;
   laneId: string;
@@ -11,6 +12,7 @@ export interface ExecutionRequest {
 
 export interface ExecutionResult {
   runId: string;
+  workItemId: string;
   success: boolean;
   tokensUsed: number;
   timeSeconds: number;

@@ -59,33 +59,50 @@ export class GatewayEventAdapter {
   }
 
   private toRuntimeEvent(type: ForwardedGatewayEvent, payload: unknown): RuntimeEvent {
-    const metadata = this.extractIdentifiers(payload);
+    const normalizedPayload = this.normalizePayload(payload);
+    const metadata = this.extractIdentifiers(normalizedPayload);
 
     return {
       id: randomUUID(),
       type,
       source: 'gateway',
       timestamp: Date.now(),
-      payload,
+      payload: normalizedPayload,
       ...metadata,
     };
   }
 
-  private extractIdentifiers(payload: unknown): Pick<RuntimeEvent, 'goalId' | 'taskId' | 'runId'> {
+  private extractIdentifiers(payload: unknown): Pick<RuntimeEvent, 'goalId' | 'workItemId' | 'runId'> {
     if (!payload || typeof payload !== 'object') {
       return {};
     }
 
     const sample = payload as Record<string, unknown>;
     const goalId = this.readString(sample.goalId);
-    const taskId = this.readString(sample.taskId) ?? this.readString(sample.workItemId);
+    const workItemId = this.readString(sample.workItemId) ?? this.readString(sample.taskId);
     const runId = this.readString(sample.runId);
 
     return {
       ...(goalId ? { goalId } : {}),
-      ...(taskId ? { taskId } : {}),
+      ...(workItemId ? { workItemId } : {}),
       ...(runId ? { runId } : {}),
     };
+  }
+
+  private normalizePayload(payload: unknown): unknown {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return payload;
+    }
+
+    const sample = payload as Record<string, unknown>;
+    const workItemId = this.readString(sample.workItemId) ?? this.readString(sample.taskId);
+    if (!workItemId) {
+      return payload;
+    }
+
+    const { taskId: _taskId, ...rest } = sample;
+
+    return { ...rest, workItemId };
   }
 
   private readString(value: unknown): string | undefined {

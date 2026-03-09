@@ -39,12 +39,31 @@ describe('GatewayEventAdapter', () => {
       source: 'gateway',
       timestamp: 1_700_000_000_000,
       goalId: 'goal-123',
-      taskId: 'workitem-123',
+      workItemId: 'workitem-123',
       runId: 'run-123',
       payload,
     }));
     expect(runtimeBus.publish).toHaveBeenCalledWith(expect.objectContaining({
       id: expect.any(String),
+    }));
+  });
+
+  it('normalizes legacy gateway payload taskId fields to workItemId', () => {
+    adapter.start();
+
+    gatewayEventBus.emit('run.started', {
+      goalId: 'goal-123',
+      taskId: 'workitem-123',
+      runId: 'run-123',
+    });
+
+    expect(runtimeBus.publish).toHaveBeenCalledWith(expect.objectContaining({
+      goalId: 'goal-123',
+      workItemId: 'workitem-123',
+      runId: 'run-123',
+      payload: expect.objectContaining({
+        workItemId: 'workitem-123',
+      }),
     }));
   });
 

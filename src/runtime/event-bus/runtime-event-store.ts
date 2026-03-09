@@ -7,7 +7,7 @@ interface RuntimeEventRow {
   row_id: number;
   id: string;
   type: string;
-  task_id: string | null;
+  work_item_id: string | null;
   goal_id: string | null;
   run_id: string | null;
   source: string;
@@ -26,22 +26,26 @@ export interface RuntimeEventPage {
 }
 
 export class RuntimeEventStore {
-  constructor(private readonly db: Database.Database) {}
+  private readonly workItemColumn: 'work_item_id' | 'task_id';
+
+  constructor(private readonly db: Database.Database) {
+    this.workItemColumn = this.ensureRuntimeEventsSchema();
+  }
 
   append(event: RuntimeEvent): RuntimeEvent {
     this.db.prepare(`
       INSERT INTO runtime_events (
-        id, type, task_id, goal_id, run_id, source, timestamp, payload_json
+        id, type, work_item_id, goal_id, run_id, source, timestamp, payload_json
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       event.id,
       event.type,
-      event.taskId ?? null,
+      event.workItemId ?? null,
       event.goalId ?? null,
       event.runId ?? null,
       event.source,
       event.timestamp,
-      event.payload === undefined ? null : JSON.stringify(event.payload)
+      event.payload === undefined ? null : JSON.stringify(this.normalizePayload(event.payload))
     );
 
     return event;
@@ -49,7 +53,16 @@ export class RuntimeEventStore {
 
   listByGoal(goalId: string): RuntimeEvent[] {
     const rows = this.db.prepare(`
-      SELECT rowid AS row_id, *
+      SELECT
+        rowid AS row_id,
+        id,
+        type,
+        ${this.workItemColumn} AS work_item_id,
+        goal_id,
+        run_id,
+        source,
+        timestamp,
+        payload_json
       FROM runtime_events
       WHERE goal_id = ?
       ORDER BY timestamp ASC, rowid ASC
@@ -65,7 +78,16 @@ export class RuntimeEventStore {
   listRecentPage(limit: number): RuntimeEventPage {
     const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 50;
     const rows = this.db.prepare(`
-      SELECT rowid AS row_id, *
+      SELECT
+        rowid AS row_id,
+        id,
+        type,
+        ${this.workItemColumn} AS work_item_id,
+        goal_id,
+        run_id,
+        source,
+        timestamp,
+        payload_json
       FROM runtime_events
       ORDER BY timestamp DESC, rowid DESC
       LIMIT ?
@@ -78,7 +100,16 @@ export class RuntimeEventStore {
     const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 50;
     const rows = cursor
       ? this.db.prepare(`
-          SELECT rowid AS row_id, *
+          SELECT
+            rowid AS row_id,
+            id,
+            type,
+            ${this.workItemColumn} AS work_item_id,
+            goal_id,
+            run_id,
+            source,
+            timestamp,
+            payload_json
           FROM runtime_events
           WHERE timestamp > ?
              OR (timestamp = ? AND rowid > ?)
@@ -86,7 +117,16 @@ export class RuntimeEventStore {
           LIMIT ?
         `).all(cursor.timestamp, cursor.timestamp, cursor.rowId, normalizedLimit) as RuntimeEventRow[]
       : this.db.prepare(`
-          SELECT rowid AS row_id, *
+          SELECT
+            rowid AS row_id,
+            id,
+            type,
+            ${this.workItemColumn} AS work_item_id,
+            goal_id,
+            run_id,
+            source,
+            timestamp,
+            payload_json
           FROM runtime_events
           ORDER BY timestamp ASC, rowid ASC
           LIMIT ?
@@ -96,15 +136,17 @@ export class RuntimeEventStore {
   }
 
   private parseRow(row: RuntimeEventRow): RuntimeEvent {
+    const payload = row.payload_json ? JSON.parse(row.payload_json) as unknown : undefined;
+
     return {
       id: row.id,
       type: row.type,
       source: row.source,
       timestamp: row.timestamp,
-      ...(row.task_id ? { taskId: row.task_id } : {}),
+      ...(row.work_item_id ? { workItemId: row.work_item_id } : {}),
       ...(row.goal_id ? { goalId: row.goal_id } : {}),
       ...(row.run_id ? { runId: row.run_id } : {}),
-      ...(row.payload_json ? { payload: JSON.parse(row.payload_json) as unknown } : {}),
+      ...(payload !== undefined ? { payload: this.normalizePayload(payload) } : {}),
     };
   }
 
@@ -120,6 +162,80 @@ export class RuntimeEventStore {
       events: rows.map((row) => this.parseRow(row)),
       cursor,
     };
+  }
+
+  private ensureRuntimeEventsSchema(): 'work_item_id' | 'task_id' {
+    const columns = this.db.prepare(`
+      SELECT name
+      FROM pragma_table_info('runtime_events')
+    `).all() as Array<{ name: string }>;
+
+    const hasWorkItemId = columns.some((column) => column.name === 'work_item_id');
+    if (hasWorkItemId) {
+      return 'work_item_id';
+    }
+
+    const hasTaskId = columns.some((column) => column.name === 'task_id');
+    if (!hasTaskId) {
+      return 'work_item_id';
+    }
+
+    try {
+      this.db.exec(`
+        BEGIN;
+        CREATE TABLE runtime_events__migration (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL,
+          work_item_id TEXT,
+          goal_id TEXT,
+          run_id TEXT,
+          source TEXT NOT NULL,
+          timestamp INTEGER NOT NULL,
+          payload_json TEXT
+        );
+        INSERT INTO runtime_events__migration (
+          id, type, work_item_id, goal_id, run_id, source, timestamp, payload_json
+        )
+        SELECT
+          id, type, task_id, goal_id, run_id, source, timestamp, payload_json
+        FROM runtime_events;
+        DROP TABLE runtime_events;
+        ALTER TABLE runtime_events__migration RENAME TO runtime_events;
+        CREATE INDEX IF NOT EXISTS idx_runtime_events_goal_ts ON runtime_events(goal_id, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_runtime_events_recent ON runtime_events(timestamp DESC);
+        COMMIT;
+      `);
+
+      return 'work_item_id';
+    } catch (error) {
+      try {
+        this.db.exec('ROLLBACK;');
+      } catch {
+        // Ignore rollback failures so read-only callers can still fall back.
+      }
+
+      return 'task_id';
+    }
+  }
+
+  private normalizePayload(payload: unknown): unknown {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return payload;
+    }
+
+    const sample = payload as Record<string, unknown>;
+    const workItemId = this.readString(sample.workItemId) ?? this.readString(sample.taskId);
+    if (!workItemId) {
+      return payload;
+    }
+
+    const { taskId: _taskId, ...rest } = sample;
+
+    return { ...rest, workItemId };
+  }
+
+  private readString(value: unknown): string | undefined {
+    return typeof value === 'string' && value.length > 0 ? value : undefined;
   }
 }
 

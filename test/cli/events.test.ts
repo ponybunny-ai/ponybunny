@@ -37,7 +37,7 @@ describe('pb events', () => {
         id: 'evt-2',
         type: 'run.completed',
         goalId: 'goal-1',
-        taskId: 'task-1',
+        workItemId: 'task-1',
         runId: 'run-1',
         source: 'scheduler',
         timestamp: Date.UTC(2026, 2, 9, 12, 35, 0, 0),

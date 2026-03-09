@@ -32,7 +32,7 @@ describe('RuntimeEventStore', () => {
       id: 'evt-2',
       type: 'task.started',
       goalId: 'goal-1',
-      taskId: 'task-1',
+      workItemId: 'task-1',
       runId: 'run-1',
       source: 'scheduler',
       timestamp: 200,
@@ -58,7 +58,7 @@ describe('RuntimeEventStore', () => {
         id: 'evt-2',
         type: 'task.started',
         goalId: 'goal-1',
-        taskId: 'task-1',
+        workItemId: 'task-1',
         runId: 'run-1',
         source: 'scheduler',
         timestamp: 200,
@@ -121,7 +121,7 @@ describe('RuntimeEventStore', () => {
       id: 'evt-2',
       type: 'task.started',
       goalId: 'goal-1',
-      taskId: 'task-1',
+      workItemId: 'task-1',
       source: 'scheduler',
       timestamp: 200,
     });
@@ -129,7 +129,7 @@ describe('RuntimeEventStore', () => {
       id: 'evt-3',
       type: 'task.completed',
       goalId: 'goal-1',
-      taskId: 'task-1',
+      workItemId: 'task-1',
       source: 'scheduler',
       timestamp: 300,
     });
@@ -140,7 +140,7 @@ describe('RuntimeEventStore', () => {
           id: 'evt-2',
           type: 'task.started',
           goalId: 'goal-1',
-          taskId: 'task-1',
+          workItemId: 'task-1',
           source: 'scheduler',
           timestamp: 200,
         },
@@ -148,7 +148,7 @@ describe('RuntimeEventStore', () => {
           id: 'evt-3',
           type: 'task.completed',
           goalId: 'goal-1',
-          taskId: 'task-1',
+          workItemId: 'task-1',
           source: 'scheduler',
           timestamp: 300,
         },
@@ -172,7 +172,7 @@ describe('RuntimeEventStore', () => {
       id: 'evt-2',
       type: 'task.started',
       goalId: 'goal-1',
-      taskId: 'task-1',
+      workItemId: 'task-1',
       source: 'scheduler',
       timestamp: 100,
     });
@@ -180,7 +180,7 @@ describe('RuntimeEventStore', () => {
       id: 'evt-3',
       type: 'task.completed',
       goalId: 'goal-1',
-      taskId: 'task-1',
+      workItemId: 'task-1',
       source: 'scheduler',
       timestamp: 200,
     });
@@ -193,7 +193,7 @@ describe('RuntimeEventStore', () => {
           id: 'evt-2',
           type: 'task.started',
           goalId: 'goal-1',
-          taskId: 'task-1',
+          workItemId: 'task-1',
           source: 'scheduler',
           timestamp: 100,
         },
@@ -201,7 +201,7 @@ describe('RuntimeEventStore', () => {
           id: 'evt-3',
           type: 'task.completed',
           goalId: 'goal-1',
-          taskId: 'task-1',
+          workItemId: 'task-1',
           source: 'scheduler',
           timestamp: 200,
         },
@@ -211,5 +211,56 @@ describe('RuntimeEventStore', () => {
         rowId: 3,
       },
     });
+  });
+
+  it('migrates legacy runtime_events.task_id data to work_item_id', () => {
+    db.exec(`
+      DROP TABLE runtime_events;
+      CREATE TABLE runtime_events (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        task_id TEXT,
+        goal_id TEXT,
+        run_id TEXT,
+        source TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        payload_json TEXT
+      );
+      CREATE INDEX idx_runtime_events_goal_ts ON runtime_events(goal_id, timestamp DESC);
+      CREATE INDEX idx_runtime_events_recent ON runtime_events(timestamp DESC);
+      INSERT INTO runtime_events (
+        id, type, task_id, goal_id, run_id, source, timestamp, payload_json
+      ) VALUES (
+        'evt-legacy', 'task.started', 'task-legacy', 'goal-1', 'run-1', 'scheduler', 123,
+        '{"taskId":"task-legacy","goalId":"goal-1"}'
+      );
+    `);
+
+    store = new RuntimeEventStore(db);
+
+    expect(store.listByGoal('goal-1')).toEqual([
+      {
+        id: 'evt-legacy',
+        type: 'task.started',
+        goalId: 'goal-1',
+        workItemId: 'task-legacy',
+        runId: 'run-1',
+        source: 'scheduler',
+        timestamp: 123,
+        payload: {
+          goalId: 'goal-1',
+          workItemId: 'task-legacy',
+        },
+      },
+    ]);
+
+    const columns = db.prepare(`
+      SELECT name
+      FROM pragma_table_info('runtime_events')
+      ORDER BY cid ASC
+    `).all() as Array<{ name: string }>;
+
+    expect(columns.map((column) => column.name)).toContain('work_item_id');
+    expect(columns.map((column) => column.name)).not.toContain('task_id');
   });
 });

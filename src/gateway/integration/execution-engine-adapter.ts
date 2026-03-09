@@ -29,6 +29,7 @@ export class ExecutionEngineAdapter {
     return this.delegate.execute({
       runId,
       goalId: workItem.goal_id,
+      workItemId: workItem.id,
       workItem,
       model: context.model,
       laneId: context.laneId,

@@ -165,6 +165,7 @@ describe('SchedulerCore', () => {
     mockExecutionPort = {
       execute: jest.fn().mockResolvedValue({
         runId: 'run-1',
+        workItemId: 'wi-1',
         success: true,
         tokensUsed: 1000,
         timeSeconds: 60,
@@ -473,6 +474,7 @@ describe('SchedulerCore', () => {
         expect.objectContaining({
           runId: 'run-1',
           goalId: 'goal-1',
+          workItemId: 'wi-1',
           workItem,
           model: 'claude-3-5-sonnet',
           laneId: 'main',
@@ -487,6 +489,7 @@ describe('SchedulerCore', () => {
       mockWorkItemManager.getNextWorkItem.mockResolvedValueOnce(workItem).mockResolvedValue(null);
       mockExecutionPort.execute.mockResolvedValue({
         runId: 'run-1',
+        workItemId: 'wi-1',
         success: false,
         tokensUsed: 500,
         timeSeconds: 30,
@@ -517,6 +520,7 @@ describe('SchedulerCore', () => {
       mockWorkItemManager.getNextWorkItem.mockResolvedValueOnce(workItem).mockResolvedValue(null);
       mockExecutionPort.execute.mockResolvedValue({
         runId: 'run-1',
+        workItemId: 'wi-1',
         success: false,
         tokensUsed: 500,
         timeSeconds: 30,

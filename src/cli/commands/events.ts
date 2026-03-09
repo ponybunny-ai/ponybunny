@@ -31,7 +31,7 @@ export function formatRuntimeEventLine(event: RuntimeEvent): string {
     new Date(event.timestamp).toISOString(),
     event.type,
     formatEventField(event.goalId),
-    formatEventField(event.taskId),
+    formatEventField(event.workItemId),
     formatEventField(event.source),
   ].join(' | ');
 }
@@ -81,7 +81,6 @@ export function summarizeRuntimeEventPayload(payload: unknown): string {
     'type',
     'timestamp',
     'goalId',
-    'taskId',
     'workItemId',
     'runId',
     'source',
@@ -127,7 +126,7 @@ export function formatRuntimeReplayLine(event: RuntimeEvent): string {
   return [
     new Date(event.timestamp).toISOString(),
     event.type,
-    formatEventField(event.taskId),
+    formatEventField(event.workItemId),
     formatEventField(event.runId),
     formatEventField(event.source),
     summarizeRuntimeEventPayload(event.payload),
@@ -261,7 +260,7 @@ async function tailRuntimeEvents(options: {
     schedulePoll();
   };
 
-  console.log('timestamp | type | goalId | taskId | source');
+  console.log('timestamp | type | goalId | workItemId | source');
 
   try {
     const initialPage = store.listRecentPage(limit);
@@ -337,7 +336,7 @@ async function replayRuntimeEvents(
     }
 
     console.log(`Replay for goal ${goalId} (inspection only)`);
-    console.log('timestamp | type | taskId | runId | source | summary');
+    console.log('timestamp | type | workItemId | runId | source | summary');
     for (const event of events) {
       console.log(formatRuntimeReplayLine(event));
     }
