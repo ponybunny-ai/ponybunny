@@ -558,7 +558,7 @@ export class SchedulerCore implements ISchedulerCore {
     try {
       // Execute
       const result = await this.deps.executionPort.execute(this.buildExecutionRequest(context));
-      await this.finalizeExecutionResult(context, result);
+      await this.continueAfterExecutionResult(context, result);
     } catch (error) {
       const result: ExecutionResult = {
         runId: run.id,
@@ -574,9 +574,7 @@ export class SchedulerCore implements ISchedulerCore {
           recoverable: true,
         },
       };
-      await this.finalizeExecutionResult(context, result);
-    } finally {
-      this.cleanupExecutionContext(run.id);
+      await this.continueAfterExecutionResult(context, result);
     }
   }
 
@@ -617,7 +615,7 @@ export class SchedulerCore implements ISchedulerCore {
       return;
     }
 
-    await this.finalizeExecutionResult(context, result, { cleanupBeforeContinuation: true });
+    await this.continueAfterExecutionResult(context, result, { cleanupBeforeContinuation: true });
   }
 
   private async handleEventedExecutionFailed(event: RuntimeEvent): Promise<void> {
@@ -626,19 +624,9 @@ export class SchedulerCore implements ISchedulerCore {
       return;
     }
 
-    const error = this.parseExecutionFailedError(event);
-    const result: ExecutionResult = {
-      runId: context.run.id,
-      workItemId: context.workItem.id,
-      success: false,
-      tokensUsed: 0,
-      timeSeconds: 0,
-      costUsd: 0,
-      artifacts: [],
-      error,
-    };
+    const result = this.parseExecutionFailedResult(event, context);
 
-    await this.finalizeExecutionResult(context, result, { cleanupBeforeContinuation: true });
+    await this.continueAfterExecutionResult(context, result, { cleanupBeforeContinuation: true });
   }
 
   private getActiveExecutionContext(runId?: string): WorkItemExecutionContext | null {
@@ -715,64 +703,110 @@ export class SchedulerCore implements ISchedulerCore {
     return error as { code: string; message: string; recoverable: boolean };
   }
 
-  private async finalizeExecutionResult(
+  private parseExecutionFailedResult(
+    event: RuntimeEvent,
+    context: WorkItemExecutionContext
+  ): ExecutionResult {
+    const payload = event.payload;
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      const candidate = (payload as { result?: unknown }).result;
+      if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+        const failedResult = candidate as Partial<ExecutionResult>;
+        if (
+          typeof failedResult.runId === 'string' &&
+          failedResult.runId.length > 0 &&
+          typeof failedResult.workItemId === 'string' &&
+          failedResult.workItemId.length > 0 &&
+          failedResult.success === false &&
+          typeof failedResult.tokensUsed === 'number' &&
+          typeof failedResult.timeSeconds === 'number' &&
+          typeof failedResult.costUsd === 'number' &&
+          Array.isArray(failedResult.artifacts)
+        ) {
+          return {
+            ...failedResult,
+            error: failedResult.error ?? this.parseExecutionFailedError(event),
+          } as ExecutionResult;
+        }
+      }
+    }
+
+    return {
+      runId: context.run.id,
+      workItemId: context.workItem.id,
+      success: false,
+      tokensUsed: 0,
+      timeSeconds: 0,
+      costUsd: 0,
+      artifacts: [],
+      error: this.parseExecutionFailedError(event),
+    };
+  }
+
+  private async continueAfterExecutionResult(
     context: WorkItemExecutionContext,
     result: ExecutionResult,
     options: { cleanupBeforeContinuation?: boolean } = {}
   ): Promise<void> {
     const { workItem, goal, run, model } = context;
 
-    await this.deps.budgetTracker.recordUsage(
-      goal.id,
-      result.tokensUsed,
-      result.timeSeconds / 60,
-      result.costUsd
-    );
+    try {
+      await this.deps.budgetTracker.recordUsage(
+        goal.id,
+        result.tokensUsed,
+        result.timeSeconds / 60,
+        result.costUsd
+      );
 
-    this.deps.repository.completeRun(run.id, {
-      status: result.success ? 'success' : 'failure',
-      tokens_used: result.tokensUsed,
-      time_seconds: result.timeSeconds,
-      cost_usd: result.costUsd,
-      artifacts: result.artifacts,
-      error_message: result.error?.message,
-      context: {
-        selected_model: model,
-        actual_model: result.actualModel ?? model,
-        endpoint_id: result.endpointId,
-      },
-    });
+      this.deps.repository.completeRun(run.id, {
+        status: result.success ? 'success' : 'failure',
+        tokens_used: result.tokensUsed,
+        time_seconds: result.timeSeconds,
+        cost_usd: result.costUsd,
+        artifacts: result.artifacts,
+        error_message: result.error?.message,
+        context: {
+          selected_model: model,
+          actual_model: result.actualModel ?? model,
+          endpoint_id: result.endpointId,
+        },
+      });
 
-    this.emitEvent({
-      type: 'run_completed',
-      timestamp: Date.now(),
-      goalId: goal.id,
-      workItemId: workItem.id,
-      runId: run.id,
-      data: {
-        success: result.success,
-        selected_model: model,
-        actual_model: result.actualModel ?? model,
-        endpoint_id: result.endpointId,
-      },
-    });
+      this.emitEvent({
+        type: 'run_completed',
+        timestamp: Date.now(),
+        goalId: goal.id,
+        workItemId: workItem.id,
+        runId: run.id,
+        data: {
+          success: result.success,
+          selected_model: model,
+          actual_model: result.actualModel ?? model,
+          endpoint_id: result.endpointId,
+        },
+      });
 
-    this.metrics.totalRunsExecuted++;
+      this.metrics.totalRunsExecuted++;
 
-    if (options.cleanupBeforeContinuation) {
-      this.cleanupExecutionContext(run.id);
+      if (options.cleanupBeforeContinuation) {
+        this.cleanupExecutionContext(run.id);
+      }
+
+      if (result.success) {
+        await this.handleExecutionSuccess(context);
+        return;
+      }
+
+      await this.handleExecutionFailure(context, result.error ?? {
+        code: 'EXECUTION_FAILED',
+        message: 'Execution failed without an error payload',
+        recoverable: true,
+      });
+    } finally {
+      if (!options.cleanupBeforeContinuation) {
+        this.cleanupExecutionContext(run.id);
+      }
     }
-
-    if (result.success) {
-      await this.handleExecutionSuccess(context);
-      return;
-    }
-
-    await this.handleExecutionFailure(context, result.error ?? {
-      code: 'EXECUTION_FAILED',
-      message: 'Execution failed without an error payload',
-      recoverable: true,
-    });
   }
 
   private cleanupExecutionContext(runId: string): void {

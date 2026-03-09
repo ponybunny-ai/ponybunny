@@ -475,6 +475,34 @@ describe('SchedulerCore', () => {
       expect(mockQualityGateRunner.runVerification).toHaveBeenCalled();
     });
 
+    it('should route direct mode execution results through the shared post-execution continuation', async () => {
+      const goal = createGoal();
+      const workItem = createWorkItem();
+      mockRepository.getGoal.mockReturnValue(goal);
+      mockWorkItemManager.getNextWorkItem.mockResolvedValueOnce(workItem).mockResolvedValue(null);
+
+      const continuationSpy = jest.spyOn(scheduler as any, 'continueAfterExecutionResult');
+
+      await scheduler.submitGoal(goal);
+      await scheduler.start();
+      await scheduler.tick();
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(continuationSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workItem,
+          goal,
+          run: expect.objectContaining({ id: 'run-1' }),
+        }),
+        expect.objectContaining({
+          runId: 'run-1',
+          workItemId: 'wi-1',
+          success: true,
+        })
+      );
+    });
+
     it('should dispatch execution through ExecutionPort keyed by scheduler run id', async () => {
       const goal = createGoal();
       const workItem = createWorkItem();
@@ -608,6 +636,55 @@ describe('SchedulerCore', () => {
       expect(scheduler.getMetrics().currentActiveWorkItems).toBe(0);
     });
 
+    it('should route evented completion results through the shared post-execution continuation', async () => {
+      const goal = createGoal();
+      const workItem = createWorkItem();
+      mockRepository.getGoal.mockReturnValue(goal);
+      mockWorkItemManager.getNextWorkItem.mockResolvedValueOnce(workItem).mockResolvedValue(null);
+      scheduler = new SchedulerCore(mockDeps, { executionMode: 'evented' });
+
+      const continuationSpy = jest.spyOn(scheduler as any, 'continueAfterExecutionResult');
+
+      await scheduler.submitGoal(goal);
+      await scheduler.start();
+      await scheduler.tick();
+
+      await runtimeEventHandler!({
+        id: 'evt-1b',
+        type: 'execution.completed',
+        source: 'local-execution-worker',
+        timestamp: Date.now(),
+        runId: 'run-1',
+        goalId: 'goal-1',
+        workItemId: 'wi-1',
+        payload: {
+          result: {
+            runId: 'run-1',
+            workItemId: 'wi-1',
+            success: true,
+            tokensUsed: 1000,
+            timeSeconds: 60,
+            costUsd: 0.01,
+            artifacts: [],
+          },
+        },
+      });
+
+      expect(continuationSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workItem,
+          goal,
+          run: expect.objectContaining({ id: 'run-1' }),
+        }),
+        expect.objectContaining({
+          runId: 'run-1',
+          workItemId: 'wi-1',
+          success: true,
+        }),
+        { cleanupBeforeContinuation: true }
+      );
+    });
+
     it('should consume execution.failed as the authoritative evented failure signal and release lane state', async () => {
       const goal = createGoal();
       const workItem = createWorkItem();
@@ -658,6 +735,66 @@ describe('SchedulerCore', () => {
       expect(mockLaneSelector.decrementActive).toHaveBeenCalledWith('main');
       expect(scheduler.getMetrics().currentActiveWorkItems).toBe(0);
       expect(mockWorkItemManager.updateStatus).toHaveBeenCalledWith('wi-1', 'failed');
+    });
+
+    it('should record failure-side usage when execution.failed carries a full failed result', async () => {
+      const goal = createGoal();
+      const workItem = createWorkItem();
+      mockRepository.getGoal.mockReturnValue(goal);
+      mockWorkItemManager.getNextWorkItem.mockResolvedValueOnce(workItem).mockResolvedValue(null);
+      scheduler = new SchedulerCore(mockDeps, { executionMode: 'evented' });
+
+      await scheduler.submitGoal(goal);
+      await scheduler.start();
+      await scheduler.tick();
+
+      await runtimeEventHandler!({
+        id: 'evt-2b',
+        type: 'execution.failed',
+        source: 'local-execution-worker',
+        timestamp: Date.now(),
+        runId: 'run-1',
+        goalId: 'goal-1',
+        workItemId: 'wi-1',
+        payload: {
+          error: {
+            code: 'WORKER_FAILED',
+            message: 'worker execution failed',
+            recoverable: true,
+          },
+          result: {
+            runId: 'run-1',
+            workItemId: 'wi-1',
+            success: false,
+            tokensUsed: 321,
+            timeSeconds: 12,
+            costUsd: 0.07,
+            artifacts: ['artifact-1'],
+            endpointId: 'endpoint-2',
+            error: {
+              code: 'WORKER_FAILED',
+              message: 'worker execution failed',
+              recoverable: true,
+            },
+          },
+        },
+      });
+
+      expect(mockBudgetTracker.recordUsage).toHaveBeenCalledWith('goal-1', 321, 0.2, 0.07);
+      expect(mockRepository.completeRun).toHaveBeenCalledWith(
+        'run-1',
+        expect.objectContaining({
+          status: 'failure',
+          tokens_used: 321,
+          time_seconds: 12,
+          cost_usd: 0.07,
+          artifacts: ['artifact-1'],
+          error_message: 'worker execution failed',
+          context: expect.objectContaining({
+            endpoint_id: 'endpoint-2',
+          }),
+        })
+      );
     });
 
     it('should handle execution failure with retry', async () => {
