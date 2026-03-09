@@ -53,6 +53,23 @@ describe('WorkOrderDatabase schema', () => {
     expect(idxType).toBeDefined();
   });
 
+  it('creates runtime_events table and required indexes', () => {
+    const runtimeEventsTable = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'runtime_events'")
+      .get();
+
+    const idxGoalTs = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_runtime_events_goal_ts'")
+      .get();
+    const idxRecent = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_runtime_events_recent'")
+      .get();
+
+    expect(runtimeEventsTable).toBeDefined();
+    expect(idxGoalTs).toBeDefined();
+    expect(idxRecent).toBeDefined();
+  });
+
   it('enforces unique agent schedule per run', () => {
     const insert = db.prepare(`
       INSERT INTO cron_job_runs (

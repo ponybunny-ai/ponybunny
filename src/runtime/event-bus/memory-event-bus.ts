@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import type { EventBus, EventHandler } from './event-bus.js';
+import type { AnyEventHandler, EventBus, EventHandler } from './event-bus.js';
 import type { RuntimeEvent } from './runtime-event.js';
 
 /**
@@ -9,6 +9,7 @@ import type { RuntimeEvent } from './runtime-event.js';
  */
 export class MemoryEventBus implements EventBus {
   private readonly emitter = new EventEmitter();
+  private readonly anyHandlers = new Set<AnyEventHandler>();
 
   constructor() {
     this.emitter.setMaxListeners(0);
@@ -16,6 +17,13 @@ export class MemoryEventBus implements EventBus {
 
   subscribe(type: string, handler: EventHandler): void {
     this.emitter.on(type, handler);
+  }
+
+  subscribeAll(handler: AnyEventHandler): () => void {
+    this.anyHandlers.add(handler);
+    return () => {
+      this.anyHandlers.delete(handler);
+    };
   }
 
   async publish(event: RuntimeEvent): Promise<void> {
@@ -26,6 +34,14 @@ export class MemoryEventBus implements EventBus {
         await handler(event);
       } catch (error) {
         console.error(`[MemoryEventBus] Error in handler for '${event.type}':`, error);
+      }
+    }
+
+    for (const handler of this.anyHandlers) {
+      try {
+        await handler(event);
+      } catch (error) {
+        console.error(`[MemoryEventBus] Error in any handler for '${event.type}':`, error);
       }
     }
   }

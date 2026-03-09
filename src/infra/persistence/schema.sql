@@ -145,6 +145,20 @@ CREATE INDEX IF NOT EXISTS idx_run_events_run_sequence ON run_events(run_id, seq
 CREATE INDEX IF NOT EXISTS idx_run_events_run_ts ON run_events(run_id, ts_ms);
 CREATE INDEX IF NOT EXISTS idx_run_events_type ON run_events(event_type);
 
+CREATE TABLE IF NOT EXISTS runtime_events (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    task_id TEXT,
+    goal_id TEXT,
+    run_id TEXT,
+    source TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    payload_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_runtime_events_goal_ts ON runtime_events(goal_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_runtime_events_recent ON runtime_events(timestamp DESC);
+
 -- ============================================================================
 -- 4. ARTIFACTS Table
 -- ============================================================================

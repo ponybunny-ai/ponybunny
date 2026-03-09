@@ -59,6 +59,12 @@ import { setupDebugBroadcaster } from './debug-broadcaster.js';
 import { DebugEventAdapter } from '../runtime/event-bus/adapters/debug-event-adapter.js';
 import { GatewayEventAdapter } from '../runtime/event-bus/adapters/gateway-event-adapter.js';
 import { SchedulerEventAdapter } from '../runtime/event-bus/adapters/scheduler-event-adapter.js';
+import {
+  attachRuntimeEventStore,
+  RuntimeEventStore,
+  type RuntimeEventStoreBinding,
+} from '../runtime/event-bus/runtime-event-store.js';
+import { runtimeEventBus } from '../runtime/event-bus/runtime-event-bus.js';
 
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
 import { AuditLogRepository } from '../infra/persistence/audit-repository.js';
@@ -149,6 +155,8 @@ export class GatewayServer {
   private debugEventAdapter: DebugEventAdapter;
   private gatewayEventAdapter: GatewayEventAdapter;
   private schedulerEventAdapter: SchedulerEventAdapter;
+  private runtimeEventStore: RuntimeEventStore;
+  private runtimeEventStoreBinding: RuntimeEventStoreBinding | null = null;
   private scheduler: ISchedulerCore | null = null;
   private debugBroadcasterCleanup: (() => void) | null = null;
   private schedulerEventAuditUnsubscribers: Array<() => void> = [];
@@ -407,6 +415,7 @@ export class GatewayServer {
     this.debugEventAdapter = new DebugEventAdapter();
     this.gatewayEventAdapter = new GatewayEventAdapter(this.eventBus);
     this.schedulerEventAdapter = new SchedulerEventAdapter();
+    this.runtimeEventStore = new RuntimeEventStore(this.db);
 
     // Initialize IPC server and bridge
     const runtimeConfig = loadRuntimeConfig();
@@ -684,6 +693,7 @@ export class GatewayServer {
 
         this.wss.on('listening', async () => {
           this.isRunning = true;
+          this.runtimeEventStoreBinding = attachRuntimeEventStore(runtimeEventBus, this.runtimeEventStore);
           this.debugEventAdapter.start();
           this.gatewayEventAdapter.start();
           await this.channelAdapterManager.applyConfig(this.channelAdapterConfigs);
@@ -774,12 +784,18 @@ export class GatewayServer {
 
     this.debugEventAdapter.stop();
     this.gatewayEventAdapter.stop();
+    this.schedulerEventAdapter.disconnect();
     this.ipcBridge.disconnect();
     await this.ipcServer.stop();
     await this.channelAdapterManager.stopAll({
       reason: 'shutdown',
       source: 'gateway-stop',
     });
+
+    if (this.runtimeEventStoreBinding) {
+      await this.runtimeEventStoreBinding.stop();
+      this.runtimeEventStoreBinding = null;
+    }
 
     await this.auditService.shutdown();
 

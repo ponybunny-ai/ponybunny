@@ -12,6 +12,7 @@ describe('GatewayEventAdapter', () => {
     runtimeBus = {
       publish: jest.fn().mockResolvedValue(undefined),
       subscribe: jest.fn(),
+      subscribeAll: jest.fn(),
     };
     adapter = new GatewayEventAdapter(gatewayEventBus, runtimeBus);
     jest.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);

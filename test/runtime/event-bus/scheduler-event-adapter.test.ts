@@ -13,6 +13,7 @@ describe('SchedulerEventAdapter', () => {
     runtimeBus = {
       publish: jest.fn().mockResolvedValue(undefined),
       subscribe: jest.fn(),
+      subscribeAll: jest.fn(),
     };
     capturedHandler = null;
     scheduler = {

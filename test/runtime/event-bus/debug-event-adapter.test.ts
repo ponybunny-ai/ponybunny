@@ -10,6 +10,7 @@ describe('DebugEventAdapter', () => {
     runtimeBus = {
       publish: jest.fn().mockResolvedValue(undefined),
       subscribe: jest.fn(),
+      subscribeAll: jest.fn(),
     };
     adapter = new DebugEventAdapter(runtimeBus);
     debugEmitter.clearContext();
