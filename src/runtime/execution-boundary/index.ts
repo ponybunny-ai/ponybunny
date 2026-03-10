@@ -13,12 +13,17 @@ export type {
   PreparedExecutionToolPolicy,
 } from './execution-tool-policy-preparer.js';
 export type {
+  ExecutionResourcePreparer,
+  PreparedExecutionResources,
+} from './execution-resource-preparer.js';
+export type {
   ExecutionRunner,
   ExecutionRunnerResult,
   RuntimeExecutionRunSummary,
 } from './execution-runner.js';
 export { LocalExecutionCycleRuntimeFactory } from './local-execution-cycle-runtime-factory.js';
 export { LocalExecutionCycleRunner } from './local-execution-cycle-runner.js';
+export { LocalExecutionResourcePreparer } from './local-execution-resource-preparer.js';
 export { LocalExecutionToolPolicyPreparer } from './local-execution-tool-policy-preparer.js';
 export type {
   ExecutionPort,

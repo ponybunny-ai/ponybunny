@@ -12,38 +12,25 @@ import { WebSearchTool } from '../../../infra/tools/implementations/web-search-t
 import { findSkillsTool } from '../../../infra/tools/implementations/find-skills-tool.js';
 import { getGlobalSkillRegistry } from '../../../infra/skills/skill-registry.js';
 import { initializeMCPIntegration } from '../../../infra/mcp/adapters/registry-integration.js';
-import { extractMCPToolName } from '../../../infra/mcp/adapters/tool-adapter.js';
 import { routeContextFromWorkItemContext } from '../../../infra/routing/route-context.js';
 import { getManagedSkillsDir } from '../../../infra/config/config-paths.js';
 import type { ExecutionRunner } from '../../../runtime/execution-boundary/execution-runner.js';
 import {
   LocalExecutionToolPolicyPreparer,
   LocalExecutionCycleRuntimeFactory,
+  LocalExecutionResourcePreparer,
   type ExecutionToolPolicyPreparer,
+  type ExecutionResourcePreparer,
   type ExecutionCycleRunner,
   type ExecutionCycleRuntimeFactory,
 } from '../../../runtime/execution-boundary/index.js';
 import type { RuntimeToolingContext } from '../../../runtime/tooling-context/index.js';
 
-interface ResourcePolicyConfig {
-  available: string[];
-  denied: string[];
-}
-
-interface McpSelector {
-  serverPattern: string;
-  toolPattern: string;
-}
-
-interface ResourceSelectionResult {
-  blocked: boolean;
-  reason?: string;
-}
-
 interface ExecutionServiceRuntimeDeps {
   executionCycleRunner?: ExecutionCycleRunner;
   executionCycleRuntimeFactory?: ExecutionCycleRuntimeFactory;
   executionToolPolicyPreparer?: ExecutionToolPolicyPreparer;
+  executionResourcePreparer?: ExecutionResourcePreparer;
 }
 
 export class ExecutionService implements IExecutionService, ExecutionRunner {
@@ -54,6 +41,7 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
   private runtimeToolingContext: RuntimeToolingContext;
   private executionCycleRunner: ExecutionCycleRunner;
   private executionToolPolicyPreparer: ExecutionToolPolicyPreparer;
+  private executionResourcePreparer: ExecutionResourcePreparer;
   private mcpInitialized = false;
 
   constructor(
@@ -76,6 +64,13 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
       ?? new LocalExecutionToolPolicyPreparer({
         toolRegistry: this.toolRegistry,
         toolAllowlist: this.toolAllowlist,
+      });
+    this.executionResourcePreparer = runtimeDeps.executionResourcePreparer
+      ?? new LocalExecutionResourcePreparer({
+        skillRegistry: this.skillRegistry,
+        toolRegistry: this.toolRegistry,
+        toolAllowlist: this.toolAllowlist,
+        toolEnforcer: this.toolEnforcer,
       });
     const executionCycleRuntime = executionCycleRuntimeFactory.createExecutionCycleRuntime({
       llmProvider,
@@ -204,7 +199,7 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
       };
     }
 
-    const resourceSelection = await this.applyResourcePolicySelection(workItem);
+    const resourceSelection = await this.executionResourcePreparer.prepareForWorkItem(workItem);
     if (resourceSelection.blocked) {
       const runSequence = this.repository.getRunsByWorkItem(workItem.id).length + 1;
       const run = this.repository.createRun({
@@ -245,10 +240,6 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
         needsRetry: false,
         errorSignature: this.generateErrorSignature(reason),
       };
-    }
-
-    if (process.env.PONY_SKILL_AUTO_DISCOVERY !== 'false') {
-      await this.preSearchSkills(workItem);
     }
 
     const runSequence = this.repository.getRunsByWorkItem(workItem.id).length + 1;
@@ -483,22 +474,6 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
     }
   }
 
-  private toStringArray(value: unknown): string[] {
-    if (!Array.isArray(value)) {
-      return [];
-    }
-
-    return value.filter((item): item is string => typeof item === 'string');
-  }
-
-  private getString(value: unknown): string | undefined {
-    return typeof value === 'string' ? value : undefined;
-  }
-
-  private getBoolean(value: unknown): boolean | undefined {
-    return typeof value === 'boolean' ? value : undefined;
-  }
-
   private generateErrorSignature(error?: string): string | undefined {
     if (!error) return undefined;
 
@@ -521,318 +496,7 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
     return Math.abs(hash).toString(16);
   }
 
-  private async preSearchSkills(workItem: WorkItem): Promise<void> {
-    try {
-      const policySnapshot = this.getPolicySnapshot(workItem);
-      const skillPolicy = this.getResourcePolicy(policySnapshot?.skills);
-      const hasPreferredSkills = skillPolicy.available.length > 0;
-      const localSkillNames = this.skillRegistry.getSkills().map((skill) => skill.name);
-      const localPreferred = this.filterBySelectors(localSkillNames, skillPolicy.available);
-
-      if (hasPreferredSkills && localPreferred.length === 0) {
-        const webSearchTool = this.toolRegistry.getTool('web_search');
-        if (webSearchTool) {
-          const queryHint = this.extractKeywords(workItem.description).slice(0, 2).join(' ');
-          const skillSearchResult = await webSearchTool.execute(
-            {
-              query: `best PonyBunny skill ${queryHint}`,
-              count: 5,
-            },
-            { cwd: process.cwd(), allowlist: this.toolAllowlist, enforcer: this.toolEnforcer }
-          );
-
-          workItem.context = {
-            ...(workItem.context ?? {}),
-            external_skill_discovery: this.removeDeniedMentions(skillSearchResult, skillPolicy.denied),
-          };
-        }
-      }
-
-      const keywords = this.extractKeywords(workItem.description);
-      if (keywords.length === 0) return;
-
-      const suggestedSkills: any[] = [];
-      const searchLimit = Math.min(keywords.length, 3);
-
-      for (let i = 0; i < searchLimit; i++) {
-        const keyword = keywords[i];
-        try {
-          const searchResult = await findSkillsTool.execute(
-            {
-              query: keyword,
-              install: false,
-              limit: 2,
-            },
-            { cwd: process.cwd(), allowlist: this.toolAllowlist, enforcer: this.toolEnforcer }
-          );
-
-          const parsed = JSON.parse(searchResult);
-          if (parsed.skills && Array.isArray(parsed.skills) && parsed.skills.length > 0) {
-            const filtered = parsed.skills.filter((skill: { name?: unknown }) => {
-              const skillName = skill.name;
-              if (typeof skillName !== 'string') {
-                return false;
-              }
-              if (skillPolicy.denied.some((selector) => this.matchesSelector(skillName, selector))) {
-                return false;
-              }
-              if (skillPolicy.available.length > 0) {
-                return skillPolicy.available.some((selector) => this.matchesSelector(skillName, selector));
-              }
-              return true;
-            });
-
-            suggestedSkills.push(...filtered);
-          }
-        } catch (error) {
-          console.warn(`[ExecutionService] Skill pre-search failed for "${keyword}":`, error);
-        }
-      }
-
-      if (suggestedSkills.length > 0) {
-        const uniqueSkills = this.deduplicateSkills(suggestedSkills);
-        workItem.context = {
-          ...workItem.context,
-          suggestedSkills: uniqueSkills.slice(0, 5),
-        };
-        console.log(`[ExecutionService] Pre-searched ${uniqueSkills.length} skills for work item ${workItem.id}`);
-      }
-    } catch (error) {
-      console.warn('[ExecutionService] Skill pre-search failed:', error);
-    }
-  }
-
-  private extractKeywords(text: string): string[] {
-    const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been', 'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'what', 'which', 'who', 'when', 'where', 'why', 'how']);
-    
-    const words = text
-      .toLowerCase()
-      .replace(/[^\w\s]/g, ' ')
-      .split(/\s+/)
-      .filter(word => word.length > 3 && !stopWords.has(word));
-    
-    const uniqueWords = [...new Set(words)];
-    return uniqueWords.slice(0, 5);
-  }
-
-  private deduplicateSkills(skills: any[]): any[] {
-    const seen = new Set<string>();
-    const unique: any[] = [];
-    
-    for (const skill of skills) {
-      const key = skill.name || skill.url;
-      if (key && !seen.has(key)) {
-        seen.add(key);
-        unique.push(skill);
-      }
-    }
-    
-    return unique;
-  }
-
-  private async applyResourcePolicySelection(workItem: WorkItem): Promise<ResourceSelectionResult> {
-    const policySnapshot = this.getPolicySnapshot(workItem);
-    if (!policySnapshot) {
-      return { blocked: false };
-    }
-
-    const skillPolicy = this.getResourcePolicy(policySnapshot.skills);
-    const mcpPolicy = this.getResourcePolicy(policySnapshot.mcp);
-    const keywords = this.extractKeywords(`${workItem.title} ${workItem.description}`);
-
-    const skillCandidates = this.rankCandidates(
-      this.filterByPolicy(
-        this.skillRegistry.getSkills().map((skill) => skill.name),
-        skillPolicy
-      ),
-      keywords
-    );
-
-    const mcpTools = this.toolRegistry.getAllTools().map((tool) => tool.name).filter((name) => name.startsWith('mcp__'));
-    const mcpCandidates = this.rankCandidates(
-      this.filterMcpToolsByPolicy(mcpTools, mcpPolicy),
-      keywords
-    );
-
-    const selectedSkillOverride = this.getString(workItem.context?.selected_skill_override);
-    const selectedMcpOverride = this.getString(workItem.context?.selected_mcp_tool_override);
-
-    const selectedSkill = selectedSkillOverride
-      ?? (skillCandidates.length > 0 ? skillCandidates[0] : undefined);
-    const selectedMcpTool = selectedMcpOverride
-      ?? (mcpCandidates.length > 0 ? mcpCandidates[0] : undefined);
-
-    const ambiguousSkillCandidates = selectedSkillOverride ? [] : skillCandidates.slice(0, 5);
-    const ambiguousMcpCandidates = selectedMcpOverride ? [] : mcpCandidates.slice(0, 5);
-
-    if (ambiguousSkillCandidates.length > 3 || ambiguousMcpCandidates.length > 3) {
-      return {
-        blocked: true,
-        reason:
-          'Too many resource candidates. Provide selected_skill_override or selected_mcp_tool_override via escalation response data. '
-          + `skills=[${ambiguousSkillCandidates.join(', ') || 'none'}], mcp=[${ambiguousMcpCandidates.join(', ') || 'none'}]`,
-      };
-    }
-
-    const baseAllowlist = this.toStringArray(workItem.context?.tool_allowlist);
-    const selectedAllowlist = baseAllowlist.filter((toolName) => {
-      if (!toolName.startsWith('mcp__')) {
-        return true;
-      }
-      if (selectedMcpTool) {
-        return toolName === selectedMcpTool;
-      }
-      return mcpCandidates.includes(toolName);
-    });
-
-    workItem.context = {
-      ...(workItem.context ?? {}),
-      selected_skill: selectedSkill,
-      selected_mcp_tool: selectedMcpTool,
-      candidate_skills: skillCandidates.slice(0, 5),
-      candidate_mcp_tools: mcpCandidates.slice(0, 5),
-      tool_allowlist: selectedAllowlist,
-    };
-
-    if (mcpPolicy.available.length > 0 && mcpCandidates.length === 0) {
-      const webSearchTool = this.toolRegistry.getTool('web_search');
-      if (webSearchTool) {
-        const queryHint = keywords.slice(0, 2).join(' ');
-        const mcpSearchResult = await webSearchTool.execute(
-          {
-            query: `best MCP server ${queryHint}`,
-            count: 5,
-          },
-          { cwd: process.cwd(), allowlist: this.toolAllowlist, enforcer: this.toolEnforcer }
-        );
-
-        workItem.context = {
-          ...(workItem.context ?? {}),
-          external_mcp_discovery: this.removeDeniedMentions(mcpSearchResult, mcpPolicy.denied),
-        };
-      }
-    }
-
-    return { blocked: false };
-  }
-
-  private getPolicySnapshot(workItem: WorkItem): Record<string, unknown> | undefined {
-    const snapshot = workItem.context?.policy_snapshot;
-    if (!snapshot || typeof snapshot !== 'object') {
-      return undefined;
-    }
-    return snapshot as Record<string, unknown>;
-  }
-
-  private getResourcePolicy(value: unknown): ResourcePolicyConfig {
-    if (!value || typeof value !== 'object') {
-      return { available: [], denied: [] };
-    }
-
-    const record = value as Record<string, unknown>;
-    return {
-      available: this.toStringArray(record.available),
-      denied: this.toStringArray(record.denied),
-    };
-  }
-
-  private filterByPolicy(candidates: string[], policy: ResourcePolicyConfig): string[] {
-    const byAvailable = policy.available.length > 0
-      ? candidates.filter((name) => policy.available.some((selector) => this.matchesSelector(name, selector)))
-      : candidates;
-
-    return byAvailable.filter((name) => !policy.denied.some((selector) => this.matchesSelector(name, selector)));
-  }
-
-  private filterMcpToolsByPolicy(candidates: string[], policy: ResourcePolicyConfig): string[] {
-    const availableSelectors = policy.available
-      .map((selector) => this.parseMcpSelector(selector))
-      .filter((selector): selector is McpSelector => selector !== undefined);
-    const deniedSelectors = policy.denied
-      .map((selector) => this.parseMcpSelector(selector))
-      .filter((selector): selector is McpSelector => selector !== undefined);
-
-    return candidates.filter((toolName) => {
-      const parsed = extractMCPToolName(toolName);
-      if (!parsed) {
-        return false;
-      }
-
-      if (deniedSelectors.some((selector) => this.matchesMcpSelector(parsed.serverName, parsed.toolName, selector))) {
-        return false;
-      }
-
-      if (policy.available.length === 0) {
-        return true;
-      }
-
-      return availableSelectors.some((selector) => this.matchesMcpSelector(parsed.serverName, parsed.toolName, selector));
-    });
-  }
-
-  private parseMcpSelector(selector: string): McpSelector | undefined {
-    const trimmed = selector.trim();
-    if (trimmed.length === 0) {
-      return undefined;
-    }
-
-    const dotIndex = trimmed.indexOf('.');
-    if (dotIndex <= 0 || dotIndex === trimmed.length - 1) {
-      return undefined;
-    }
-
-    const serverPattern = trimmed.slice(0, dotIndex).trim();
-    const toolPattern = trimmed.slice(dotIndex + 1).trim();
-    if (serverPattern.length === 0 || toolPattern.length === 0) {
-      return undefined;
-    }
-
-    return { serverPattern, toolPattern };
-  }
-
-  private matchesMcpSelector(serverName: string, toolName: string, selector: McpSelector): boolean {
-    return this.matchesSelector(serverName, selector.serverPattern)
-      && this.matchesSelector(toolName, selector.toolPattern);
-  }
-
-  private rankCandidates(candidates: string[], keywords: string[]): string[] {
-    const lowerKeywords = keywords.map((keyword) => keyword.toLowerCase());
-    return [...candidates].sort((left, right) => {
-      const leftScore = lowerKeywords.reduce((score, keyword) => score + (left.toLowerCase().includes(keyword) ? 1 : 0), 0);
-      const rightScore = lowerKeywords.reduce((score, keyword) => score + (right.toLowerCase().includes(keyword) ? 1 : 0), 0);
-      if (leftScore !== rightScore) {
-        return rightScore - leftScore;
-      }
-      return left.localeCompare(right);
-    });
-  }
-
-  private filterBySelectors(candidates: string[], selectors: string[]): string[] {
-    if (selectors.length === 0) {
-      return candidates;
-    }
-
-    return candidates.filter((candidate) => selectors.some((selector) => this.matchesSelector(candidate, selector)));
-  }
-
-  private matchesSelector(value: string, selector: string): boolean {
-    const normalizedSelector = selector.trim();
-    if (normalizedSelector.length === 0) {
-      return false;
-    }
-
-    const escaped = normalizedSelector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '.*');
-    const regex = new RegExp(`^${escaped}$`, 'i');
-    return regex.test(value);
-  }
-
-  private removeDeniedMentions(content: string, deniedSelectors: string[]): string {
-    let sanitized = content;
-    for (const selector of deniedSelectors) {
-      const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '.*');
-      const regex = new RegExp(escaped, 'ig');
-      sanitized = sanitized.replace(regex, '[DENIED_FILTERED]');
-    }
-    return sanitized;
+  private getBoolean(value: unknown): boolean | undefined {
+    return typeof value === 'boolean' ? value : undefined;
   }
 }

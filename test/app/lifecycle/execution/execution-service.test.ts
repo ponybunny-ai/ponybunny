@@ -5,6 +5,7 @@ import type { ILLMProvider, LLMMessage, LLMResponse, ToolCall } from '../../../.
 import { ExecutionService } from '../../../../src/app/lifecycle/execution/execution-service.js';
 import type {
   ExecutionCycleRunner,
+  ExecutionResourcePreparer,
   ExecutionToolPolicyPreparer,
   ExecutionCycleRuntimeFactory,
 } from '../../../../src/runtime/execution-boundary/index.js';
@@ -394,6 +395,61 @@ describe('ExecutionService per-work-item tool allowlist', () => {
         }),
       })
     );
+  });
+
+  it('uses the narrow execution resource preparer seam before run creation and cycle entry', async () => {
+    const goal = createGoal('goal-resource-preparer');
+    const repository = createRepository(goal);
+    const executionCycleRunner: ExecutionCycleRunner = {
+      executeCycle: jest.fn().mockResolvedValue({
+        success: true,
+        tokensUsed: 4,
+        costUsd: 0.08,
+        log: 'resource preparer seam log',
+      }),
+    };
+    const executionResourcePreparer: ExecutionResourcePreparer = {
+      prepareForWorkItem: jest.fn(async (workItem) => {
+        workItem.context = {
+          ...(workItem.context ?? {}),
+          selected_skill: 'github-search',
+        };
+        return { blocked: false };
+      }),
+    };
+
+    const service = new ExecutionService(
+      repository,
+      { maxConsecutiveErrors: 3 },
+      undefined,
+      {
+        executionCycleRunner,
+        executionResourcePreparer,
+      }
+    );
+
+    const workItem = createWorkItem({
+      id: 'work-item-resource-preparer',
+      goal_id: goal.id,
+      context: {
+        model: 'requested-model',
+      },
+    });
+
+    const result = await service.executeWorkItem(workItem);
+
+    expect(executionResourcePreparer.prepareForWorkItem).toHaveBeenCalledWith(workItem);
+    expect((repository as unknown as { createRun: jest.Mock }).createRun).toHaveBeenCalledTimes(1);
+    expect(executionCycleRunner.executeCycle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workItem: expect.objectContaining({
+          context: expect.objectContaining({
+            selected_skill: 'github-search',
+          }),
+        }),
+      })
+    );
+    expect(result.success).toBe(true);
   });
 
   it('keeps tool permissions isolated across concurrent runs', async () => {

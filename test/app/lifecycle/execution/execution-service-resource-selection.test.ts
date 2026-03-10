@@ -1,5 +1,6 @@
 import { ExecutionService } from '../../../../src/app/lifecycle/execution/execution-service.js';
 import type { IWorkOrderRepository } from '../../../../src/infra/persistence/repository-interface.js';
+import type { ExecutionResourcePreparer } from '../../../../src/runtime/execution-boundary/index.js';
 import type { WorkItem } from '../../../../src/work-order/types/index.js';
 
 function createWorkItem(): WorkItem {
@@ -36,6 +37,20 @@ function createWorkItem(): WorkItem {
 }
 
 describe('ExecutionService resource selection narrowing', () => {
+  const originalAutoDiscovery = process.env.PONY_SKILL_AUTO_DISCOVERY;
+
+  beforeEach(() => {
+    process.env.PONY_SKILL_AUTO_DISCOVERY = 'false';
+  });
+
+  afterAll(() => {
+    if (originalAutoDiscovery === undefined) {
+      delete process.env.PONY_SKILL_AUTO_DISCOVERY;
+      return;
+    }
+    process.env.PONY_SKILL_AUTO_DISCOVERY = originalAutoDiscovery;
+  });
+
   it('escalates when resource candidates are too broad and needs user narrowing', async () => {
     const runRecord = {
       id: 'run-resource-1',
@@ -62,20 +77,23 @@ describe('ExecutionService resource selection narrowing', () => {
       updateGoalSpending: jest.fn(),
     } as unknown as IWorkOrderRepository;
 
-    const service = new ExecutionService(repository, { maxConsecutiveErrors: 3 });
-    (service as unknown as { skillRegistry: { getSkills: () => Array<{ name: string }> } }).skillRegistry = {
-      getSkills: () => [
-        { name: 'github-search' },
-        { name: 'gitlab-search' },
-        { name: 'repo-discovery' },
-        { name: 'org-auditor' },
-      ],
+    const executionResourcePreparer: ExecutionResourcePreparer = {
+      prepareForWorkItem: jest.fn().mockResolvedValue({
+        blocked: true,
+        reason:
+          'Too many resource candidates. Provide selected_skill_override or selected_mcp_tool_override via escalation response data. '
+          + 'skills=[github-search, gitlab-search, repo-discovery, org-auditor], mcp=[none]',
+      }),
     };
+    const service = new ExecutionService(repository, { maxConsecutiveErrors: 3 }, undefined, {
+      executionResourcePreparer,
+    });
 
     const result = await service.executeWorkItem(createWorkItem());
 
     expect(result.success).toBe(false);
     expect(result.needsRetry).toBe(false);
+    expect(executionResourcePreparer.prepareForWorkItem).toHaveBeenCalled();
     expect(repository.createEscalation).toHaveBeenCalledWith(
       expect.objectContaining({
         work_item_id: 'wi-resource-1',
