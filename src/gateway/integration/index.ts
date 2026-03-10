@@ -1,10 +1,10 @@
 /**
- * Gateway Integration Module
+ * Historical mixed gateway integration barrel.
  *
- * Provides bridges and adapters to connect Gateway with other system components.
+ * Prefer `./boundaries.js` for live gateway-owned seams and
+ * `./compatibility.js` for import-preserving compatibility paths.
  */
 
-// Gateway daemon attachment boundary
 export {
   GatewayDaemonAttachment,
   type GatewayDaemonAttachmentPhase,
@@ -14,21 +14,17 @@ export {
   type GatewayDaemonDetachSurface,
   type GatewayDaemonOperationState,
   type GatewayDaemonAttachmentSurface,
-} from './gateway-daemon-attachment.js';
+  SchedulerBridge,
+} from './boundaries.js';
 
-// Daemon Bridge compatibility surface
-export { DaemonBridge, DaemonEventEmitterMixin } from './daemon-bridge.js';
-export type { IDaemonEventEmitter } from './daemon-bridge.js';
-
-// Scheduler Bridge (new)
-export { SchedulerBridge } from './scheduler-bridge.js';
-
-// Intentional scheduler compatibility surface
 export {
+  DaemonBridge,
+  DaemonEventEmitterMixin,
+  type IDaemonEventEmitter,
   ExecutionEngineAdapter,
   SchedulerRepositoryAdapter,
   LocalExecutionAdapter,
   createScheduler,
   type SchedulerFactoryConfig,
   type SchedulerFactoryDependencies,
-} from './scheduler-compatibility.js';
+} from './compatibility.js';
