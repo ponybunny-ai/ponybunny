@@ -19,6 +19,7 @@ import { initializeMCPIntegration } from '../../../infra/mcp/adapters/registry-i
 import { extractMCPToolName } from '../../../infra/mcp/adapters/tool-adapter.js';
 import { routeContextFromWorkItemContext } from '../../../infra/routing/route-context.js';
 import { getManagedSkillsDir } from '../../../infra/config/config-paths.js';
+import type { ExecutionRunner } from '../../../runtime/execution-boundary/execution-runner.js';
 import { LocalToolAdapter, type ToolPort } from '../../../runtime/tool-boundary/index.js';
 import { createRuntimeToolingContext, type RuntimeToolingContext } from '../../../runtime/tooling-context/index.js';
 import { LocalToolWorker } from '../../../runtime/workers/index.js';
@@ -43,7 +44,7 @@ interface ResourceSelectionResult {
   reason?: string;
 }
 
-export class ExecutionService implements IExecutionService {
+export class ExecutionService implements IExecutionService, ExecutionRunner {
   private reactIntegration: ReActIntegration;
   private toolRegistry: ToolRegistry;
   private toolAllowlist: ToolAllowlist;

@@ -1,8 +1,8 @@
-import type { IExecutionService } from '../../app/lifecycle/stage-interfaces.js';
 import { getAgentTickContext } from '../../infra/agents/agent-tick-context.js';
 import { getGlobalAgentRegistry } from '../../infra/agents/agent-registry.js';
 import { getGlobalRunnerRegistry } from '../../infra/agents/runner-registry.js';
 import type { WorkItem } from '../../work-order/types/index.js';
+import type { ExecutionRunner } from './execution-runner.js';
 import type { ExecutionPort, ExecutionRequest, ExecutionResult } from './types.js';
 
 interface ActiveExecution {
@@ -15,7 +15,7 @@ interface ActiveExecution {
 export class LocalExecutionAdapter implements ExecutionPort {
   private activeExecutions: Map<string, ActiveExecution> = new Map();
 
-  constructor(private executionService: IExecutionService) {}
+  constructor(private executionRunner: ExecutionRunner) {}
 
   async execute(request: ExecutionRequest): Promise<ExecutionResult> {
     const { workItem } = request;
@@ -191,7 +191,7 @@ export class LocalExecutionAdapter implements ExecutionPort {
       // TODO(session10): ExecutionService still persists its own internal run lifecycle.
       // The boundary now exposes only the scheduler-owned runId to callers; later worker
       // extraction should eliminate the internal duplicate run creation entirely.
-      const result = await this.executionService.executeWorkItem(executionWorkItem);
+      const result = await this.executionRunner.executeWorkItem(executionWorkItem);
 
       return {
         runId: request.runId,

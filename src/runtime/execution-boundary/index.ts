@@ -1,4 +1,9 @@
 export type {
+  ExecutionRunner,
+  ExecutionRunnerResult,
+  RuntimeExecutionRunSummary,
+} from './execution-runner.js';
+export type {
   ExecutionPort,
   ExecutionRequest,
   ExecutionResult,
