@@ -20,7 +20,7 @@ import { QualityGateRunner, DefaultCommandExecutor, MockLLMReviewer } from '../q
 import { LocalExecutionAdapter } from '../../runtime/execution-boundary/index.js';
 import { runtimeEventBus } from '../../runtime/event-bus/index.js';
 
-import { SchedulerRepositoryAdapter } from '../../gateway/integration/scheduler-repository-adapter.js';
+import { SchedulerRepositoryAdapter } from './scheduler-repository-adapter.js';
 
 export interface DefaultSchedulerConfig {
   tickIntervalMs?: number;

@@ -155,4 +155,5 @@ export {
   createDefaultScheduler,
   type DefaultSchedulerConfig,
   type DefaultSchedulerDependencies,
+  SchedulerRepositoryAdapter,
 } from './composition/index.js';
