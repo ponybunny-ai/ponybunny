@@ -2,7 +2,6 @@ import type { WorkItem, Run } from '../../../work-order/types/index.js';
 import type { IWorkOrderRepository } from '../../../infra/persistence/repository-interface.js';
 import type { IExecutionService, ExecutionResult } from '../stage-interfaces.js';
 import type { ILLMProvider } from '../../../infra/llm/llm-provider.js';
-import { ReActIntegration } from '../../../autonomy/react-integration.js';
 import { PromptProvider } from '../../../infra/prompts/prompt-provider.js';
 import { ToolRegistry, ToolAllowlist, ToolEnforcer } from '../../../infra/tools/tool-registry.js';
 import type { ToolPolicyAuditSnapshot } from '../../../infra/tools/tool-registry.js';
@@ -20,9 +19,11 @@ import { extractMCPToolName } from '../../../infra/mcp/adapters/tool-adapter.js'
 import { routeContextFromWorkItemContext } from '../../../infra/routing/route-context.js';
 import { getManagedSkillsDir } from '../../../infra/config/config-paths.js';
 import type { ExecutionRunner } from '../../../runtime/execution-boundary/execution-runner.js';
-import { LocalToolAdapter, type ToolPort } from '../../../runtime/tool-boundary/index.js';
+import {
+  LocalExecutionCycleRunner,
+  type ExecutionCycleRunner,
+} from '../../../runtime/execution-boundary/index.js';
 import { createRuntimeToolingContext, type RuntimeToolingContext } from '../../../runtime/tooling-context/index.js';
-import { LocalToolWorker } from '../../../runtime/workers/index.js';
 
 interface ScopedToolEnforcerConfig {
   enforcer: ToolEnforcer;
@@ -44,15 +45,17 @@ interface ResourceSelectionResult {
   reason?: string;
 }
 
+interface ExecutionServiceRuntimeDeps {
+  executionCycleRunner?: ExecutionCycleRunner;
+}
+
 export class ExecutionService implements IExecutionService, ExecutionRunner {
-  private reactIntegration: ReActIntegration;
   private toolRegistry: ToolRegistry;
   private toolAllowlist: ToolAllowlist;
   private toolEnforcer: ToolEnforcer;
-  private toolPort: ToolPort;
-  private toolWorker: LocalToolWorker;
   private skillRegistry = getGlobalSkillRegistry();
   private runtimeToolingContext: RuntimeToolingContext;
+  private executionCycleRunner: ExecutionCycleRunner;
   private mcpInitialized = false;
 
   constructor(
@@ -60,7 +63,8 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
     private config: {
       maxConsecutiveErrors: number;
     },
-    llmProvider?: ILLMProvider
+    llmProvider?: ILLMProvider,
+    runtimeDeps: ExecutionServiceRuntimeDeps = {}
   ) {
     this.toolRegistry = new ToolRegistry();
     this.toolAllowlist = new ToolAllowlist();
@@ -68,10 +72,7 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
     this.registerTools();
 
     this.toolEnforcer = new ToolEnforcer(this.toolRegistry, this.toolAllowlist);
-    this.toolPort = new LocalToolAdapter(this.toolEnforcer);
-    this.toolWorker = new LocalToolWorker(this.toolPort);
 
-    // Wire up ToolProvider with ToolRegistry so LLM sees all registered tools
     const toolProvider = new ToolProvider(this.toolEnforcer);
     this.runtimeToolingContext = createRuntimeToolingContext({
       toolRegistry: this.toolRegistry,
@@ -83,15 +84,12 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
     });
     this.runtimeToolingContext.syncLegacyGlobals();
 
-    // The local worker is now the authoritative in-process dispatch seam, while
-    // ReActIntegration still owns synchronous continuation after ToolResult resolution.
-    this.reactIntegration = new ReActIntegration(
-      llmProvider,
-      this.toolEnforcer,
-      this.toolPort,
-      this.toolWorker,
-      this.runtimeToolingContext
-    );
+    this.executionCycleRunner = runtimeDeps.executionCycleRunner
+      ?? new LocalExecutionCycleRunner({
+        llmProvider,
+        toolEnforcer: this.toolEnforcer,
+        runtimeToolingContext: this.runtimeToolingContext,
+      });
   }
 
   getRuntimeToolingContext(): RuntimeToolingContext {
@@ -266,10 +264,10 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
       },
     });
 
-    let agentResult: Awaited<ReturnType<ReActIntegration['executeWorkCycle']>>;
+    let agentResult: Awaited<ReturnType<ExecutionCycleRunner['executeCycle']>>;
 
     try {
-      agentResult = await this.reactIntegration.executeWorkCycle({
+      agentResult = await this.executionCycleRunner.executeCycle({
         workItem,
         run,
         goal,

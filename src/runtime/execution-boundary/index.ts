@@ -1,8 +1,14 @@
 export type {
+  ExecutionCycleRequest,
+  ExecutionCycleResult,
+  ExecutionCycleRunner,
+} from './execution-cycle-runner.js';
+export type {
   ExecutionRunner,
   ExecutionRunnerResult,
   RuntimeExecutionRunSummary,
 } from './execution-runner.js';
+export { LocalExecutionCycleRunner } from './local-execution-cycle-runner.js';
 export type {
   ExecutionPort,
   ExecutionRequest,

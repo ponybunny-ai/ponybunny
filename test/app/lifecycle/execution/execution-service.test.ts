@@ -3,6 +3,7 @@ import type { Goal, Run, WorkItem } from '../../../../src/work-order/types/index
 import type { IWorkOrderRepository } from '../../../../src/infra/persistence/repository-interface.js';
 import type { ILLMProvider, LLMMessage, LLMResponse, ToolCall } from '../../../../src/infra/llm/llm-provider.js';
 import { ExecutionService } from '../../../../src/app/lifecycle/execution/execution-service.js';
+import type { ExecutionCycleRunner } from '../../../../src/runtime/execution-boundary/index.js';
 
 class ScriptedWriteToolLLMProvider implements ILLMProvider {
   private callCount = 0;
@@ -133,6 +134,7 @@ function createRepository(goal: Goal): IWorkOrderRepository {
       cost_usd: number;
       artifacts: string[];
       execution_log?: string;
+      context?: Record<string, unknown>;
     }) => {
       const existing = runsById.get(runId);
       if (!existing) return;
@@ -145,6 +147,7 @@ function createRepository(goal: Goal): IWorkOrderRepository {
         cost_usd: params.cost_usd,
         artifacts: params.artifacts,
         execution_log: params.execution_log,
+        context: params.context,
         completed_at: Date.now(),
       });
     }),
@@ -206,6 +209,60 @@ describe('ExecutionService per-work-item tool allowlist', () => {
     expect(result.success).toBe(true);
     expect(result.run.execution_log).toContain('Action denied: Tool \'write_file\' not in allowlist for this goal');
     expect(existsSync(denyPath)).toBe(false);
+  });
+
+  it('delegates runtime execution through the narrow execution cycle runner seam', async () => {
+    const goal = createGoal('goal-cycle-runner');
+    const repository = createRepository(goal);
+    const executionCycleRunner: ExecutionCycleRunner = {
+      executeCycle: jest.fn().mockResolvedValue({
+        success: true,
+        tokensUsed: 11,
+        costUsd: 0.5,
+        actualModel: 'runtime-model',
+        endpointId: 'endpoint-runtime',
+        artifactIds: ['artifact-runtime'],
+        log: 'cycle runner log',
+      }),
+    };
+
+    const service = new ExecutionService(
+      repository,
+      { maxConsecutiveErrors: 3 },
+      undefined,
+      { executionCycleRunner }
+    );
+
+    const workItem = createWorkItem({
+      id: 'work-item-cycle-runner',
+      goal_id: goal.id,
+      context: {
+        model: 'requested-model',
+      },
+    });
+
+    const result = await service.executeWorkItem(workItem);
+
+    expect(executionCycleRunner.executeCycle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workItem,
+        run: expect.objectContaining({
+          work_item_id: workItem.id,
+          goal_id: workItem.goal_id,
+        }),
+        goal,
+        model: 'requested-model',
+        toolEnforcer: undefined,
+      })
+    );
+    expect(result.success).toBe(true);
+    expect(result.run.execution_log).toContain('cycle runner log');
+    expect(result.run.context).toEqual({
+      selected_model: undefined,
+      requested_model: 'requested-model',
+      actual_model: 'runtime-model',
+      endpoint_id: 'endpoint-runtime',
+    });
   });
 
   it('keeps tool permissions isolated across concurrent runs', async () => {
