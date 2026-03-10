@@ -12,6 +12,8 @@ describe('default gateway runtime bootstrap surface', () => {
     expect(source).toContain('export async function createDefaultGatewayRuntime');
     expect(source).toContain('export async function stopDefaultGatewayRuntime');
     expect(source).toContain("import { GatewayServer } from '../gateway-server.js';");
+    expect(source).toContain("import { resolveDefaultGatewaySchedulerSocketPath } from './gateway-server-runtime-lifecycle.js';");
     expect(source).toContain("import { WorkOrderDatabase } from '../../work-order/database/manager.js';");
+    expect(source).toContain('schedulerSocketPath: resolveDefaultGatewaySchedulerSocketPath()');
   });
 });

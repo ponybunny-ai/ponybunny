@@ -47,7 +47,6 @@ import { IPCBridge } from './integration/ipc-bridge.js';
 import type { ISchedulerCore } from '../scheduler/core/index.js';
 import type { IDaemonEventEmitter } from '../autonomy/daemon-event-emitter.js';
 import { IPCServer } from '../ipc/ipc-server.js';
-import { homedir } from 'os';
 import { join } from 'path';
 
 import { registerGoalHandlers } from './rpc/handlers/goal-handlers.js';
@@ -60,16 +59,20 @@ import { registerAuditHandlers } from './rpc/handlers/audit-handlers.js';
 import { registerSystemHandlers } from './rpc/handlers/system-handlers.js';
 import { registerInternalRuntimeHandlers } from './rpc/handlers/internal-runtime-handlers.js';
 import { RuntimeRolloutTelemetry } from './runtime/runtime-rollout-telemetry.js';
-import { setupDebugBroadcaster } from './debug-broadcaster.js';
 import { DebugEventAdapter } from '../runtime/event-bus/adapters/debug-event-adapter.js';
 import { GatewayEventAdapter } from '../runtime/event-bus/adapters/gateway-event-adapter.js';
 import { SchedulerEventAdapter } from '../runtime/event-bus/adapters/scheduler-event-adapter.js';
 import {
-  attachRuntimeEventStore,
   RuntimeEventStore,
   type RuntimeEventStoreBinding,
 } from '../runtime/event-bus/runtime-event-store.js';
-import { runtimeEventBus } from '../runtime/event-bus/runtime-event-bus.js';
+import {
+  resolveDefaultGatewaySchedulerSocketPath,
+  startGatewayServerRuntimeLifecycle,
+  stopGatewayServerRuntimeLifecycle,
+  type GatewayServerRuntimeLifecycleDependencies,
+  type GatewayServerRuntimeLifecycleStartResult,
+} from './bootstrap/gateway-server-runtime-lifecycle.js';
 
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
 import { AuditLogRepository } from '../infra/persistence/audit-repository.js';
@@ -86,7 +89,6 @@ import { SearchCodeTool } from '../infra/tools/implementations/search-code-tool.
 import { WebSearchTool } from '../infra/tools/implementations/web-search-tool.js';
 import { findSkillsTool } from '../infra/tools/implementations/find-skills-tool.js';
 import { ConfigWatcher, createConfigWatcher } from './config/config-watcher.js';
-import { getAsciiArtBanner } from '../infra/ui/ascii-art-banner.js';
 import { loadRuntimeConfig, saveRuntimeConfig } from '../infra/config/runtime-config.js';
 import { configureLLMProviderManagerStreamEventSink } from '../infra/llm/provider-manager/index.js';
 import { GatewayLLMStreamEventSink } from './events/llm-stream-event-sink.js';
@@ -100,6 +102,7 @@ export interface GatewayServerDependencies {
   debugMode?: boolean;
   personasDir?: string;
   enableConfigWatch?: boolean;
+  schedulerSocketPath?: string;
 }
 
 export class GatewayServer {
@@ -164,6 +167,7 @@ export class GatewayServer {
   private schedulerEventAdapter: SchedulerEventAdapter;
   private runtimeEventStore: RuntimeEventStore;
   private runtimeEventStoreBinding: RuntimeEventStoreBinding | null = null;
+  private runtimeLifecycleState: GatewayServerRuntimeLifecycleStartResult | null = null;
   private scheduler: ISchedulerCore | null = null;
   private debugBroadcasterCleanup: (() => void) | null = null;
   private schedulerEventAuditUnsubscribers: Array<() => void> = [];
@@ -425,8 +429,7 @@ export class GatewayServer {
     this.runtimeEventStore = new RuntimeEventStore(this.db);
 
     // Initialize IPC server and bridge
-    const runtimeConfig = loadRuntimeConfig();
-    const ipcSocketPath = runtimeConfig.paths.schedulerSocket || join(homedir(), '.ponybunny', 'gateway.sock');
+    const ipcSocketPath = dependencies.schedulerSocketPath ?? resolveDefaultGatewaySchedulerSocketPath();
     this.ipcServer = new IPCServer({ socketPath: ipcSocketPath });
     this.ipcBridge = new IPCBridge(this.eventBus);
     this.eventBus.on('runtime.retention.run', (sample: unknown) => {
@@ -463,7 +466,7 @@ export class GatewayServer {
     configureLLMProviderManagerStreamEventSink(new GatewayLLMStreamEventSink());
 
     if (this.enableConfigWatch) {
-      this.initializeConfigWatcher();
+      this.configureConfigWatcher();
     }
 
     this.registerHandlers();
@@ -489,7 +492,7 @@ export class GatewayServer {
     this.toolAllowlist.addTool('find_skills');
   }
 
-  private initializeConfigWatcher(): void {
+  private configureConfigWatcher(): void {
     const configDir = getConfigDir();
     this.configWatcher = createConfigWatcher(configDir);
 
@@ -504,9 +507,6 @@ export class GatewayServer {
         });
       }
     });
-
-    this.configWatcher.start();
-    console.log('[GatewayServer] Config watcher initialized');
   }
 
   private registerHandlers(): void {
@@ -696,72 +696,22 @@ export class GatewayServer {
         });
 
         this.wss.on('listening', async () => {
-          this.isRunning = true;
-          this.runtimeEventStoreBinding = attachRuntimeEventStore(runtimeEventBus, this.runtimeEventStore);
-          this.debugEventAdapter.start();
-          this.gatewayEventAdapter.start();
-          await this.channelAdapterManager.applyConfig(this.channelAdapterConfigs);
-          await this.channelAdapterManager.applyEnabledChannels(this.channelRouter.getEnabledChannels(), {
-            reason: 'startup',
-            source: 'gateway-startup',
-          });
-          this.eventBus.emit('channel.adapter.status.updated', {
-            timestamp: Date.now(),
-            reason: 'startup',
-            source: 'gateway-startup',
-            adapters: this.channelAdapterManager.getStatuses(),
-          });
-          this.connectionManager.start();
-          this.broadcastManager.start();
-          this.setupSchedulerEventAudit();
-
-          // Start IPC server
-          this.ipcServer.start()
-            .then(() => {
-              console.log('[GatewayServer] IPC server started');
-              // Connect IPC bridge to route messages
-              this.ipcBridge.connect(this.ipcServer);
-            })
-            .catch((error) => {
-              console.error('[GatewayServer] Failed to start IPC server:', error);
-            });
-
-          // Start debug broadcaster if debug mode is enabled
-          if (this.debugMode) {
-            this.debugBroadcasterCleanup = setupDebugBroadcaster(
-              this.connectionManager,
-              this.debugMode
+          try {
+            this.isRunning = true;
+            this.runtimeLifecycleState = await startGatewayServerRuntimeLifecycle(
+              this.buildRuntimeLifecycleDependencies()
             );
-          }
+            this.runtimeEventStoreBinding = this.runtimeLifecycleState.runtimeEventStoreBinding;
+            this.debugBroadcasterCleanup = this.runtimeLifecycleState.debugBroadcasterCleanup;
 
-          // Display startup configuration
-          const bannerSeparator = '═══════════════════════════════════════════════════════';
-          console.log(bannerSeparator);
-          const asciiArt = getAsciiArtBanner(bannerSeparator.length);
-          if (asciiArt) {
-            console.log(asciiArt);
+            resolve();
+          } catch (error) {
+            this.isRunning = false;
+            reject(error);
           }
-          console.log('🌐 PonyBunny Gateway Server Started');
-          console.log(bannerSeparator);
-          console.log(`  Address: ws://${this.config.host}:${this.config.port}`);
-          if (this.dbPath) {
-            console.log(`  Database: ${this.dbPath}`);
-          }
-          if (this.memoryDbPath) {
-            console.log(`  Memory DB: ${this.memoryDbPath}`);
-          }
-          console.log(`  Connection Limits:`);
-          console.log(`    • Local (127.0.0.1):  ${this.config.maxLocalConnections ?? 512} connections`);
-          console.log(`    • Remote:             ${this.config.maxConnectionsPerIp} connections per IP`);
-          console.log(`  Heartbeat: ${this.config.heartbeatIntervalMs}ms interval, ${this.config.heartbeatTimeoutMs}ms timeout`);
-          console.log(`  Auth Timeout: ${this.config.authTimeoutMs}ms`);
-          console.log(`  TLS: ${this.config.enableTls ? 'Enabled' : 'Disabled'}`);
-          console.log(`  Debug Mode: ${this.debugMode ? 'Enabled' : 'Disabled'}`);
-          console.log(`${bannerSeparator}\n`);
-
-          resolve();
         });
       } catch (error) {
+        this.configWatcher?.stop();
         reject(error);
       }
     });
@@ -776,36 +726,13 @@ export class GatewayServer {
     }
 
     this.isRunning = false;
-
-    if (this.configWatcher) {
-      this.configWatcher.stop();
-    }
-
-    if (this.debugBroadcasterCleanup) {
-      this.debugBroadcasterCleanup();
-      this.debugBroadcasterCleanup = null;
-    }
-
-    this.debugEventAdapter.stop();
-    this.gatewayEventAdapter.stop();
     this.schedulerEventAdapter.disconnect();
-    this.ipcBridge.disconnect();
-    await this.ipcServer.stop();
-    await this.channelAdapterManager.stopAll({
-      reason: 'shutdown',
-      source: 'gateway-stop',
-    });
-
-    if (this.runtimeEventStoreBinding) {
-      await this.runtimeEventStoreBinding.stop();
-      this.runtimeEventStoreBinding = null;
-    }
+    await stopGatewayServerRuntimeLifecycle(this.buildRuntimeLifecycleDependencies(), this.runtimeLifecycleState);
+    this.runtimeLifecycleState = null;
+    this.runtimeEventStoreBinding = null;
+    this.debugBroadcasterCleanup = null;
 
     await this.auditService.shutdown();
-
-    this.broadcastManager.stop();
-    this.teardownSchedulerEventAudit();
-    this.connectionManager.stop();
 
     return new Promise((resolve) => {
       if (this.wss) {
@@ -1182,6 +1109,29 @@ export class GatewayServer {
       unsubscribe();
     }
     this.schedulerEventAuditUnsubscribers = [];
+  }
+
+  private buildRuntimeLifecycleDependencies(): GatewayServerRuntimeLifecycleDependencies {
+    return {
+      config: this.config,
+      dbPath: this.dbPath,
+      memoryDbPath: this.memoryDbPath,
+      debugMode: this.debugMode,
+      eventBus: this.eventBus,
+      connectionManager: this.connectionManager,
+      broadcastManager: this.broadcastManager,
+      channelRouter: this.channelRouter,
+      channelAdapterManager: this.channelAdapterManager,
+      channelAdapterConfigs: this.channelAdapterConfigs,
+      debugEventAdapter: this.debugEventAdapter,
+      gatewayEventAdapter: this.gatewayEventAdapter,
+      runtimeEventStore: this.runtimeEventStore,
+      ipcServer: this.ipcServer,
+      ipcBridge: this.ipcBridge,
+      configWatcher: this.configWatcher,
+      setupSchedulerEventAudit: () => this.setupSchedulerEventAudit(),
+      teardownSchedulerEventAudit: () => this.teardownSchedulerEventAudit(),
+    };
   }
 
   private handleConnection(ws: WebSocket, req: IncomingMessage): void {

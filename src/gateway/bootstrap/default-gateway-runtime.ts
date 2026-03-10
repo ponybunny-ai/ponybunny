@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 
 import type { GatewayConfig } from '../types.js';
 import { GatewayServer } from '../gateway-server.js';
+import { resolveDefaultGatewaySchedulerSocketPath } from './gateway-server-runtime-lifecycle.js';
 import type { IWorkOrderRepository } from '../../infra/persistence/repository-interface.js';
 import { WorkOrderDatabase } from '../../work-order/database/manager.js';
 
@@ -84,6 +85,7 @@ export async function createDefaultGatewayRuntime(
         memoryDbPath: persistence.memoryDbPath,
         repository: persistence.repository,
         debugMode: config.debugMode,
+        schedulerSocketPath: resolveDefaultGatewaySchedulerSocketPath(),
       },
       {
         host: config.host,
