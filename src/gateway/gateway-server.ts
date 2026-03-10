@@ -39,6 +39,7 @@ import { registerAuditHandlers } from './rpc/handlers/audit-handlers.js';
 import { registerSystemHandlers } from './rpc/handlers/system-handlers.js';
 import { registerInternalRuntimeHandlers } from './rpc/handlers/internal-runtime-handlers.js';
 import { GatewayRuntimeRolloutCoordinator } from './runtime/gateway-runtime-rollout-coordinator.js';
+import { GatewaySchedulerEventAuditObserver } from './runtime/gateway-scheduler-event-audit-observer.js';
 import { DebugEventAdapter } from '../runtime/event-bus/adapters/debug-event-adapter.js';
 import { GatewayEventAdapter } from '../runtime/event-bus/adapters/gateway-event-adapter.js';
 import { SchedulerEventAdapter } from '../runtime/event-bus/adapters/scheduler-event-adapter.js';
@@ -116,7 +117,6 @@ export class GatewayServer {
   private runtimeLifecycleState: GatewayServerRuntimeLifecycleStartResult | null = null;
   private scheduler: ISchedulerCore | null = null;
   private debugBroadcasterCleanup: (() => void) | null = null;
-  private schedulerEventAuditUnsubscribers: Array<() => void> = [];
   // Audit components
   private auditRepository: AuditLogRepository;
   private auditService: AuditService;
@@ -131,6 +131,7 @@ export class GatewayServer {
 
   private isRunning = false;
   private runtimeRolloutCoordinator: GatewayRuntimeRolloutCoordinator;
+  private schedulerEventAuditObserver: GatewaySchedulerEventAuditObserver;
 
   constructor(
     dependencies: GatewayServerDependencies,
@@ -225,6 +226,10 @@ export class GatewayServer {
     this.auditRepository = new AuditLogRepository(this.db);
     this.auditRepository.initialize();
     this.auditService = new AuditService(this.auditRepository, { asyncMode: true });
+    this.schedulerEventAuditObserver = new GatewaySchedulerEventAuditObserver({
+      eventBus: this.eventBus,
+      auditService: this.auditService,
+    });
 
     // Initialize tool components
     this.toolRegistry = new ToolRegistry();
@@ -591,43 +596,6 @@ export class GatewayServer {
     };
   }
 
-  private setupSchedulerEventAudit(): void {
-    const schedulerEvents = [
-      'goal.started',
-      'goal.completed',
-      'goal.failed',
-      'workitem.started',
-      'workitem.in_progress',
-      'workitem.ended',
-      'workitem.completed',
-      'workitem.failed',
-      'run.started',
-      'run.completed',
-      'verification.started',
-      'verification.completed',
-      'escalation.created',
-      'escalation.resolved',
-      'budget.warning',
-      'budget.exceeded',
-    ] as const;
-
-    for (const event of schedulerEvents) {
-      const unsubscribe = this.eventBus.on(event, (data: unknown) => {
-        if (typeof data === 'object' && data !== null) {
-          this.auditService.logSchedulerEvent(event, data as Record<string, unknown>);
-        }
-      });
-      this.schedulerEventAuditUnsubscribers.push(unsubscribe);
-    }
-  }
-
-  private teardownSchedulerEventAudit(): void {
-    for (const unsubscribe of this.schedulerEventAuditUnsubscribers) {
-      unsubscribe();
-    }
-    this.schedulerEventAuditUnsubscribers = [];
-  }
-
   private buildRuntimeLifecycleDependencies(): GatewayServerRuntimeLifecycleDependencies {
     return {
       config: this.config,
@@ -646,8 +614,8 @@ export class GatewayServer {
       ipcServer: this.ipcServer,
       ipcBridge: this.ipcBridge,
       configWatcher: this.configWatcher,
-      setupSchedulerEventAudit: () => this.setupSchedulerEventAudit(),
-      teardownSchedulerEventAudit: () => this.teardownSchedulerEventAudit(),
+      setupSchedulerEventAudit: () => this.schedulerEventAuditObserver.start(),
+      teardownSchedulerEventAudit: () => this.schedulerEventAuditObserver.stop(),
     };
   }
 
