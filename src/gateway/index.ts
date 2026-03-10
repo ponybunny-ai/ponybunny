@@ -60,6 +60,7 @@ export { EventEmitter } from './events/event-emitter.js';
 export { BroadcastManager } from './events/broadcast-manager.js';
 
 // Integration
+export { GatewayDaemonAttachment } from './integration/gateway-daemon-attachment.js';
 export {
   DaemonBridge,
   DaemonEventEmitterMixin,

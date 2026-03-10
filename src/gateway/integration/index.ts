@@ -4,7 +4,10 @@
  * Provides bridges and adapters to connect Gateway with other system components.
  */
 
-// Daemon Bridge (existing)
+// Gateway daemon attachment boundary
+export { GatewayDaemonAttachment } from './gateway-daemon-attachment.js';
+
+// Daemon Bridge compatibility surface
 export { DaemonBridge, DaemonEventEmitterMixin } from './daemon-bridge.js';
 export type { IDaemonEventEmitter } from './daemon-bridge.js';
 

@@ -37,7 +37,7 @@ import { ConnectionManager } from './connection/connection-manager.js';
 import { AuthManager } from './auth/auth-manager.js';
 import { MessageRouter } from './protocol/message-router.js';
 import { RpcHandler } from './rpc/rpc-handler.js';
-import { DaemonBridge } from './integration/daemon-bridge.js';
+import { GatewayDaemonAttachment } from './integration/gateway-daemon-attachment.js';
 import { SchedulerBridge } from './integration/scheduler-bridge.js';
 import { IPCBridge } from './integration/ipc-bridge.js';
 import type { ISchedulerCore } from '../scheduler/core/index.js';
@@ -151,7 +151,7 @@ export class GatewayServer {
   private channelAdapterConfigStore: ChannelAdapterConfigStore;
   private channelAdapterConfigs: GatewayChannelAdapterConfigMap = {};
   private storedChannelEvents: StoredChannelEvent[] = [];
-  private daemonBridge: DaemonBridge;
+  private daemonAttachment: GatewayDaemonAttachment;
   private schedulerBridge: SchedulerBridge;
   private ipcServer: IPCServer;
   private ipcBridge: IPCBridge;
@@ -413,7 +413,7 @@ export class GatewayServer {
     this.channelEventStore = new ChannelEventStore(channelEventStorePath);
     this.storedChannelEvents = this.channelEventStore.load();
     this.broadcastManager = new BroadcastManager(this.eventBus, this.eventEmitter, this.channelRouter);
-    this.daemonBridge = new DaemonBridge(this.eventBus);
+    this.daemonAttachment = new GatewayDaemonAttachment(this.eventBus);
     this.schedulerBridge = new SchedulerBridge(this.eventBus);
     this.debugEventAdapter = new DebugEventAdapter();
     this.gatewayEventAdapter = new GatewayEventAdapter(this.eventBus);
@@ -543,7 +543,7 @@ export class GatewayServer {
       () => this.storedChannelEvents,
       () => ({
         isRunning: this.isRunning,
-        daemonConnected: this.daemonBridge.isConnected(),
+        daemonConnected: this.daemonAttachment.isConnected(),
         schedulerConnected: this.schedulerBridge.isConnected(),
       }),
       () => this.channelAdapterManager.getStatuses(),
@@ -831,7 +831,7 @@ export class GatewayServer {
    * Connect to an AutonomyDaemon for event bridging
    */
   connectDaemon(daemon: IDaemonEventEmitter): void {
-    this.daemonBridge.connect(daemon);
+    this.daemonAttachment.connect(daemon);
   }
 
   /**
@@ -890,7 +890,7 @@ export class GatewayServer {
       isRunning: this.isRunning,
       address: this.isRunning ? `ws://${this.config.host}:${this.config.port}` : null,
       connections: this.connectionManager.getStats(),
-      daemonConnected: this.daemonBridge.isConnected(),
+      daemonConnected: this.daemonAttachment.isConnected(),
       schedulerConnected: this.schedulerBridge.isConnected(),
       debugMode: this.debugMode,
     };
