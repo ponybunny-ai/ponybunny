@@ -6,6 +6,8 @@
 import type { WorkItem, Run, Goal } from '../work-order/types/index.js';
 import type { ILLMProvider, LLMMessage, LLMResponse, ToolCall } from '../infra/llm/llm-provider.js';
 import type { ToolEnforcer } from '../infra/tools/tool-registry.js';
+import type { RuntimeToolingContext } from '../runtime/tooling-context/index.js';
+import type { PromptProvider } from '../infra/prompts/prompt-provider.js';
 import { getGlobalPromptProvider } from '../infra/prompts/prompt-provider.js';
 import { ToolProvider, getGlobalToolProvider } from '../infra/tools/tool-provider.js';
 import { routeContextFromWorkItemContext } from '../infra/routing/route-context.js';
@@ -66,8 +68,8 @@ interface ExecutionIntent {
 }
 
 export class ReActIntegration {
-  private promptProvider = getGlobalPromptProvider();
-  private toolProvider = getGlobalToolProvider();
+  private promptProvider: PromptProvider;
+  private toolProvider: ToolProvider;
   private readonly toolWorkersByPort = new WeakMap<ToolPort, LocalToolWorker>();
   private readonly toolWorkersByEnforcer = new WeakMap<ToolEnforcer, LocalToolWorker>();
 
@@ -75,8 +77,12 @@ export class ReActIntegration {
     private llmProvider?: ILLMProvider,
     private toolEnforcer?: ToolEnforcer,
     private toolPort?: ToolPort,
-    private toolWorker?: LocalToolWorker
-  ) {}
+    private toolWorker?: LocalToolWorker,
+    runtimeToolingContext?: RuntimeToolingContext
+  ) {
+    this.promptProvider = runtimeToolingContext?.getPromptProvider() ?? getGlobalPromptProvider();
+    this.toolProvider = runtimeToolingContext?.toolProvider ?? getGlobalToolProvider();
+  }
 
   async executeWorkCycle(params: ReActCycleParams): Promise<ReActCycleResult> {
     const activeToolEnforcer = params.toolEnforcer ?? this.toolEnforcer;

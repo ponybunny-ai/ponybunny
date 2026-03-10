@@ -3,10 +3,11 @@ import type { IWorkOrderRepository } from '../../../infra/persistence/repository
 import type { IExecutionService, ExecutionResult } from '../stage-interfaces.js';
 import type { ILLMProvider } from '../../../infra/llm/llm-provider.js';
 import { ReActIntegration } from '../../../autonomy/react-integration.js';
+import { PromptProvider } from '../../../infra/prompts/prompt-provider.js';
 import { ToolRegistry, ToolAllowlist, ToolEnforcer } from '../../../infra/tools/tool-registry.js';
 import type { ToolPolicyAuditSnapshot } from '../../../infra/tools/tool-registry.js';
 import type { LayeredToolPolicy, ToolPolicyContext } from '../../../infra/tools/layered-tool-policy.js';
-import { ToolProvider, setGlobalToolProvider } from '../../../infra/tools/tool-provider.js';
+import { ToolProvider } from '../../../infra/tools/tool-provider.js';
 import { ReadFileTool } from '../../../infra/tools/implementations/read-file-tool.js';
 import { WriteFileTool } from '../../../infra/tools/implementations/write-file-tool.js';
 import { ExecuteCommandTool } from '../../../infra/tools/implementations/execute-command-tool.js';
@@ -19,6 +20,7 @@ import { extractMCPToolName } from '../../../infra/mcp/adapters/tool-adapter.js'
 import { routeContextFromWorkItemContext } from '../../../infra/routing/route-context.js';
 import { getManagedSkillsDir } from '../../../infra/config/config-paths.js';
 import { LocalToolAdapter, type ToolPort } from '../../../runtime/tool-boundary/index.js';
+import { createRuntimeToolingContext, type RuntimeToolingContext } from '../../../runtime/tooling-context/index.js';
 import { LocalToolWorker } from '../../../runtime/workers/index.js';
 
 interface ScopedToolEnforcerConfig {
@@ -49,6 +51,7 @@ export class ExecutionService implements IExecutionService {
   private toolPort: ToolPort;
   private toolWorker: LocalToolWorker;
   private skillRegistry = getGlobalSkillRegistry();
+  private runtimeToolingContext: RuntimeToolingContext;
   private mcpInitialized = false;
 
   constructor(
@@ -69,7 +72,15 @@ export class ExecutionService implements IExecutionService {
 
     // Wire up ToolProvider with ToolRegistry so LLM sees all registered tools
     const toolProvider = new ToolProvider(this.toolEnforcer);
-    setGlobalToolProvider(toolProvider);
+    this.runtimeToolingContext = createRuntimeToolingContext({
+      toolRegistry: this.toolRegistry,
+      toolAllowlist: this.toolAllowlist,
+      toolEnforcer: this.toolEnforcer,
+      toolProvider,
+      skillRegistry: this.skillRegistry,
+      createPromptProvider: () => new PromptProvider(this.skillRegistry, toolProvider),
+    });
+    this.runtimeToolingContext.syncLegacyGlobals();
 
     // The local worker is now the authoritative in-process dispatch seam, while
     // ReActIntegration still owns synchronous continuation after ToolResult resolution.
@@ -77,8 +88,13 @@ export class ExecutionService implements IExecutionService {
       llmProvider,
       this.toolEnforcer,
       this.toolPort,
-      this.toolWorker
+      this.toolWorker,
+      this.runtimeToolingContext
     );
+  }
+
+  getRuntimeToolingContext(): RuntimeToolingContext {
+    return this.runtimeToolingContext;
   }
 
   /**

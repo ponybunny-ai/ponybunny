@@ -9,6 +9,7 @@ import type { ConversationState } from '../domain/conversation/state-machine-rul
 import type { Goal } from '../work-order/types/index.js';
 import type { SchedulerCore } from '../scheduler/core/index.js';
 import type { LLMService } from '../infra/llm/llm-service.js';
+import type { RuntimeToolingContext } from '../runtime/tooling-context/index.js';
 
 import { SessionManager } from '../app/conversation/session-manager.js';
 import { InputAnalysisService } from '../app/conversation/input-analysis-service.js';
@@ -45,6 +46,7 @@ export interface SessionIntakeDependencies {
   repository: IWorkOrderRepository;
   memoryDb: Database.Database;
   llmService: LLMService;
+  runtimeToolingContext?: RuntimeToolingContext;
   personasDir?: string;
   schedulerProvider: () => SchedulerCore | null;
   publishSessionEvent: (event: SchedulerSessionEvent) => Promise<void>;
@@ -323,7 +325,8 @@ export class SchedulerSessionIntake {
     const responseGenerator = new ResponseGenerator(
       deps.llmService,
       this.personaEngine,
-      new ToolEnforcer(emptyRegistry, emptyAllowlist)
+      new ToolEnforcer(emptyRegistry, emptyAllowlist),
+      deps.runtimeToolingContext
     );
 
     const retryHandler = new RetryHandler(deps.llmService);

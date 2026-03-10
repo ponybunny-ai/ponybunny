@@ -10,7 +10,9 @@ import type { IConversationTurn, IConversationContext } from '../../domain/conve
 import type { ConversationState } from '../../domain/conversation/state-machine-rules.js';
 import type { IPersonaEngine } from './persona-engine.js';
 import type { LLMMessage, ToolCall } from '../../infra/llm/llm-provider.js';
+import type { RuntimeToolingContext } from '../../runtime/tooling-context/index.js';
 import type { ToolEnforcer } from '../../infra/tools/tool-registry.js';
+import type { ToolProvider } from '../../infra/tools/tool-provider.js';
 import { getGlobalToolProvider } from '../../infra/tools/tool-provider.js';
 import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
 import { debug } from '../../debug/index.js';
@@ -66,13 +68,16 @@ export interface ITaskResult {
 }
 
 export class ResponseGenerator implements IResponseGenerator {
-  private toolProvider = getGlobalToolProvider();
+  private toolProvider: ToolProvider;
 
   constructor(
     private llmService: LLMService,
     private personaEngine: IPersonaEngine,
-    private toolEnforcer?: ToolEnforcer
-  ) {}
+    private toolEnforcer?: ToolEnforcer,
+    runtimeToolingContext?: RuntimeToolingContext
+  ) {
+    this.toolProvider = runtimeToolingContext?.toolProvider ?? getGlobalToolProvider();
+  }
 
   async generate(context: IResponseContext, onChunk?: (chunk: string) => void): Promise<string> {
     debug.custom('response.generate.start', 'response-generator', {

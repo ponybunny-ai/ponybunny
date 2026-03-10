@@ -9,6 +9,7 @@ import type Database from 'better-sqlite3';
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
 import type { IExecutionService } from '../app/lifecycle/stage-interfaces.js';
 import type { ILLMProvider } from '../infra/llm/llm-provider.js';
+import type { RuntimeToolingContext } from '../runtime/tooling-context/index.js';
 import type { SchedulerEvent } from '../scheduler/types.js';
 import type { DebugEvent } from '../debug/types.js';
 import { LocalExecutionAdapter } from '../runtime/execution-boundary/index.js';
@@ -31,6 +32,19 @@ import { SchedulerEventEnvelopeResolver } from './scheduler-event-envelope.js';
 import { getRuntimeConfigPath, loadRuntimeConfig, saveRuntimeConfig } from '../infra/config/runtime-config.js';
 import type { EventedStartupReconciliationSummary } from '../scheduler/evented-dispatch-checkpoint.js';
 import { reconcileEventedStartupCandidates } from './evented-startup-reconciliation.js';
+
+function getRuntimeToolingContext(
+  executionService: IExecutionService
+): RuntimeToolingContext | undefined {
+  if (!('getRuntimeToolingContext' in executionService)) {
+    return undefined;
+  }
+
+  const candidate = executionService as IExecutionService & {
+    getRuntimeToolingContext: () => RuntimeToolingContext;
+  };
+  return candidate.getRuntimeToolingContext();
+}
 
 export interface SchedulerDaemonConfig {
   /** Path to Gateway IPC socket */
@@ -194,6 +208,7 @@ export class SchedulerDaemon {
           repository: this.repository,
           memoryDb: this.memoryDb,
           llmService: getLLMService(),
+          runtimeToolingContext: getRuntimeToolingContext(this.executionService),
           schedulerProvider: () => this.scheduler,
           publishSessionEvent: async (event) => {
             await this.ipcClient.send({

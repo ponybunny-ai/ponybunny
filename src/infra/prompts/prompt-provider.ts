@@ -221,3 +221,7 @@ export function getGlobalPromptProvider(): PromptProvider {
   }
   return globalPromptProvider;
 }
+
+export function setGlobalPromptProvider(provider: PromptProvider): void {
+  globalPromptProvider = provider;
+}

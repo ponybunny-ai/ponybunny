@@ -183,6 +183,64 @@ describe('ReActIntegration', () => {
     expect(result.log).toContain('Completion summary: Implemented and verified task output.');
   });
 
+  it('uses the explicit runtime tooling context instead of global prompt/tool providers', async () => {
+    const provider = createMockProvider([
+      {
+        content: 'Task is complete. All requirements met.',
+        tokensUsed: 4,
+        model: 'gpt-test',
+        finishReason: 'stop',
+      },
+    ]);
+
+    const runtimeToolingContext = {
+      getPromptProvider: () => ({
+        generateExecutionPrompt: () => 'runtime system prompt',
+      }),
+      toolProvider: {
+        getToolDefinitions: () => [
+          {
+            name: 'runtime_tool',
+            description: 'Runtime tool',
+            parameters: { type: 'object' as const, properties: {} },
+          },
+        ],
+      },
+    };
+
+    const integration = new ReActIntegration(
+      provider,
+      undefined,
+      undefined,
+      undefined,
+      runtimeToolingContext as never
+    );
+
+    const result = await integration.executeWorkCycle({
+      workItem: createWorkItem(),
+      run: createRun(),
+      signal: new AbortController().signal,
+      model: 'gpt-5.2-codex',
+    });
+
+    expect(result.success).toBe(true);
+    expect(provider.complete).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'system',
+          content: 'runtime system prompt',
+        }),
+      ]),
+      expect.objectContaining({
+        tools: [
+          expect.objectContaining({
+            name: 'runtime_tool',
+          }),
+        ],
+      })
+    );
+  });
+
   it('routes authoritative tool execution through LocalToolWorker with run-scoped identity context', async () => {
     mockToolDefinitions = [
       {
