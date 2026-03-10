@@ -11,28 +11,9 @@ import { DEFAULT_GATEWAY_CONFIG } from './types.js';
 import { EventBus } from './events/event-bus.js';
 import { EventEmitter } from './events/event-emitter.js';
 import { BroadcastManager } from './events/broadcast-manager.js';
-import { ChannelRouter, type GatewayChannelType } from './channels/channel-router.js';
-import { ChannelSessionStore } from './channels/channel-session-store.js';
-import { ChannelEventStore, type StoredChannelEvent } from './channels/channel-event-store.js';
-import { ChannelEventEnricher } from './channels/channel-event-enricher.js';
-import { ChannelAdapterManager } from './channels/channel-adapter-manager.js';
-import {
-  EmailChannelAdapter,
-  WebuiChannelAdapter,
-  DiscordChannelAdapter,
-  TelegramChannelAdapter,
-  WhatsappChannelAdapter,
-  type GatewayChannelAdapterStatus,
-} from './channels/channel-adapter.js';
-import { ChannelAdapterConfigStore } from './channels/channel-adapter-config-store.js';
-import {
-  type GatewayChannelAdapterConfig,
-  type GatewayChannelAdapterConfigMap,
-  sanitizeAdapterConfigMap,
-  diffAdapterConfigMaps,
-  summarizeAdapterConfigImpact,
-  normalizeAdapterConfig,
-} from './channels/channel-adapter-config.js';
+import { ChannelRouter } from './channels/channel-router.js';
+import type { GatewayChannelAdapterStatus } from './channels/channel-adapter.js';
+import { GatewayChannelRuntime } from './channels/gateway-channel-runtime.js';
 import { ConnectionManager } from './connection/connection-manager.js';
 import { AuthManager } from './auth/auth-manager.js';
 import { MessageRouter } from './protocol/message-router.js';
@@ -47,7 +28,6 @@ import { IPCBridge } from './integration/ipc-bridge.js';
 import type { ISchedulerCore } from '../scheduler/core/index.js';
 import type { IDaemonEventEmitter } from '../autonomy/daemon-event-emitter.js';
 import { IPCServer } from '../ipc/ipc-server.js';
-import { join } from 'path';
 
 import { registerGoalHandlers } from './rpc/handlers/goal-handlers.js';
 import { registerWorkItemHandlers } from './rpc/handlers/workitem-handlers.js';
@@ -106,27 +86,6 @@ export interface GatewayServerDependencies {
 }
 
 export class GatewayServer {
-  private static readonly CHANNEL_EVENT_PREFIXES = [
-    'conversation.',
-    'goal.',
-    'workitem.',
-    'run.',
-    'verification.',
-    'escalation.',
-    'budget.',
-    'channel.adapter.',
-  ] as const;
-
-  private static readonly ADAPTER_DELIVERY_EVENTS = new Set<string>([
-    'conversation.response',
-    'goal.completed',
-    'goal.failed',
-    'run.completed',
-    'verification.completed',
-    'escalation.created',
-    'escalation.resolved',
-  ]);
-
   private static readonly ROLLOUT_THRESHOLD_MIN_CONVERSATION_MESSAGES = 10;
   private static readonly ROLLOUT_THRESHOLD_MIN_RUNS = 10;
   private static readonly ROLLOUT_THRESHOLD_MIN_GOALS = 5;
@@ -150,14 +109,8 @@ export class GatewayServer {
   private messageRouter: MessageRouter;
   private eventEmitter: EventEmitter;
   private broadcastManager: BroadcastManager;
+  private channelRuntime: GatewayChannelRuntime;
   private channelRouter: ChannelRouter;
-  private channelSessionStore: ChannelSessionStore;
-  private channelEventStore: ChannelEventStore;
-  private channelEventEnricher: ChannelEventEnricher;
-  private channelAdapterManager: ChannelAdapterManager;
-  private channelAdapterConfigStore: ChannelAdapterConfigStore;
-  private channelAdapterConfigs: GatewayChannelAdapterConfigMap = {};
-  private storedChannelEvents: StoredChannelEvent[] = [];
   private daemonAttachment: GatewayDaemonAttachment;
   private schedulerBridge: SchedulerBridge;
   private ipcServer: IPCServer;
@@ -195,7 +148,6 @@ export class GatewayServer {
     this.dbPath = dependencies.dbPath;
     this.memoryDbPath = dependencies.memoryDbPath;
     this.repository = dependencies.repository;
-    this.channelEventEnricher = new ChannelEventEnricher(this.repository);
     this.debugMode = dependencies.debugMode ?? false;
     this.enableConfigWatch = dependencies.enableConfigWatch ?? false;
 
@@ -264,119 +216,23 @@ export class GatewayServer {
       void this.evaluateRolloutThresholds();
     });
     this.eventBus.on('connection.authenticated', (sample: unknown) => {
-      if (!sample || typeof sample !== 'object') {
-        return;
-      }
-
-      const payload = sample as {
-        sessionId?: string;
-        metadata?: Record<string, unknown>;
-      };
-
-      if (typeof payload.sessionId !== 'string') {
-        return;
-      }
-
-      const metadata = payload.metadata;
-      if (!metadata || typeof metadata.channelType !== 'string') {
-        return;
-      }
-
-      const channelType = metadata.channelType;
-      if (
-        channelType === 'tui'
-        || channelType === 'webui'
-        || channelType === 'email'
-        || channelType === 'telegram'
-        || channelType === 'whatsapp'
-        || channelType === 'discord'
-      ) {
-        this.channelRouter.setSessionChannel(payload.sessionId, channelType);
-        this.channelSessionStore.save(this.channelRouter.getSessionChannelOverrides());
-      }
+      this.channelRuntime.handleConnectionAuthenticated(sample);
     });
     this.eventBus.on('connection.disconnected', (sample: unknown) => {
-      if (!sample || typeof sample !== 'object') {
-        return;
-      }
-
-      const payload = sample as {
-        sessionId?: string;
-      };
-
-      if (typeof payload.sessionId === 'string') {
-        this.channelRouter.clearSessionChannel(payload.sessionId);
-        this.channelSessionStore.save(this.channelRouter.getSessionChannelOverrides());
-      }
+      this.channelRuntime.handleConnectionDisconnected(sample);
     });
     this.eventBus.onAny((event, sample) => {
-      if (!this.shouldStoreChannelEvent(event)) {
-        return;
-      }
-      if (!sample || typeof sample !== 'object') {
-        return;
-      }
-
-      const payload = sample as Record<string, unknown>;
-      const timestamp = typeof payload.timestamp === 'number' ? payload.timestamp : Date.now();
-      const goalId = typeof payload.goalId === 'string' ? payload.goalId : undefined;
-      const workItemId = typeof payload.workItemId === 'string' ? payload.workItemId : undefined;
-      const runId = typeof payload.runId === 'string' ? payload.runId : undefined;
-      const goalContext = this.channelEventEnricher.resolveFromDomainIds(goalId, workItemId, runId);
-      const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : goalContext.sessionId;
-      const channelSessionId = typeof payload.channelSessionId === 'string'
-        ? payload.channelSessionId
-        : goalContext.channelSessionId;
-      const gatewaySessionId = typeof payload.gatewaySessionId === 'string' ? payload.gatewaySessionId : undefined;
-      const metadata = payload.metadata;
-      const metadataChannelType = (
-        metadata
-        && typeof metadata === 'object'
-        && typeof (metadata as Record<string, unknown>).channelType === 'string'
-      )
-        ? (metadata as Record<string, unknown>).channelType
-        : undefined;
-      const channelType = this.resolveChannelType(
-        payload,
-        gatewaySessionId,
-        sessionId,
-        metadataChannelType,
-        goalContext.channelType
-      );
-
-      this.storedChannelEvents.push({
-        id: `${timestamp}-${Math.random().toString(36).slice(2, 10)}`,
-        event,
-        timestamp,
-        channelType,
-        channelSessionId,
-        sessionId,
-        goalId,
-        workItemId,
-        runId,
-        payload,
-      });
-
-      if (this.storedChannelEvents.length > 2000) {
-        this.storedChannelEvents = this.storedChannelEvents.slice(-2000);
-      }
-
-      this.channelEventStore.save(this.storedChannelEvents);
-
-      if (GatewayServer.ADAPTER_DELIVERY_EVENTS.has(event)) {
-        const channels = this.resolveAdapterDeliveryChannels(channelType);
-        if (channels.length > 0) {
-          void this.channelAdapterManager.publishToChannels(channels, event, payload).then((report) => {
-            if (report.failed.length > 0) {
-              console.warn(
-                `[GatewayServer] Adapter publish had ${report.failed.length} failure(s) for event ${event}: ${report.failed
-                  .map((failure) => `${failure.channel}=${failure.error}`)
-                  .join(', ')}`
-              );
-            }
-          });
+      void this.channelRuntime.captureEvent(event, sample).then((report) => {
+        if (!report || report.failed.length === 0) {
+          return;
         }
-      }
+
+        console.warn(
+          `[GatewayServer] Adapter publish had ${report.failed.length} failure(s) for event ${event}: ${report.failed
+            .map((failure) => `${failure.channel}=${failure.error}`)
+            .join(', ')}`
+        );
+      });
     });
 
     this.connectionManager = new ConnectionManager(
@@ -403,23 +259,12 @@ export class GatewayServer {
     );
 
     this.eventEmitter = new EventEmitter(this.connectionManager);
-    this.channelRouter = new ChannelRouter();
-    this.channelAdapterManager = new ChannelAdapterManager([
-      new WebuiChannelAdapter(),
-      new EmailChannelAdapter(),
-      new TelegramChannelAdapter(),
-      new WhatsappChannelAdapter(),
-      new DiscordChannelAdapter(),
-    ]);
-    const channelAdapterConfigStorePath = join(getConfigDir(), 'gateway', 'channel-adapter-configs.json');
-    this.channelAdapterConfigStore = new ChannelAdapterConfigStore(channelAdapterConfigStorePath);
-    this.channelAdapterConfigs = this.channelAdapterConfigStore.load();
-    const channelSessionStorePath = join(getConfigDir(), 'gateway', 'channel-sessions.json');
-    this.channelSessionStore = new ChannelSessionStore(channelSessionStorePath);
-    this.channelRouter.setSessionChannelOverrides(this.channelSessionStore.load());
-    const channelEventStorePath = join(getConfigDir(), 'gateway', 'channel-events.json');
-    this.channelEventStore = new ChannelEventStore(channelEventStorePath);
-    this.storedChannelEvents = this.channelEventStore.load();
+    this.channelRuntime = GatewayChannelRuntime.createDefault({
+      repository: this.repository,
+      eventBus: this.eventBus,
+      configDir: getConfigDir(),
+    });
+    this.channelRouter = this.channelRuntime.channelRouter;
     this.broadcastManager = new BroadcastManager(this.eventBus, this.eventEmitter, this.channelRouter);
     this.daemonAttachment = new GatewayDaemonAttachment(this.eventBus);
     this.schedulerBridge = new SchedulerBridge(this.eventBus);
@@ -544,57 +389,12 @@ export class GatewayServer {
       () => this.connectionManager,
       () => this.scheduler,
       () => this.channelRouter,
-      () => this.storedChannelEvents,
+      () => this.channelRuntime.getStoredEvents(),
       () => this.getGatewayStatusSnapshot(),
-      () => this.channelAdapterManager.getStatuses(),
-      async (configs) => {
-        const previousConfigs = { ...this.channelAdapterConfigs };
-        const mergedConfigs: GatewayChannelAdapterConfigMap = {
-          ...this.channelAdapterConfigs,
-        };
-        for (const [channel, config] of Object.entries(configs)) {
-          const typedChannel = channel as GatewayChannelType;
-          const previous = mergedConfigs[typedChannel] ?? {};
-          mergedConfigs[typedChannel] = normalizeAdapterConfig(typedChannel, {
-            ...(previous as GatewayChannelAdapterConfig),
-            ...((config ?? {}) as GatewayChannelAdapterConfig),
-          });
-        }
-
-        await this.channelAdapterManager.applyConfig(mergedConfigs);
-        this.channelAdapterConfigs = mergedConfigs;
-        this.channelAdapterConfigStore.save(this.channelAdapterConfigs);
-
-        const sanitizedBefore = sanitizeAdapterConfigMap(previousConfigs);
-        const sanitizedAfter = sanitizeAdapterConfigMap(this.channelAdapterConfigs);
-        const diff = diffAdapterConfigMaps(sanitizedBefore, sanitizedAfter);
-        const impactSummary = summarizeAdapterConfigImpact(diff);
-        this.eventBus.emit('channel.adapter.config.updated', {
-          timestamp: Date.now(),
-          reason: 'rpc-update',
-          source: 'rpc-system.channels.update',
-          configs: sanitizedAfter,
-          diff,
-          impactSummary,
-        });
-        this.eventBus.emit('channel.adapter.status.updated', {
-          timestamp: Date.now(),
-          reason: 'rpc-update',
-          source: 'rpc-system.channels.update',
-          adapters: this.channelAdapterManager.getStatuses(),
-        });
-      },
+      () => this.channelRuntime.getAdapterStatuses(),
+      undefined,
       async () => {
-        await this.channelAdapterManager.applyEnabledChannels(this.channelRouter.getEnabledChannels(), {
-          reason: 'channel-toggle',
-          source: 'channel-router',
-        });
-        this.eventBus.emit('channel.adapter.status.updated', {
-          timestamp: Date.now(),
-          reason: 'channel-toggle',
-          source: 'channel-router',
-          adapters: this.channelAdapterManager.getStatuses(),
-        });
+        await this.channelRuntime.applyEnabledChannels('channel-toggle', 'channel-router');
       },
       () => this.toolRegistry,
       {
@@ -627,7 +427,13 @@ export class GatewayServer {
           return this.ipcBridge.getAgentModelOverride({ agentId });
         },
       },
-      () => this.ipcBridge.getRealtimeMetrics()
+      () => this.ipcBridge.getRealtimeMetrics(),
+      async (params) => {
+        this.channelRuntime.applyChannelRoutingUpdate(params);
+        if (params.adapterConfigs) {
+          await this.channelRuntime.updateAdapterConfigs(params.adapterConfigs);
+        }
+      }
     );
 
     registerInternalRuntimeHandlers(
@@ -825,7 +631,7 @@ export class GatewayServer {
   }
 
   getChannelAdapterStatuses(): GatewayChannelAdapterStatus[] {
-    return this.channelAdapterManager.getStatuses();
+    return this.channelRuntime.getAdapterStatuses();
   }
 
   /**
@@ -1045,65 +851,6 @@ export class GatewayServer {
     }
   }
 
-  private shouldStoreChannelEvent(event: string): boolean {
-    for (const prefix of GatewayServer.CHANNEL_EVENT_PREFIXES) {
-      if (event.startsWith(prefix)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  private resolveChannelType(
-    payload: Record<string, unknown>,
-    gatewaySessionId?: string,
-    sessionId?: string,
-    metadataChannelType?: unknown,
-    goalContextChannelType?: StoredChannelEvent['channelType']
-  ): StoredChannelEvent['channelType'] {
-    const overrides = this.channelRouter.getSessionChannelOverrides();
-    const overrideChannelByGatewaySession = gatewaySessionId ? overrides[gatewaySessionId] : undefined;
-    const overrideChannelBySession = sessionId ? overrides[sessionId] : undefined;
-    const rawChannelType = typeof payload.channelType === 'string'
-      ? payload.channelType
-      : typeof metadataChannelType === 'string'
-        ? metadataChannelType
-        : goalContextChannelType ?? overrideChannelByGatewaySession ?? overrideChannelBySession;
-
-    if (
-      rawChannelType === 'tui'
-      || rawChannelType === 'webui'
-      || rawChannelType === 'email'
-      || rawChannelType === 'telegram'
-      || rawChannelType === 'whatsapp'
-      || rawChannelType === 'discord'
-    ) {
-      return rawChannelType;
-    }
-
-    return undefined;
-  }
-
-  private resolveAdapterDeliveryChannels(sourceChannelType?: GatewayChannelType): GatewayChannelType[] {
-    const enabledChannels = this.channelRouter
-      .getEnabledChannels()
-      .filter((channel): channel is Exclude<GatewayChannelType, 'tui'> => channel !== 'tui');
-    if (enabledChannels.length === 0) {
-      return [];
-    }
-
-    if (this.channelRouter.getMirrorToAllEnabledChannels()) {
-      return enabledChannels;
-    }
-
-    if (sourceChannelType && sourceChannelType !== 'tui' && enabledChannels.includes(sourceChannelType)) {
-      return [sourceChannelType];
-    }
-
-    return [];
-  }
-
   private teardownSchedulerEventAudit(): void {
     for (const unsubscribe of this.schedulerEventAuditUnsubscribers) {
       unsubscribe();
@@ -1121,8 +868,8 @@ export class GatewayServer {
       connectionManager: this.connectionManager,
       broadcastManager: this.broadcastManager,
       channelRouter: this.channelRouter,
-      channelAdapterManager: this.channelAdapterManager,
-      channelAdapterConfigs: this.channelAdapterConfigs,
+      channelAdapterManager: this.channelRuntime.channelAdapterManager,
+      channelAdapterConfigs: this.channelRuntime.getAdapterConfigs(),
       debugEventAdapter: this.debugEventAdapter,
       gatewayEventAdapter: this.gatewayEventAdapter,
       runtimeEventStore: this.runtimeEventStore,

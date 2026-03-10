@@ -57,7 +57,10 @@ describe('session-first London flow cross-channel fanout', () => {
     globalThis.fetch = fetchMock;
 
     try {
-      const gatewayInternals = gateway as unknown as { rpcHandler: RpcHandler; channelAdapterManager: ChannelAdapterManager };
+      const gatewayInternals = gateway as unknown as {
+        rpcHandler: RpcHandler;
+        channelRuntime: { channelAdapterManager: ChannelAdapterManager };
+      };
       const admin = createAdminSession('admin-control', 'tui');
 
       await gatewayInternals.rpcHandler.handle(
@@ -154,7 +157,7 @@ describe('session-first London flow cross-channel fanout', () => {
       expect(discordStatus?.deliveryCount).toBeGreaterThanOrEqual(1);
       expect(discordStatus?.deliveryErrorCount).toBe(0);
 
-      await gatewayInternals.channelAdapterManager.stopAll({
+      await gatewayInternals.channelRuntime.channelAdapterManager.stopAll({
         reason: 'shutdown',
         source: 'gateway-stop',
       });

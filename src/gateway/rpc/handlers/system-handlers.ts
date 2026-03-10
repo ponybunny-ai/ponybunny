@@ -547,7 +547,8 @@ export function registerSystemHandlers(
     streamChunkLatencyMsP95: number;
     ackSampleSize: number;
     streamSampleSize: number;
-  }
+  },
+  applyChannelUpdate?: (params: GatewayChannelsUpdateParams) => Promise<void>
 ): void {
   rpcHandler.register<Record<string, never>, SystemCapabilitiesResponse>(
     'system.capabilities',
@@ -767,34 +768,41 @@ export function registerSystemHandlers(
     ['admin'],
     async (params) => {
       const channelRouter = getChannelRouter();
+      const validatedConfigs = params.adapterConfigs ? validateAdapterConfigs(params.adapterConfigs) : undefined;
 
-      if (Array.isArray(params.enabledChannels)) {
-        channelRouter.setEnabledChannels(params.enabledChannels);
-      }
+      if (applyChannelUpdate) {
+        await applyChannelUpdate({
+          ...params,
+          ...(validatedConfigs ? { adapterConfigs: validatedConfigs } : {}),
+        });
+      } else {
+        if (Array.isArray(params.enabledChannels)) {
+          channelRouter.setEnabledChannels(params.enabledChannels);
+        }
 
-      if (typeof params.mirrorToAllEnabledChannels === 'boolean') {
-        channelRouter.setMirrorToAllEnabledChannels(params.mirrorToAllEnabledChannels);
-      }
+        if (typeof params.mirrorToAllEnabledChannels === 'boolean') {
+          channelRouter.setMirrorToAllEnabledChannels(params.mirrorToAllEnabledChannels);
+        }
 
-      if (Array.isArray(params.sessionChannelOverrides)) {
-        for (const override of params.sessionChannelOverrides) {
-          if (override && typeof override.sessionId === 'string') {
-            channelRouter.setSessionChannel(override.sessionId, override.channel);
+        if (Array.isArray(params.sessionChannelOverrides)) {
+          for (const override of params.sessionChannelOverrides) {
+            if (override && typeof override.sessionId === 'string') {
+              channelRouter.setSessionChannel(override.sessionId, override.channel);
+            }
           }
         }
-      }
 
-      if (Array.isArray(params.clearSessionChannelOverrides)) {
-        for (const sessionId of params.clearSessionChannelOverrides) {
-          if (typeof sessionId === 'string' && sessionId.length > 0) {
-            channelRouter.clearSessionChannel(sessionId);
+        if (Array.isArray(params.clearSessionChannelOverrides)) {
+          for (const sessionId of params.clearSessionChannelOverrides) {
+            if (typeof sessionId === 'string' && sessionId.length > 0) {
+              channelRouter.clearSessionChannel(sessionId);
+            }
           }
         }
-      }
 
-      if (params.adapterConfigs && updateChannelAdapterConfigs) {
-        const validatedConfigs = validateAdapterConfigs(params.adapterConfigs);
-        await updateChannelAdapterConfigs(validatedConfigs);
+        if (validatedConfigs && updateChannelAdapterConfigs) {
+          await updateChannelAdapterConfigs(validatedConfigs);
+        }
       }
 
       if (onChannelsUpdated) {
