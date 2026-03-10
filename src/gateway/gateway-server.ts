@@ -40,6 +40,7 @@ import { registerSystemHandlers } from './rpc/handlers/system-handlers.js';
 import { registerInternalRuntimeHandlers } from './rpc/handlers/internal-runtime-handlers.js';
 import { GatewayRuntimeRolloutCoordinator } from './runtime/gateway-runtime-rollout-coordinator.js';
 import { GatewaySchedulerEventAuditObserver } from './runtime/gateway-scheduler-event-audit-observer.js';
+import { GatewayToolProviderRuntime } from './runtime/gateway-tool-provider-runtime.js';
 import { DebugEventAdapter } from '../runtime/event-bus/adapters/debug-event-adapter.js';
 import { GatewayEventAdapter } from '../runtime/event-bus/adapters/gateway-event-adapter.js';
 import { SchedulerEventAdapter } from '../runtime/event-bus/adapters/scheduler-event-adapter.js';
@@ -61,17 +62,9 @@ import { AuditService } from '../infra/audit/audit-service.js';
 import { getConfigDir } from '../infra/config/config-paths.js';
 
 // Conversation imports
-import { ToolRegistry, ToolAllowlist, ToolEnforcer } from '../infra/tools/tool-registry.js';
-import { ToolProvider, setGlobalToolProvider } from '../infra/tools/tool-provider.js';
-import { ReadFileTool } from '../infra/tools/implementations/read-file-tool.js';
-import { WriteFileTool } from '../infra/tools/implementations/write-file-tool.js';
-import { ExecuteCommandTool } from '../infra/tools/implementations/execute-command-tool.js';
-import { SearchCodeTool } from '../infra/tools/implementations/search-code-tool.js';
-import { WebSearchTool } from '../infra/tools/implementations/web-search-tool.js';
-import { findSkillsTool } from '../infra/tools/implementations/find-skills-tool.js';
+import type { ToolAllowlist, ToolEnforcer, ToolRegistry } from '../infra/tools/tool-registry.js';
 import { ConfigWatcher, createConfigWatcher } from './config/config-watcher.js';
 import { loadRuntimeConfig, saveRuntimeConfig } from '../infra/config/runtime-config.js';
-import { configureLLMProviderManagerStreamEventSink } from '../infra/llm/provider-manager/index.js';
 import { GatewayLLMStreamEventSink } from './events/llm-stream-event-sink.js';
 
 export interface GatewayServerDependencies {
@@ -122,6 +115,7 @@ export class GatewayServer {
   private auditService: AuditService;
 
   // Tool components
+  private toolProviderRuntime: GatewayToolProviderRuntime;
   private toolRegistry: ToolRegistry;
   private toolAllowlist: ToolAllowlist;
   private toolEnforcer: ToolEnforcer;
@@ -232,41 +226,18 @@ export class GatewayServer {
     });
 
     // Initialize tool components
-    this.toolRegistry = new ToolRegistry();
-    this.toolAllowlist = new ToolAllowlist();
-    this.registerTools();
-    this.toolEnforcer = new ToolEnforcer(this.toolRegistry, this.toolAllowlist);
-
-    // Wire up ToolProvider with ToolRegistry so LLM sees all registered tools
-    const toolProvider = new ToolProvider(this.toolEnforcer);
-    setGlobalToolProvider(toolProvider);
-    configureLLMProviderManagerStreamEventSink(new GatewayLLMStreamEventSink());
+    this.toolProviderRuntime = new GatewayToolProviderRuntime({
+      streamEventSink: new GatewayLLMStreamEventSink(),
+    });
+    this.toolRegistry = this.toolProviderRuntime.toolRegistry;
+    this.toolAllowlist = this.toolProviderRuntime.toolAllowlist;
+    this.toolEnforcer = this.toolProviderRuntime.toolEnforcer;
 
     if (this.enableConfigWatch) {
       this.configureConfigWatcher();
     }
 
     this.registerHandlers();
-  }
-
-  /**
-   * Register built-in tools
-   */
-  private registerTools(): void {
-    this.toolRegistry.register(new ReadFileTool());
-    this.toolRegistry.register(new WriteFileTool());
-    this.toolRegistry.register(new ExecuteCommandTool());
-    this.toolRegistry.register(new SearchCodeTool());
-    this.toolRegistry.register(new WebSearchTool());
-    this.toolRegistry.register(findSkillsTool);
-
-    // Allow tools by default (safe tools)
-    this.toolAllowlist.addTool('read_file');
-    this.toolAllowlist.addTool('write_file');
-    this.toolAllowlist.addTool('execute_command');
-    this.toolAllowlist.addTool('search_code');
-    this.toolAllowlist.addTool('web_search');
-    this.toolAllowlist.addTool('find_skills');
   }
 
   private configureConfigWatcher(): void {
