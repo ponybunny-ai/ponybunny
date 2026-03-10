@@ -18,7 +18,7 @@ import { WorkOrderDatabase } from '../../work-order/database/manager.js';
 import { ExecutionService } from '../../app/lifecycle/execution/execution-service.js';
 import { getLLMService } from '../../infra/llm/index.js';
 import { LLMRouter, MockLLMProvider } from '../../infra/llm/llm-provider.js';
-import { createScheduler } from '../../gateway/integration/scheduler-factory.js';
+import { createDefaultScheduler } from '../../scheduler/composition/index.js';
 import { SchedulerDaemon } from '../../scheduler-daemon/daemon.js';
 import { getGlobalSkillRegistry } from '../../infra/skills/skill-registry.js';
 import { isDebugLoggingEnabled } from '../../infra/config/debug-flags.js';
@@ -630,7 +630,7 @@ async function createReplayScheduler(dbPath: string) {
   const executionWorker = new LocalExecutionWorker(executionPort);
   executionWorker.start();
 
-  const scheduler = createScheduler(
+  const scheduler = createDefaultScheduler(
     {
       repository,
       executionService,

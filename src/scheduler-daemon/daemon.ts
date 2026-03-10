@@ -15,7 +15,7 @@ import type { DebugEvent } from '../debug/types.js';
 import { LocalExecutionAdapter } from '../runtime/execution-boundary/index.js';
 import { LocalExecutionWorker } from '../runtime/workers/index.js';
 import { SchedulerCore } from '../scheduler/core/index.js';
-import { createScheduler } from '../gateway/integration/scheduler-factory.js';
+import { createDefaultScheduler } from '../scheduler/composition/index.js';
 import { IPCClient } from '../ipc/ipc-client.js';
 import { IPCServer } from '../ipc/ipc-server.js';
 import { debugEmitter } from '../debug/emitter.js';
@@ -198,7 +198,7 @@ export class SchedulerDaemon {
       const executionPort = new LocalExecutionAdapter(this.executionService);
       this.executionWorker = new LocalExecutionWorker(executionPort);
       this.executionWorker.start();
-      this.scheduler = createScheduler(
+      this.scheduler = createDefaultScheduler(
         {
           repository: this.repository,
           executionService: this.executionService,
