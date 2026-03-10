@@ -5,6 +5,7 @@ import type { GatewayChannelAdapterStatus } from '../../channels/channel-adapter
 import type { GatewayChannelAdapterConfig } from '../../channels/channel-adapter-config.js';
 import { normalizeAdapterConfig, sanitizeAdapterConfig } from '../../channels/channel-adapter-config.js';
 import type { StoredChannelEvent } from '../../channels/channel-event-store.js';
+import type { GatewayDaemonAttachmentStatus } from '../../integration/gateway-daemon-attachment.js';
 import type { ISchedulerCore } from '../../../scheduler/core/index.js';
 import type { ToolRegistry } from '../../../infra/tools/tool-registry.js';
 import {
@@ -532,6 +533,7 @@ export function registerSystemHandlers(
   getStoredChannelEvents: () => StoredChannelEvent[],
   getGatewayStats: () => {
     isRunning: boolean;
+    daemonAttachment?: GatewayDaemonAttachmentStatus;
     daemonConnected: boolean;
     schedulerConnected: boolean;
   },
@@ -571,6 +573,7 @@ export function registerSystemHandlers(
       const connectionManager = getConnectionManager();
       const connStats = connectionManager.getStats();
       const gatewayStats = getGatewayStats();
+      const daemonAttachment = gatewayStats.daemonAttachment;
       const realtimeMetrics = getRealtimeMetrics?.() ?? {
         schedulerCommandAckMsP95: 0,
         streamChunkLatencyMsP95: 0,
@@ -591,7 +594,7 @@ export function registerSystemHandlers(
             pending: connStats.pendingConnections,
             byIp: connStats.connectionsByIp,
           },
-          daemonConnected: gatewayStats.daemonConnected,
+          daemonConnected: daemonAttachment?.connected ?? gatewayStats.daemonConnected,
           schedulerConnected: gatewayStats.schedulerConnected,
           realtime: realtimeMetrics,
         },

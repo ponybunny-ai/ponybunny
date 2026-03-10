@@ -123,11 +123,21 @@ describe('GatewayDaemonAttachment', () => {
 
   it('exposes connection state and direct event emission for gateway-owned callers', () => {
     expect(attachment.isConnected()).toBe(false);
+    expect(attachment.getStatus()).toEqual({
+      phase: 'detached',
+      connected: false,
+      connectedAt: null,
+    });
 
     attachment.connect(daemon);
     attachment.emit('test.event', { ok: true });
 
     expect(attachment.isConnected()).toBe(true);
+    expect(attachment.getStatus()).toEqual({
+      phase: 'attached',
+      connected: true,
+      connectedAt: expect.any(Number),
+    });
     expect(mockEventBus.emit).toHaveBeenLastCalledWith('test.event', { ok: true });
   });
 });

@@ -60,7 +60,14 @@ export { EventEmitter } from './events/event-emitter.js';
 export { BroadcastManager } from './events/broadcast-manager.js';
 
 // Integration
-export { GatewayDaemonAttachment } from './integration/gateway-daemon-attachment.js';
+export {
+  GatewayDaemonAttachment,
+  type GatewayDaemonAttachmentPhase,
+  type GatewayDaemonAttachmentStatus,
+  type GatewayDaemonAttachmentSurface,
+} from './integration/gateway-daemon-attachment.js';
+
+// Historical daemon-attachment compatibility exports.
 export {
   DaemonBridge,
   DaemonEventEmitterMixin,

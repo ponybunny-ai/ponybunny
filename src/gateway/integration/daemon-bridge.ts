@@ -11,14 +11,18 @@ export {
 } from '../../autonomy/daemon-event-emitter.js';
 import type { EventBus } from '../events/event-bus.js';
 import type { IDaemonEventEmitter } from '../../autonomy/daemon-event-emitter.js';
-import { GatewayDaemonAttachment } from './gateway-daemon-attachment.js';
+import {
+  GatewayDaemonAttachment,
+  type GatewayDaemonAttachmentStatus,
+  type GatewayDaemonAttachmentSurface,
+} from './gateway-daemon-attachment.js';
 
 /**
  * Historical gateway compatibility shell around the gateway-owned daemon
  * attachment boundary. New gateway composition should prefer
  * GatewayDaemonAttachment directly.
  */
-export class DaemonBridge {
+export class DaemonBridge implements GatewayDaemonAttachmentSurface {
   private readonly attachment: GatewayDaemonAttachment;
 
   constructor(eventBus: EventBus) {
@@ -29,8 +33,12 @@ export class DaemonBridge {
     this.attachment.connect(daemon);
   }
 
+  getStatus(): GatewayDaemonAttachmentStatus {
+    return this.attachment.getStatus();
+  }
+
   isConnected(): boolean {
-    return this.attachment.isConnected();
+    return this.getStatus().connected;
   }
 
   emit(event: string, data: unknown): void {

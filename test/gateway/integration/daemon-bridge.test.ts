@@ -37,16 +37,25 @@ describe('DaemonBridge', () => {
   });
 
   it('delegates connection state and direct emission to the gateway-owned attachment boundary', () => {
-    const isConnectedSpy = jest
-      .spyOn(GatewayDaemonAttachment.prototype, 'isConnected')
-      .mockReturnValue(true);
+    const getStatusSpy = jest
+      .spyOn(GatewayDaemonAttachment.prototype, 'getStatus')
+      .mockReturnValue({
+        phase: 'attached',
+        connected: true,
+        connectedAt: 123,
+      });
     const emitSpy = jest.spyOn(GatewayDaemonAttachment.prototype, 'emit');
 
+    expect(bridge.getStatus()).toEqual({
+      phase: 'attached',
+      connected: true,
+      connectedAt: 123,
+    });
     expect(bridge.isConnected()).toBe(true);
     bridge.emit('test.event', { ok: true });
 
     expect(emitSpy).toHaveBeenCalledWith('test.event', { ok: true });
-    isConnectedSpy.mockRestore();
+    getStatusSpy.mockRestore();
     emitSpy.mockRestore();
   });
 });

@@ -5,7 +5,12 @@
  */
 
 // Gateway daemon attachment boundary
-export { GatewayDaemonAttachment } from './gateway-daemon-attachment.js';
+export {
+  GatewayDaemonAttachment,
+  type GatewayDaemonAttachmentPhase,
+  type GatewayDaemonAttachmentStatus,
+  type GatewayDaemonAttachmentSurface,
+} from './gateway-daemon-attachment.js';
 
 // Daemon Bridge compatibility surface
 export { DaemonBridge, DaemonEventEmitterMixin } from './daemon-bridge.js';

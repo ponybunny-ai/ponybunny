@@ -37,7 +37,10 @@ import { ConnectionManager } from './connection/connection-manager.js';
 import { AuthManager } from './auth/auth-manager.js';
 import { MessageRouter } from './protocol/message-router.js';
 import { RpcHandler } from './rpc/rpc-handler.js';
-import { GatewayDaemonAttachment } from './integration/gateway-daemon-attachment.js';
+import {
+  GatewayDaemonAttachment,
+  type GatewayDaemonAttachmentStatus,
+} from './integration/gateway-daemon-attachment.js';
 import { SchedulerBridge } from './integration/scheduler-bridge.js';
 import { IPCBridge } from './integration/ipc-bridge.js';
 import type { ISchedulerCore } from '../scheduler/core/index.js';
@@ -541,11 +544,7 @@ export class GatewayServer {
       () => this.scheduler,
       () => this.channelRouter,
       () => this.storedChannelEvents,
-      () => ({
-        isRunning: this.isRunning,
-        daemonConnected: this.daemonAttachment.isConnected(),
-        schedulerConnected: this.schedulerBridge.isConnected(),
-      }),
+      () => this.getGatewayStatusSnapshot(),
       () => this.channelAdapterManager.getStatuses(),
       async (configs) => {
         const previousConfigs = { ...this.channelAdapterConfigs };
@@ -886,12 +885,13 @@ export class GatewayServer {
    * Get server statistics
    */
   getStats() {
+    const status = this.getGatewayStatusSnapshot();
     return {
-      isRunning: this.isRunning,
+      isRunning: status.isRunning,
       address: this.isRunning ? `ws://${this.config.host}:${this.config.port}` : null,
       connections: this.connectionManager.getStats(),
-      daemonConnected: this.daemonAttachment.isConnected(),
-      schedulerConnected: this.schedulerBridge.isConnected(),
+      daemonConnected: status.daemonAttachment.connected,
+      schedulerConnected: status.schedulerConnected,
       debugMode: this.debugMode,
     };
   }
@@ -919,6 +919,23 @@ export class GatewayServer {
    */
   getAuditService(): AuditService {
     return this.auditService;
+  }
+
+  private getGatewayStatusSnapshot(): {
+    isRunning: boolean;
+    daemonAttachment: GatewayDaemonAttachmentStatus;
+    daemonConnected: boolean;
+    schedulerConnected: boolean;
+  } {
+    const daemonAttachment = this.daemonAttachment.getStatus();
+    const schedulerConnected = this.schedulerBridge.isConnected();
+
+    return {
+      isRunning: this.isRunning,
+      daemonAttachment,
+      daemonConnected: daemonAttachment.connected,
+      schedulerConnected,
+    };
   }
 
   private async rollbackRuntimeRolloutOnFailure(): Promise<void> {
