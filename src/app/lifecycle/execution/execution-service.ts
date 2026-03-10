@@ -19,11 +19,13 @@ import {
   LocalExecutionToolPolicyPreparer,
   LocalExecutionToolPolicyFinalizer,
   LocalExecutionRunCompletionFinalizer,
+  LocalExecutionRunResultNormalizer,
   LocalExecutionCycleRuntimeFactory,
   LocalExecutionResourcePreparer,
   type ExecutionToolPolicyPreparer,
   type ExecutionToolPolicyFinalizer,
   type ExecutionRunCompletionFinalizer,
+  type ExecutionRunResultNormalizer,
   type ExecutionResourcePreparer,
   type ExecutionCycleRunner,
   type ExecutionCycleRuntimeFactory,
@@ -36,6 +38,7 @@ interface ExecutionServiceRuntimeDeps {
   executionToolPolicyPreparer?: ExecutionToolPolicyPreparer;
   executionToolPolicyFinalizer?: ExecutionToolPolicyFinalizer;
   executionRunCompletionFinalizer?: ExecutionRunCompletionFinalizer;
+  executionRunResultNormalizer?: ExecutionRunResultNormalizer;
   executionResourcePreparer?: ExecutionResourcePreparer;
 }
 
@@ -49,6 +52,7 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
   private executionToolPolicyPreparer: ExecutionToolPolicyPreparer;
   private executionToolPolicyFinalizer: ExecutionToolPolicyFinalizer;
   private executionRunCompletionFinalizer: ExecutionRunCompletionFinalizer;
+  private executionRunResultNormalizer: ExecutionRunResultNormalizer;
   private executionResourcePreparer: ExecutionResourcePreparer;
   private mcpInitialized = false;
 
@@ -77,6 +81,8 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
       ?? new LocalExecutionToolPolicyFinalizer();
     this.executionRunCompletionFinalizer = runtimeDeps.executionRunCompletionFinalizer
       ?? new LocalExecutionRunCompletionFinalizer();
+    this.executionRunResultNormalizer = runtimeDeps.executionRunResultNormalizer
+      ?? new LocalExecutionRunResultNormalizer();
     this.executionResourcePreparer = runtimeDeps.executionResourcePreparer
       ?? new LocalExecutionResourcePreparer({
         skillRegistry: this.skillRegistry,
@@ -341,16 +347,15 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
       costUsd: agentResult.costUsd,
     });
 
-    const persistedRun = this.repository.getRun(run.id) ?? run;
-    const needsRetry = !agentResult.success && !this.shouldEscalateError(workItem);
-    const errorSignature = this.generateErrorSignature(agentResult.error);
-
-    return {
-      run: persistedRun,
+    return this.executionRunResultNormalizer.normalizeExecutionResult(this.repository, {
+      run,
+      workItemId: workItem.id,
+      workItemRetryCount: workItem.retry_count,
+      workItemMaxRetries: workItem.max_retries,
       success: agentResult.success,
-      needsRetry,
-      errorSignature,
-    };
+      error: agentResult.error,
+      maxConsecutiveErrors: this.config.maxConsecutiveErrors,
+    });
   }
 
   private evaluateHumanApprovalGate(
@@ -385,19 +390,6 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
       allowed: false,
       reason: `Human approval required before execution. Pending actions: ${actionLabel}`,
     };
-  }
-
-  private shouldEscalateError(workItem: WorkItem): boolean {
-    if (workItem.retry_count >= workItem.max_retries) {
-      return true;
-    }
-
-    const repeatedErrors = this.repository.getRepeatedErrorSignatures(
-      workItem.id,
-      this.config.maxConsecutiveErrors
-    );
-
-    return repeatedErrors.length > 0;
   }
 
   private normalizeWorkItemRouteContext(workItem: WorkItem): void {

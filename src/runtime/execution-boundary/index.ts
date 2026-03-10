@@ -23,6 +23,10 @@ export type {
   ExecutionRunCompletionParams,
 } from './execution-run-completion-finalizer.js';
 export type {
+  ExecutionRunResultNormalizer,
+  ExecutionRunResultNormalizationParams,
+} from './execution-run-result-normalizer.js';
+export type {
   ExecutionResourcePreparer,
   PreparedExecutionResources,
 } from './execution-resource-preparer.js';
@@ -34,6 +38,7 @@ export type {
 export { LocalExecutionCycleRuntimeFactory } from './local-execution-cycle-runtime-factory.js';
 export { LocalExecutionCycleRunner } from './local-execution-cycle-runner.js';
 export { LocalExecutionRunCompletionFinalizer } from './local-execution-run-completion-finalizer.js';
+export { LocalExecutionRunResultNormalizer } from './local-execution-run-result-normalizer.js';
 export { LocalExecutionResourcePreparer } from './local-execution-resource-preparer.js';
 export { LocalExecutionToolPolicyFinalizer } from './local-execution-tool-policy-finalizer.js';
 export { LocalExecutionToolPolicyPreparer } from './local-execution-tool-policy-preparer.js';

@@ -7,6 +7,7 @@ import type {
   ExecutionCycleRunner,
   ExecutionResourcePreparer,
   ExecutionRunCompletionFinalizer,
+  ExecutionRunResultNormalizer,
   ExecutionToolPolicyPreparer,
   ExecutionToolPolicyFinalizer,
   ExecutionCycleRuntimeFactory,
@@ -637,6 +638,104 @@ describe('ExecutionService per-work-item tool allowlist', () => {
       costUsd: 0.18,
     });
     expect(result.run.execution_log).toContain('completed::');
+  });
+
+  it('uses the narrow execution run result normalizer seam for persisted-run reload and retry classification', async () => {
+    const goal = createGoal('goal-run-result-normalizer');
+    const repository = createRepository(goal);
+    const executionCycleRunner: ExecutionCycleRunner = {
+      executeCycle: jest.fn().mockResolvedValue({
+        success: false,
+        error: 'run 42 failed at /tmp/demo.txt',
+        tokensUsed: 3,
+        costUsd: 0.05,
+        log: 'normalizer seam cycle log',
+      }),
+    };
+    const executionRunResultNormalizer: ExecutionRunResultNormalizer = {
+      normalizeExecutionResult: jest.fn((_repository, params) => ({
+        run: {
+          ...params.run,
+          status: 'failure',
+          execution_log: 'normalized-run-log',
+        },
+        success: params.success,
+        needsRetry: true,
+        errorSignature: 'normalized-signature',
+      })),
+    };
+
+    const service = new ExecutionService(
+      repository,
+      { maxConsecutiveErrors: 3 },
+      undefined,
+      {
+        executionCycleRunner,
+        executionRunResultNormalizer,
+      }
+    );
+
+    const workItem = createWorkItem({
+      id: 'work-item-run-result-normalizer',
+      goal_id: goal.id,
+      retry_count: 1,
+      max_retries: 4,
+    });
+
+    const result = await service.executeWorkItem(workItem);
+
+    expect(executionRunResultNormalizer.normalizeExecutionResult).toHaveBeenCalledWith(repository, {
+      run: expect.objectContaining({
+        work_item_id: workItem.id,
+        goal_id: goal.id,
+      }),
+      workItemId: workItem.id,
+      workItemRetryCount: 1,
+      workItemMaxRetries: 4,
+      success: false,
+      error: 'run 42 failed at /tmp/demo.txt',
+      maxConsecutiveErrors: 3,
+    });
+    expect(result.needsRetry).toBe(true);
+    expect(result.errorSignature).toBe('normalized-signature');
+    expect(result.run.execution_log).toBe('normalized-run-log');
+  });
+
+  it('keeps retry classification unchanged when repeated errors trigger escalation after completion', async () => {
+    const goal = createGoal('goal-repeated-error-classification');
+    const repository = createRepository(goal) as unknown as {
+      [key: string]: jest.Mock;
+    };
+    repository.getRepeatedErrorSignatures.mockReturnValue(['sig-1']);
+
+    const service = new ExecutionService(
+      repository as unknown as IWorkOrderRepository,
+      { maxConsecutiveErrors: 3 },
+      undefined,
+      {
+        executionCycleRunner: {
+          executeCycle: jest.fn().mockResolvedValue({
+            success: false,
+            error: 'same failure again',
+            tokensUsed: 2,
+            costUsd: 0.01,
+            log: 'repeat failure log',
+          }),
+        },
+      }
+    );
+
+    const workItem = createWorkItem({
+      id: 'work-item-repeated-error-classification',
+      goal_id: goal.id,
+      retry_count: 0,
+      max_retries: 2,
+    });
+
+    const result = await service.executeWorkItem(workItem);
+
+    expect(result.success).toBe(false);
+    expect(result.needsRetry).toBe(false);
   });
 
   it('keeps tool permissions isolated across concurrent runs', async () => {
