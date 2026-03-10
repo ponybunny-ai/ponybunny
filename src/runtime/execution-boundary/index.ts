@@ -4,10 +4,16 @@ export type {
   ExecutionCycleRunner,
 } from './execution-cycle-runner.js';
 export type {
+  ExecutionCycleRuntimeComposition,
+  ExecutionCycleRuntimeFactory,
+  ExecutionCycleRuntimeFactoryParams,
+} from './execution-cycle-runtime-factory.js';
+export type {
   ExecutionRunner,
   ExecutionRunnerResult,
   RuntimeExecutionRunSummary,
 } from './execution-runner.js';
+export { LocalExecutionCycleRuntimeFactory } from './local-execution-cycle-runtime-factory.js';
 export { LocalExecutionCycleRunner } from './local-execution-cycle-runner.js';
 export type {
   ExecutionPort,

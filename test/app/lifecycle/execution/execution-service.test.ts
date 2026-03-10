@@ -3,7 +3,10 @@ import type { Goal, Run, WorkItem } from '../../../../src/work-order/types/index
 import type { IWorkOrderRepository } from '../../../../src/infra/persistence/repository-interface.js';
 import type { ILLMProvider, LLMMessage, LLMResponse, ToolCall } from '../../../../src/infra/llm/llm-provider.js';
 import { ExecutionService } from '../../../../src/app/lifecycle/execution/execution-service.js';
-import type { ExecutionCycleRunner } from '../../../../src/runtime/execution-boundary/index.js';
+import type {
+  ExecutionCycleRunner,
+  ExecutionCycleRuntimeFactory,
+} from '../../../../src/runtime/execution-boundary/index.js';
 
 class ScriptedWriteToolLLMProvider implements ILLMProvider {
   private callCount = 0;
@@ -263,6 +266,65 @@ describe('ExecutionService per-work-item tool allowlist', () => {
       actual_model: 'runtime-model',
       endpoint_id: 'endpoint-runtime',
     });
+  });
+
+  it('builds runtime execution composition through the narrow factory seam', async () => {
+    const goal = createGoal('goal-cycle-runtime-factory');
+    const repository = createRepository(goal);
+    const executionCycleRunner: ExecutionCycleRunner = {
+      executeCycle: jest.fn().mockResolvedValue({
+        success: true,
+        tokensUsed: 3,
+        costUsd: 0.1,
+        actualModel: 'factory-model',
+        endpointId: 'factory-endpoint',
+        artifactIds: [],
+        log: 'factory seam log',
+      }),
+    };
+    const runtimeToolingContext = {
+      toolRegistry: {} as any,
+      toolAllowlist: {} as any,
+      toolEnforcer: {} as any,
+      toolProvider: {} as any,
+      skillRegistry: {} as any,
+      getPromptProvider: jest.fn(() => ({} as any)),
+      syncLegacyGlobals: jest.fn(),
+    };
+    const executionCycleRuntimeFactory: ExecutionCycleRuntimeFactory = {
+      createExecutionCycleRuntime: jest.fn(() => ({
+        runtimeToolingContext: runtimeToolingContext as any,
+        executionCycleRunner,
+      })),
+    };
+
+    const service = new ExecutionService(
+      repository,
+      { maxConsecutiveErrors: 3 },
+      undefined,
+      { executionCycleRuntimeFactory }
+    );
+
+    const workItem = createWorkItem({
+      id: 'work-item-cycle-runtime-factory',
+      goal_id: goal.id,
+    });
+
+    const result = await service.executeWorkItem(workItem);
+
+    expect(executionCycleRuntimeFactory.createExecutionCycleRuntime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        llmProvider: undefined,
+        toolRegistry: expect.anything(),
+        toolAllowlist: expect.anything(),
+        toolEnforcer: expect.anything(),
+        skillRegistry: expect.anything(),
+      })
+    );
+    expect(runtimeToolingContext.syncLegacyGlobals).toHaveBeenCalledTimes(1);
+    expect(service.getRuntimeToolingContext()).toBe(runtimeToolingContext);
+    expect(executionCycleRunner.executeCycle).toHaveBeenCalled();
+    expect(result.run.execution_log).toContain('factory seam log');
   });
 
   it('keeps tool permissions isolated across concurrent runs', async () => {

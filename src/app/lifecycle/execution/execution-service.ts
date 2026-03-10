@@ -2,11 +2,9 @@ import type { WorkItem, Run } from '../../../work-order/types/index.js';
 import type { IWorkOrderRepository } from '../../../infra/persistence/repository-interface.js';
 import type { IExecutionService, ExecutionResult } from '../stage-interfaces.js';
 import type { ILLMProvider } from '../../../infra/llm/llm-provider.js';
-import { PromptProvider } from '../../../infra/prompts/prompt-provider.js';
 import { ToolRegistry, ToolAllowlist, ToolEnforcer } from '../../../infra/tools/tool-registry.js';
 import type { ToolPolicyAuditSnapshot } from '../../../infra/tools/tool-registry.js';
 import type { LayeredToolPolicy, ToolPolicyContext } from '../../../infra/tools/layered-tool-policy.js';
-import { ToolProvider } from '../../../infra/tools/tool-provider.js';
 import { ReadFileTool } from '../../../infra/tools/implementations/read-file-tool.js';
 import { WriteFileTool } from '../../../infra/tools/implementations/write-file-tool.js';
 import { ExecuteCommandTool } from '../../../infra/tools/implementations/execute-command-tool.js';
@@ -20,10 +18,11 @@ import { routeContextFromWorkItemContext } from '../../../infra/routing/route-co
 import { getManagedSkillsDir } from '../../../infra/config/config-paths.js';
 import type { ExecutionRunner } from '../../../runtime/execution-boundary/execution-runner.js';
 import {
-  LocalExecutionCycleRunner,
+  LocalExecutionCycleRuntimeFactory,
   type ExecutionCycleRunner,
+  type ExecutionCycleRuntimeFactory,
 } from '../../../runtime/execution-boundary/index.js';
-import { createRuntimeToolingContext, type RuntimeToolingContext } from '../../../runtime/tooling-context/index.js';
+import type { RuntimeToolingContext } from '../../../runtime/tooling-context/index.js';
 
 interface ScopedToolEnforcerConfig {
   enforcer: ToolEnforcer;
@@ -47,6 +46,7 @@ interface ResourceSelectionResult {
 
 interface ExecutionServiceRuntimeDeps {
   executionCycleRunner?: ExecutionCycleRunner;
+  executionCycleRuntimeFactory?: ExecutionCycleRuntimeFactory;
 }
 
 export class ExecutionService implements IExecutionService, ExecutionRunner {
@@ -72,24 +72,20 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
     this.registerTools();
 
     this.toolEnforcer = new ToolEnforcer(this.toolRegistry, this.toolAllowlist);
-
-    const toolProvider = new ToolProvider(this.toolEnforcer);
-    this.runtimeToolingContext = createRuntimeToolingContext({
+    const executionCycleRuntimeFactory = runtimeDeps.executionCycleRuntimeFactory
+      ?? new LocalExecutionCycleRuntimeFactory();
+    const executionCycleRuntime = executionCycleRuntimeFactory.createExecutionCycleRuntime({
+      llmProvider,
       toolRegistry: this.toolRegistry,
       toolAllowlist: this.toolAllowlist,
       toolEnforcer: this.toolEnforcer,
-      toolProvider,
       skillRegistry: this.skillRegistry,
-      createPromptProvider: () => new PromptProvider(this.skillRegistry, toolProvider),
     });
-    this.runtimeToolingContext.syncLegacyGlobals();
 
+    this.runtimeToolingContext = executionCycleRuntime.runtimeToolingContext;
+    this.runtimeToolingContext.syncLegacyGlobals();
     this.executionCycleRunner = runtimeDeps.executionCycleRunner
-      ?? new LocalExecutionCycleRunner({
-        llmProvider,
-        toolEnforcer: this.toolEnforcer,
-        runtimeToolingContext: this.runtimeToolingContext,
-      });
+      ?? executionCycleRuntime.executionCycleRunner;
   }
 
   getRuntimeToolingContext(): RuntimeToolingContext {
