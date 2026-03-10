@@ -1,47 +1,12 @@
 /**
- * Daemon Bridge - Connects AutonomyDaemon events to Gateway
+ * Historical direct import path kept as a thin compatibility shim.
  *
- * This bridge allows the AutonomyDaemon to emit events that get
- * broadcast to connected Gateway clients.
+ * Prefer `./daemon-compatibility.js` for explicit compatibility routing or
+ * `./boundaries.js` for the intended live gateway-owned attachment surface.
  */
 
 export {
+  DaemonBridge,
   DaemonEventEmitterMixin,
   type IDaemonEventEmitter,
-} from '../../autonomy/daemon-event-emitter.js';
-import type { EventBus } from '../events/event-bus.js';
-import type { IDaemonEventEmitter } from '../../autonomy/daemon-event-emitter.js';
-import {
-  GatewayDaemonAttachment,
-  type GatewayDaemonAttachmentStatus,
-  type GatewayDaemonAttachmentSurface,
-} from './gateway-daemon-attachment.js';
-
-/**
- * Historical gateway compatibility shell around the gateway-owned daemon
- * attachment boundary. New gateway composition should prefer
- * GatewayDaemonAttachment directly.
- */
-export class DaemonBridge implements GatewayDaemonAttachmentSurface {
-  private readonly attachment: GatewayDaemonAttachment;
-
-  constructor(eventBus: EventBus) {
-    this.attachment = new GatewayDaemonAttachment(eventBus);
-  }
-
-  connect(daemon: IDaemonEventEmitter): void {
-    this.attachment.connect(daemon);
-  }
-
-  getStatus(): GatewayDaemonAttachmentStatus {
-    return this.attachment.getStatus();
-  }
-
-  isConnected(): boolean {
-    return this.getStatus().connected;
-  }
-
-  emit(event: string, data: unknown): void {
-    this.attachment.emit(event, data);
-  }
-}
+} from './daemon-compatibility.js';

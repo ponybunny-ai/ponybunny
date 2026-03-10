@@ -6,8 +6,8 @@
  * gateway-owned boundaries or scheduler/runtime-owned modules directly.
  */
 
-export { DaemonBridge, DaemonEventEmitterMixin } from './daemon-bridge.js';
-export type { IDaemonEventEmitter } from './daemon-bridge.js';
+export { DaemonBridge, DaemonEventEmitterMixin } from './daemon-compatibility.js';
+export type { IDaemonEventEmitter } from './daemon-compatibility.js';
 
 export {
   ExecutionEngineAdapter,
