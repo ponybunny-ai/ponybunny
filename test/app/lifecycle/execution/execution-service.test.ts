@@ -5,8 +5,10 @@ import type { ILLMProvider, LLMMessage, LLMResponse, ToolCall } from '../../../.
 import { ExecutionService } from '../../../../src/app/lifecycle/execution/execution-service.js';
 import type {
   ExecutionCycleRunner,
+  ExecutionToolPolicyPreparer,
   ExecutionCycleRuntimeFactory,
 } from '../../../../src/runtime/execution-boundary/index.js';
+import type { ToolPolicyAuditSnapshot } from '../../../../src/infra/tools/tool-registry.js';
 
 class ScriptedWriteToolLLMProvider implements ILLMProvider {
   private callCount = 0;
@@ -325,6 +327,73 @@ describe('ExecutionService per-work-item tool allowlist', () => {
     expect(service.getRuntimeToolingContext()).toBe(runtimeToolingContext);
     expect(executionCycleRunner.executeCycle).toHaveBeenCalled();
     expect(result.run.execution_log).toContain('factory seam log');
+  });
+
+  it('uses the narrow execution tool policy preparer seam for per-work-item policy setup', async () => {
+    const goal = createGoal('goal-tool-policy-preparer');
+    const repository = createRepository(goal);
+    const executionCycleRunner: ExecutionCycleRunner = {
+      executeCycle: jest.fn().mockResolvedValue({
+        success: true,
+        tokensUsed: 2,
+        costUsd: 0.05,
+        log: 'prepared seam log',
+      }),
+    };
+    const policyAudit: ToolPolicyAuditSnapshot = {
+      baselineAllowedTools: ['read_file', 'write_file'],
+      effectiveAllowedTools: ['read_file'],
+      deniedTools: [{ tool: 'write_file', reason: 'global deny policy' }],
+      appliedLayers: ['global'],
+      policyContext: {
+        providerId: 'openai/gpt-5.3-codex',
+      },
+      hasLayeredPolicy: true,
+    };
+    const scopedToolEnforcer = {} as any;
+    const executionToolPolicyPreparer: ExecutionToolPolicyPreparer = {
+      prepareForWorkItem: jest.fn(() => ({
+        toolEnforcer: scopedToolEnforcer,
+        policyAudit,
+      })),
+    };
+
+    const service = new ExecutionService(
+      repository,
+      { maxConsecutiveErrors: 3 },
+      undefined,
+      {
+        executionCycleRunner,
+        executionToolPolicyPreparer,
+      }
+    );
+
+    const workItem = createWorkItem({
+      id: 'work-item-tool-policy-preparer',
+      goal_id: goal.id,
+      context: {
+        tool_allowlist: ['read_file'],
+      },
+    });
+
+    const result = await service.executeWorkItem(workItem);
+
+    expect(executionToolPolicyPreparer.prepareForWorkItem).toHaveBeenCalledWith(workItem);
+    expect(executionCycleRunner.executeCycle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolEnforcer: scopedToolEnforcer,
+      })
+    );
+    expect((workItem.context as Record<string, unknown>).tool_policy_audit).toEqual(policyAudit);
+    expect(result.run.execution_log).toContain('[POLICY_AUDIT]');
+    expect((repository as unknown as { createDecision: jest.Mock }).createDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decision_point: 'tool_policy_resolution',
+        metadata: expect.objectContaining({
+          policyAudit,
+        }),
+      })
+    );
   });
 
   it('keeps tool permissions isolated across concurrent runs', async () => {

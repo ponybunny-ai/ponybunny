@@ -4,7 +4,6 @@ import type { IExecutionService, ExecutionResult } from '../stage-interfaces.js'
 import type { ILLMProvider } from '../../../infra/llm/llm-provider.js';
 import { ToolRegistry, ToolAllowlist, ToolEnforcer } from '../../../infra/tools/tool-registry.js';
 import type { ToolPolicyAuditSnapshot } from '../../../infra/tools/tool-registry.js';
-import type { LayeredToolPolicy, ToolPolicyContext } from '../../../infra/tools/layered-tool-policy.js';
 import { ReadFileTool } from '../../../infra/tools/implementations/read-file-tool.js';
 import { WriteFileTool } from '../../../infra/tools/implementations/write-file-tool.js';
 import { ExecuteCommandTool } from '../../../infra/tools/implementations/execute-command-tool.js';
@@ -18,16 +17,13 @@ import { routeContextFromWorkItemContext } from '../../../infra/routing/route-co
 import { getManagedSkillsDir } from '../../../infra/config/config-paths.js';
 import type { ExecutionRunner } from '../../../runtime/execution-boundary/execution-runner.js';
 import {
+  LocalExecutionToolPolicyPreparer,
   LocalExecutionCycleRuntimeFactory,
+  type ExecutionToolPolicyPreparer,
   type ExecutionCycleRunner,
   type ExecutionCycleRuntimeFactory,
 } from '../../../runtime/execution-boundary/index.js';
 import type { RuntimeToolingContext } from '../../../runtime/tooling-context/index.js';
-
-interface ScopedToolEnforcerConfig {
-  enforcer: ToolEnforcer;
-  policyAudit: ToolPolicyAuditSnapshot;
-}
 
 interface ResourcePolicyConfig {
   available: string[];
@@ -47,6 +43,7 @@ interface ResourceSelectionResult {
 interface ExecutionServiceRuntimeDeps {
   executionCycleRunner?: ExecutionCycleRunner;
   executionCycleRuntimeFactory?: ExecutionCycleRuntimeFactory;
+  executionToolPolicyPreparer?: ExecutionToolPolicyPreparer;
 }
 
 export class ExecutionService implements IExecutionService, ExecutionRunner {
@@ -56,6 +53,7 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
   private skillRegistry = getGlobalSkillRegistry();
   private runtimeToolingContext: RuntimeToolingContext;
   private executionCycleRunner: ExecutionCycleRunner;
+  private executionToolPolicyPreparer: ExecutionToolPolicyPreparer;
   private mcpInitialized = false;
 
   constructor(
@@ -74,6 +72,11 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
     this.toolEnforcer = new ToolEnforcer(this.toolRegistry, this.toolAllowlist);
     const executionCycleRuntimeFactory = runtimeDeps.executionCycleRuntimeFactory
       ?? new LocalExecutionCycleRuntimeFactory();
+    this.executionToolPolicyPreparer = runtimeDeps.executionToolPolicyPreparer
+      ?? new LocalExecutionToolPolicyPreparer({
+        toolRegistry: this.toolRegistry,
+        toolAllowlist: this.toolAllowlist,
+      });
     const executionCycleRuntime = executionCycleRuntimeFactory.createExecutionCycleRuntime({
       llmProvider,
       toolRegistry: this.toolRegistry,
@@ -149,10 +152,10 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
     const startTime = Date.now();
     this.normalizeWorkItemRouteContext(workItem);
 
-    const scopedToolConfig = this.createScopedToolEnforcer(workItem);
-    const scopedToolEnforcer = scopedToolConfig?.enforcer;
-    if (scopedToolConfig) {
-      this.attachToolPolicyAudit(workItem, scopedToolConfig.policyAudit);
+    const preparedToolPolicy = this.executionToolPolicyPreparer.prepareForWorkItem(workItem);
+    const scopedToolEnforcer = preparedToolPolicy?.toolEnforcer;
+    if (preparedToolPolicy) {
+      this.attachToolPolicyAudit(workItem, preparedToolPolicy.policyAudit);
     }
 
     const routeContext = routeContextFromWorkItemContext(workItem.context);
@@ -283,12 +286,12 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
         artifacts: [],
         execution_log: this.buildExecutionLogWithPolicyAudit(
           `Execution failed before completion: ${String(error)}`,
-          scopedToolConfig?.policyAudit,
+          preparedToolPolicy?.policyAudit,
           routeContext
         ),
       });
 
-      this.persistToolPolicyDecision(run, workItem, scopedToolConfig?.policyAudit, routeContext);
+      this.persistToolPolicyDecision(run, workItem, preparedToolPolicy?.policyAudit, routeContext);
 
       return {
         run: this.repository.getRun(run.id)!,
@@ -302,7 +305,7 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
 
     const executionLog = this.buildExecutionLogWithPolicyAudit(
       agentResult.log,
-      scopedToolConfig?.policyAudit,
+      preparedToolPolicy?.policyAudit,
       routeContext
     );
 
@@ -322,7 +325,7 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
       },
     });
 
-    this.persistToolPolicyDecision(run, workItem, scopedToolConfig?.policyAudit, routeContext);
+    this.persistToolPolicyDecision(run, workItem, preparedToolPolicy?.policyAudit, routeContext);
 
     try {
       this.repository.updateGoalSpending(
@@ -392,33 +395,6 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
     );
 
     return repeatedErrors.length > 0;
-  }
-
-  private createScopedToolEnforcer(workItem: WorkItem): ScopedToolEnforcerConfig | undefined {
-    const allowlistOverride = workItem.context?.tool_allowlist;
-    const layeredPolicy = this.extractLayeredToolPolicy(workItem);
-    const policyContext = this.extractToolPolicyContext(workItem);
-
-    const hasAllowlistOverride = Array.isArray(allowlistOverride);
-    const hasLayeredPolicy = layeredPolicy !== undefined;
-
-    if (!hasAllowlistOverride && !hasLayeredPolicy) {
-      return undefined;
-    }
-
-    const scopedAllowlist = new ToolAllowlist(
-      hasAllowlistOverride ? allowlistOverride : this.toolAllowlist.getAllowedTools()
-    );
-
-    const enforcer = new ToolEnforcer(this.toolRegistry, scopedAllowlist, {
-      layeredPolicy,
-      policyContext,
-    });
-
-    return {
-      enforcer,
-      policyAudit: enforcer.getPolicyAuditSnapshot(),
-    };
   }
 
   private normalizeWorkItemRouteContext(workItem: WorkItem): void {
@@ -505,96 +481,6 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
     } catch (error) {
       console.warn('[ExecutionService] Failed to persist tool policy decision:', error);
     }
-  }
-
-  private extractLayeredToolPolicy(workItem: WorkItem): LayeredToolPolicy | undefined {
-    const context = workItem.context;
-    if (!context || typeof context !== 'object') {
-      return undefined;
-    }
-
-    const explicitPolicy = context.tool_policy;
-    if (this.isLayeredToolPolicy(explicitPolicy)) {
-      return explicitPolicy;
-    }
-
-    const policySnapshot = context.policy_snapshot;
-    if (!policySnapshot || typeof policySnapshot !== 'object') {
-      return undefined;
-    }
-
-    const toolAllowlist = this.toStringArray((policySnapshot as Record<string, unknown>).toolAllowlist);
-    if (toolAllowlist.length === 0) {
-      return undefined;
-    }
-
-    return {
-      global: {
-        allow: toolAllowlist,
-      },
-    };
-  }
-
-  private extractToolPolicyContext(workItem: WorkItem): ToolPolicyContext {
-    const context = workItem.context;
-    const routeContext = routeContextFromWorkItemContext(context);
-    const policyContextFromWorkItem =
-      context && typeof context === 'object' && typeof context.tool_policy_context === 'object' && context.tool_policy_context !== null
-        ? (context.tool_policy_context as Record<string, unknown>)
-        : {};
-
-    const providerId = this.getString(policyContextFromWorkItem.providerId)
-      ?? this.getString(policyContextFromWorkItem.provider_id)
-      ?? routeContext?.providerId
-      ?? this.getString(context?.model);
-    const agentId = this.getString(policyContextFromWorkItem.agentId)
-      ?? this.getString(policyContextFromWorkItem.agent_id)
-      ?? routeContext?.agentId
-      ?? workItem.assigned_agent;
-
-    const isSubagent = this.getBoolean(policyContextFromWorkItem.isSubagent)
-      ?? this.getBoolean(policyContextFromWorkItem.is_subagent)
-      ?? routeContext?.isSubagent
-      ?? this.getBoolean(context?.is_subagent)
-      ?? false;
-    const sandboxed = this.getBoolean(policyContextFromWorkItem.sandboxed)
-      ?? this.getBoolean(policyContextFromWorkItem.isSandboxed)
-      ?? routeContext?.sandboxed
-      ?? this.getBoolean(context?.sandboxed)
-      ?? false;
-    const isOwner = this.getBoolean(policyContextFromWorkItem.isOwner)
-      ?? this.getBoolean(policyContextFromWorkItem.is_owner)
-      ?? routeContext?.senderIsOwner
-      ?? this.getBoolean(context?.sender_is_owner)
-      ?? false;
-
-    return {
-      providerId,
-      agentId,
-      isSubagent,
-      sandboxed,
-      isOwner,
-    };
-  }
-
-  private isLayeredToolPolicy(value: unknown): value is LayeredToolPolicy {
-    if (!value || typeof value !== 'object') {
-      return false;
-    }
-
-    const record = value as Record<string, unknown>;
-    const supportedKeys = [
-      'profiles',
-      'groups',
-      'global',
-      'byProvider',
-      'byAgent',
-      'subagent',
-      'sandbox',
-      'ownerOnlyTools',
-    ];
-
-    return supportedKeys.some((key) => key in record);
   }
 
   private toStringArray(value: unknown): string[] {
