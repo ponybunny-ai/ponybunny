@@ -70,10 +70,8 @@ export { SchedulerBridge } from './integration/scheduler-bridge.js';
 export {
   ExecutionEngineAdapter,
   SchedulerRepositoryAdapter,
-} from '../scheduler/composition/index.js';
-export { LocalExecutionAdapter } from '../runtime/execution-boundary/index.js';
-export {
+  LocalExecutionAdapter,
   createScheduler,
   type SchedulerFactoryConfig,
   type SchedulerFactoryDependencies,
-} from './integration/scheduler-factory.js';
+} from './integration/scheduler-compatibility.js';

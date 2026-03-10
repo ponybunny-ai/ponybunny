@@ -11,13 +11,12 @@ export type { IDaemonEventEmitter } from './daemon-bridge.js';
 // Scheduler Bridge (new)
 export { SchedulerBridge } from './scheduler-bridge.js';
 
-// Scheduler compatibility surfaces
+// Intentional scheduler compatibility surface
 export {
   ExecutionEngineAdapter,
   SchedulerRepositoryAdapter,
-} from '../../scheduler/composition/index.js';
-export { LocalExecutionAdapter } from '../../runtime/execution-boundary/index.js';
-
-// Scheduler Factory (new)
-export { createScheduler } from './scheduler-factory.js';
-export type { SchedulerFactoryConfig, SchedulerFactoryDependencies } from './scheduler-factory.js';
+  LocalExecutionAdapter,
+  createScheduler,
+  type SchedulerFactoryConfig,
+  type SchedulerFactoryDependencies,
+} from './scheduler-compatibility.js';

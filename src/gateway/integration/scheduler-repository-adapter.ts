@@ -3,4 +3,4 @@
  * historical gateway integration path.
  */
 
-export { SchedulerRepositoryAdapter } from '../../scheduler/composition/scheduler-repository-adapter.js';
+export { SchedulerRepositoryAdapter } from './scheduler-compatibility.js';
