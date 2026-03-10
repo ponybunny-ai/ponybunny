@@ -83,6 +83,8 @@ import { findSkillsTool } from '../infra/tools/implementations/find-skills-tool.
 import { ConfigWatcher, createConfigWatcher } from './config/config-watcher.js';
 import { getAsciiArtBanner } from '../infra/ui/ascii-art-banner.js';
 import { loadRuntimeConfig, saveRuntimeConfig } from '../infra/config/runtime-config.js';
+import { configureLLMProviderManagerStreamEventSink } from '../infra/llm/provider-manager/index.js';
+import { GatewayLLMStreamEventSink } from './events/llm-stream-event-sink.js';
 
 export interface GatewayServerDependencies {
   db: Database.Database;
@@ -453,6 +455,7 @@ export class GatewayServer {
     // Wire up ToolProvider with ToolRegistry so LLM sees all registered tools
     const toolProvider = new ToolProvider(this.toolEnforcer);
     setGlobalToolProvider(toolProvider);
+    configureLLMProviderManagerStreamEventSink(new GatewayLLMStreamEventSink());
 
     if (this.enableConfigWatch) {
       this.initializeConfigWatcher();
