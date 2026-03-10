@@ -46,7 +46,7 @@ export interface SessionIntakeDependencies {
   repository: IWorkOrderRepository;
   memoryDb: Database.Database;
   llmService: LLMService;
-  runtimeToolingContext?: RuntimeToolingContext;
+  runtimeToolingContext: RuntimeToolingContext;
   personasDir?: string;
   schedulerProvider: () => SchedulerCore | null;
   publishSessionEvent: (event: SchedulerSessionEvent) => Promise<void>;

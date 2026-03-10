@@ -71,7 +71,7 @@ export interface SchedulerDaemonConfig {
   mainAgentId?: string;
   personaEnabled?: boolean;
   memoryDb?: Database.Database;
-  runtimeToolingContext?: RuntimeToolingContext;
+  runtimeToolingContext: RuntimeToolingContext;
 }
 
 function resolveMainAgentId(configuredId: string | undefined, availableIds: string[]): string | null {
@@ -388,6 +388,10 @@ export class SchedulerDaemon {
     if (!this.memoryDb) {
       console.warn('[SchedulerDaemon] Session intake disabled: memoryDb not configured');
       return null;
+    }
+
+    if (!this.config.runtimeToolingContext) {
+      throw new Error('[SchedulerDaemon] Session intake requires an explicit RuntimeToolingContext');
     }
 
     return new SchedulerSessionIntake({

@@ -3,10 +3,23 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ConversationPort, ConversationRequest } from '../../src/runtime/conversation-boundary/index.js';
+import type { RuntimeToolingContext } from '../../src/runtime/tooling-context/index.js';
 import { ConversationWorker } from '../../src/runtime/workers/conversation-worker.js';
 import { SchedulerSessionIntake, SchedulerTaskBridge, resolveMainAgentModelHintFromAgentConfig } from '../../src/scheduler-daemon/session-intake.js';
 import { DEFAULT_RUNTIME_CONFIG } from '../../src/infra/config/runtime-config.js';
 import type { Goal, WorkItem } from '../../src/work-order/types/index.js';
+
+function createRuntimeToolingContextStub(): RuntimeToolingContext {
+  return {
+    toolProvider: {
+      getToolDefinitions: () => [],
+      getToolsForPhase: () => [],
+    },
+    getPromptProvider: () => ({
+      generatePrompt: () => '',
+    }),
+  } as unknown as RuntimeToolingContext;
+}
 
 describe('resolveMainAgentModelHintFromAgentConfig', () => {
   let tempRoot: string;
@@ -331,6 +344,7 @@ describe('SchedulerSessionIntake conversation boundary', () => {
         repository: repository as never,
         memoryDb: db,
         llmService: createLlmServiceStub() as never,
+        runtimeToolingContext: createRuntimeToolingContextStub(),
         schedulerProvider: () => null,
         publishSessionEvent: async (event) => {
           events.push(event);
@@ -452,6 +466,7 @@ describe('SchedulerSessionIntake conversation boundary', () => {
         repository: createRepositoryStub() as never,
         memoryDb: db,
         llmService: createLlmServiceStub() as never,
+        runtimeToolingContext: createRuntimeToolingContextStub(),
         schedulerProvider: () => null,
         publishSessionEvent: async (event) => {
           events.push(event);
@@ -499,6 +514,7 @@ describe('SchedulerSessionIntake conversation boundary', () => {
         repository: createRepositoryStub() as never,
         memoryDb: db,
         llmService: createLlmServiceStub() as never,
+        runtimeToolingContext: createRuntimeToolingContextStub(),
         schedulerProvider: () => null,
         publishSessionEvent: async () => {},
         conversationPort,
@@ -558,6 +574,7 @@ describe('SchedulerSessionIntake conversation boundary', () => {
         repository: createRepositoryStub() as never,
         memoryDb: db,
         llmService: createLlmServiceStub() as never,
+        runtimeToolingContext: createRuntimeToolingContextStub(),
         schedulerProvider: () => null,
         publishSessionEvent: async (event) => {
           events.push(event);

@@ -6,11 +6,24 @@ import type { IWorkOrderRepository } from '../../src/infra/persistence/repositor
 import type { IExecutionService } from '../../src/app/lifecycle/stage-interfaces.js';
 import type { ILLMProvider } from '../../src/infra/llm/llm-provider.js';
 import type { SchedulerDaemonConfig } from '../../src/scheduler-daemon/daemon.js';
+import type { RuntimeToolingContext } from '../../src/runtime/tooling-context/index.js';
 
 const TEMP_PREFIX = path.join(os.tmpdir(), 'ponybunny-scheduler-');
 
 function createTempConfigDir(): string {
   return fs.mkdtempSync(TEMP_PREFIX);
+}
+
+function createRuntimeToolingContextStub(): RuntimeToolingContext {
+  return {
+    toolProvider: {
+      getToolDefinitions: () => [],
+      getToolsForPhase: () => [],
+    },
+    getPromptProvider: () => ({
+      generatePrompt: () => '',
+    }),
+  } as unknown as RuntimeToolingContext;
 }
 
 describe('scheduler daemon pid lock', () => {
@@ -66,6 +79,7 @@ describe('scheduler daemon pid lock', () => {
     const config: SchedulerDaemonConfig = {
       ipcSocketPath: path.join(configDir, 'gateway.sock'),
       dbPath: path.join(configDir, 'pony.db'),
+      runtimeToolingContext: createRuntimeToolingContextStub(),
     };
 
     const daemon = new SchedulerDaemon(repository, executionService, llmProvider, config);
