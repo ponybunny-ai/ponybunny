@@ -67,8 +67,10 @@ export {
 } from './integration/daemon-bridge.js';
 
 export { SchedulerBridge } from './integration/scheduler-bridge.js';
-export { SchedulerRepositoryAdapter } from './integration/scheduler-repository-adapter.js';
-export { ExecutionEngineAdapter } from './integration/execution-engine-adapter.js';
+export {
+  ExecutionEngineAdapter,
+  SchedulerRepositoryAdapter,
+} from '../scheduler/composition/index.js';
 export { LocalExecutionAdapter } from '../runtime/execution-boundary/index.js';
 export {
   createScheduler,

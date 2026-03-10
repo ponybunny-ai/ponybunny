@@ -11,9 +11,11 @@ export type { IDaemonEventEmitter } from './daemon-bridge.js';
 // Scheduler Bridge (new)
 export { SchedulerBridge } from './scheduler-bridge.js';
 
-// Scheduler Adapters (new)
-export { SchedulerRepositoryAdapter } from './scheduler-repository-adapter.js';
-export { ExecutionEngineAdapter } from './execution-engine-adapter.js';
+// Scheduler compatibility surfaces
+export {
+  ExecutionEngineAdapter,
+  SchedulerRepositoryAdapter,
+} from '../../scheduler/composition/index.js';
 export { LocalExecutionAdapter } from '../../runtime/execution-boundary/index.js';
 
 // Scheduler Factory (new)
