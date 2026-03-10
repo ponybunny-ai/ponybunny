@@ -18,10 +18,12 @@ import type { ExecutionRunner } from '../../../runtime/execution-boundary/execut
 import {
   LocalExecutionToolPolicyPreparer,
   LocalExecutionToolPolicyFinalizer,
+  LocalExecutionRunCompletionFinalizer,
   LocalExecutionCycleRuntimeFactory,
   LocalExecutionResourcePreparer,
   type ExecutionToolPolicyPreparer,
   type ExecutionToolPolicyFinalizer,
+  type ExecutionRunCompletionFinalizer,
   type ExecutionResourcePreparer,
   type ExecutionCycleRunner,
   type ExecutionCycleRuntimeFactory,
@@ -33,6 +35,7 @@ interface ExecutionServiceRuntimeDeps {
   executionCycleRuntimeFactory?: ExecutionCycleRuntimeFactory;
   executionToolPolicyPreparer?: ExecutionToolPolicyPreparer;
   executionToolPolicyFinalizer?: ExecutionToolPolicyFinalizer;
+  executionRunCompletionFinalizer?: ExecutionRunCompletionFinalizer;
   executionResourcePreparer?: ExecutionResourcePreparer;
 }
 
@@ -45,6 +48,7 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
   private executionCycleRunner: ExecutionCycleRunner;
   private executionToolPolicyPreparer: ExecutionToolPolicyPreparer;
   private executionToolPolicyFinalizer: ExecutionToolPolicyFinalizer;
+  private executionRunCompletionFinalizer: ExecutionRunCompletionFinalizer;
   private executionResourcePreparer: ExecutionResourcePreparer;
   private mcpInitialized = false;
 
@@ -71,6 +75,8 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
       });
     this.executionToolPolicyFinalizer = runtimeDeps.executionToolPolicyFinalizer
       ?? new LocalExecutionToolPolicyFinalizer();
+    this.executionRunCompletionFinalizer = runtimeDeps.executionRunCompletionFinalizer
+      ?? new LocalExecutionRunCompletionFinalizer();
     this.executionResourcePreparer = runtimeDeps.executionResourcePreparer
       ?? new LocalExecutionResourcePreparer({
         skillRegistry: this.skillRegistry,
@@ -311,21 +317,15 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
       routeContext,
     });
 
-    this.repository.completeRun(run.id, {
-      status: agentResult.success ? 'success' : 'failure',
-      error_message: agentResult.error,
-      tokens_used: agentResult.tokensUsed,
-      time_seconds: timeSeconds,
-      cost_usd: agentResult.costUsd,
-      artifacts: agentResult.artifactIds || [],
-      execution_log: executionLog,
-      context: {
-        selected_model: workItem.context?.selected_model,
-        requested_model: workItem.context?.model,
-        actual_model: agentResult.actualModel,
-        endpoint_id: agentResult.endpointId,
-      },
+    const runCompletion = this.executionRunCompletionFinalizer.buildRunCompletion({
+      executionResult: agentResult,
+      executionLog,
+      timeSeconds,
+      selectedModel: workItem.context?.selected_model,
+      requestedModel: workItem.context?.model,
     });
+
+    this.repository.completeRun(run.id, runCompletion);
 
     this.executionToolPolicyFinalizer.persistDecision(this.repository, {
       run,
@@ -334,16 +334,12 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
       routeContext,
     });
 
-    try {
-      this.repository.updateGoalSpending(
-        workItem.goal_id,
-        agentResult.tokensUsed,
-        Math.ceil(timeSeconds / 60),
-        agentResult.costUsd
-      );
-    } catch (error) {
-      console.warn('[ExecutionService] Failed to update goal spending after run completion:', error);
-    }
+    this.executionRunCompletionFinalizer.persistGoalSpending(this.repository, {
+      goalId: workItem.goal_id,
+      tokensUsed: agentResult.tokensUsed,
+      timeSeconds,
+      costUsd: agentResult.costUsd,
+    });
 
     const persistedRun = this.repository.getRun(run.id) ?? run;
     const needsRetry = !agentResult.success && !this.shouldEscalateError(workItem);

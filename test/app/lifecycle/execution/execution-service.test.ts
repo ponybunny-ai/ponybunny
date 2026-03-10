@@ -6,6 +6,7 @@ import { ExecutionService } from '../../../../src/app/lifecycle/execution/execut
 import type {
   ExecutionCycleRunner,
   ExecutionResourcePreparer,
+  ExecutionRunCompletionFinalizer,
   ExecutionToolPolicyPreparer,
   ExecutionToolPolicyFinalizer,
   ExecutionCycleRuntimeFactory,
@@ -546,6 +547,96 @@ describe('ExecutionService per-work-item tool allowlist', () => {
       })
     );
     expect(result.success).toBe(true);
+  });
+
+  it('uses the narrow execution run completion finalizer seam for post-cycle completion assembly and goal spending follow-up', async () => {
+    const goal = createGoal('goal-run-completion-finalizer');
+    const repository = createRepository(goal);
+    const executionCycleRunner: ExecutionCycleRunner = {
+      executeCycle: jest.fn().mockResolvedValue({
+        success: true,
+        tokensUsed: 9,
+        costUsd: 0.18,
+        actualModel: 'completion-model',
+        endpointId: 'completion-endpoint',
+        artifactIds: ['artifact-1'],
+        log: 'completion seam cycle log',
+      }),
+    };
+    const executionRunCompletionFinalizer: ExecutionRunCompletionFinalizer = {
+      buildRunCompletion: jest.fn(({ executionLog, timeSeconds }) => ({
+        status: 'success',
+        error_message: undefined,
+        tokens_used: 9,
+        time_seconds: timeSeconds,
+        cost_usd: 0.18,
+        artifacts: ['artifact-1'],
+        execution_log: `completed::${executionLog}`,
+        context: {
+          selected_model: 'selected-for-test',
+          requested_model: 'requested-for-test',
+          actual_model: 'completion-model',
+          endpoint_id: 'completion-endpoint',
+        },
+      })),
+      persistGoalSpending: jest.fn(),
+    };
+
+    const service = new ExecutionService(
+      repository,
+      { maxConsecutiveErrors: 3 },
+      undefined,
+      {
+        executionCycleRunner,
+        executionRunCompletionFinalizer,
+      }
+    );
+
+    const workItem = createWorkItem({
+      id: 'work-item-run-completion-finalizer',
+      goal_id: goal.id,
+      context: {
+        selected_model: 'selected-for-test',
+        model: 'requested-for-test',
+      },
+    });
+
+    const result = await service.executeWorkItem(workItem);
+
+    expect(executionRunCompletionFinalizer.buildRunCompletion).toHaveBeenCalledWith({
+      executionResult: expect.objectContaining({
+        success: true,
+        tokensUsed: 9,
+        costUsd: 0.18,
+        actualModel: 'completion-model',
+        endpointId: 'completion-endpoint',
+        artifactIds: ['artifact-1'],
+        log: 'completion seam cycle log',
+      }),
+      executionLog: expect.stringContaining('completion seam cycle log'),
+      timeSeconds: expect.any(Number),
+      selectedModel: 'selected-for-test',
+      requestedModel: 'requested-for-test',
+    });
+    expect((repository as unknown as { completeRun: jest.Mock }).completeRun).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        execution_log: expect.stringContaining('completed::'),
+        context: expect.objectContaining({
+          selected_model: 'selected-for-test',
+          requested_model: 'requested-for-test',
+          actual_model: 'completion-model',
+          endpoint_id: 'completion-endpoint',
+        }),
+      })
+    );
+    expect(executionRunCompletionFinalizer.persistGoalSpending).toHaveBeenCalledWith(repository, {
+      goalId: goal.id,
+      tokensUsed: 9,
+      timeSeconds: expect.any(Number),
+      costUsd: 0.18,
+    });
+    expect(result.run.execution_log).toContain('completed::');
   });
 
   it('keeps tool permissions isolated across concurrent runs', async () => {

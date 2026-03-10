@@ -18,6 +18,11 @@ export type {
   ExecutionToolPolicyLogParams,
 } from './execution-tool-policy-finalizer.js';
 export type {
+  ExecutionGoalSpendingUpdateParams,
+  ExecutionRunCompletionFinalizer,
+  ExecutionRunCompletionParams,
+} from './execution-run-completion-finalizer.js';
+export type {
   ExecutionResourcePreparer,
   PreparedExecutionResources,
 } from './execution-resource-preparer.js';
@@ -28,6 +33,7 @@ export type {
 } from './execution-runner.js';
 export { LocalExecutionCycleRuntimeFactory } from './local-execution-cycle-runtime-factory.js';
 export { LocalExecutionCycleRunner } from './local-execution-cycle-runner.js';
+export { LocalExecutionRunCompletionFinalizer } from './local-execution-run-completion-finalizer.js';
 export { LocalExecutionResourcePreparer } from './local-execution-resource-preparer.js';
 export { LocalExecutionToolPolicyFinalizer } from './local-execution-tool-policy-finalizer.js';
 export { LocalExecutionToolPolicyPreparer } from './local-execution-tool-policy-preparer.js';
