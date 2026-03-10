@@ -36,10 +36,9 @@ import { registerApprovalHandlers } from './rpc/handlers/approval-handlers.js';
 import { registerDebugHandlers } from './rpc/handlers/debug-handlers.js';
 import { registerConversationHandlers } from './rpc/handlers/conversation-handlers.js';
 import { registerAuditHandlers } from './rpc/handlers/audit-handlers.js';
-import { registerSystemHandlers } from './rpc/handlers/system-handlers.js';
-import { registerInternalRuntimeHandlers } from './rpc/handlers/internal-runtime-handlers.js';
 import { GatewayRuntimeRolloutCoordinator } from './runtime/gateway-runtime-rollout-coordinator.js';
 import { GatewaySchedulerEventAuditObserver } from './runtime/gateway-scheduler-event-audit-observer.js';
+import { GatewayRuntimeRpcSurface } from './runtime/gateway-runtime-rpc-surface.js';
 import { GatewayToolProviderRuntime } from './runtime/gateway-tool-provider-runtime.js';
 import { DebugEventAdapter } from '../runtime/event-bus/adapters/debug-event-adapter.js';
 import { GatewayEventAdapter } from '../runtime/event-bus/adapters/gateway-event-adapter.js';
@@ -125,6 +124,7 @@ export class GatewayServer {
 
   private isRunning = false;
   private runtimeRolloutCoordinator: GatewayRuntimeRolloutCoordinator;
+  private runtimeRpcSurface: GatewayRuntimeRpcSurface;
   private schedulerEventAuditObserver: GatewaySchedulerEventAuditObserver;
 
   constructor(
@@ -232,6 +232,19 @@ export class GatewayServer {
     this.toolRegistry = this.toolProviderRuntime.toolRegistry;
     this.toolAllowlist = this.toolProviderRuntime.toolAllowlist;
     this.toolEnforcer = this.toolProviderRuntime.toolEnforcer;
+    this.runtimeRpcSurface = new GatewayRuntimeRpcSurface({
+      rpcHandler: this.rpcHandler,
+      repository: this.repository,
+      getIsRunning: () => this.isRunning,
+      connectionManager: this.connectionManager,
+      channelRuntime: this.channelRuntime,
+      daemonAttachment: this.daemonAttachment,
+      schedulerBridge: this.schedulerBridge,
+      getScheduler: () => this.scheduler,
+      ipcBridge: this.ipcBridge,
+      runtimeRolloutCoordinator: this.runtimeRolloutCoordinator,
+      toolRegistry: this.toolRegistry,
+    });
 
     if (this.enableConfigWatch) {
       this.configureConfigWatcher();
@@ -287,78 +300,7 @@ export class GatewayServer {
 
     registerAuditHandlers(this.rpcHandler, this.auditService, this.auditRepository);
 
-    registerSystemHandlers(
-      this.rpcHandler,
-      () => this.connectionManager,
-      () => this.scheduler,
-      () => this.channelRouter,
-      () => this.channelRuntime.getStoredEvents(),
-      () => this.getGatewayStatusSnapshot(),
-      () => this.channelRuntime.getAdapterStatuses(),
-      undefined,
-      async () => {
-        await this.channelRuntime.applyEnabledChannels('channel-toggle', 'channel-router');
-      },
-      () => this.toolRegistry,
-      {
-        getRuntimeRolloutMetrics: () => this.runtimeRolloutCoordinator.getMetricsSnapshot(),
-        getSessionGoalCoverage: () => this.runtimeRolloutCoordinator.collectSessionGoalCoverage(),
-        applyRuntimeRollout: async (rollout) => this.runtimeRolloutCoordinator.applyRuntimeRolloutUpdate(rollout),
-        setAgentModelOverride: async ({ agentId, model }) => {
-          if (!this.ipcBridge.isSchedulerDaemonConnected()) {
-            throw new Error('Scheduler daemon is not connected');
-          }
-          return this.ipcBridge.setAgentModelOverride({ agentId, model });
-        },
-        getAgentModelOverride: async ({ agentId }) => {
-          if (!this.ipcBridge.isSchedulerDaemonConnected()) {
-            const runtime = loadRuntimeConfig();
-            const stored = runtime.agent.modelOverrides?.[agentId];
-            return {
-              agentId,
-              model: typeof stored === 'string' && stored.trim().length > 0 && stored.trim().toLowerCase() !== 'auto'
-                ? stored.trim()
-                : null,
-            };
-          }
-          return this.ipcBridge.getAgentModelOverride({ agentId });
-        },
-      },
-      () => this.ipcBridge.getRealtimeMetrics(),
-      async (params) => {
-        this.channelRuntime.applyChannelRoutingUpdate(params);
-        if (params.adapterConfigs) {
-          await this.channelRuntime.updateAdapterConfigs(params.adapterConfigs);
-        }
-      }
-    );
-
-    registerInternalRuntimeHandlers(
-      this.rpcHandler,
-      this.repository,
-      () => {
-        const runtime = loadRuntimeConfig();
-        return {
-          deterministicRuntimeEnabled: runtime.scheduler.deterministicRuntimeEnabled,
-          planCompilerEnabled: runtime.scheduler.planCompilerEnabled,
-          toolRoutingMode: runtime.scheduler.toolRoutingMode,
-          runtimeRollout: runtime.scheduler.runtimeRollout,
-          agent: {
-            mainAgentId: runtime.agent.mainAgentId,
-          },
-          tui: {
-            inputBackgroundColor: runtime.tui.inputBackgroundColor,
-            sessionFirstEnabled: runtime.tui.sessionFirstEnabled,
-            goalSubmitFastPathEnabled: runtime.tui.goalSubmitFastPathEnabled,
-          },
-        };
-      },
-      () => this.toolRegistry,
-      undefined,
-      {
-        onDryRunComplete: (sample) => this.runtimeRolloutCoordinator.handleDryRunComplete(sample),
-      }
-    );
+    this.runtimeRpcSurface.register();
 
     this.rpcHandler.register('system.ping', [], async () => ({ pong: Date.now() }));
     this.rpcHandler.register('system.methods', ['read'], async (_, session) => ({
@@ -554,17 +496,7 @@ export class GatewayServer {
     daemonConnected: boolean;
     schedulerConnected: boolean;
   } {
-    const daemonOperationState = this.daemonAttachment.getOperationState();
-    const daemonAttachment = daemonOperationState.attachment.status;
-    const schedulerConnected = this.schedulerBridge.isConnected();
-
-    return {
-      isRunning: this.isRunning,
-      daemonAttachment,
-      daemonDetach: daemonOperationState.detach,
-      daemonConnected: daemonAttachment.connected,
-      schedulerConnected,
-    };
+    return this.runtimeRpcSurface.getGatewayStatusSnapshot();
   }
 
   private buildRuntimeLifecycleDependencies(): GatewayServerRuntimeLifecycleDependencies {
