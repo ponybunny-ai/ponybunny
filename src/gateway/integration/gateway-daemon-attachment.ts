@@ -1,14 +1,13 @@
 import type { IDaemonEventEmitter } from '../../autonomy/daemon-event-emitter.js';
 import type { EventBus } from '../events/event-bus.js';
 import { registerDaemonEventForwarders } from './daemon-event-forwarding.js';
+import {
+  GatewayDaemonLifecycle,
+  type GatewayDaemonAttachmentPhase,
+  type GatewayDaemonAttachmentStatus,
+} from './gateway-daemon-lifecycle.js';
 
-export type GatewayDaemonAttachmentPhase = 'detached' | 'attached';
-
-export interface GatewayDaemonAttachmentStatus {
-  phase: GatewayDaemonAttachmentPhase;
-  connected: boolean;
-  connectedAt: number | null;
-}
+export type { GatewayDaemonAttachmentPhase, GatewayDaemonAttachmentStatus };
 
 export interface GatewayDaemonAttachmentSurface {
   connect(daemon: IDaemonEventEmitter): void;
@@ -22,35 +21,27 @@ export interface GatewayDaemonAttachmentSurface {
  * forwarding registration out of daemon-owned runtime modules.
  */
 export class GatewayDaemonAttachment implements GatewayDaemonAttachmentSurface {
-  private status: GatewayDaemonAttachmentStatus = {
-    phase: 'detached',
-    connected: false,
-    connectedAt: null,
-  };
+  private readonly lifecycle = new GatewayDaemonLifecycle();
 
   constructor(private readonly eventBus: EventBus) {}
 
   connect(daemon: IDaemonEventEmitter): void {
-    if (this.status.connected) {
-      console.warn('[DaemonBridge] Already connected to a daemon');
+    if (this.lifecycle.hasAttachedDaemon()) {
+      console.warn('[GatewayDaemonAttachment] Already connected to a daemon');
       return;
     }
 
     registerDaemonEventForwarders(this.eventBus, daemon);
-    this.status = {
-      phase: 'attached',
-      connected: true,
-      connectedAt: Date.now(),
-    };
-    console.log('[DaemonBridge] Connected to daemon');
+    this.lifecycle.attach(daemon);
+    console.log('[GatewayDaemonAttachment] Connected to daemon');
   }
 
   isConnected(): boolean {
-    return this.status.connected;
+    return this.lifecycle.hasAttachedDaemon();
   }
 
   getStatus(): GatewayDaemonAttachmentStatus {
-    return { ...this.status };
+    return this.lifecycle.getStatus();
   }
 
   emit(event: string, data: unknown): void {

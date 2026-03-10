@@ -117,7 +117,7 @@ describe('GatewayDaemonAttachment', () => {
     attachment.connect(daemon);
     attachment.connect(daemon);
 
-    expect(warnSpy).toHaveBeenCalledWith('[DaemonBridge] Already connected to a daemon');
+    expect(warnSpy).toHaveBeenCalledWith('[GatewayDaemonAttachment] Already connected to a daemon');
     warnSpy.mockRestore();
   });
 
