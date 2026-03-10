@@ -1,4 +1,4 @@
-# PonyBunny Refactor Master Task List
+| RF-033 | Import-cycle cleanup | Break major cross-layer import cycles in `src/` | in_progress | medium | RF-032 | 59 | Session 59 completed the first focused discovery/design review in `docs/refactoring/session59-import-cycle-cleanup-discovery-review.md`: the highest-value current target is the execution/runtime ownership knot centered on `LocalExecutionAdapter` -> `ExecutionService` -> `ReActIntegration`/runtime worker composition, the deterministic-runtime/persistence pair remains a smaller true import cycle, and Session 60 should first extract a narrow runtime-facing execution runner boundary without changing gateway behavior, IPC, worker seams, transport ownership, or durable ownership. |# PonyBunny Refactor Master Task List
 
 Status values:
 - `done`
