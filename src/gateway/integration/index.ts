@@ -9,6 +9,10 @@ export {
   GatewayDaemonAttachment,
   type GatewayDaemonAttachmentPhase,
   type GatewayDaemonAttachmentStatus,
+  type GatewayDaemonDetachPhase,
+  type GatewayDaemonDetachStatus,
+  type GatewayDaemonDetachSurface,
+  type GatewayDaemonOperationState,
   type GatewayDaemonAttachmentSurface,
 } from './gateway-daemon-attachment.js';
 

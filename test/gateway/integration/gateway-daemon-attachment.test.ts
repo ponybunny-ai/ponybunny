@@ -128,6 +128,12 @@ describe('GatewayDaemonAttachment', () => {
       connected: false,
       connectedAt: null,
     });
+    expect(attachment.getDetachStatus()).toEqual({
+      phase: 'idle',
+      attached: false,
+      detachSupported: false,
+      unsubscribeSupported: false,
+    });
 
     attachment.connect(daemon);
     attachment.emit('test.event', { ok: true });
@@ -137,6 +143,28 @@ describe('GatewayDaemonAttachment', () => {
       phase: 'attached',
       connected: true,
       connectedAt: expect.any(Number),
+    });
+    expect(attachment.getDetachStatus()).toEqual({
+      phase: 'attached-awaiting-daemon-unsubscribe',
+      attached: true,
+      detachSupported: false,
+      unsubscribeSupported: false,
+    });
+    expect(attachment.getOperationState()).toEqual({
+      attachment: {
+        daemon,
+        status: {
+          phase: 'attached',
+          connected: true,
+          connectedAt: expect.any(Number),
+        },
+      },
+      detach: {
+        phase: 'attached-awaiting-daemon-unsubscribe',
+        attached: true,
+        detachSupported: false,
+        unsubscribeSupported: false,
+      },
     });
     expect(mockEventBus.emit).toHaveBeenLastCalledWith('test.event', { ok: true });
   });

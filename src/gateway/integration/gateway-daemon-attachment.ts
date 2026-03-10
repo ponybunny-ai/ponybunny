@@ -6,8 +6,21 @@ import {
   type GatewayDaemonAttachmentPhase,
   type GatewayDaemonAttachmentStatus,
 } from './gateway-daemon-lifecycle.js';
+import {
+  getGatewayDaemonDetachStatus,
+  getGatewayDaemonOperationState,
+  type GatewayDaemonDetachStatus,
+  type GatewayDaemonDetachSurface,
+  type GatewayDaemonOperationState,
+} from './gateway-daemon-detach-operations.js';
 
 export type { GatewayDaemonAttachmentPhase, GatewayDaemonAttachmentStatus };
+export type {
+  GatewayDaemonDetachPhase,
+  GatewayDaemonDetachStatus,
+  GatewayDaemonDetachSurface,
+  GatewayDaemonOperationState,
+} from './gateway-daemon-detach-operations.js';
 
 export interface GatewayDaemonAttachmentSurface {
   connect(daemon: IDaemonEventEmitter): void;
@@ -20,7 +33,8 @@ export interface GatewayDaemonAttachmentSurface {
  * gateway event bus. This keeps transport-facing attachment state and
  * forwarding registration out of daemon-owned runtime modules.
  */
-export class GatewayDaemonAttachment implements GatewayDaemonAttachmentSurface {
+export class GatewayDaemonAttachment
+implements GatewayDaemonAttachmentSurface, GatewayDaemonDetachSurface {
   private readonly lifecycle = new GatewayDaemonLifecycle();
 
   constructor(private readonly eventBus: EventBus) {}
@@ -42,6 +56,14 @@ export class GatewayDaemonAttachment implements GatewayDaemonAttachmentSurface {
 
   getStatus(): GatewayDaemonAttachmentStatus {
     return this.lifecycle.getStatus();
+  }
+
+  getDetachStatus(): GatewayDaemonDetachStatus {
+    return getGatewayDaemonDetachStatus(this.getStatus());
+  }
+
+  getOperationState(): GatewayDaemonOperationState {
+    return getGatewayDaemonOperationState(this.lifecycle);
   }
 
   emit(event: string, data: unknown): void {

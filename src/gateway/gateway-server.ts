@@ -40,6 +40,7 @@ import { RpcHandler } from './rpc/rpc-handler.js';
 import {
   GatewayDaemonAttachment,
   type GatewayDaemonAttachmentStatus,
+  type GatewayDaemonDetachStatus,
 } from './integration/gateway-daemon-attachment.js';
 import { SchedulerBridge } from './integration/scheduler-bridge.js';
 import { IPCBridge } from './integration/ipc-bridge.js';
@@ -924,15 +925,18 @@ export class GatewayServer {
   private getGatewayStatusSnapshot(): {
     isRunning: boolean;
     daemonAttachment: GatewayDaemonAttachmentStatus;
+    daemonDetach: GatewayDaemonDetachStatus;
     daemonConnected: boolean;
     schedulerConnected: boolean;
   } {
-    const daemonAttachment = this.daemonAttachment.getStatus();
+    const daemonOperationState = this.daemonAttachment.getOperationState();
+    const daemonAttachment = daemonOperationState.attachment.status;
     const schedulerConnected = this.schedulerBridge.isConnected();
 
     return {
       isRunning: this.isRunning,
       daemonAttachment,
+      daemonDetach: daemonOperationState.detach,
       daemonConnected: daemonAttachment.connected,
       schedulerConnected,
     };
