@@ -889,6 +889,7 @@ async function runScheduler(
         mainAgentId,
         personaEnabled,
         memoryDb,
+        runtimeToolingContext: executionService.getRuntimeToolingContext(),
       }
     );
 

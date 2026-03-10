@@ -33,19 +33,6 @@ import { getRuntimeConfigPath, loadRuntimeConfig, saveRuntimeConfig } from '../i
 import type { EventedStartupReconciliationSummary } from '../scheduler/evented-dispatch-checkpoint.js';
 import { reconcileEventedStartupCandidates } from './evented-startup-reconciliation.js';
 
-function getRuntimeToolingContext(
-  executionService: IExecutionService
-): RuntimeToolingContext | undefined {
-  if (!('getRuntimeToolingContext' in executionService)) {
-    return undefined;
-  }
-
-  const candidate = executionService as IExecutionService & {
-    getRuntimeToolingContext: () => RuntimeToolingContext;
-  };
-  return candidate.getRuntimeToolingContext();
-}
-
 export interface SchedulerDaemonConfig {
   /** Path to Gateway IPC socket */
   ipcSocketPath: string;
@@ -84,6 +71,7 @@ export interface SchedulerDaemonConfig {
   mainAgentId?: string;
   personaEnabled?: boolean;
   memoryDb?: Database.Database;
+  runtimeToolingContext?: RuntimeToolingContext;
 }
 
 function resolveMainAgentId(configuredId: string | undefined, availableIds: string[]): string | null {
@@ -203,29 +191,7 @@ export class SchedulerDaemon {
 
       await this.startControlServer();
 
-      if (this.memoryDb) {
-        this.sessionIntake = new SchedulerSessionIntake({
-          repository: this.repository,
-          memoryDb: this.memoryDb,
-          llmService: getLLMService(),
-          runtimeToolingContext: getRuntimeToolingContext(this.executionService),
-          schedulerProvider: () => this.scheduler,
-          publishSessionEvent: async (event) => {
-            await this.ipcClient.send({
-              type: 'session_event',
-              timestamp: Date.now(),
-              data: {
-                event: event.event,
-                gatewaySessionId: event.gatewaySessionId,
-                sessionId: event.sessionId,
-                payload: event.payload,
-              },
-            });
-          },
-        });
-      } else {
-        console.warn('[SchedulerDaemon] Session intake disabled: memoryDb not configured');
-      }
+      this.sessionIntake = this.createSessionIntake();
 
       // Create scheduler with all dependencies
       const schedulerTickIntervalMs = this.config.tickIntervalMs ?? 1000;
@@ -416,6 +382,33 @@ export class SchedulerDaemon {
    */
   getScheduler(): SchedulerCore | null {
     return this.scheduler;
+  }
+
+  private createSessionIntake(): SchedulerSessionIntake | null {
+    if (!this.memoryDb) {
+      console.warn('[SchedulerDaemon] Session intake disabled: memoryDb not configured');
+      return null;
+    }
+
+    return new SchedulerSessionIntake({
+      repository: this.repository,
+      memoryDb: this.memoryDb,
+      llmService: getLLMService(),
+      runtimeToolingContext: this.config.runtimeToolingContext,
+      schedulerProvider: () => this.scheduler,
+      publishSessionEvent: async (event) => {
+        await this.ipcClient.send({
+          type: 'session_event',
+          timestamp: Date.now(),
+          data: {
+            event: event.event,
+            gatewaySessionId: event.gatewaySessionId,
+            sessionId: event.sessionId,
+            payload: event.payload,
+          },
+        });
+      },
+    });
   }
 
   /**
