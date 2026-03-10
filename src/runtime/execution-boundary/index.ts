@@ -13,6 +13,11 @@ export type {
   PreparedExecutionToolPolicy,
 } from './execution-tool-policy-preparer.js';
 export type {
+  ExecutionToolPolicyDecisionParams,
+  ExecutionToolPolicyFinalizer,
+  ExecutionToolPolicyLogParams,
+} from './execution-tool-policy-finalizer.js';
+export type {
   ExecutionResourcePreparer,
   PreparedExecutionResources,
 } from './execution-resource-preparer.js';
@@ -24,6 +29,7 @@ export type {
 export { LocalExecutionCycleRuntimeFactory } from './local-execution-cycle-runtime-factory.js';
 export { LocalExecutionCycleRunner } from './local-execution-cycle-runner.js';
 export { LocalExecutionResourcePreparer } from './local-execution-resource-preparer.js';
+export { LocalExecutionToolPolicyFinalizer } from './local-execution-tool-policy-finalizer.js';
 export { LocalExecutionToolPolicyPreparer } from './local-execution-tool-policy-preparer.js';
 export type {
   ExecutionPort,

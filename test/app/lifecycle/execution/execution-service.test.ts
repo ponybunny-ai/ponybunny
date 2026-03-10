@@ -7,6 +7,7 @@ import type {
   ExecutionCycleRunner,
   ExecutionResourcePreparer,
   ExecutionToolPolicyPreparer,
+  ExecutionToolPolicyFinalizer,
   ExecutionCycleRuntimeFactory,
 } from '../../../../src/runtime/execution-boundary/index.js';
 import type { ToolPolicyAuditSnapshot } from '../../../../src/infra/tools/tool-registry.js';
@@ -395,6 +396,101 @@ describe('ExecutionService per-work-item tool allowlist', () => {
         }),
       })
     );
+  });
+
+  it('uses the narrow execution tool policy finalizer seam for post-cycle policy logging and persistence', async () => {
+    const goal = createGoal('goal-tool-policy-finalizer');
+    const repository = createRepository(goal);
+    const executionCycleRunner: ExecutionCycleRunner = {
+      executeCycle: jest.fn().mockResolvedValue({
+        success: true,
+        tokensUsed: 6,
+        costUsd: 0.12,
+        actualModel: 'finalizer-model',
+        endpointId: 'finalizer-endpoint',
+        log: 'cycle log before finalization',
+      }),
+    };
+    const policyAudit: ToolPolicyAuditSnapshot = {
+      baselineAllowedTools: ['read_file', 'write_file'],
+      effectiveAllowedTools: ['read_file'],
+      deniedTools: [{ tool: 'write_file', reason: 'global deny policy' }],
+      appliedLayers: ['global'],
+      policyContext: {
+        providerId: 'openai/gpt-5.3-codex',
+      },
+      hasLayeredPolicy: true,
+    };
+    const executionToolPolicyPreparer: ExecutionToolPolicyPreparer = {
+      prepareForWorkItem: jest.fn(() => ({
+        toolEnforcer: {} as any,
+        policyAudit,
+      })),
+    };
+    const executionToolPolicyFinalizer: ExecutionToolPolicyFinalizer = {
+      buildExecutionLog: jest.fn(({ executionLog }) => `finalized::${executionLog}`),
+      buildDecision: jest.fn(() => ({
+        run_id: 'ignored-build-decision-run',
+        work_item_id: 'ignored-build-decision-work-item',
+        goal_id: goal.id,
+        decision_type: 'tool',
+        decision_point: 'tool_policy_resolution',
+        options_considered: [],
+        selected_option: 'layered_policy_applied',
+        reasoning: 'built in test',
+      })),
+      persistDecision: jest.fn(),
+    };
+
+    const service = new ExecutionService(
+      repository,
+      { maxConsecutiveErrors: 3 },
+      undefined,
+      {
+        executionCycleRunner,
+        executionToolPolicyPreparer,
+        executionToolPolicyFinalizer,
+      }
+    );
+
+    const workItem = createWorkItem({
+      id: 'work-item-tool-policy-finalizer',
+      goal_id: goal.id,
+      context: {
+        routeContext: {
+          source: 'gateway.message',
+          providerId: 'openai/gpt-5.3-codex',
+        },
+      },
+    });
+
+    const result = await service.executeWorkItem(workItem);
+
+    expect(executionToolPolicyFinalizer.buildExecutionLog).toHaveBeenCalledWith({
+      executionLog: 'cycle log before finalization',
+      policyAudit,
+      routeContext: expect.objectContaining({
+        source: 'gateway.message',
+        providerId: 'openai/gpt-5.3-codex',
+      }),
+    });
+    expect(executionToolPolicyFinalizer.persistDecision).toHaveBeenCalledWith(
+      repository,
+      expect.objectContaining({
+        run: expect.objectContaining({
+          work_item_id: workItem.id,
+          goal_id: goal.id,
+        }),
+        workItem,
+        policyAudit,
+        routeContext: expect.objectContaining({
+          source: 'gateway.message',
+          providerId: 'openai/gpt-5.3-codex',
+        }),
+      })
+    );
+    expect(result.run.execution_log).toBe('finalized::cycle log before finalization');
+    expect((repository as unknown as { createDecision: jest.Mock }).createDecision).not.toHaveBeenCalled();
   });
 
   it('uses the narrow execution resource preparer seam before run creation and cycle entry', async () => {

@@ -1,4 +1,4 @@
-import type { WorkItem, Run } from '../../../work-order/types/index.js';
+import type { WorkItem } from '../../../work-order/types/index.js';
 import type { IWorkOrderRepository } from '../../../infra/persistence/repository-interface.js';
 import type { IExecutionService, ExecutionResult } from '../stage-interfaces.js';
 import type { ILLMProvider } from '../../../infra/llm/llm-provider.js';
@@ -17,9 +17,11 @@ import { getManagedSkillsDir } from '../../../infra/config/config-paths.js';
 import type { ExecutionRunner } from '../../../runtime/execution-boundary/execution-runner.js';
 import {
   LocalExecutionToolPolicyPreparer,
+  LocalExecutionToolPolicyFinalizer,
   LocalExecutionCycleRuntimeFactory,
   LocalExecutionResourcePreparer,
   type ExecutionToolPolicyPreparer,
+  type ExecutionToolPolicyFinalizer,
   type ExecutionResourcePreparer,
   type ExecutionCycleRunner,
   type ExecutionCycleRuntimeFactory,
@@ -30,6 +32,7 @@ interface ExecutionServiceRuntimeDeps {
   executionCycleRunner?: ExecutionCycleRunner;
   executionCycleRuntimeFactory?: ExecutionCycleRuntimeFactory;
   executionToolPolicyPreparer?: ExecutionToolPolicyPreparer;
+  executionToolPolicyFinalizer?: ExecutionToolPolicyFinalizer;
   executionResourcePreparer?: ExecutionResourcePreparer;
 }
 
@@ -41,6 +44,7 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
   private runtimeToolingContext: RuntimeToolingContext;
   private executionCycleRunner: ExecutionCycleRunner;
   private executionToolPolicyPreparer: ExecutionToolPolicyPreparer;
+  private executionToolPolicyFinalizer: ExecutionToolPolicyFinalizer;
   private executionResourcePreparer: ExecutionResourcePreparer;
   private mcpInitialized = false;
 
@@ -65,6 +69,8 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
         toolRegistry: this.toolRegistry,
         toolAllowlist: this.toolAllowlist,
       });
+    this.executionToolPolicyFinalizer = runtimeDeps.executionToolPolicyFinalizer
+      ?? new LocalExecutionToolPolicyFinalizer();
     this.executionResourcePreparer = runtimeDeps.executionResourcePreparer
       ?? new LocalExecutionResourcePreparer({
         skillRegistry: this.skillRegistry,
@@ -275,14 +281,19 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
         time_seconds: timeSeconds,
         cost_usd: 0,
         artifacts: [],
-        execution_log: this.buildExecutionLogWithPolicyAudit(
-          `Execution failed before completion: ${String(error)}`,
-          preparedToolPolicy?.policyAudit,
-          routeContext
-        ),
+        execution_log: this.executionToolPolicyFinalizer.buildExecutionLog({
+          executionLog: `Execution failed before completion: ${String(error)}`,
+          policyAudit: preparedToolPolicy?.policyAudit,
+          routeContext,
+        }),
       });
 
-      this.persistToolPolicyDecision(run, workItem, preparedToolPolicy?.policyAudit, routeContext);
+      this.executionToolPolicyFinalizer.persistDecision(this.repository, {
+        run,
+        workItem,
+        policyAudit: preparedToolPolicy?.policyAudit,
+        routeContext,
+      });
 
       return {
         run: this.repository.getRun(run.id)!,
@@ -294,11 +305,11 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
 
     const timeSeconds = Math.floor((Date.now() - startTime) / 1000);
 
-    const executionLog = this.buildExecutionLogWithPolicyAudit(
-      agentResult.log,
-      preparedToolPolicy?.policyAudit,
-      routeContext
-    );
+    const executionLog = this.executionToolPolicyFinalizer.buildExecutionLog({
+      executionLog: agentResult.log,
+      policyAudit: preparedToolPolicy?.policyAudit,
+      routeContext,
+    });
 
     this.repository.completeRun(run.id, {
       status: agentResult.success ? 'success' : 'failure',
@@ -316,7 +327,12 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
       },
     });
 
-    this.persistToolPolicyDecision(run, workItem, preparedToolPolicy?.policyAudit, routeContext);
+    this.executionToolPolicyFinalizer.persistDecision(this.repository, {
+      run,
+      workItem,
+      policyAudit: preparedToolPolicy?.policyAudit,
+      routeContext,
+    });
 
     try {
       this.repository.updateGoalSpending(
@@ -407,73 +423,6 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
     };
   }
 
-  private buildExecutionLogWithPolicyAudit(
-    executionLog: string | undefined,
-    policyAudit: ToolPolicyAuditSnapshot | undefined,
-    routeContext: ReturnType<typeof routeContextFromWorkItemContext>
-  ): string {
-    const logs: string[] = [];
-
-    if (policyAudit) {
-      logs.push(
-        `[POLICY_AUDIT] layered=${policyAudit.hasLayeredPolicy} layers=${policyAudit.appliedLayers.join(',') || 'none'} baseline=${policyAudit.baselineAllowedTools.length} effective=${policyAudit.effectiveAllowedTools.length} denied=${policyAudit.deniedTools.length}`
-      );
-    }
-
-    if (routeContext) {
-      logs.push(
-        `[ROUTE_CONTEXT] source=${routeContext.source} provider=${routeContext.providerId || 'unspecified'} channel=${routeContext.channel || 'unspecified'} owner=${routeContext.senderIsOwner === true ? 'true' : 'false'} sandboxed=${routeContext.sandboxed === true ? 'true' : 'false'}`
-      );
-    }
-
-    if (executionLog && executionLog.trim().length > 0) {
-      logs.push(executionLog);
-    }
-
-    return logs.join('\n');
-  }
-
-  private persistToolPolicyDecision(
-    run: Run,
-    workItem: WorkItem,
-    policyAudit: ToolPolicyAuditSnapshot | undefined,
-    routeContext: ReturnType<typeof routeContextFromWorkItemContext>
-  ): void {
-    if (!policyAudit) {
-      return;
-    }
-
-    try {
-      this.repository.createDecision({
-        run_id: run.id,
-        work_item_id: workItem.id,
-        goal_id: workItem.goal_id,
-        decision_type: 'tool',
-        decision_point: 'tool_policy_resolution',
-        options_considered: [
-          {
-            label: 'baseline_allowlist',
-            description: `Baseline allowed tools: ${policyAudit.baselineAllowedTools.join(', ') || 'none'}`,
-          },
-          {
-            label: 'effective_tool_envelope',
-            description: `Effective tools after policy resolution: ${policyAudit.effectiveAllowedTools.join(', ') || 'none'}`,
-          },
-        ],
-        selected_option: policyAudit.hasLayeredPolicy ? 'layered_policy_applied' : 'allowlist_only',
-        reasoning:
-          `Applied layers: ${policyAudit.appliedLayers.join(' -> ') || 'none'}; ` +
-          `Denied tools: ${policyAudit.deniedTools.map((item) => `${item.tool}(${item.reason})`).join(', ') || 'none'}`,
-        metadata: {
-          policyAudit,
-          routeContext,
-        },
-      });
-    } catch (error) {
-      console.warn('[ExecutionService] Failed to persist tool policy decision:', error);
-    }
-  }
-
   private generateErrorSignature(error?: string): string | undefined {
     if (!error) return undefined;
 
@@ -496,7 +445,4 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
     return Math.abs(hash).toString(16);
   }
 
-  private getBoolean(value: unknown): boolean | undefined {
-    return typeof value === 'boolean' ? value : undefined;
-  }
 }
