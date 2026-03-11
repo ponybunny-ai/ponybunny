@@ -3,6 +3,9 @@
  *
  * Compatibility-only exports live in `src/gateway/compatibility.ts`. The
  * historical mixed gateway barrel remains at `src/gateway/index.ts`.
+ *
+ * Compatibility-only gateway event typing for legacy `task.*` client events is
+ * intentionally excluded from this live surface.
  */
 
 // Main server

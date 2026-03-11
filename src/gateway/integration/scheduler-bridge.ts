@@ -66,6 +66,9 @@ export class SchedulerBridge {
    * Handle a scheduler event and emit to gateway event bus
    */
   private handleSchedulerEvent(event: SchedulerEvent): void {
+    // The authoritative gateway/TUI transport protocol is `goal.*`,
+    // `workitem.*`, `run.*`, and `verification.*`. Legacy `task.*`
+    // compatibility events are intentionally not emitted here.
     switch (event.type) {
       case 'goal_started':
         this.eventBus.emit('goal.started', {

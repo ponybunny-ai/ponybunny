@@ -14,7 +14,7 @@ export class EventEmitter {
   }
 
   /**
-   * Emit an event to all connected clients
+   * Emit an authoritative live gateway event to all connected clients.
    */
   broadcast(event: GatewayEventType, data: unknown): number {
     const frame = this.createEventFrame(event, data);
@@ -22,7 +22,7 @@ export class EventEmitter {
   }
 
   /**
-   * Emit an event to clients with specific permission
+   * Emit an authoritative live gateway event to clients with specific permission.
    */
   broadcastToPermission(event: GatewayEventType, data: unknown, permission: 'read' | 'write' | 'admin'): number {
     const frame = this.createEventFrame(event, data);
@@ -30,7 +30,7 @@ export class EventEmitter {
   }
 
   /**
-   * Emit an event to clients subscribed to a specific goal
+   * Emit an authoritative live gateway event to clients subscribed to a specific goal.
    */
   emitToGoalSubscribers(goalId: string, event: GatewayEventType, data: unknown): number {
     const frame = this.createEventFrame(event, data);
@@ -46,7 +46,7 @@ export class EventEmitter {
   }
 
   /**
-   * Emit an event to a specific session
+   * Emit an authoritative live gateway event to a specific session.
    */
   emitToSession(sessionId: string, event: GatewayEventType, data: unknown): boolean {
     const frame = this.createEventFrame(event, data);
@@ -54,7 +54,7 @@ export class EventEmitter {
   }
 
   /**
-   * Emit an event to sessions matching a filter
+   * Emit an authoritative live gateway event to sessions matching a filter.
    */
   emitToFiltered(
     event: GatewayEventType,

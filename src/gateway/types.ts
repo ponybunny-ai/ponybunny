@@ -129,6 +129,13 @@ export interface RpcMethodDefinition {
 // Event Types
 // ============================================================================
 
+/**
+ * Authoritative live gateway event protocol.
+ *
+ * Legacy gateway-facing `task.*` compatibility events are intentionally kept
+ * separate below so the live public surface reflects the protocol that current
+ * producers actually emit.
+ */
 export type GatewayEventType =
   | 'goal.created'
   | 'goal.started'
@@ -165,16 +172,42 @@ export type GatewayEventType =
   | 'conversation.resumed'
   | 'channel.adapter.config.updated'
   | 'channel.adapter.status.updated'
-  | 'task.narration'
-  | 'task.result'
   // LLM streaming events
   | 'llm.stream.start'
   | 'llm.stream.chunk'
   | 'llm.stream.end'
   | 'llm.stream.error';
 
+/**
+ * Compatibility-only gateway events retained for older clients.
+ *
+ * These are not part of the authoritative live gateway protocol.
+ */
+export type GatewayCompatibilityEventType =
+  | 'task.narration'
+  | 'task.result';
+
+export type AnyGatewayEventType = GatewayEventType | GatewayCompatibilityEventType;
+
+const GATEWAY_COMPATIBILITY_EVENT_TYPE_SET = new Set<GatewayCompatibilityEventType>([
+  'task.narration',
+  'task.result',
+]);
+
+export function isGatewayCompatibilityEventType(
+  eventType: string
+): eventType is GatewayCompatibilityEventType {
+  return GATEWAY_COMPATIBILITY_EVENT_TYPE_SET.has(eventType as GatewayCompatibilityEventType);
+}
+
 export interface GatewayEvent<T = unknown> {
   type: GatewayEventType;
+  timestamp: number;
+  data: T;
+}
+
+export interface GatewayCompatibilityEvent<T = unknown> {
+  type: GatewayCompatibilityEventType;
   timestamp: number;
   data: T;
 }
