@@ -1,5 +1,6 @@
 import { GatewayDaemonAttachment } from '../../../src/gateway/integration/gateway-daemon-attachment.js';
 import { DaemonEventEmitterMixin } from '../../../src/autonomy/daemon-event-emitter.js';
+import type { DaemonEventForwardingBinding } from '../../../src/gateway/integration/daemon-event-forwarding.js';
 import type { EventBus } from '../../../src/gateway/events/event-bus.js';
 import type {
   Goal,
@@ -167,5 +168,22 @@ describe('GatewayDaemonAttachment', () => {
       },
     });
     expect(mockEventBus.emit).toHaveBeenLastCalledWith('test.event', { ok: true });
+  });
+
+  it('retains the grouped forwarding binding as attachment-owned internal state', () => {
+    attachment.connect(daemon);
+
+    const internalState = attachment as unknown as {
+      forwardingBinding: DaemonEventForwardingBinding | null;
+    };
+
+    expect(internalState.forwardingBinding).not.toBeNull();
+    expect(typeof internalState.forwardingBinding?.release).toBe('function');
+    expect(attachment.getDetachStatus()).toEqual({
+      phase: 'attached-awaiting-daemon-unsubscribe',
+      attached: true,
+      detachSupported: false,
+      unsubscribeSupported: false,
+    });
   });
 });

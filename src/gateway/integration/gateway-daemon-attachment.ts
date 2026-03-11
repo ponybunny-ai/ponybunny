@@ -1,6 +1,9 @@
 import type { IDaemonEventEmitter } from '../../autonomy/daemon-event-emitter.js';
 import type { EventBus } from '../events/event-bus.js';
-import { registerDaemonEventForwarders } from './daemon-event-forwarding.js';
+import {
+  registerDaemonEventForwarders,
+  type DaemonEventForwardingBinding,
+} from './daemon-event-forwarding.js';
 import {
   GatewayDaemonLifecycle,
   type GatewayDaemonAttachmentPhase,
@@ -36,6 +39,7 @@ export interface GatewayDaemonAttachmentSurface {
 export class GatewayDaemonAttachment
 implements GatewayDaemonAttachmentSurface, GatewayDaemonDetachSurface {
   private readonly lifecycle = new GatewayDaemonLifecycle();
+  private forwardingBinding: DaemonEventForwardingBinding | null = null;
 
   constructor(private readonly eventBus: EventBus) {}
 
@@ -45,7 +49,7 @@ implements GatewayDaemonAttachmentSurface, GatewayDaemonDetachSurface {
       return;
     }
 
-    registerDaemonEventForwarders(this.eventBus, daemon);
+    this.forwardingBinding = registerDaemonEventForwarders(this.eventBus, daemon);
     this.lifecycle.attach(daemon);
     console.log('[GatewayDaemonAttachment] Connected to daemon');
   }

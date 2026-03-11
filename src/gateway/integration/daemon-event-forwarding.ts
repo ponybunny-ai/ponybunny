@@ -1,5 +1,12 @@
-import type { IDaemonEventEmitter } from '../../autonomy/daemon-event-emitter.js';
+import type {
+  DaemonEventSubscription,
+  IDaemonEventEmitter,
+} from '../../autonomy/daemon-event-emitter.js';
 import type { EventBus } from '../events/event-bus.js';
+
+export interface DaemonEventForwardingBinding {
+  release(): void;
+}
 
 /**
  * Register gateway-owned forwarding from daemon runtime events onto the
@@ -9,17 +16,19 @@ import type { EventBus } from '../events/event-bus.js';
 export function registerDaemonEventForwarders(
   eventBus: EventBus,
   daemon: IDaemonEventEmitter
-): void {
-  daemon.onGoalCreated((goal) => {
+): DaemonEventForwardingBinding {
+  const subscriptions: DaemonEventSubscription[] = [];
+
+  subscriptions.push(daemon.onGoalCreated((goal) => {
     eventBus.emit('goal.created', {
       goalId: goal.id,
       title: goal.title,
       status: goal.status,
       priority: goal.priority,
     });
-  });
+  }));
 
-  daemon.onGoalUpdated((goal) => {
+  subscriptions.push(daemon.onGoalUpdated((goal) => {
     eventBus.emit('goal.updated', {
       goalId: goal.id,
       title: goal.title,
@@ -28,9 +37,9 @@ export function registerDaemonEventForwarders(
       spent_time_minutes: goal.spent_time_minutes,
       spent_cost_usd: goal.spent_cost_usd,
     });
-  });
+  }));
 
-  daemon.onGoalCompleted((goal) => {
+  subscriptions.push(daemon.onGoalCompleted((goal) => {
     eventBus.emit('goal.completed', {
       goalId: goal.id,
       title: goal.title,
@@ -38,16 +47,16 @@ export function registerDaemonEventForwarders(
       spent_time_minutes: goal.spent_time_minutes,
       spent_cost_usd: goal.spent_cost_usd,
     });
-  });
+  }));
 
-  daemon.onGoalCancelled((goalId, reason) => {
+  subscriptions.push(daemon.onGoalCancelled((goalId, reason) => {
     eventBus.emit('goal.cancelled', {
       goalId,
       reason,
     });
-  });
+  }));
 
-  daemon.onWorkItemCreated((workItem) => {
+  subscriptions.push(daemon.onWorkItemCreated((workItem) => {
     eventBus.emit('workitem.created', {
       workItemId: workItem.id,
       goalId: workItem.goal_id,
@@ -55,9 +64,9 @@ export function registerDaemonEventForwarders(
       status: workItem.status,
       item_type: workItem.item_type,
     });
-  });
+  }));
 
-  daemon.onWorkItemUpdated((workItem) => {
+  subscriptions.push(daemon.onWorkItemUpdated((workItem) => {
     eventBus.emit('workitem.updated', {
       workItemId: workItem.id,
       goalId: workItem.goal_id,
@@ -65,17 +74,17 @@ export function registerDaemonEventForwarders(
       status: workItem.status,
       retry_count: workItem.retry_count,
     });
-  });
+  }));
 
-  daemon.onWorkItemCompleted((workItem) => {
+  subscriptions.push(daemon.onWorkItemCompleted((workItem) => {
     eventBus.emit('workitem.completed', {
       workItemId: workItem.id,
       goalId: workItem.goal_id,
       title: workItem.title,
     });
-  });
+  }));
 
-  daemon.onWorkItemFailed((workItem, error) => {
+  subscriptions.push(daemon.onWorkItemFailed((workItem, error) => {
     eventBus.emit('workitem.failed', {
       workItemId: workItem.id,
       goalId: workItem.goal_id,
@@ -84,9 +93,9 @@ export function registerDaemonEventForwarders(
       retry_count: workItem.retry_count,
       max_retries: workItem.max_retries,
     });
-  });
+  }));
 
-  daemon.onRunStarted((run) => {
+  subscriptions.push(daemon.onRunStarted((run) => {
     eventBus.emit('run.started', {
       runId: run.id,
       workItemId: run.work_item_id,
@@ -94,9 +103,9 @@ export function registerDaemonEventForwarders(
       agent_type: run.agent_type,
       run_sequence: run.run_sequence,
     });
-  });
+  }));
 
-  daemon.onRunCompleted((run) => {
+  subscriptions.push(daemon.onRunCompleted((run) => {
     eventBus.emit('run.completed', {
       runId: run.id,
       workItemId: run.work_item_id,
@@ -106,9 +115,9 @@ export function registerDaemonEventForwarders(
       time_seconds: run.time_seconds,
       cost_usd: run.cost_usd,
     });
-  });
+  }));
 
-  daemon.onEscalationCreated((escalation) => {
+  subscriptions.push(daemon.onEscalationCreated((escalation) => {
     eventBus.emit('escalation.created', {
       escalationId: escalation.id,
       workItemId: escalation.work_item_id,
@@ -118,9 +127,9 @@ export function registerDaemonEventForwarders(
       title: escalation.title,
       description: escalation.description,
     });
-  });
+  }));
 
-  daemon.onEscalationResolved((escalation) => {
+  subscriptions.push(daemon.onEscalationResolved((escalation) => {
     eventBus.emit('escalation.resolved', {
       escalationId: escalation.id,
       workItemId: escalation.work_item_id,
@@ -128,5 +137,21 @@ export function registerDaemonEventForwarders(
       resolution_action: escalation.resolution_action,
       resolver: escalation.resolver,
     });
-  });
+  }));
+
+  let released = false;
+
+  return {
+    release: () => {
+      if (released) {
+        return;
+      }
+
+      released = true;
+
+      for (const subscription of subscriptions) {
+        subscription.release();
+      }
+    },
+  };
 }

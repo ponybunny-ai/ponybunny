@@ -58,4 +58,46 @@ describe('DaemonEventEmitterMixin', () => {
     expect(goalUpdated).toHaveBeenCalledWith(goal);
     expect(workItemFailed).toHaveBeenCalledWith(workItem, 'boom');
   });
+
+  it('returns idempotent release handles and preserves current emit-cycle ordering', () => {
+    const emitter = new TestDaemonEmitter();
+    const calls: string[] = [];
+
+    const firstSubscription = emitter.onGoalUpdated((goal) => {
+      calls.push(`first:${goal.id}`);
+      firstSubscription.release();
+    });
+    const secondCallback = jest.fn((goal: Goal) => {
+      calls.push(`second:${goal.id}`);
+    });
+    const secondSubscription = emitter.onGoalUpdated(secondCallback);
+
+    const goal: Goal = {
+      id: 'goal-2',
+      created_at: 1,
+      updated_at: 2,
+      title: 'Goal title',
+      description: 'Goal description',
+      success_criteria: [],
+      status: 'active',
+      priority: 2,
+      spent_tokens: 3,
+      spent_time_minutes: 4,
+      spent_cost_usd: 5,
+    };
+
+    emitter.emitGoalUpdated(goal);
+    emitter.emitGoalUpdated(goal);
+    firstSubscription.release();
+    secondSubscription.release();
+    secondSubscription.release();
+    emitter.emitGoalUpdated(goal);
+
+    expect(calls).toEqual([
+      'first:goal-2',
+      'second:goal-2',
+      'second:goal-2',
+    ]);
+    expect(secondCallback).toHaveBeenCalledTimes(2);
+  });
 });

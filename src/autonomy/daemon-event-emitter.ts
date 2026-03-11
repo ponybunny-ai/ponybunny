@@ -1,5 +1,9 @@
 import type { Goal, WorkItem, Run, Escalation } from '../work-order/types/index.js';
 
+export interface DaemonEventSubscription {
+  release(): void;
+}
+
 /**
  * Daemon-owned event source contract for runtime lifecycle notifications.
  *
@@ -7,21 +11,21 @@ import type { Goal, WorkItem, Run, Escalation } from '../work-order/types/index.
  * callback registry lives with daemon/runtime code rather than gateway.
  */
 export interface IDaemonEventEmitter {
-  onGoalCreated(callback: (goal: Goal) => void): void;
-  onGoalUpdated(callback: (goal: Goal) => void): void;
-  onGoalCompleted(callback: (goal: Goal) => void): void;
-  onGoalCancelled(callback: (goalId: string, reason?: string) => void): void;
+  onGoalCreated(callback: (goal: Goal) => void): DaemonEventSubscription;
+  onGoalUpdated(callback: (goal: Goal) => void): DaemonEventSubscription;
+  onGoalCompleted(callback: (goal: Goal) => void): DaemonEventSubscription;
+  onGoalCancelled(callback: (goalId: string, reason?: string) => void): DaemonEventSubscription;
 
-  onWorkItemCreated(callback: (workItem: WorkItem) => void): void;
-  onWorkItemUpdated(callback: (workItem: WorkItem) => void): void;
-  onWorkItemCompleted(callback: (workItem: WorkItem) => void): void;
-  onWorkItemFailed(callback: (workItem: WorkItem, error: string) => void): void;
+  onWorkItemCreated(callback: (workItem: WorkItem) => void): DaemonEventSubscription;
+  onWorkItemUpdated(callback: (workItem: WorkItem) => void): DaemonEventSubscription;
+  onWorkItemCompleted(callback: (workItem: WorkItem) => void): DaemonEventSubscription;
+  onWorkItemFailed(callback: (workItem: WorkItem, error: string) => void): DaemonEventSubscription;
 
-  onRunStarted(callback: (run: Run) => void): void;
-  onRunCompleted(callback: (run: Run) => void): void;
+  onRunStarted(callback: (run: Run) => void): DaemonEventSubscription;
+  onRunCompleted(callback: (run: Run) => void): DaemonEventSubscription;
 
-  onEscalationCreated(callback: (escalation: Escalation) => void): void;
-  onEscalationResolved(callback: (escalation: Escalation) => void): void;
+  onEscalationCreated(callback: (escalation: Escalation) => void): DaemonEventSubscription;
+  onEscalationResolved(callback: (escalation: Escalation) => void): DaemonEventSubscription;
 }
 
 /**
@@ -46,99 +50,132 @@ export class DaemonEventEmitterMixin implements IDaemonEventEmitter {
     escalationResolved: [] as Array<(escalation: Escalation) => void>,
   };
 
-  onGoalCreated(callback: (goal: Goal) => void): void {
-    this.callbacks.goalCreated.push(callback);
+  private registerCallback<TCallback extends (...args: never[]) => void>(
+    callbacks: TCallback[],
+    callback: TCallback
+  ): DaemonEventSubscription {
+    callbacks.push(callback);
+
+    let released = false;
+
+    return {
+      release: () => {
+        if (released) {
+          return;
+        }
+
+        released = true;
+        const callbackIndex = callbacks.indexOf(callback);
+
+        if (callbackIndex >= 0) {
+          callbacks.splice(callbackIndex, 1);
+        }
+      },
+    };
   }
 
-  onGoalUpdated(callback: (goal: Goal) => void): void {
-    this.callbacks.goalUpdated.push(callback);
+  private emitCallbacks<TArgs extends unknown[]>(
+    callbacks: Array<(...args: TArgs) => void>,
+    ...args: TArgs
+  ): void {
+    for (const callback of [...callbacks]) {
+      callback(...args);
+    }
   }
 
-  onGoalCompleted(callback: (goal: Goal) => void): void {
-    this.callbacks.goalCompleted.push(callback);
+  onGoalCreated(callback: (goal: Goal) => void): DaemonEventSubscription {
+    return this.registerCallback(this.callbacks.goalCreated, callback);
   }
 
-  onGoalCancelled(callback: (goalId: string, reason?: string) => void): void {
-    this.callbacks.goalCancelled.push(callback);
+  onGoalUpdated(callback: (goal: Goal) => void): DaemonEventSubscription {
+    return this.registerCallback(this.callbacks.goalUpdated, callback);
   }
 
-  onWorkItemCreated(callback: (workItem: WorkItem) => void): void {
-    this.callbacks.workItemCreated.push(callback);
+  onGoalCompleted(callback: (goal: Goal) => void): DaemonEventSubscription {
+    return this.registerCallback(this.callbacks.goalCompleted, callback);
   }
 
-  onWorkItemUpdated(callback: (workItem: WorkItem) => void): void {
-    this.callbacks.workItemUpdated.push(callback);
+  onGoalCancelled(callback: (goalId: string, reason?: string) => void): DaemonEventSubscription {
+    return this.registerCallback(this.callbacks.goalCancelled, callback);
   }
 
-  onWorkItemCompleted(callback: (workItem: WorkItem) => void): void {
-    this.callbacks.workItemCompleted.push(callback);
+  onWorkItemCreated(callback: (workItem: WorkItem) => void): DaemonEventSubscription {
+    return this.registerCallback(this.callbacks.workItemCreated, callback);
   }
 
-  onWorkItemFailed(callback: (workItem: WorkItem, error: string) => void): void {
-    this.callbacks.workItemFailed.push(callback);
+  onWorkItemUpdated(callback: (workItem: WorkItem) => void): DaemonEventSubscription {
+    return this.registerCallback(this.callbacks.workItemUpdated, callback);
   }
 
-  onRunStarted(callback: (run: Run) => void): void {
-    this.callbacks.runStarted.push(callback);
+  onWorkItemCompleted(callback: (workItem: WorkItem) => void): DaemonEventSubscription {
+    return this.registerCallback(this.callbacks.workItemCompleted, callback);
   }
 
-  onRunCompleted(callback: (run: Run) => void): void {
-    this.callbacks.runCompleted.push(callback);
+  onWorkItemFailed(callback: (workItem: WorkItem, error: string) => void): DaemonEventSubscription {
+    return this.registerCallback(this.callbacks.workItemFailed, callback);
   }
 
-  onEscalationCreated(callback: (escalation: Escalation) => void): void {
-    this.callbacks.escalationCreated.push(callback);
+  onRunStarted(callback: (run: Run) => void): DaemonEventSubscription {
+    return this.registerCallback(this.callbacks.runStarted, callback);
   }
 
-  onEscalationResolved(callback: (escalation: Escalation) => void): void {
-    this.callbacks.escalationResolved.push(callback);
+  onRunCompleted(callback: (run: Run) => void): DaemonEventSubscription {
+    return this.registerCallback(this.callbacks.runCompleted, callback);
+  }
+
+  onEscalationCreated(callback: (escalation: Escalation) => void): DaemonEventSubscription {
+    return this.registerCallback(this.callbacks.escalationCreated, callback);
+  }
+
+  onEscalationResolved(callback: (escalation: Escalation) => void): DaemonEventSubscription {
+    return this.registerCallback(this.callbacks.escalationResolved, callback);
   }
 
   protected emitGoalCreated(goal: Goal): void {
-    this.callbacks.goalCreated.forEach(cb => cb(goal));
+    this.emitCallbacks(this.callbacks.goalCreated, goal);
   }
 
   protected emitGoalUpdated(goal: Goal): void {
-    this.callbacks.goalUpdated.forEach(cb => cb(goal));
+    this.emitCallbacks(this.callbacks.goalUpdated, goal);
   }
 
   protected emitGoalCompleted(goal: Goal): void {
-    this.callbacks.goalCompleted.forEach(cb => cb(goal));
+    this.emitCallbacks(this.callbacks.goalCompleted, goal);
   }
 
   protected emitGoalCancelled(goalId: string, reason?: string): void {
-    this.callbacks.goalCancelled.forEach(cb => cb(goalId, reason));
+    this.emitCallbacks(this.callbacks.goalCancelled, goalId, reason);
   }
 
   protected emitWorkItemCreated(workItem: WorkItem): void {
-    this.callbacks.workItemCreated.forEach(cb => cb(workItem));
+    this.emitCallbacks(this.callbacks.workItemCreated, workItem);
   }
 
   protected emitWorkItemUpdated(workItem: WorkItem): void {
-    this.callbacks.workItemUpdated.forEach(cb => cb(workItem));
+    this.emitCallbacks(this.callbacks.workItemUpdated, workItem);
   }
 
   protected emitWorkItemCompleted(workItem: WorkItem): void {
-    this.callbacks.workItemCompleted.forEach(cb => cb(workItem));
+    this.emitCallbacks(this.callbacks.workItemCompleted, workItem);
   }
 
   protected emitWorkItemFailed(workItem: WorkItem, error: string): void {
-    this.callbacks.workItemFailed.forEach(cb => cb(workItem, error));
+    this.emitCallbacks(this.callbacks.workItemFailed, workItem, error);
   }
 
   protected emitRunStarted(run: Run): void {
-    this.callbacks.runStarted.forEach(cb => cb(run));
+    this.emitCallbacks(this.callbacks.runStarted, run);
   }
 
   protected emitRunCompleted(run: Run): void {
-    this.callbacks.runCompleted.forEach(cb => cb(run));
+    this.emitCallbacks(this.callbacks.runCompleted, run);
   }
 
   protected emitEscalationCreated(escalation: Escalation): void {
-    this.callbacks.escalationCreated.forEach(cb => cb(escalation));
+    this.emitCallbacks(this.callbacks.escalationCreated, escalation);
   }
 
   protected emitEscalationResolved(escalation: Escalation): void {
-    this.callbacks.escalationResolved.forEach(cb => cb(escalation));
+    this.emitCallbacks(this.callbacks.escalationResolved, escalation);
   }
 }
