@@ -2,6 +2,7 @@ import { RpcHandler } from '../../../src/gateway/rpc/rpc-handler.js';
 import { Session } from '../../../src/gateway/connection/session.js';
 import { EventBus } from '../../../src/gateway/events/event-bus.js';
 import { registerGoalHandlers, type IRemoteSchedulerClient } from '../../../src/gateway/rpc/handlers/goal-handlers.js';
+import type { IAgentCommandSubmitGoalMaterializer } from '../../../src/gateway/rpc/agent-command-submit-goal-materializer.js';
 import type { IWorkOrderRepository } from '../../../src/infra/persistence/repository-interface.js';
 
 const loadAgentsMock = jest.fn(async () => {});
@@ -344,6 +345,77 @@ describe('goal handlers remote scheduler forwarding', () => {
       })
     );
     expect(remoteScheduler.submitGoal).not.toHaveBeenCalled();
+  });
+
+  it('delegates agent.command.submit through the gateway-owned materialization boundary', async () => {
+    const now = Date.now();
+    const repository = {
+      createGoal: jest.fn(),
+      createWorkItem: jest.fn(() => ({ id: 'wi-delegated' })),
+      getGoal: jest.fn(),
+      updateGoalStatus: jest.fn(),
+      listGoals: jest.fn(() => []),
+    } as unknown as IWorkOrderRepository;
+
+    const remoteScheduler = {
+      isSchedulerDaemonConnected: jest.fn(() => true),
+      materializeGoal: jest.fn(),
+      submitGoal: jest.fn(async () => {}),
+      cancelGoal: jest.fn(async () => {}),
+    } as unknown as IRemoteSchedulerClient;
+
+    const materializeAgentCommandGoal = jest.fn(async () => ({
+      goal: {
+        id: 'goal-delegated',
+        created_at: now,
+        updated_at: now,
+        title: 'Agent Command: Delegated',
+        description: 'run delegated command',
+        success_criteria: [],
+        status: 'queued' as const,
+        priority: 99,
+        spent_tokens: 0,
+        spent_time_minutes: 0,
+        spent_cost_usd: 0,
+      },
+      initialWorkItemId: 'wi-delegated',
+    }));
+    const materializer: IAgentCommandSubmitGoalMaterializer = {
+      materializeAgentCommandGoal,
+    };
+
+    registerGoalHandlers(
+      rpc,
+      repository,
+      new EventBus(),
+      () => null,
+      undefined,
+      remoteScheduler,
+      materializer
+    );
+
+    const result = await rpc.handle(
+      'agent.command.submit',
+      {
+        command: 'run delegated command',
+        agentId: 'delegated',
+        priority: 99,
+      },
+      session
+    );
+
+    expect((result as { id: string }).id).toBe('goal-delegated');
+    expect(materializeAgentCommandGoal).toHaveBeenCalledWith({
+      command: 'run delegated command',
+      agentId: 'delegated',
+      priority: 99,
+      session: {
+        publicKey: 'pk-test',
+        permissions: ['read', 'write', 'admin'],
+      },
+      remoteSchedulerClient: remoteScheduler,
+    });
+    expect(remoteScheduler.materializeGoal).not.toHaveBeenCalled();
   });
 
   it('rejects conversation-created goal submit when sessionId/turnId linkage is missing', async () => {

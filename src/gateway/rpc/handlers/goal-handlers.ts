@@ -9,36 +9,16 @@ import { GatewayError, ErrorCodes } from '../../errors.js';
 import type { EventBus } from '../../events/event-bus.js';
 import type { ISchedulerCore } from '../../../scheduler/core/index.js';
 import type { AuditService } from '../../../infra/audit/audit-service.js';
-import { randomUUID } from 'node:crypto';
-import { getGlobalAgentRegistry } from '../../../infra/agents/agent-registry.js';
-import { loadRuntimeConfig } from '../../../infra/config/runtime-config.js';
-import { ensureAgentWorkdir } from '../../../infra/agents/agent-workdir.js';
-import { buildGatewayMessageRouteContext } from '../../../infra/routing/route-context.js';
 import { materializeCompatibilitySelectedModelProjection } from '../../../infra/llm/provider-manager/model-selection-compatibility.js';
+import {
+  createDefaultAgentCommandSubmitGoalMaterializer,
+  type IAgentCommandSubmitGoalMaterializer,
+  type IRemoteGoalMaterializationClient,
+  type RemoteGoalMaterializationRequest,
+} from '../agent-command-submit-goal-materializer.js';
 
-export interface IRemoteSchedulerClient {
-  isSchedulerDaemonConnected(): boolean;
-  materializeGoal(params: {
-    goalSpec: {
-      title: string;
-      description: string;
-      success_criteria: Goal['success_criteria'];
-      priority?: number;
-      budget_tokens?: number;
-      budget_time_minutes?: number;
-      budget_cost_usd?: number;
-      context?: Record<string, unknown>;
-    };
-    initialWorkItemSpec?: {
-      title: string;
-      description: string;
-      item_type: 'analysis' | 'code' | 'test' | 'doc' | 'refactor';
-      priority?: number;
-      dependencies?: string[];
-      context?: Record<string, unknown>;
-    };
-    autoSubmitGoal?: boolean;
-  }): Promise<{ goal: Goal; initialWorkItemId?: string }>;
+export interface IRemoteSchedulerClient extends IRemoteGoalMaterializationClient {
+  materializeGoal(params: RemoteGoalMaterializationRequest): Promise<{ goal: Goal; initialWorkItemId?: string }>;
   submitGoal(goalId: string): Promise<void>;
   cancelGoal(goalId: string, reason?: string): Promise<void>;
 }
@@ -84,34 +64,15 @@ export interface AgentCommandSubmitParams {
   priority?: number;
 }
 
-const toStringArray = (value: unknown): string[] =>
-  Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-    : [];
-
-const computeEffectiveTools = (allowlist: string[], denylist: string[], forbiddenPatterns: string[]): string[] => {
-  const deny = new Set(denylist);
-  const matchers = forbiddenPatterns.flatMap((pattern) => {
-    if (pattern.length === 0) {
-      return [];
-    }
-    try {
-      return [new RegExp(pattern, 'i')];
-    } catch {
-      return [];
-    }
-  });
-
-  return allowlist.filter((tool) => !deny.has(tool) && !matchers.some((matcher) => matcher.test(tool)));
-};
-
 export function registerGoalHandlers(
   rpcHandler: RpcHandler,
   repository: IWorkOrderRepository,
   eventBus: EventBus,
   getScheduler?: () => ISchedulerCore | null,
   auditService?: AuditService,
-  remoteSchedulerClient?: IRemoteSchedulerClient
+  remoteSchedulerClient?: IRemoteSchedulerClient,
+  agentCommandSubmitGoalMaterializer: IAgentCommandSubmitGoalMaterializer =
+    createDefaultAgentCommandSubmitGoalMaterializer()
 ): void {
   // goal.submit - Create a new goal
   rpcHandler.register<GoalSubmitParams, Goal>(
@@ -201,84 +162,15 @@ export function registerGoalHandlers(
         throw GatewayError.invalidParams('command is required');
       }
 
-      const runtime = loadRuntimeConfig();
-      const agentId = params.agentId?.trim() || runtime.agent.mainAgentId;
-
-      const registry = getGlobalAgentRegistry();
-      await registry.loadAgents({ workspaceDir: process.cwd() });
-      const definition = registry.getAgent(agentId);
-      if (!definition || !definition.config.enabled) {
-        throw GatewayError.invalidParams(`agent not found or disabled: ${agentId}`);
-      }
-
-      const runKey = randomUUID();
-      const now = Date.now();
-
-      if (!remoteSchedulerClient?.isSchedulerDaemonConnected()) {
-        throw GatewayError.internalError('scheduler daemon is required for agent.command.submit');
-      }
-
-      const effectiveTools = computeEffectiveTools(
-        toStringArray(definition.config.policy?.toolAllowlist),
-        toStringArray(definition.config.policy?.toolDenylist),
-        Array.isArray(definition.config.policy?.forbiddenPatterns)
-          ? definition.config.policy.forbiddenPatterns.map((item) => item.pattern)
-          : []
-      );
-
-      const workdir = ensureAgentWorkdir({
-        agentId: definition.id,
-        configuredWorkdir: definition.config.workdir,
-        configPath: definition.configPath,
-      });
-
-      const materialized = await remoteSchedulerClient.materializeGoal({
-        goalSpec: {
-          title: `Agent Command: ${definition.config.name}`,
-          description: params.command.trim(),
-          success_criteria: [
-            {
-              description: 'Agent command completes successfully',
-              type: 'deterministic',
-              verification_method: 'status_check',
-              required: true,
-            },
-          ],
-          priority: params.priority ?? 50,
+      const materialized = await agentCommandSubmitGoalMaterializer.materializeAgentCommandGoal({
+        command: params.command,
+        agentId: params.agentId,
+        priority: params.priority,
+        session: {
+          publicKey: session.publicKey,
+          permissions: session.permissions,
         },
-        initialWorkItemSpec: {
-          title: `Run ${definition.config.name}`,
-          description: params.command.trim(),
-          item_type: 'analysis',
-          priority: params.priority ?? 50,
-          dependencies: [],
-          context: {
-            kind: 'agent_tick',
-            agent_id: definition.id,
-            definition_hash: definition.definitionHash,
-            run_key: runKey,
-            scheduled_for_ms: now,
-            agent_workdir: workdir,
-            tool_allowlist: effectiveTools,
-            approval_required: definition.config.policy?.approval?.required === true,
-            approval_actions: toStringArray(definition.config.policy?.approval?.actions),
-            tool_policy_context: {
-              agentId: definition.id,
-              isSubagent: false,
-              sandboxed: false,
-              isOwner: session.permissions.includes('admin') || session.permissions.includes('write'),
-            },
-            policy_snapshot: definition.config.policy ?? null,
-            routeContext: buildGatewayMessageRouteContext({
-              agentId: definition.id,
-              runKey,
-              channel: 'rpc',
-              senderId: session.publicKey,
-              senderIsOwner: session.permissions.includes('admin'),
-            }),
-          },
-        },
-        autoSubmitGoal: true,
+        remoteSchedulerClient,
       });
 
       const goal = materialized.goal;
