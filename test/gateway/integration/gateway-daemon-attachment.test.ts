@@ -139,7 +139,7 @@ describe('GatewayDaemonAttachment', () => {
     expect(attachment.getDetachStatus()).toEqual({
       phase: 'idle',
       attached: false,
-      detachSupported: false,
+      detachSupported: true,
       unsubscribeSupported: false,
     });
 
@@ -155,7 +155,7 @@ describe('GatewayDaemonAttachment', () => {
     expect(attachment.getDetachStatus()).toEqual({
       phase: 'attached-awaiting-daemon-unsubscribe',
       attached: true,
-      detachSupported: false,
+      detachSupported: true,
       unsubscribeSupported: false,
     });
     expect(attachment.getOperationState()).toEqual({
@@ -170,7 +170,7 @@ describe('GatewayDaemonAttachment', () => {
       detach: {
         phase: 'attached-awaiting-daemon-unsubscribe',
         attached: true,
-        detachSupported: false,
+        detachSupported: true,
         unsubscribeSupported: false,
       },
     });
@@ -189,7 +189,7 @@ describe('GatewayDaemonAttachment', () => {
     expect(attachment.getDetachStatus()).toEqual({
       phase: 'attached-awaiting-daemon-unsubscribe',
       attached: true,
-      detachSupported: false,
+      detachSupported: true,
       unsubscribeSupported: false,
     });
   });
@@ -226,7 +226,7 @@ describe('GatewayDaemonAttachment', () => {
     expect(attachment.getDetachStatus()).toEqual({
       phase: 'idle',
       attached: false,
-      detachSupported: false,
+      detachSupported: true,
       unsubscribeSupported: false,
     });
     expect(attachment.getOperationState()).toEqual({
@@ -241,7 +241,7 @@ describe('GatewayDaemonAttachment', () => {
       detach: {
         phase: 'idle',
         attached: false,
-        detachSupported: false,
+        detachSupported: true,
         unsubscribeSupported: false,
       },
     });
@@ -260,7 +260,7 @@ describe('GatewayDaemonAttachment', () => {
     expect(attachment.getDetachStatus()).toEqual({
       phase: 'idle',
       attached: false,
-      detachSupported: false,
+      detachSupported: true,
       unsubscribeSupported: false,
     });
   });
@@ -282,7 +282,7 @@ describe('GatewayDaemonAttachment', () => {
     expect(attachment.getDetachStatus()).toEqual({
       phase: 'attached-awaiting-daemon-unsubscribe',
       attached: true,
-      detachSupported: false,
+      detachSupported: true,
       unsubscribeSupported: false,
     });
     expect(mockEventBus.emit).toHaveBeenCalledWith('goal.created', {

@@ -9,8 +9,8 @@ export type GatewayDaemonDetachPhase = 'idle' | 'attached-awaiting-daemon-unsubs
 export interface GatewayDaemonDetachStatus {
   phase: GatewayDaemonDetachPhase;
   attached: boolean;
-  detachSupported: false;
-  unsubscribeSupported: false;
+  detachSupported: boolean;
+  unsubscribeSupported: boolean;
 }
 
 export interface GatewayDaemonOperationState {
@@ -30,7 +30,7 @@ export function getGatewayDaemonDetachStatus(
     return {
       phase: 'idle',
       attached: false,
-      detachSupported: false,
+      detachSupported: true,
       unsubscribeSupported: false,
     };
   }
@@ -38,7 +38,7 @@ export function getGatewayDaemonDetachStatus(
   return {
     phase: 'attached-awaiting-daemon-unsubscribe',
     attached: true,
-    detachSupported: false,
+    detachSupported: true,
     unsubscribeSupported: false,
   };
 }

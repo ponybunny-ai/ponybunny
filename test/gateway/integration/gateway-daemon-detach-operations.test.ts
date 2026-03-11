@@ -14,7 +14,7 @@ describe('gateway-daemon-detach-operations', () => {
     })).toEqual({
       phase: 'idle',
       attached: false,
-      detachSupported: false,
+      detachSupported: true,
       unsubscribeSupported: false,
     });
   });
@@ -37,7 +37,7 @@ describe('gateway-daemon-detach-operations', () => {
       detach: {
         phase: 'attached-awaiting-daemon-unsubscribe',
         attached: true,
-        detachSupported: false,
+        detachSupported: true,
         unsubscribeSupported: false,
       },
     });
@@ -62,7 +62,7 @@ describe('gateway-daemon-detach-operations', () => {
       detach: {
         phase: 'idle',
         attached: false,
-        detachSupported: false,
+        detachSupported: true,
         unsubscribeSupported: false,
       },
     });

@@ -1,6 +1,11 @@
 import type { ConnectionManager } from '../connection/connection-manager.js';
 import type { GatewayChannelRuntime } from '../channels/gateway-channel-runtime.js';
-import type { GatewayDaemonAttachment, GatewayDaemonAttachmentStatus, GatewayDaemonDetachStatus } from '../integration/gateway-daemon-attachment.js';
+import type {
+  GatewayDaemonAttachment,
+  GatewayDaemonAttachmentStatus,
+  GatewayDaemonDetachStatus,
+  GatewayDaemonOperationState,
+} from '../integration/gateway-daemon-attachment.js';
 import type { SchedulerBridge } from '../integration/scheduler-bridge.js';
 import type { IPCBridge } from '../integration/ipc-bridge.js';
 import type { RpcHandler } from '../rpc/rpc-handler.js';
@@ -90,6 +95,7 @@ export class GatewayRuntimeRpcSurface {
       () => this.toolRegistry,
       undefined,
       {
+        detachDaemon: () => this.detachDaemon(),
         onDryRunComplete: (sample) => this.runtimeRolloutCoordinator.handleDryRunComplete(sample),
       }
     );
@@ -131,6 +137,11 @@ export class GatewayRuntimeRpcSurface {
         goalSubmitFastPathEnabled: runtime.tui.goalSubmitFastPathEnabled,
       },
     };
+  }
+
+  private detachDaemon(): GatewayDaemonOperationState {
+    this.daemonAttachment.detach();
+    return this.daemonAttachment.getOperationState();
   }
 
   private async setAgentModelOverride(params: {
