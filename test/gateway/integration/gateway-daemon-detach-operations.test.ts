@@ -42,4 +42,29 @@ describe('gateway-daemon-detach-operations', () => {
       },
     });
   });
+
+  it('returns to the existing idle detached projection after lifecycle reset', () => {
+    const lifecycle = new GatewayDaemonLifecycle();
+    const daemon = new DaemonEventEmitterMixin();
+
+    lifecycle.attach(daemon);
+    lifecycle.resetToDetached();
+
+    expect(getGatewayDaemonOperationState(lifecycle)).toEqual({
+      attachment: {
+        daemon: null,
+        status: {
+          phase: 'detached',
+          connected: false,
+          connectedAt: null,
+        },
+      },
+      detach: {
+        phase: 'idle',
+        attached: false,
+        detachSupported: false,
+        unsubscribeSupported: false,
+      },
+    });
+  });
 });

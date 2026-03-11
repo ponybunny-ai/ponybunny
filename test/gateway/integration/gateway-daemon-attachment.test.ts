@@ -22,6 +22,22 @@ class TestDaemonEmitter extends DaemonEventEmitterMixin {
   }
 }
 
+function createGoal(id: string): Goal {
+  return {
+    id,
+    created_at: 1,
+    updated_at: 2,
+    title: `Goal ${id}`,
+    description: 'Goal description',
+    success_criteria: [],
+    status: 'queued',
+    priority: 3,
+    spent_tokens: 12,
+    spent_time_minutes: 4,
+    spent_cost_usd: 1.5,
+  };
+}
+
 describe('GatewayDaemonAttachment', () => {
   let attachment: GatewayDaemonAttachment;
   let mockEventBus: EventBus;
@@ -43,17 +59,8 @@ describe('GatewayDaemonAttachment', () => {
     attachment.connect(daemon);
 
     const goal: Goal = {
-      id: 'goal-1',
-      created_at: 1,
-      updated_at: 2,
+      ...createGoal('goal-1'),
       title: 'Goal title',
-      description: 'Goal description',
-      success_criteria: [],
-      status: 'queued',
-      priority: 3,
-      spent_tokens: 12,
-      spent_time_minutes: 4,
-      spent_cost_usd: 1.5,
     };
 
     const run: Run = {
@@ -184,6 +191,105 @@ describe('GatewayDaemonAttachment', () => {
       attached: true,
       detachSupported: false,
       unsubscribeSupported: false,
+    });
+  });
+
+  it('detaches by releasing grouped forwarding and resetting lifecycle state', () => {
+    attachment.connect(daemon);
+
+    const goalBeforeDetach = createGoal('goal-before-detach');
+    daemon.emitGoalCreated(goalBeforeDetach);
+
+    attachment.detach();
+
+    const goalAfterDetach = createGoal('goal-after-detach');
+    daemon.emitGoalCreated(goalAfterDetach);
+
+    const internalState = attachment as unknown as {
+      forwardingBinding: DaemonEventForwardingBinding | null;
+    };
+
+    expect(mockEventBus.emit).toHaveBeenCalledTimes(1);
+    expect(mockEventBus.emit).toHaveBeenCalledWith('goal.created', {
+      goalId: 'goal-before-detach',
+      title: 'Goal goal-before-detach',
+      status: 'queued',
+      priority: 3,
+    });
+    expect(internalState.forwardingBinding).toBeNull();
+    expect(attachment.isConnected()).toBe(false);
+    expect(attachment.getStatus()).toEqual({
+      phase: 'detached',
+      connected: false,
+      connectedAt: null,
+    });
+    expect(attachment.getDetachStatus()).toEqual({
+      phase: 'idle',
+      attached: false,
+      detachSupported: false,
+      unsubscribeSupported: false,
+    });
+    expect(attachment.getOperationState()).toEqual({
+      attachment: {
+        daemon: null,
+        status: {
+          phase: 'detached',
+          connected: false,
+          connectedAt: null,
+        },
+      },
+      detach: {
+        phase: 'idle',
+        attached: false,
+        detachSupported: false,
+        unsubscribeSupported: false,
+      },
+    });
+  });
+
+  it('treats repeated detach as an idempotent no-op', () => {
+    attachment.connect(daemon);
+    attachment.detach();
+
+    expect(() => attachment.detach()).not.toThrow();
+    expect(attachment.getStatus()).toEqual({
+      phase: 'detached',
+      connected: false,
+      connectedAt: null,
+    });
+    expect(attachment.getDetachStatus()).toEqual({
+      phase: 'idle',
+      attached: false,
+      detachSupported: false,
+      unsubscribeSupported: false,
+    });
+  });
+
+  it('can attach again after internal detach on the existing connect path', () => {
+    attachment.connect(daemon);
+    attachment.detach();
+
+    const reattachedDaemon = new TestDaemonEmitter();
+
+    attachment.connect(reattachedDaemon);
+    reattachedDaemon.emitGoalCreated(createGoal('goal-after-reattach'));
+
+    expect(attachment.getStatus()).toEqual({
+      phase: 'attached',
+      connected: true,
+      connectedAt: expect.any(Number),
+    });
+    expect(attachment.getDetachStatus()).toEqual({
+      phase: 'attached-awaiting-daemon-unsubscribe',
+      attached: true,
+      detachSupported: false,
+      unsubscribeSupported: false,
+    });
+    expect(mockEventBus.emit).toHaveBeenCalledWith('goal.created', {
+      goalId: 'goal-after-reattach',
+      title: 'Goal goal-after-reattach',
+      status: 'queued',
+      priority: 3,
     });
   });
 });

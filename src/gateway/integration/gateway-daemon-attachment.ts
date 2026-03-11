@@ -54,6 +54,19 @@ implements GatewayDaemonAttachmentSurface, GatewayDaemonDetachSurface {
     console.log('[GatewayDaemonAttachment] Connected to daemon');
   }
 
+  detach(): void {
+    if (this.forwardingBinding !== null) {
+      this.forwardingBinding.release();
+      this.forwardingBinding = null;
+    }
+
+    if (!this.lifecycle.hasAttachedDaemon()) {
+      return;
+    }
+
+    this.lifecycle.resetToDetached();
+  }
+
   isConnected(): boolean {
     return this.lifecycle.hasAttachedDaemon();
   }

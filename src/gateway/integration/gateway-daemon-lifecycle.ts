@@ -34,6 +34,12 @@ export class GatewayDaemonLifecycle {
     return this.getSnapshot();
   }
 
+  resetToDetached(): GatewayDaemonLifecycleSnapshot {
+    this.daemon = null;
+    this.connectedAt = null;
+    return this.getSnapshot();
+  }
+
   getStatus(): GatewayDaemonAttachmentStatus {
     return {
       phase: this.daemon === null ? 'detached' : 'attached',
