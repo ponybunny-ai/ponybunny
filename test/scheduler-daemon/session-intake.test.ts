@@ -7,8 +7,7 @@ import type { RuntimeToolingContext } from '../../src/runtime/tooling-context/in
 import { ConversationWorker } from '../../src/runtime/workers/conversation-worker.js';
 import { SchedulerSessionIntake, SchedulerTaskBridge, resolveMainAgentModelHintFromAgentConfig } from '../../src/scheduler-daemon/session-intake.js';
 import { DEFAULT_RUNTIME_CONFIG } from '../../src/infra/config/runtime-config.js';
-import type { EffectiveModelResolution } from '../../src/infra/llm/provider-manager/effective-model-resolution.js';
-import type { Goal, WorkItem } from '../../src/work-order/types/index.js';
+import type { Goal } from '../../src/work-order/types/index.js';
 
 function createRuntimeToolingContextStub(): RuntimeToolingContext {
   return {
@@ -148,49 +147,8 @@ describe('resolveMainAgentModelHintFromAgentConfig', () => {
 });
 
 describe('SchedulerTaskBridge', () => {
-  it('propagates resolved model hint into conversation-created goal and work item context', async () => {
-    const createdGoal: Goal = {
-      id: 'goal-1',
-      created_at: Date.now(),
-      updated_at: Date.now(),
-      title: 'test goal',
-      description: 'test description',
-      success_criteria: [],
-      status: 'queued',
-      priority: 5,
-      spent_tokens: 0,
-      spent_time_minutes: 0,
-      spent_cost_usd: 0,
-      context: undefined,
-    };
-
+  it('delegates conversation goal materialization to the injected owner', async () => {
     const repository = {
-      createGoal: jest.fn((params: Partial<Goal>) => ({
-        ...createdGoal,
-        title: params.title ?? createdGoal.title,
-        description: params.description ?? createdGoal.description,
-        priority: params.priority ?? createdGoal.priority,
-        success_criteria: params.success_criteria ?? createdGoal.success_criteria,
-        context: params.context,
-      })),
-      createWorkItem: jest.fn((params: Partial<WorkItem>) => ({
-        id: 'wi-1',
-        created_at: Date.now(),
-        updated_at: Date.now(),
-        goal_id: params.goal_id ?? 'goal-1',
-        title: params.title ?? 'wi',
-        description: params.description ?? 'desc',
-        item_type: params.item_type ?? 'analysis',
-        status: 'queued',
-        priority: params.priority ?? 5,
-        dependencies: params.dependencies ?? [],
-        blocks: [],
-        estimated_effort: 'M',
-        retry_count: 0,
-        max_retries: 3,
-        verification_status: 'not_started',
-        context: params.context,
-      })),
       getGoal: jest.fn(),
       getWorkItemsByGoal: jest.fn(() => []),
       listGoals: jest.fn(() => []),
@@ -224,20 +182,19 @@ describe('SchedulerTaskBridge', () => {
         averageCompletionTimeMs: 0,
       })),
     };
-
-    const resolveModelHint = jest.fn((agentId?: string): EffectiveModelResolution | undefined => (
-      agentId === 'planning'
-        ? { model: 'openai.gpt-5.3', source: 'agent_runner_hint' }
-        : undefined
-    ));
+    const materializer = {
+      materializeGoalFromConversation: jest.fn(async () => ({
+        goalId: 'goal-1',
+        workItems: [{ id: 'wi-1', title: 'Build feature', status: 'queued' }],
+      })),
+    };
 
     const bridge = new SchedulerTaskBridge(
       repository as never,
-      () => null,
-      resolveModelHint
+      materializer
     );
 
-    await bridge.createGoalFromConversation(
+    const result = await bridge.createGoalFromConversation(
       {
         title: 'Build feature',
         description: 'do it',
@@ -249,23 +206,56 @@ describe('SchedulerTaskBridge', () => {
       { sourceAgentId: 'planning' }
     );
 
-    expect(resolveModelHint).toHaveBeenCalledWith('planning');
+    expect(materializer.materializeGoalFromConversation).toHaveBeenCalledWith(
+      {
+        title: 'Build feature',
+        description: 'do it',
+        successCriteria: ['passes'],
+        priority: 'medium',
+      },
+      { id: 'ses-1', personaId: 'pony-default' },
+      'turn-1',
+      { sourceAgentId: 'planning' }
+    );
+    expect(result).toEqual({
+      goalId: 'goal-1',
+      workItems: [{ id: 'wi-1', title: 'Build feature', status: 'queued' }],
+    });
+  });
 
-    expect(repository.createGoal).toHaveBeenCalledWith(expect.objectContaining({
-      context: expect.objectContaining({
-        sessionId: 'ses-1',
-        turnId: 'turn-1',
-        selected_model: 'openai.gpt-5.3',
-      }),
-    }));
-    expect(repository.createWorkItem).toHaveBeenCalledWith(expect.objectContaining({
-      context: expect.objectContaining({
-        sessionId: 'ses-1',
-        turnId: 'turn-1',
-        selected_model: 'openai.gpt-5.3',
-        model: 'openai.gpt-5.3',
-      }),
-    }));
+  it('retains repository-backed status observation behavior', async () => {
+    const createdAt = Date.now();
+    const repository = {
+      getGoal: jest.fn(() => ({
+        id: 'goal-1',
+        created_at: createdAt,
+        status: 'active',
+      } as Goal)),
+      getWorkItemsByGoal: jest.fn(() => ([
+        { id: 'wi-1', title: 'First', status: 'done' },
+        { id: 'wi-2', title: 'Second', status: 'in_progress' },
+      ])),
+      updateGoalStatus: jest.fn(),
+    };
+    const bridge = new SchedulerTaskBridge(
+      repository as never,
+      {
+        materializeGoalFromConversation: jest.fn(),
+      }
+    );
+
+    await expect(bridge.getTaskStatus('goal-1')).resolves.toEqual({
+      goalId: 'goal-1',
+      goalStatus: 'active',
+      completedItems: 1,
+      totalItems: 2,
+      currentItem: {
+        id: 'wi-2',
+        title: 'Second',
+        status: 'in_progress',
+      },
+      startedAt: createdAt,
+    });
   });
 });
 

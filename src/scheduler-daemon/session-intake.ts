@@ -12,10 +12,8 @@ import { SessionManager } from '../app/conversation/session-manager.js';
 import type { ConversationPort, ConversationRequest, ConversationResult } from '../runtime/conversation-boundary/index.js';
 import type { ConversationWorkerInspectionSnapshot } from '../runtime/workers/conversation-worker.js';
 import { createDefaultConversationBootstrap } from './conversation-bootstrap/default-conversation-bootstrap.js';
-export {
-  SchedulerTaskBridge,
-  resolveMainAgentModelHintFromAgentConfig,
-} from './conversation-bootstrap/scheduler-task-bridge.js';
+export { SchedulerTaskBridge } from './conversation-bootstrap/scheduler-task-bridge.js';
+export { resolveMainAgentModelHintFromAgentConfig } from './conversation-bootstrap/conversation-task-materializer.js';
 
 export interface SchedulerSessionEvent {
   event: string;

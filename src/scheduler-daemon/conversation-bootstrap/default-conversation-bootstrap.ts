@@ -20,6 +20,7 @@ import type { ConversationPort } from '../../runtime/conversation-boundary/index
 import { ConversationWorker } from '../../runtime/workers/conversation-worker.js';
 import type { SchedulerCore } from '../../scheduler/core/index.js';
 import { SchedulerTaskBridge } from './scheduler-task-bridge.js';
+import { ConversationTaskMaterializer } from './conversation-task-materializer.js';
 
 export interface DefaultConversationBootstrapDependencies {
   repository: IWorkOrderRepository;
@@ -72,7 +73,11 @@ export function createDefaultConversationBootstrap(
     deps.runtimeToolingContext
   );
   const retryHandler = new RetryHandler(deps.llmService);
-  const taskBridge = new SchedulerTaskBridge(deps.repository, deps.schedulerProvider);
+  const taskMaterializer = new ConversationTaskMaterializer(
+    deps.repository,
+    deps.schedulerProvider
+  );
+  const taskBridge = new SchedulerTaskBridge(deps.repository, taskMaterializer);
 
   const sessionManager = new SessionManager(
     sessionRepository,
