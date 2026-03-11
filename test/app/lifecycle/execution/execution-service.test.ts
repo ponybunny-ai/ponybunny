@@ -274,6 +274,49 @@ describe('ExecutionService per-work-item tool allowlist', () => {
     });
   });
 
+  it('preserves the direct-execution createRun compatibility context shape', async () => {
+    const goal = createGoal('goal-create-run-context-shape');
+    const repository = createRepository(goal);
+    const executionCycleRunner: ExecutionCycleRunner = {
+      executeCycle: jest.fn().mockResolvedValue({
+        success: true,
+        tokensUsed: 1,
+        costUsd: 0.01,
+        actualModel: 'runtime-model',
+        endpointId: 'endpoint-runtime',
+        artifactIds: [],
+        log: 'cycle runner log',
+      }),
+    };
+
+    const service = new ExecutionService(
+      repository,
+      { maxConsecutiveErrors: 3 },
+      undefined,
+      { executionCycleRunner }
+    );
+
+    const workItem = createWorkItem({
+      id: 'work-item-create-run-context-shape',
+      goal_id: goal.id,
+      context: {
+        selected_model: 'selected-for-run',
+        model: ' requested-for-run ',
+      },
+    });
+
+    await service.executeWorkItem(workItem);
+
+    expect((repository as unknown as { createRun: jest.Mock }).createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: {
+          selected_model: 'selected-for-run',
+          requested_model: ' requested-for-run ',
+        },
+      })
+    );
+  });
+
   it('builds runtime execution composition through the narrow factory seam', async () => {
     const goal = createGoal('goal-cycle-runtime-factory');
     const repository = createRepository(goal);

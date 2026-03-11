@@ -14,6 +14,7 @@ import { getGlobalSkillRegistry } from '../../../infra/skills/skill-registry.js'
 import { initializeMCPIntegration } from '../../../infra/mcp/adapters/registry-integration.js';
 import { routeContextFromWorkItemContext } from '../../../infra/routing/route-context.js';
 import { getManagedSkillsDir } from '../../../infra/config/config-paths.js';
+import { materializeCompatibilityDirectExecutionRunProjection } from '../../../infra/llm/provider-manager/model-selection-compatibility.js';
 import type { ExecutionRunner } from '../../../runtime/execution-boundary/execution-runner.js';
 import {
   LocalExecutionToolPolicyPreparer,
@@ -261,14 +262,18 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
     }
 
     const runSequence = this.repository.getRunsByWorkItem(workItem.id).length + 1;
+    const runContextProjection = materializeCompatibilityDirectExecutionRunProjection({
+      selectedModel: workItem.context?.selected_model,
+      requestedModel: workItem.context?.model,
+    });
     const run = this.repository.createRun({
       work_item_id: workItem.id,
       goal_id: workItem.goal_id,
       agent_type: workItem.assigned_agent || 'default',
       run_sequence: runSequence,
       context: {
-        selected_model: workItem.context?.selected_model,
-        requested_model: workItem.context?.model,
+        selected_model: runContextProjection.selected_model,
+        requested_model: runContextProjection.requested_model,
       },
     });
 

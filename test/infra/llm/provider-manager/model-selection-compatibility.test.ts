@@ -1,4 +1,5 @@
 import {
+  materializeCompatibilityDirectExecutionRunProjection,
   materializeCompatibilityRunModelProjection,
   materializeCompatibilitySelectedModelProjection,
 } from '../../../../src/infra/llm/provider-manager/model-selection-compatibility.js';
@@ -31,6 +32,16 @@ describe('model-selection compatibility projections', () => {
       selected_model: 'selected-model',
       actual_model: 'actual-model',
       model_source: undefined,
+    });
+  });
+
+  it('materializes direct-execution run context with preserved requested-model shape', () => {
+    expect(materializeCompatibilityDirectExecutionRunProjection({
+      selectedModel: 'selected-model',
+      requestedModel: ' requested-model ',
+    })).toEqual({
+      selected_model: 'selected-model',
+      requested_model: ' requested-model ',
     });
   });
 });

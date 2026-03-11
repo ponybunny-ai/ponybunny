@@ -703,6 +703,8 @@ describe('SchedulerCore', () => {
         replacementRun,
       });
       scheduler = new SchedulerCore(mockDeps, { executionMode: 'evented' });
+      const events: SchedulerEvent[] = [];
+      scheduler.on((event) => { events.push(event); });
 
       const result = await scheduler.replayRun('run-original');
 
@@ -734,6 +736,16 @@ describe('SchedulerCore', () => {
             replay_started_at: 2000,
             result_continuation_applied: false,
           }),
+        })
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: 'run_started',
+          runId: 'run-replay',
+          data: {
+            selected_model: 'claude-3-5-sonnet',
+            replay_of_run_id: 'run-original',
+          },
         })
       );
     });

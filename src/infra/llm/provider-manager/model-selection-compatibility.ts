@@ -35,6 +35,34 @@ export function materializeCompatibilitySelectedModelProjection(input: {
 /**
  * Compatibility projection only.
  *
+ * Direct-execution run creation still persists `selected_model` and
+ * `requested_model` as legacy context mirrors before cycle execution begins.
+ * This helper keeps that initial materialization at the same projection
+ * boundary without taking ownership of request precedence or runtime model
+ * resolution.
+ */
+export function materializeCompatibilityDirectExecutionRunProjection(input: {
+  selectedModel?: unknown;
+  requestedModel?: unknown;
+}): {
+  selected_model: string | undefined;
+  requested_model: string | undefined;
+} {
+  const selectedModelProjection = materializeCompatibilitySelectedModelProjection({
+    selectedModel: input.selectedModel,
+  });
+
+  return {
+    selected_model: selectedModelProjection.selected_model,
+    requested_model: typeof input.requestedModel === 'string'
+      ? input.requestedModel
+      : undefined,
+  };
+}
+
+/**
+ * Compatibility projection only.
+ *
  * `selected_model`, `actual_model`, and `model_source` remain legacy
  * completion/event metadata. This helper preserves that shape without taking
  * ownership of effective-model resolution.

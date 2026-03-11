@@ -201,6 +201,9 @@ export class SchedulerCore implements ISchedulerCore {
       modelResult.model
     );
     const model = projectedModel.model;
+    const replayRunSelectionProjection = materializeCompatibilitySelectedModelProjection({
+      selectedModel: model,
+    });
 
     const goalState = this.goalStates.get(goal.id) ?? {
       goalId: goal.id,
@@ -236,7 +239,7 @@ export class SchedulerCore implements ISchedulerCore {
       workItemId: workItem.id,
       runId: replay.replacementRun.id,
       data: {
-        selected_model: model,
+        selected_model: replayRunSelectionProjection.selected_model,
         replay_of_run_id: replay.originalRun?.id,
       },
     });
