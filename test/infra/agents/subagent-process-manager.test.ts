@@ -3,14 +3,9 @@ import type { ChildProcess } from 'node:child_process';
 import { ProcessSubagentManager } from '../../../src/infra/agents/subagent-process-manager.js';
 
 const spawnMock = jest.fn();
-const ensureAgentWorkdirMock = jest.fn();
 
 jest.mock('node:child_process', () => ({
   fork: (...args: unknown[]) => spawnMock(...args),
-}));
-
-jest.mock('../../../src/infra/agents/agent-workdir.js', () => ({
-  ensureAgentWorkdir: (...args: unknown[]) => ensureAgentWorkdirMock(...args),
 }));
 
 const createChildProcess = (pid: number): ChildProcess => {
@@ -49,8 +44,6 @@ const createChildProcess = (pid: number): ChildProcess => {
 describe('ProcessSubagentManager', () => {
   beforeEach(() => {
     spawnMock.mockReset();
-    ensureAgentWorkdirMock.mockReset();
-    ensureAgentWorkdirMock.mockReturnValue('/tmp/pony-subagent-workdir');
   });
 
   afterEach(() => {
@@ -62,15 +55,7 @@ describe('ProcessSubagentManager', () => {
     const child = createChildProcess(1234);
     spawnMock.mockReturnValue(child);
 
-    const registry = {
-      getAgent: (id: string) => ({
-        id,
-        config: { enabled: true, workdir: './work' },
-        configPath: `/tmp/${id}/agent.json`,
-      }),
-    };
-
-    const manager = new ProcessSubagentManager(() => registry as never, {
+    const manager = new ProcessSubagentManager({
       info: jest.fn(),
       warn: jest.fn(),
       error: jest.fn(),
@@ -80,7 +65,12 @@ describe('ProcessSubagentManager', () => {
       agentId: 'lead',
       runKey: 'run-1',
       goalId: 'goal-1',
-      subAgents: ['scout'],
+      targets: [
+        {
+          subagentId: 'scout',
+          workdir: '/tmp/pony-subagent-workdir',
+        },
+      ],
     });
 
     expect(started).toHaveLength(1);
@@ -105,16 +95,13 @@ describe('ProcessSubagentManager', () => {
     expect((child as unknown as { send: jest.Mock }).send).toHaveBeenCalledWith({ type: 'shutdown' });
   });
 
-  it('skips missing subagent definitions', async () => {
-    const manager = new ProcessSubagentManager(
-      () => ({ getAgent: () => undefined }) as never,
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
-    );
+  it('returns early when no spawn targets are provided', async () => {
+    const manager = new ProcessSubagentManager({ info: jest.fn(), warn: jest.fn(), error: jest.fn() });
 
     const started = await manager.startSubagents({
       agentId: 'lead',
       runKey: 'run-2',
-      subAgents: ['missing'],
+      targets: [],
     });
 
     expect(started).toHaveLength(0);
@@ -125,21 +112,17 @@ describe('ProcessSubagentManager', () => {
     const child = createChildProcess(2233);
     spawnMock.mockReturnValue(child);
 
-    const manager = new ProcessSubagentManager(
-      () => ({
-        getAgent: (id: string) => ({
-          id,
-          config: { enabled: true },
-          configPath: `/tmp/${id}/agent.json`,
-        }),
-      }) as never,
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
-    );
+    const manager = new ProcessSubagentManager({ info: jest.fn(), warn: jest.fn(), error: jest.fn() });
 
     const started = await manager.startSubagents({
       agentId: 'lead',
       runKey: 'run-heartbeat',
-      subAgents: ['scout'],
+      targets: [
+        {
+          subagentId: 'scout',
+          workdir: '/tmp/pony-subagent-workdir',
+        },
+      ],
     });
 
     const before = manager.getHeartbeatSnapshot(started)[0];
@@ -165,22 +148,17 @@ describe('ProcessSubagentManager', () => {
     spawnMock.mockReturnValue(child);
 
     const logger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
-    const manager = new ProcessSubagentManager(
-      () => ({
-        getAgent: (id: string) => ({
-          id,
-          config: { enabled: true },
-          configPath: `/tmp/${id}/agent.json`,
-        }),
-      }) as never,
-      logger,
-      { heartbeatStaleMs: 100, heartbeatCheckMs: 25 }
-    );
+    const manager = new ProcessSubagentManager(logger, { heartbeatStaleMs: 100, heartbeatCheckMs: 25 });
 
     const startedPromise = manager.startSubagents({
       agentId: 'lead',
       runKey: 'run-stale',
-      subAgents: ['scout'],
+      targets: [
+        {
+          subagentId: 'scout',
+          workdir: '/tmp/pony-subagent-workdir',
+        },
+      ],
     });
     await jest.runOnlyPendingTimersAsync();
     const started = await startedPromise;

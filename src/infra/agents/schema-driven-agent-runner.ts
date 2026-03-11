@@ -14,10 +14,10 @@ import { getLLMProviderManager } from '../llm/provider-manager/provider-manager.
 import { loadRuntimeConfig } from '../config/runtime-config.js';
 import { OSPermissionRepository, OSServiceChecker } from '../permission/os-service-checker.js';
 import {
-  ProcessSubagentManager,
-  type StartedSubagentProcess,
-  type SubagentProcessManager,
-} from './subagent-process-manager.js';
+  getGlobalSubagentExecutionBoundary,
+  type SubagentExecutionBoundary,
+  type SubagentExecutionScope,
+} from './subagent-execution-boundary.js';
 
 export interface AgentExecutionStage {
   key: string;
@@ -288,7 +288,8 @@ export class SchemaDrivenAgentInterpreter implements AgentDefinitionInterpreter 
 
 export class DefaultAgentExecutionEngine implements AgentExecutionEngine {
   constructor(
-    private readonly subagentManager: SubagentProcessManager = new ProcessSubagentManager()
+    private readonly subagentExecutionBoundary: SubagentExecutionBoundary =
+      getGlobalSubagentExecutionBoundary()
   ) {}
 
   async execute(plan: AgentExecutionPlan): Promise<void> {
@@ -304,7 +305,6 @@ export class DefaultAgentExecutionEngine implements AgentExecutionEngine {
 
     const llm = getLLMProviderManager();
     const osChecker = plan.osPermissions.length > 0 ? getOSServiceChecker() : null;
-    const startedSubagents: StartedSubagentProcess[] = [];
 
     if (plan.osPermissions.length > 0 && !plan.goalId) {
       throw new Error(
@@ -368,17 +368,19 @@ export class DefaultAgentExecutionEngine implements AgentExecutionEngine {
       }
     }
 
+    let subagentExecution: SubagentExecutionScope | null = null;
+
     try {
+      subagentExecution = await this.subagentExecutionBoundary.startExecution({
+        agentId: plan.agentId,
+        runKey: plan.runKey,
+        goalId: plan.goalId,
+        isSubagent: plan.isSubagent,
+        subAgents: plan.subAgents,
+      });
+
       for (const _stage of plan.stages) {
-        if (!plan.isSubagent && startedSubagents.length === 0 && plan.subAgents.length > 0) {
-          const spawned = await this.subagentManager.startSubagents({
-            agentId: plan.agentId,
-            runKey: plan.runKey,
-            goalId: plan.goalId,
-            subAgents: plan.subAgents,
-          });
-          startedSubagents.push(...spawned);
-        }
+        const subagentRuntime = subagentExecution.getRuntimeContext();
 
         const stagePayload = {
           stage: _stage.key,
@@ -390,11 +392,8 @@ export class DefaultAgentExecutionEngine implements AgentExecutionEngine {
           isSubagent: plan.isSubagent,
           parentAgentId: plan.parentAgentId,
           subAgents: plan.subAgents,
-          subagentProcesses: startedSubagents.map((processInfo) => ({
-            subagentId: processInfo.subagentId,
-            pid: processInfo.pid,
-          })),
-          subagentHeartbeats: this.subagentManager.getHeartbeatSnapshot(startedSubagents),
+          subagentProcesses: subagentRuntime.subagentProcesses,
+          subagentHeartbeats: subagentRuntime.subagentHeartbeats,
           osPermissions: activePermissions,
           limits: plan.limits,
           effectiveTools: plan.effectiveTools,
@@ -419,7 +418,9 @@ export class DefaultAgentExecutionEngine implements AgentExecutionEngine {
         });
       }
     } finally {
-      await this.subagentManager.stopSubagents(startedSubagents);
+      if (subagentExecution) {
+        await subagentExecution.stop();
+      }
 
       if (osChecker && plan.goalId) {
         await osChecker.revokeAllForGoal(plan.goalId);
