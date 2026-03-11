@@ -24,7 +24,10 @@ import type { IRetryHandler } from './retry-handler.js';
 import { debug } from '../../debug/index.js';
 import type { IConversationMemoryService, IRecalledMemory } from './memory-service.js';
 import type { IMemoryOwnerScope } from './memory-service.js';
-import { getGlobalAgentRegistry } from '../../infra/agents/agent-registry.js';
+import {
+  getGlobalAgentDefinitionReadAccess,
+  type IAgentDefinitionReadAccess,
+} from '../../infra/agents/agent-definition-read-access.js';
 import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
 import {
   resolveEffectiveModelSelection,
@@ -126,7 +129,8 @@ export class SessionManager implements ISessionManager {
       vectorWeight: 0.7,
       keywordWeight: 0.3,
       defaultUserProfileId: 'local-default-user',
-    }
+    },
+    private readonly agentDefinitionReadAccess: IAgentDefinitionReadAccess = getGlobalAgentDefinitionReadAccess()
   ) {}
 
   async processMessage(
@@ -664,13 +668,8 @@ export class SessionManager implements ISessionManager {
   }
 
   private getAgentModelHint(agentId: string): string | undefined {
-    const agent = getGlobalAgentRegistry().getAgent(agentId);
-    if (!agent) {
-      return undefined;
-    }
-
-    const runnerConfig = (agent.config.runner.config ?? {}) as Record<string, unknown>;
-    return normalizeOptionalModel(runnerConfig.model) ?? normalizeOptionalModel(runnerConfig.model_hint);
+    const definition = this.agentDefinitionReadAccess.getAgentDefinitionView(agentId);
+    return normalizeOptionalModel(definition?.runnerModel) ?? normalizeOptionalModel(definition?.runnerModelHint);
   }
 
   private deriveSessionTitle(message: string): string {

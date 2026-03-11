@@ -21,6 +21,7 @@ import { ConversationWorker } from '../../runtime/workers/conversation-worker.js
 import type { SchedulerCore } from '../../scheduler/core/index.js';
 import { SchedulerTaskBridge } from './scheduler-task-bridge.js';
 import { ConversationTaskMaterializer } from './conversation-task-materializer.js';
+import { getGlobalAgentDefinitionReadAccess } from '../../infra/agents/agent-definition-read-access.js';
 
 export interface DefaultConversationBootstrapDependencies {
   repository: IWorkOrderRepository;
@@ -92,7 +93,8 @@ export function createDefaultConversationBootstrap(
       vectorWeight: runtimeConfig.memory.vectorWeight,
       keywordWeight: runtimeConfig.memory.keywordWeight,
       defaultUserProfileId: runtimeConfig.memory.userProfileId,
-    }
+    },
+    getGlobalAgentDefinitionReadAccess()
   );
 
   return {

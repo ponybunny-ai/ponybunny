@@ -12,6 +12,7 @@ import {
   EndpointManager,
   getEndpointManager,
   resetEndpointManager,
+  WorkloadModelResolver,
   getWorkloadModelResolver,
   resetWorkloadModelResolver,
   getCachedConfig,
@@ -25,7 +26,6 @@ import {
   type ModelTier,
 } from '../../../../src/infra/llm/provider-manager/index.js';
 import { clearCredentialsCache } from '../../../../src/infra/config/credentials-loader.js';
-import * as agentRegistry from '../../../../src/infra/agents/agent-registry.js';
 import * as runtimeConfig from '../../../../src/infra/config/runtime-config.js';
 
 // Helper to get config path
@@ -544,65 +544,47 @@ describe('LLM Provider Manager', () => {
     });
 
     it('should prioritize agent configured model over tier model', () => {
-      const resolver = getWorkloadModelResolver();
-      const registrySpy = jest.spyOn(agentRegistry, 'getGlobalAgentRegistry').mockReturnValue({
-        getAgent: (id: string) => {
+      const resolver = new WorkloadModelResolver({
+        getAgentDefinitionView: (id: string) => {
           if (id !== 'planning') {
             return undefined;
           }
           return {
-            config: {
-              runner: {
-                config: {
-                  model_hint: 'openai.gpt-5.2',
-                },
-              },
-            },
+            runnerModelHint: 'openai.gpt-5.2',
           };
         },
-      } as unknown as ReturnType<typeof agentRegistry.getGlobalAgentRegistry>);
+      } as never);
 
-      try {
-        const chain = resolver.getFallbackChain('planning');
-        expect(chain[0]).toBe('openai.gpt-5.2');
-      } finally {
-        registrySpy.mockRestore();
-      }
+      const chain = resolver.getFallbackChain('planning');
+      expect(chain[0]).toBe('openai.gpt-5.2');
     });
 
     it('should expose agent hint provenance on the effective-model authority path', () => {
-      const resolver = getWorkloadModelResolver();
-      const registrySpy = jest.spyOn(agentRegistry, 'getGlobalAgentRegistry').mockReturnValue({
-        getAgent: (id: string) => {
+      const resolver = new WorkloadModelResolver({
+        getAgentDefinitionView: (id: string) => {
           if (id !== 'planning') {
             return undefined;
           }
           return {
-            config: {
-              runner: {
-                config: {
-                  model: 'openai.gpt-5.3',
-                },
-              },
-            },
+            runnerModel: 'openai.gpt-5.3',
           };
         },
-      } as unknown as ReturnType<typeof agentRegistry.getGlobalAgentRegistry>);
+      } as never);
 
-      try {
-        expect(resolver.resolveEffectiveModelForWorkload('planning')).toEqual(
-          expect.objectContaining({
-            model: 'openai.gpt-5.3',
-            source: 'agent_runner_hint',
-          })
-        );
-      } finally {
-        registrySpy.mockRestore();
-      }
+      expect(resolver.resolveEffectiveModelForWorkload('planning')).toEqual(
+        expect.objectContaining({
+          model: 'openai.gpt-5.3',
+          source: 'agent_runner_hint',
+        })
+      );
     });
 
     it('should prioritize runtime ponybunny model override over user, agent and tier', () => {
-      const resolver = getWorkloadModelResolver();
+      const resolver = new WorkloadModelResolver({
+        getAgentDefinitionView: () => ({
+          runnerModelHint: 'anthropic.claude-opus-4-5-20251101',
+        }),
+      } as never);
       const runtimeSpy = jest.spyOn(runtimeConfig, 'loadRuntimeConfig').mockReturnValue({
         ...runtimeConfig.DEFAULT_RUNTIME_CONFIG,
         agent: {
@@ -613,24 +595,11 @@ describe('LLM Provider Manager', () => {
         },
       });
 
-      const registrySpy = jest.spyOn(agentRegistry, 'getGlobalAgentRegistry').mockReturnValue({
-        getAgent: () => ({
-          config: {
-            runner: {
-              config: {
-                model_hint: 'anthropic.claude-opus-4-5-20251101',
-              },
-            },
-          },
-        }),
-      } as unknown as ReturnType<typeof agentRegistry.getGlobalAgentRegistry>);
-
       try {
         const chain = resolver.getSelectionChainForWorkload('planning', 'google-ai-studio.gemini-2.0-pro');
         expect(chain[0]).toBe('openai.gpt-5.2');
       } finally {
         runtimeSpy.mockRestore();
-        registrySpy.mockRestore();
       }
     });
 
@@ -659,7 +628,11 @@ describe('LLM Provider Manager', () => {
     });
 
     it('should treat runtime AUTO override as disabled and fall back to next priority', () => {
-      const resolver = getWorkloadModelResolver();
+      const resolver = new WorkloadModelResolver({
+        getAgentDefinitionView: () => ({
+          runnerModelHint: 'openai.gpt-5.3',
+        }),
+      } as never);
       const runtimeSpy = jest.spyOn(runtimeConfig, 'loadRuntimeConfig').mockReturnValue({
         ...runtimeConfig.DEFAULT_RUNTIME_CONFIG,
         agent: {
@@ -670,24 +643,11 @@ describe('LLM Provider Manager', () => {
         },
       });
 
-      const registrySpy = jest.spyOn(agentRegistry, 'getGlobalAgentRegistry').mockReturnValue({
-        getAgent: () => ({
-          config: {
-            runner: {
-              config: {
-                model_hint: 'openai.gpt-5.3',
-              },
-            },
-          },
-        }),
-      } as unknown as ReturnType<typeof agentRegistry.getGlobalAgentRegistry>);
-
       try {
         const chain = resolver.getSelectionChainForWorkload('planning');
         expect(chain[0]).toBe('openai.gpt-5.3');
       } finally {
         runtimeSpy.mockRestore();
-        registrySpy.mockRestore();
       }
     });
 

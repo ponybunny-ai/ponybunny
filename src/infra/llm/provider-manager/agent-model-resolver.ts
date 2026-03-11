@@ -1,7 +1,10 @@
 import type { WorkloadId, ModelTier, LLMWorkloadConfig, LLMTierConfig } from './types.js';
 import { getCachedConfig } from './config-loader.js';
 import { getEndpointManager } from './endpoint-manager.js';
-import { getGlobalAgentRegistry } from '../../agents/agent-registry.js';
+import {
+  getGlobalAgentDefinitionReadAccess,
+  type IAgentDefinitionReadAccess,
+} from '../../agents/agent-definition-read-access.js';
 import { loadRuntimeConfig } from '../../config/runtime-config.js';
 import {
   getTierForWorkload,
@@ -37,6 +40,10 @@ function dedupeModelChain(models: string[]): string[] {
  * Resolves agent IDs and tiers to specific models with fallback chains
  */
 export class WorkloadModelResolver {
+  constructor(
+    private readonly agentDefinitionReadAccess: IAgentDefinitionReadAccess = getGlobalAgentDefinitionReadAccess()
+  ) {}
+
   private getRuntimeModelOverride(workloadId: WorkloadId): string | undefined {
     const runtime = loadRuntimeConfig();
     const rawOverride = runtime.agent.modelOverrides?.[workloadId];
@@ -53,13 +60,8 @@ export class WorkloadModelResolver {
   }
 
   private getAgentModelHint(workloadId: WorkloadId): string | undefined {
-    const agent = getGlobalAgentRegistry().getAgent(workloadId);
-    if (!agent) {
-      return undefined;
-    }
-
-    const runnerConfig = (agent.config.runner.config ?? {}) as Record<string, unknown>;
-    return normalizeOptionalString(runnerConfig.model) ?? normalizeOptionalString(runnerConfig.model_hint);
+    const definition = this.agentDefinitionReadAccess.getAgentDefinitionView(workloadId);
+    return normalizeOptionalString(definition?.runnerModel) ?? normalizeOptionalString(definition?.runnerModelHint);
   }
 
   /**
@@ -233,7 +235,7 @@ let instance: WorkloadModelResolver | null = null;
  */
 export function getWorkloadModelResolver(): WorkloadModelResolver {
   if (!instance) {
-    instance = new WorkloadModelResolver();
+    instance = new WorkloadModelResolver(getGlobalAgentDefinitionReadAccess());
   }
   return instance;
 }

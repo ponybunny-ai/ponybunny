@@ -1,14 +1,8 @@
 const loadRuntimeConfigMock = jest.fn();
-const getAgentMock = jest.fn();
+const getAgentDefinitionViewMock = jest.fn();
 
 jest.mock('../../../src/infra/config/runtime-config.js', () => ({
   loadRuntimeConfig: loadRuntimeConfigMock,
-}));
-
-jest.mock('../../../src/infra/agents/agent-registry.js', () => ({
-  getGlobalAgentRegistry: () => ({
-    getAgent: getAgentMock,
-  }),
 }));
 
 import { SessionManager } from '../../../src/app/conversation/session-manager.js';
@@ -159,6 +153,9 @@ function createManager(options?: {
         vectorWeight: 0.7,
         keywordWeight: 0.3,
         defaultUserProfileId: 'local-default-user',
+      },
+      {
+        getAgentDefinitionView: getAgentDefinitionViewMock,
       }
     ),
     analyze,
@@ -169,21 +166,15 @@ function createManager(options?: {
 describe('SessionManager preferred model alignment', () => {
   beforeEach(() => {
     loadRuntimeConfigMock.mockReset();
-    getAgentMock.mockReset();
+    getAgentDefinitionViewMock.mockReset();
     loadRuntimeConfigMock.mockReturnValue(buildRuntimeConfig());
-    getAgentMock.mockReturnValue(undefined);
+    getAgentDefinitionViewMock.mockReturnValue(undefined);
   });
 
   it('prefers the runtime override over the agent runner hint for session-level consumers', async () => {
     loadRuntimeConfigMock.mockReturnValue(buildRuntimeConfig({ reviewer: 'openai.gpt-5.3' }));
-    getAgentMock.mockReturnValue({
-      config: {
-        runner: {
-          config: {
-            model_hint: 'anthropic.claude-3-7-sonnet',
-          },
-        },
-      },
+    getAgentDefinitionViewMock.mockReturnValue({
+      runnerModelHint: 'anthropic.claude-3-7-sonnet',
     });
 
     const memoryService = {
@@ -216,14 +207,8 @@ describe('SessionManager preferred model alignment', () => {
   });
 
   it('falls back to the agent runner hint when no runtime override exists', async () => {
-    getAgentMock.mockReturnValue({
-      config: {
-        runner: {
-          config: {
-            model_hint: 'openai.o4-mini',
-          },
-        },
-      },
+    getAgentDefinitionViewMock.mockReturnValue({
+      runnerModelHint: 'openai.o4-mini',
     });
 
     const { manager, analyze } = createManager();
