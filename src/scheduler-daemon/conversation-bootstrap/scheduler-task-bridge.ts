@@ -6,6 +6,10 @@ import type { Goal } from '../../work-order/types/index.js';
 import type { SchedulerCore } from '../../scheduler/core/index.js';
 import { getUserAgentsDir } from '../../infra/agents/agent-discovery.js';
 import { loadRuntimeConfig, type PonyBunnyRuntimeConfig } from '../../infra/config/runtime-config.js';
+import {
+  resolveEffectiveModelSelection,
+  type EffectiveModelResolution,
+} from '../../infra/llm/provider-manager/effective-model-resolution.js';
 
 interface ResolveMainAgentModelHintOptions {
   runtimeConfig?: PonyBunnyRuntimeConfig;
@@ -19,18 +23,16 @@ interface ResolveMainAgentModelHintOptions {
 export function resolveMainAgentModelHintFromAgentConfig(
   options: ResolveMainAgentModelHintOptions = {}
 ): string | undefined {
+  return resolveMainAgentEffectiveModelFromAgentConfig(options)?.model;
+}
+
+export function resolveMainAgentEffectiveModelFromAgentConfig(
+  options: ResolveMainAgentModelHintOptions = {}
+): EffectiveModelResolution | undefined {
   const runtime = options.runtimeConfig ?? loadRuntimeConfig();
   const agentId = typeof options.agentId === 'string' && options.agentId.trim().length > 0
     ? options.agentId.trim()
     : runtime.agent.mainAgentId;
-
-  const runtimeOverrideRaw = runtime.agent.modelOverrides?.[agentId];
-  if (typeof runtimeOverrideRaw === 'string') {
-    const runtimeOverride = runtimeOverrideRaw.trim();
-    if (runtimeOverride.length > 0) {
-      return runtimeOverride.toLowerCase() === 'auto' ? undefined : runtimeOverride;
-    }
-  }
 
   const userAgentsDir = options.userAgentsDir ?? getUserAgentsDir();
   const workspaceDir = options.workspaceDir ?? process.cwd();
@@ -47,7 +49,9 @@ export function resolveMainAgentModelHintFromAgentConfig(
       : null;
 
   if (!sourcePath) {
-    return undefined;
+    return resolveEffectiveModelSelection({
+      runtimeOverrideModel: runtime.agent.modelOverrides?.[agentId],
+    });
   }
 
   try {
@@ -59,14 +63,14 @@ export function resolveMainAgentModelHintFromAgentConfig(
       };
     };
     const hint = parsed.runner?.config?.model_hint;
-    if (typeof hint !== 'string') {
-      return undefined;
-    }
-
-    const trimmedHint = hint.trim();
-    return trimmedHint.length > 0 ? trimmedHint : undefined;
+    return resolveEffectiveModelSelection({
+      runtimeOverrideModel: runtime.agent.modelOverrides?.[agentId],
+      agentModelHint: parsed.runner?.config?.model_hint,
+    });
   } catch {
-    return undefined;
+    return resolveEffectiveModelSelection({
+      runtimeOverrideModel: runtime.agent.modelOverrides?.[agentId],
+    });
   }
 }
 
@@ -74,8 +78,8 @@ export class SchedulerTaskBridge {
   constructor(
     private repository: IWorkOrderRepository,
     private schedulerProvider: () => SchedulerCore | null,
-    private resolveModelHint: (agentId?: string) => string | undefined =
-      (agentId?: string) => resolveMainAgentModelHintFromAgentConfig({ agentId })
+    private resolveEffectiveModel: (agentId?: string) => EffectiveModelResolution | undefined =
+      (agentId?: string) => resolveMainAgentEffectiveModelFromAgentConfig({ agentId })
   ) {}
 
   async createGoalFromConversation(
@@ -96,7 +100,9 @@ export class SchedulerTaskBridge {
     goalId: string;
     workItems: Array<{ id: string; title: string; status: string }>;
   }> {
-    const selectedModel = this.resolveModelHint(options?.sourceAgentId);
+    // Persisted selected_model/model remain compatibility projections of the
+    // effective-model authority read path resolved before execution begins.
+    const selectedModel = this.resolveEffectiveModel(options?.sourceAgentId)?.model;
 
     const goal = this.repository.createGoal({
       title: requirements.title,

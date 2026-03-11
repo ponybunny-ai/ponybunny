@@ -7,6 +7,7 @@ import type { RuntimeToolingContext } from '../../src/runtime/tooling-context/in
 import { ConversationWorker } from '../../src/runtime/workers/conversation-worker.js';
 import { SchedulerSessionIntake, SchedulerTaskBridge, resolveMainAgentModelHintFromAgentConfig } from '../../src/scheduler-daemon/session-intake.js';
 import { DEFAULT_RUNTIME_CONFIG } from '../../src/infra/config/runtime-config.js';
+import type { EffectiveModelResolution } from '../../src/infra/llm/provider-manager/effective-model-resolution.js';
 import type { Goal, WorkItem } from '../../src/work-order/types/index.js';
 
 function createRuntimeToolingContextStub(): RuntimeToolingContext {
@@ -224,8 +225,10 @@ describe('SchedulerTaskBridge', () => {
       })),
     };
 
-    const resolveModelHint = jest.fn((agentId?: string) => (
-      agentId === 'planning' ? 'openai.gpt-5.3' : undefined
+    const resolveModelHint = jest.fn((agentId?: string): EffectiveModelResolution | undefined => (
+      agentId === 'planning'
+        ? { model: 'openai.gpt-5.3', source: 'agent_runner_hint' }
+        : undefined
     ));
 
     const bridge = new SchedulerTaskBridge(

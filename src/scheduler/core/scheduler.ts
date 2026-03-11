@@ -33,6 +33,7 @@ import {
   buildEventedDispatchCheckpoint,
   readEventedDispatchCheckpoint,
 } from '../evented-dispatch-checkpoint.js';
+import { resolveEffectiveModelSelection } from '../../infra/llm/provider-manager/effective-model-resolution.js';
 
 const DEFAULT_CONFIG: SchedulerConfig = {
   tickIntervalMs: 1000,
@@ -189,10 +190,13 @@ export class SchedulerCore implements ISchedulerCore {
     const modelResult = this.deps.modelSelector.selectModel(workItem, goal);
     const laneResult = this.deps.laneSelector.selectLane(workItem, goal);
     const laneId = (originalCheckpoint?.lane_id ?? laneResult.laneId) as LaneId;
-    const model =
+    const projectedModel = this.resolveProjectedExecutionModel(
       typeof replay.replacementRun.context?.selected_model === 'string'
         ? replay.replacementRun.context.selected_model
-        : modelResult.model;
+        : undefined,
+      modelResult.model
+    );
+    const model = projectedModel.model;
 
     const goalState = this.goalStates.get(goal.id) ?? {
       goalId: goal.id,
@@ -553,8 +557,12 @@ export class SchedulerCore implements ISchedulerCore {
     const workItemSelectedModel = typeof workItem.context?.model === 'string'
       ? workItem.context.model
       : undefined;
-    const model = workItemSelectedModel || goalSelectedModel || modelResult.model;
-    const modelSource = workItemSelectedModel || goalSelectedModel ? 'tui_selected' : 'scheduler_selector';
+    const projectedModel = this.resolveProjectedExecutionModel(
+      workItemSelectedModel || goalSelectedModel,
+      modelResult.model
+    );
+    const model = projectedModel.model;
+    const modelSource = projectedModel.source;
 
     // Select lane
     const laneResult = this.deps.laneSelector.selectLane(workItem, goal);
@@ -665,6 +673,30 @@ export class SchedulerCore implements ISchedulerCore {
     }
 
     await this.executeWorkItem(context);
+  }
+
+  private resolveProjectedExecutionModel(
+    compatibilitySelectedModel: string | undefined,
+    selectorDefaultModel: string
+  ): { model: string; source: 'tui_selected' | 'scheduler_selector' } {
+    if (compatibilitySelectedModel) {
+      return {
+        model: compatibilitySelectedModel,
+        source: 'tui_selected',
+      };
+    }
+
+    // Persisted selected_model/model remain compatibility mirrors. When they
+    // are absent, scheduler falls through the explicit authority read path for
+    // its selector-derived default without changing current runtime semantics.
+    const resolved = resolveEffectiveModelSelection({
+      defaultModel: selectorDefaultModel,
+    });
+
+    return {
+      model: resolved?.model ?? selectorDefaultModel,
+      source: 'scheduler_selector',
+    };
   }
 
   private buildExecutionRequest(context: WorkItemExecutionContext): ExecutionRequest {

@@ -570,6 +570,37 @@ describe('LLM Provider Manager', () => {
       }
     });
 
+    it('should expose agent hint provenance on the effective-model authority path', () => {
+      const resolver = getWorkloadModelResolver();
+      const registrySpy = jest.spyOn(agentRegistry, 'getGlobalAgentRegistry').mockReturnValue({
+        getAgent: (id: string) => {
+          if (id !== 'planning') {
+            return undefined;
+          }
+          return {
+            config: {
+              runner: {
+                config: {
+                  model: 'openai.gpt-5.3',
+                },
+              },
+            },
+          };
+        },
+      } as unknown as ReturnType<typeof agentRegistry.getGlobalAgentRegistry>);
+
+      try {
+        expect(resolver.resolveEffectiveModelForWorkload('planning')).toEqual(
+          expect.objectContaining({
+            model: 'openai.gpt-5.3',
+            source: 'agent_runner_hint',
+          })
+        );
+      } finally {
+        registrySpy.mockRestore();
+      }
+    });
+
     it('should prioritize runtime ponybunny model override over user, agent and tier', () => {
       const resolver = getWorkloadModelResolver();
       const runtimeSpy = jest.spyOn(runtimeConfig, 'loadRuntimeConfig').mockReturnValue({
@@ -600,6 +631,30 @@ describe('LLM Provider Manager', () => {
       } finally {
         runtimeSpy.mockRestore();
         registrySpy.mockRestore();
+      }
+    });
+
+    it('should expose runtime override provenance on the effective-model authority path', () => {
+      const resolver = getWorkloadModelResolver();
+      const runtimeSpy = jest.spyOn(runtimeConfig, 'loadRuntimeConfig').mockReturnValue({
+        ...runtimeConfig.DEFAULT_RUNTIME_CONFIG,
+        agent: {
+          ...runtimeConfig.DEFAULT_RUNTIME_CONFIG.agent,
+          modelOverrides: {
+            planning: 'openai.gpt-5.2',
+          },
+        },
+      });
+
+      try {
+        expect(resolver.resolveEffectiveModelForWorkload('planning')).toEqual(
+          expect.objectContaining({
+            model: 'openai.gpt-5.2',
+            source: 'runtime_override',
+          })
+        );
+      } finally {
+        runtimeSpy.mockRestore();
       }
     });
 
