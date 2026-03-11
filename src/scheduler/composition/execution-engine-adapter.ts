@@ -8,7 +8,10 @@
 
 import type { WorkItem } from '../../work-order/types/index.js';
 import type { LaneId } from '../../scheduler/types.js';
-import type { ExecutionRunner } from '../../runtime/execution-boundary/index.js';
+import type {
+  ExecutionRunner,
+  LocalExecutionAgentTickResolver,
+} from '../../runtime/execution-boundary/index.js';
 import { LocalExecutionAdapter } from '../../runtime/execution-boundary/index.js';
 
 interface LegacyExecutionContext {
@@ -20,8 +23,11 @@ interface LegacyExecutionContext {
 export class ExecutionEngineAdapter {
   private delegate: LocalExecutionAdapter;
 
-  constructor(executionRunner: ExecutionRunner) {
-    this.delegate = new LocalExecutionAdapter(executionRunner);
+  constructor(
+    executionRunner: ExecutionRunner,
+    agentTickResolver: LocalExecutionAgentTickResolver
+  ) {
+    this.delegate = new LocalExecutionAdapter(executionRunner, agentTickResolver);
   }
 
   async execute(workItem: WorkItem, context: LegacyExecutionContext) {

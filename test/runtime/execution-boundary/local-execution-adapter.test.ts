@@ -1,5 +1,8 @@
+import type { AgentDefinition } from '../../../src/infra/agents/agent-registry.js';
+import type { AgentRunner } from '../../../src/infra/agents/runner-types.js';
 import { ExecutionService } from '../../../src/app/lifecycle/execution/execution-service.js';
 import { LocalExecutionAdapter } from '../../../src/runtime/execution-boundary/local-execution-adapter.js';
+import type { LocalExecutionAgentTickResolver } from '../../../src/runtime/execution-boundary/local-execution-agent-tick-resolver.js';
 import type { ExecutionRunner } from '../../../src/runtime/execution-boundary/execution-runner.js';
 import type { IWorkOrderRepository } from '../../../src/infra/persistence/repository-interface.js';
 import type { ExecutionRequest } from '../../../src/runtime/execution-boundary/types.js';
@@ -39,6 +42,42 @@ const createRequest = (overrides: Partial<ExecutionRequest> = {}): ExecutionRequ
   };
 };
 
+const createAgentDefinition = (overrides: Partial<AgentDefinition> = {}): AgentDefinition => ({
+  id: 'agent-1',
+  source: 'workspace',
+  config: {
+    schemaVersion: 1,
+    id: 'agent-1',
+    name: 'Agent One',
+    enabled: true,
+    type: 'market_listener',
+    schedule: {
+      enabled: true,
+      kind: 'interval',
+      everyMs: 60000,
+      tz: undefined,
+      catchUp: {},
+    },
+    policy: {},
+    runner: {},
+  },
+  markdown: '# Agent One',
+  definitionHash: 'hash-1',
+  status: 'valid',
+  configPath: 'agent.json',
+  markdownPath: 'AGENT.md',
+  ...overrides,
+});
+
+const createAgentTickResolver = (
+  overrides: Partial<LocalExecutionAgentTickResolver> = {}
+): LocalExecutionAgentTickResolver => ({
+  getDefinition: jest.fn(() => undefined),
+  hasRunnerPath: jest.fn(() => false),
+  resolveRunner: jest.fn(() => null as AgentRunner | null),
+  ...overrides,
+});
+
 describe('LocalExecutionAdapter', () => {
   it('executes against the narrow runtime execution runner boundary', async () => {
     const executionRunner: ExecutionRunner = {
@@ -59,7 +98,7 @@ describe('LocalExecutionAdapter', () => {
       }),
     };
 
-    const adapter = new LocalExecutionAdapter(executionRunner);
+    const adapter = new LocalExecutionAdapter(executionRunner, createAgentTickResolver());
     const request = createRequest();
     const result = await adapter.execute(request);
 
@@ -89,6 +128,60 @@ describe('LocalExecutionAdapter', () => {
         recoverable: true,
       },
     });
+  });
+
+  it('preserves the agent_tick fallback to ExecutionService when no runner path exists', async () => {
+    const executionRunner: ExecutionRunner = {
+      executeWorkItem: jest.fn().mockResolvedValue({
+        run: {
+          tokens_used: 0,
+          time_seconds: 0,
+          cost_usd: 0,
+          artifacts: [],
+          context: {},
+        },
+        success: true,
+        needsRetry: false,
+      }),
+    };
+    const definition = createAgentDefinition();
+    const agentTickResolver = createAgentTickResolver({
+      getDefinition: jest.fn(() => definition),
+      hasRunnerPath: jest.fn(() => false),
+    });
+    const adapter = new LocalExecutionAdapter(executionRunner, agentTickResolver);
+    const request = createRequest({
+      workItem: createWorkItem({
+        context: {
+          kind: 'agent_tick',
+          agent_id: definition.id,
+          definition_hash: definition.definitionHash,
+          run_key: 'run-1',
+          scheduled_for_ms: 1700000000000,
+          policy_snapshot: {},
+          routeContext: {
+            source: 'gateway.message',
+            channel: 'telegram',
+          },
+        },
+      }),
+    });
+
+    await adapter.execute(request);
+
+    expect(agentTickResolver.getDefinition).toHaveBeenCalledWith(definition.id);
+    expect(agentTickResolver.hasRunnerPath).toHaveBeenCalledWith(definition);
+    expect(executionRunner.executeWorkItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          schedulerRunId: request.runId,
+          routeContext: {
+            source: 'gateway.message',
+            channel: 'telegram',
+          },
+        }),
+      })
+    );
   });
 
   it('allows ExecutionService to satisfy the runtime execution runner boundary', () => {

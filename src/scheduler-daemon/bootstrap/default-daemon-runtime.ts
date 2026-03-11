@@ -1,10 +1,15 @@
 import type Database from 'better-sqlite3';
 
 import type { IExecutionService } from '../../app/lifecycle/stage-interfaces.js';
+import { getGlobalAgentRegistry } from '../../infra/agents/agent-registry.js';
 import type { ILLMProvider } from '../../infra/llm/llm-provider.js';
 import type { IWorkOrderRepository } from '../../infra/persistence/repository-interface.js';
+import { getGlobalRunnerRegistry } from '../../infra/agents/runner-registry.js';
 import { getLLMService } from '../../infra/llm/index.js';
-import { LocalExecutionAdapter } from '../../runtime/execution-boundary/index.js';
+import {
+  LocalExecutionAdapter,
+  RegistryBackedLocalExecutionAgentTickResolver,
+} from '../../runtime/execution-boundary/index.js';
 import { LocalExecutionWorker } from '../../runtime/workers/index.js';
 import type { RuntimeToolingContext } from '../../runtime/tooling-context/index.js';
 import { createDefaultScheduler } from '../../scheduler/composition/index.js';
@@ -55,7 +60,11 @@ export interface SchedulerDaemonSessionIntakeDependencies {
 export function createDefaultSchedulerDaemonRuntime(
   deps: DefaultSchedulerDaemonRuntimeDependencies
 ): SchedulerDaemonRuntimeAssembly {
-  const executionPort = new LocalExecutionAdapter(deps.executionService);
+  const agentTickResolver = new RegistryBackedLocalExecutionAgentTickResolver(
+    getGlobalAgentRegistry(),
+    getGlobalRunnerRegistry()
+  );
+  const executionPort = new LocalExecutionAdapter(deps.executionService, agentTickResolver);
   const executionWorker = new LocalExecutionWorker(executionPort);
   const scheduler = createDefaultScheduler(
     {

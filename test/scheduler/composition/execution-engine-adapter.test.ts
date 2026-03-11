@@ -3,6 +3,7 @@ import { ExecutionEngineAdapter } from '../../../src/scheduler/composition/execu
 import { getGlobalAgentRegistry } from '../../../src/infra/agents/agent-registry.js';
 import type { AgentRunner } from '../../../src/infra/agents/runner-types.js';
 import { getGlobalRunnerRegistry } from '../../../src/infra/agents/runner-registry.js';
+import { RegistryBackedLocalExecutionAgentTickResolver } from '../../../src/runtime/execution-boundary/local-execution-agent-tick-resolver.js';
 import type { Run, WorkItem } from '../../../src/work-order/types/index.js';
 
 const resetGlobalRegistries = (): void => {
@@ -41,6 +42,12 @@ const createWorkItem = (overrides: Partial<WorkItem>): WorkItem => ({
   verification_status: 'not_started',
   ...overrides,
 });
+
+const createAgentTickResolver = () =>
+  new RegistryBackedLocalExecutionAgentTickResolver(
+    getGlobalAgentRegistry(),
+    getGlobalRunnerRegistry()
+  );
 
 describe('scheduler-owned ExecutionEngineAdapter', () => {
   beforeEach(() => {
@@ -87,7 +94,7 @@ describe('scheduler-owned ExecutionEngineAdapter', () => {
     const executionService = {
       executeWorkItem: jest.fn(),
     } as unknown as IExecutionService;
-    const adapter = new ExecutionEngineAdapter(executionService);
+    const adapter = new ExecutionEngineAdapter(executionService, createAgentTickResolver());
 
     const workItem = createWorkItem({
       context: {
@@ -130,7 +137,7 @@ describe('scheduler-owned ExecutionEngineAdapter', () => {
         needsRetry: false,
       }),
     } as unknown as IExecutionService;
-    const adapter = new ExecutionEngineAdapter(executionService);
+    const adapter = new ExecutionEngineAdapter(executionService, createAgentTickResolver());
 
     const workItem = createWorkItem({ context: undefined });
 
@@ -180,7 +187,7 @@ describe('scheduler-owned ExecutionEngineAdapter', () => {
     const executionService = {
       executeWorkItem: jest.fn(),
     } as unknown as IExecutionService;
-    const adapter = new ExecutionEngineAdapter(executionService);
+    const adapter = new ExecutionEngineAdapter(executionService, createAgentTickResolver());
 
     const workItem = createWorkItem({
       context: {

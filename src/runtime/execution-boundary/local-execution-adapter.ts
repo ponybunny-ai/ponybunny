@@ -1,8 +1,7 @@
 import { getAgentTickContext } from '../../infra/agents/agent-tick-context.js';
-import { getGlobalAgentRegistry } from '../../infra/agents/agent-registry.js';
-import { getGlobalRunnerRegistry } from '../../infra/agents/runner-registry.js';
 import type { WorkItem } from '../../work-order/types/index.js';
 import type { ExecutionRunner } from './execution-runner.js';
+import type { LocalExecutionAgentTickResolver } from './local-execution-agent-tick-resolver.js';
 import type { ExecutionPort, ExecutionRequest, ExecutionResult } from './types.js';
 
 interface ActiveExecution {
@@ -15,7 +14,10 @@ interface ActiveExecution {
 export class LocalExecutionAdapter implements ExecutionPort {
   private activeExecutions: Map<string, ActiveExecution> = new Map();
 
-  constructor(private executionRunner: ExecutionRunner) {}
+  constructor(
+    private executionRunner: ExecutionRunner,
+    private readonly agentTickResolver: LocalExecutionAgentTickResolver
+  ) {}
 
   async execute(request: ExecutionRequest): Promise<ExecutionResult> {
     const { workItem } = request;
@@ -46,8 +48,7 @@ export class LocalExecutionAdapter implements ExecutionPort {
     request: ExecutionRequest,
     agentTick: NonNullable<ReturnType<typeof getAgentTickContext>>
   ): Promise<ExecutionResult> {
-    const registry = getGlobalAgentRegistry();
-    const definition = registry.getAgent(agentTick.agent_id);
+    const definition = this.agentTickResolver.getDefinition(agentTick.agent_id);
     if (!definition) {
       return {
         runId: request.runId,
@@ -72,16 +73,7 @@ export class LocalExecutionAdapter implements ExecutionPort {
       );
     }
 
-    const runnerRegistry = getGlobalRunnerRegistry();
-    const configuredEngine = definition.config.runner?.engine?.trim();
-    const hasTypeRunner = runnerRegistry.hasRunner(definition.config.type);
-    const hasExplicitEngineRunner =
-      !!configuredEngine && configuredEngine.length > 0 && runnerRegistry.hasRunner(configuredEngine);
-    const shouldUseRunnerPath =
-      hasTypeRunner ||
-      (configuredEngine !== undefined && configuredEngine !== 'default' && hasExplicitEngineRunner);
-
-    if (!shouldUseRunnerPath) {
+    if (!this.agentTickResolver.hasRunnerPath(definition)) {
       return this.executeWithExecutionService(request, {
         routeContext: agentTick.routeContext,
       });
@@ -89,7 +81,7 @@ export class LocalExecutionAdapter implements ExecutionPort {
 
     let runner;
     try {
-      runner = runnerRegistry.resolve(definition.id, definition.config);
+      runner = this.agentTickResolver.resolveRunner(definition);
     } catch (error) {
       return {
         runId: request.runId,

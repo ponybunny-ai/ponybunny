@@ -35,11 +35,13 @@ export type {
   ExecutionRunnerResult,
   RuntimeExecutionRunSummary,
 } from './execution-runner.js';
+export type { LocalExecutionAgentTickResolver } from './local-execution-agent-tick-resolver.js';
 export { LocalExecutionCycleRuntimeFactory } from './local-execution-cycle-runtime-factory.js';
 export { LocalExecutionCycleRunner } from './local-execution-cycle-runner.js';
 export { LocalExecutionRunCompletionFinalizer } from './local-execution-run-completion-finalizer.js';
 export { LocalExecutionRunResultNormalizer } from './local-execution-run-result-normalizer.js';
 export { LocalExecutionResourcePreparer } from './local-execution-resource-preparer.js';
+export { RegistryBackedLocalExecutionAgentTickResolver } from './local-execution-agent-tick-resolver.js';
 export { LocalExecutionToolPolicyFinalizer } from './local-execution-tool-policy-finalizer.js';
 export { LocalExecutionToolPolicyPreparer } from './local-execution-tool-policy-preparer.js';
 export type {

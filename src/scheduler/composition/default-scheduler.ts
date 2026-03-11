@@ -3,10 +3,15 @@ import type { IWorkOrderRepository } from '../../infra/persistence/repository-in
 import type { ILLMProvider } from '../../infra/llm/llm-provider.js';
 import type { SchedulerConfig, SchedulerDependencies } from '../core/types.js';
 import type { IExecutionService } from '../../app/lifecycle/stage-interfaces.js';
+import { getGlobalAgentRegistry } from '../../infra/agents/agent-registry.js';
 import type { IWorkItemRepository } from '../work-item-manager/work-item-manager.js';
 import type { IEscalationRepository } from '../escalation-handler/escalation-handler.js';
+import { getGlobalRunnerRegistry } from '../../infra/agents/runner-registry.js';
 import type { ILLMReviewer } from '../quality-gate-runner/types.js';
-import type { ExecutionPort } from '../../runtime/execution-boundary/index.js';
+import type {
+  ExecutionPort,
+  LocalExecutionAgentTickResolver,
+} from '../../runtime/execution-boundary/index.js';
 import type { EventBus as RuntimeEventBus } from '../../runtime/event-bus/index.js';
 
 import { SchedulerCore } from '../core/index.js';
@@ -17,7 +22,10 @@ import { RetryHandler } from '../retry-handler/index.js';
 import { WorkItemManager } from '../work-item-manager/index.js';
 import { EscalationHandler } from '../escalation-handler/index.js';
 import { QualityGateRunner, DefaultCommandExecutor, MockLLMReviewer } from '../quality-gate-runner/index.js';
-import { LocalExecutionAdapter } from '../../runtime/execution-boundary/index.js';
+import {
+  LocalExecutionAdapter,
+  RegistryBackedLocalExecutionAgentTickResolver,
+} from '../../runtime/execution-boundary/index.js';
 import { runtimeEventBus } from '../../runtime/event-bus/index.js';
 
 import { SchedulerRepositoryAdapter } from './scheduler-repository-adapter.js';
@@ -39,6 +47,7 @@ export interface DefaultSchedulerDependencies {
   executionService: IExecutionService;
   llmProvider?: ILLMProvider;
   executionPort?: ExecutionPort;
+  agentTickResolver?: LocalExecutionAgentTickResolver;
   runtimeEventBus?: RuntimeEventBus;
 }
 
@@ -49,7 +58,14 @@ export function createDefaultScheduler(
   const { repository, executionService, llmProvider } = deps;
 
   const repositoryAdapter = new SchedulerRepositoryAdapter(repository);
-  const executionPort = deps.executionPort ?? new LocalExecutionAdapter(executionService);
+  const agentTickResolver =
+    deps.agentTickResolver
+    ?? new RegistryBackedLocalExecutionAgentTickResolver(
+      getGlobalAgentRegistry(),
+      getGlobalRunnerRegistry()
+    );
+  const executionPort =
+    deps.executionPort ?? new LocalExecutionAdapter(executionService, agentTickResolver);
   const bus = deps.runtimeEventBus ?? runtimeEventBus;
 
   const modelSelector = new ModelSelector();
