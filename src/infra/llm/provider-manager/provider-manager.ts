@@ -14,11 +14,16 @@ import { EndpointManager, getEndpointManager } from './endpoint-manager.js';
 import { WorkloadModelResolver, getWorkloadModelResolver } from './agent-model-resolver.js';
 import { getProtocolAdapter } from '../protocols/index.js';
 import type { EndpointCredentials } from '../protocols/index.js';
-import { gatewayEventBus } from '../../../gateway/events/event-bus.js';
 import { isPonyBunnyDebugEnabled } from '../../config/debug-flags.js';
 import { randomUUID } from 'crypto';
 import type { OpenAIOperation, ProtocolRequestConfig } from '../protocols/protocol-adapter.js';
 import { resolveProviderRequestModel as resolveProviderRequestModelId } from './model-resolution.js';
+import {
+  createNoOpLLMStreamEventSink,
+  type LLMStreamEventSink,
+} from './stream-event-sink.js';
+
+let configuredStreamEventSink: LLMStreamEventSink = createNoOpLLMStreamEventSink();
 
 /**
  * LLM Provider Manager
@@ -30,10 +35,12 @@ export class LLMProviderManager implements ILLMProviderManager {
   private defaultTimeout: number;
   private defaultMaxTokens: number;
   private defaultTemperature: number;
+  private streamEventSink: LLMStreamEventSink;
 
-  constructor() {
+  constructor(streamEventSink: LLMStreamEventSink = configuredStreamEventSink) {
     this.endpointManager = getEndpointManager();
     this.workloadModelResolver = getWorkloadModelResolver();
+    this.streamEventSink = streamEventSink;
 
     const config = getCachedConfig();
     this.defaultTimeout = config.defaults.timeout || 120000;
@@ -148,6 +155,10 @@ export class LLMProviderManager implements ILLMProviderManager {
   ): Promise<LLMResponse> {
     const fallbackChain = this.workloadModelResolver.getFallbackChainForTier(tier);
     return this.completeWithFallback(fallbackChain, messages, options);
+  }
+
+  bindStreamEventSink(streamEventSink: LLMStreamEventSink): void {
+    this.streamEventSink = streamEventSink;
   }
 
   // ============================================
@@ -374,7 +385,7 @@ export class LLMProviderManager implements ILLMProviderManager {
     const startTime = Date.now();
 
     // Emit stream start event
-    gatewayEventBus.emit('llm.stream.start', {
+    this.streamEventSink.streamStarted({
       requestId,
       goalId: options.goalId,
       workItemId: options.workItemId,
@@ -396,7 +407,7 @@ export class LLMProviderManager implements ILLMProviderManager {
         const errorMessage = adapter.extractErrorMessage(data);
 
         // Emit error event
-        gatewayEventBus.emit('llm.stream.error', {
+        this.streamEventSink.streamErrored({
           requestId,
           goalId: options.goalId,
           error: errorMessage,
@@ -447,7 +458,7 @@ export class LLMProviderManager implements ILLMProviderManager {
               fullContent += chunk.content;
 
               // Emit chunk event
-              gatewayEventBus.emit('llm.stream.chunk', {
+              this.streamEventSink.streamChunk({
                 requestId,
                 goalId: options.goalId,
                 chunk: chunk.content,
@@ -491,7 +502,7 @@ export class LLMProviderManager implements ILLMProviderManager {
         if (chunk) {
           if (chunk.content) {
             fullContent += chunk.content;
-            gatewayEventBus.emit('llm.stream.chunk', {
+            this.streamEventSink.streamChunk({
               requestId,
               goalId: options.goalId,
               chunk: chunk.content,
@@ -522,7 +533,7 @@ export class LLMProviderManager implements ILLMProviderManager {
       }
 
       // Emit stream end event
-      gatewayEventBus.emit('llm.stream.end', {
+      this.streamEventSink.streamEnded({
         requestId,
         goalId: options.goalId,
         totalChunks: chunkIndex,
@@ -549,7 +560,7 @@ export class LLMProviderManager implements ILLMProviderManager {
       return llmResponse;
     } catch (error) {
       // Emit error event
-      gatewayEventBus.emit('llm.stream.error', {
+      this.streamEventSink.streamErrored({
         requestId,
         goalId: options.goalId,
         error: (error as Error).message,
@@ -801,6 +812,11 @@ export class LLMProviderManager implements ILLMProviderManager {
 // Singleton instance
 let instance: LLMProviderManager | null = null;
 
+export function configureLLMProviderManagerStreamEventSink(streamEventSink: LLMStreamEventSink): void {
+  configuredStreamEventSink = streamEventSink;
+  instance?.bindStreamEventSink(streamEventSink);
+}
+
 /**
  * Get the singleton LLMProviderManager instance
  */
@@ -816,4 +832,5 @@ export function getLLMProviderManager(): LLMProviderManager {
  */
 export function resetLLMProviderManager(): void {
   instance = null;
+  configuredStreamEventSink = createNoOpLLMStreamEventSink();
 }

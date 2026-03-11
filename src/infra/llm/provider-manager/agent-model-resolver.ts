@@ -1,8 +1,18 @@
 import type { WorkloadId, ModelTier, LLMWorkloadConfig, LLMTierConfig } from './types.js';
 import { getCachedConfig } from './config-loader.js';
 import { getEndpointManager } from './endpoint-manager.js';
-import { getGlobalAgentRegistry } from '../../agents/agent-registry.js';
+import {
+  getGlobalAgentDefinitionReadAccess,
+  type IAgentDefinitionReadAccess,
+} from '../../agents/agent-definition-read-access.js';
 import { loadRuntimeConfig } from '../../config/runtime-config.js';
+import {
+  getTierForWorkload,
+  getTierPrimaryModel,
+  getWorkloadTierPrimaryModel,
+  resolveEffectiveModelSelection,
+  type EffectiveModelResolution,
+} from './effective-model-resolution.js';
 
 function normalizeOptionalString(value: unknown): string | undefined {
   if (typeof value !== 'string') {
@@ -30,6 +40,10 @@ function dedupeModelChain(models: string[]): string[] {
  * Resolves agent IDs and tiers to specific models with fallback chains
  */
 export class WorkloadModelResolver {
+  constructor(
+    private readonly agentDefinitionReadAccess: IAgentDefinitionReadAccess = getGlobalAgentDefinitionReadAccess()
+  ) {}
+
   private getRuntimeModelOverride(workloadId: WorkloadId): string | undefined {
     const runtime = loadRuntimeConfig();
     const rawOverride = runtime.agent.modelOverrides?.[workloadId];
@@ -46,33 +60,15 @@ export class WorkloadModelResolver {
   }
 
   private getAgentModelHint(workloadId: WorkloadId): string | undefined {
-    const agent = getGlobalAgentRegistry().getAgent(workloadId);
-    if (!agent) {
-      return undefined;
-    }
-
-    const runnerConfig = (agent.config.runner.config ?? {}) as Record<string, unknown>;
-    return normalizeOptionalString(runnerConfig.model) ?? normalizeOptionalString(runnerConfig.model_hint);
+    const definition = this.agentDefinitionReadAccess.getAgentDefinitionView(workloadId);
+    return normalizeOptionalString(definition?.runnerModel) ?? normalizeOptionalString(definition?.runnerModelHint);
   }
 
   /**
    * Get the primary model for an agent
    */
   getModelForWorkload(workloadId: WorkloadId): string {
-    const runtimeOverride = this.getRuntimeModelOverride(workloadId);
-    if (runtimeOverride) {
-      return runtimeOverride;
-    }
-
-    const agentModel = this.getAgentModelHint(workloadId);
-    if (agentModel) {
-      return agentModel;
-    }
-
-    const config = getCachedConfig();
-    const tier = config.workloads[workloadId]?.tier || 'medium';
-
-    return config.tiers[tier].primary;
+    return this.resolveEffectiveModelForWorkload(workloadId).model;
   }
 
   private getTierChainForWorkload(workloadId: WorkloadId): string[] {
@@ -98,12 +94,27 @@ export class WorkloadModelResolver {
     ]);
   }
 
+  resolveEffectiveModelForWorkload(workloadId: WorkloadId): EffectiveModelResolution {
+    const tierDefault = getWorkloadTierPrimaryModel(workloadId);
+    const resolved = resolveEffectiveModelSelection({
+      runtimeOverrideModel: this.getRuntimeModelOverride(workloadId),
+      agentModelHint: this.getAgentModelHint(workloadId),
+      defaultModel: tierDefault.model,
+      tier: tierDefault.tier,
+    });
+
+    if (!resolved) {
+      throw new Error(`Expected effective model resolution for workload "${workloadId}"`);
+    }
+
+    return resolved;
+  }
+
   /**
    * Get the primary model for a tier
    */
   getModelForTier(tier: ModelTier): string {
-    const config = getCachedConfig();
-    return config.tiers[tier].primary;
+    return getTierPrimaryModel(tier);
   }
 
   /**
@@ -194,9 +205,7 @@ export class WorkloadModelResolver {
    * Get the tier for an agent
    */
   getTierForWorkload(workloadId: WorkloadId): ModelTier {
-    const config = getCachedConfig();
-    const workloadConfig = config.workloads[workloadId];
-    return workloadConfig?.tier || 'medium';
+    return getTierForWorkload(workloadId);
   }
 
   /**
@@ -226,7 +235,7 @@ let instance: WorkloadModelResolver | null = null;
  */
 export function getWorkloadModelResolver(): WorkloadModelResolver {
   if (!instance) {
-    instance = new WorkloadModelResolver();
+    instance = new WorkloadModelResolver(getGlobalAgentDefinitionReadAccess());
   }
   return instance;
 }

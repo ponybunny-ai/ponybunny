@@ -3,6 +3,16 @@ import type { Goal, Run, WorkItem } from '../../../../src/work-order/types/index
 import type { IWorkOrderRepository } from '../../../../src/infra/persistence/repository-interface.js';
 import type { ILLMProvider, LLMMessage, LLMResponse, ToolCall } from '../../../../src/infra/llm/llm-provider.js';
 import { ExecutionService } from '../../../../src/app/lifecycle/execution/execution-service.js';
+import type {
+  ExecutionCycleRunner,
+  ExecutionResourcePreparer,
+  ExecutionRunCompletionFinalizer,
+  ExecutionRunResultNormalizer,
+  ExecutionToolPolicyPreparer,
+  ExecutionToolPolicyFinalizer,
+  ExecutionCycleRuntimeFactory,
+} from '../../../../src/runtime/execution-boundary/index.js';
+import type { ToolPolicyAuditSnapshot } from '../../../../src/infra/tools/tool-registry.js';
 
 class ScriptedWriteToolLLMProvider implements ILLMProvider {
   private callCount = 0;
@@ -133,6 +143,7 @@ function createRepository(goal: Goal): IWorkOrderRepository {
       cost_usd: number;
       artifacts: string[];
       execution_log?: string;
+      context?: Record<string, unknown>;
     }) => {
       const existing = runsById.get(runId);
       if (!existing) return;
@@ -145,6 +156,7 @@ function createRepository(goal: Goal): IWorkOrderRepository {
         cost_usd: params.cost_usd,
         artifacts: params.artifacts,
         execution_log: params.execution_log,
+        context: params.context,
         completed_at: Date.now(),
       });
     }),
@@ -206,6 +218,567 @@ describe('ExecutionService per-work-item tool allowlist', () => {
     expect(result.success).toBe(true);
     expect(result.run.execution_log).toContain('Action denied: Tool \'write_file\' not in allowlist for this goal');
     expect(existsSync(denyPath)).toBe(false);
+  });
+
+  it('delegates runtime execution through the narrow execution cycle runner seam', async () => {
+    const goal = createGoal('goal-cycle-runner');
+    const repository = createRepository(goal);
+    const executionCycleRunner: ExecutionCycleRunner = {
+      executeCycle: jest.fn().mockResolvedValue({
+        success: true,
+        tokensUsed: 11,
+        costUsd: 0.5,
+        actualModel: 'runtime-model',
+        endpointId: 'endpoint-runtime',
+        artifactIds: ['artifact-runtime'],
+        log: 'cycle runner log',
+      }),
+    };
+
+    const service = new ExecutionService(
+      repository,
+      { maxConsecutiveErrors: 3 },
+      undefined,
+      { executionCycleRunner }
+    );
+
+    const workItem = createWorkItem({
+      id: 'work-item-cycle-runner',
+      goal_id: goal.id,
+      context: {
+        model: 'requested-model',
+      },
+    });
+
+    const result = await service.executeWorkItem(workItem);
+
+    expect(executionCycleRunner.executeCycle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workItem,
+        run: expect.objectContaining({
+          work_item_id: workItem.id,
+          goal_id: workItem.goal_id,
+        }),
+        goal,
+        model: 'requested-model',
+        toolEnforcer: undefined,
+      })
+    );
+    expect(result.success).toBe(true);
+    expect(result.run.execution_log).toContain('cycle runner log');
+    expect(result.run.context).toEqual({
+      selected_model: undefined,
+      requested_model: 'requested-model',
+      actual_model: 'runtime-model',
+      endpoint_id: 'endpoint-runtime',
+    });
+  });
+
+  it('preserves the direct-execution createRun compatibility context shape', async () => {
+    const goal = createGoal('goal-create-run-context-shape');
+    const repository = createRepository(goal);
+    const executionCycleRunner: ExecutionCycleRunner = {
+      executeCycle: jest.fn().mockResolvedValue({
+        success: true,
+        tokensUsed: 1,
+        costUsd: 0.01,
+        actualModel: 'runtime-model',
+        endpointId: 'endpoint-runtime',
+        artifactIds: [],
+        log: 'cycle runner log',
+      }),
+    };
+
+    const service = new ExecutionService(
+      repository,
+      { maxConsecutiveErrors: 3 },
+      undefined,
+      { executionCycleRunner }
+    );
+
+    const workItem = createWorkItem({
+      id: 'work-item-create-run-context-shape',
+      goal_id: goal.id,
+      context: {
+        selected_model: 'selected-for-run',
+        model: ' requested-for-run ',
+      },
+    });
+
+    await service.executeWorkItem(workItem);
+
+    expect((repository as unknown as { createRun: jest.Mock }).createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: {
+          selected_model: 'selected-for-run',
+          requested_model: ' requested-for-run ',
+        },
+      })
+    );
+  });
+
+  it('builds runtime execution composition through the narrow factory seam', async () => {
+    const goal = createGoal('goal-cycle-runtime-factory');
+    const repository = createRepository(goal);
+    const executionCycleRunner: ExecutionCycleRunner = {
+      executeCycle: jest.fn().mockResolvedValue({
+        success: true,
+        tokensUsed: 3,
+        costUsd: 0.1,
+        actualModel: 'factory-model',
+        endpointId: 'factory-endpoint',
+        artifactIds: [],
+        log: 'factory seam log',
+      }),
+    };
+    const runtimeToolingContext = {
+      toolRegistry: {} as any,
+      toolAllowlist: {} as any,
+      toolEnforcer: {} as any,
+      toolProvider: {} as any,
+      skillRegistry: {} as any,
+      getPromptProvider: jest.fn(() => ({} as any)),
+      syncLegacyGlobals: jest.fn(),
+    };
+    const executionCycleRuntimeFactory: ExecutionCycleRuntimeFactory = {
+      createExecutionCycleRuntime: jest.fn(() => ({
+        runtimeToolingContext: runtimeToolingContext as any,
+        executionCycleRunner,
+      })),
+    };
+
+    const service = new ExecutionService(
+      repository,
+      { maxConsecutiveErrors: 3 },
+      undefined,
+      { executionCycleRuntimeFactory }
+    );
+
+    const workItem = createWorkItem({
+      id: 'work-item-cycle-runtime-factory',
+      goal_id: goal.id,
+    });
+
+    const result = await service.executeWorkItem(workItem);
+
+    expect(executionCycleRuntimeFactory.createExecutionCycleRuntime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        llmProvider: undefined,
+        toolRegistry: expect.anything(),
+        toolAllowlist: expect.anything(),
+        toolEnforcer: expect.anything(),
+        skillRegistry: expect.anything(),
+      })
+    );
+    expect(runtimeToolingContext.syncLegacyGlobals).toHaveBeenCalledTimes(1);
+    expect(service.getRuntimeToolingContext()).toBe(runtimeToolingContext);
+    expect(executionCycleRunner.executeCycle).toHaveBeenCalled();
+    expect(result.run.execution_log).toContain('factory seam log');
+  });
+
+  it('uses the narrow execution tool policy preparer seam for per-work-item policy setup', async () => {
+    const goal = createGoal('goal-tool-policy-preparer');
+    const repository = createRepository(goal);
+    const executionCycleRunner: ExecutionCycleRunner = {
+      executeCycle: jest.fn().mockResolvedValue({
+        success: true,
+        tokensUsed: 2,
+        costUsd: 0.05,
+        log: 'prepared seam log',
+      }),
+    };
+    const policyAudit: ToolPolicyAuditSnapshot = {
+      baselineAllowedTools: ['read_file', 'write_file'],
+      effectiveAllowedTools: ['read_file'],
+      deniedTools: [{ tool: 'write_file', reason: 'global deny policy' }],
+      appliedLayers: ['global'],
+      policyContext: {
+        providerId: 'openai/gpt-5.3-codex',
+      },
+      hasLayeredPolicy: true,
+    };
+    const scopedToolEnforcer = {} as any;
+    const executionToolPolicyPreparer: ExecutionToolPolicyPreparer = {
+      prepareForWorkItem: jest.fn(() => ({
+        toolEnforcer: scopedToolEnforcer,
+        policyAudit,
+      })),
+    };
+
+    const service = new ExecutionService(
+      repository,
+      { maxConsecutiveErrors: 3 },
+      undefined,
+      {
+        executionCycleRunner,
+        executionToolPolicyPreparer,
+      }
+    );
+
+    const workItem = createWorkItem({
+      id: 'work-item-tool-policy-preparer',
+      goal_id: goal.id,
+      context: {
+        tool_allowlist: ['read_file'],
+      },
+    });
+
+    const result = await service.executeWorkItem(workItem);
+
+    expect(executionToolPolicyPreparer.prepareForWorkItem).toHaveBeenCalledWith(workItem);
+    expect(executionCycleRunner.executeCycle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolEnforcer: scopedToolEnforcer,
+      })
+    );
+    expect((workItem.context as Record<string, unknown>).tool_policy_audit).toEqual(policyAudit);
+    expect(result.run.execution_log).toContain('[POLICY_AUDIT]');
+    expect((repository as unknown as { createDecision: jest.Mock }).createDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decision_point: 'tool_policy_resolution',
+        metadata: expect.objectContaining({
+          policyAudit,
+        }),
+      })
+    );
+  });
+
+  it('uses the narrow execution tool policy finalizer seam for post-cycle policy logging and persistence', async () => {
+    const goal = createGoal('goal-tool-policy-finalizer');
+    const repository = createRepository(goal);
+    const executionCycleRunner: ExecutionCycleRunner = {
+      executeCycle: jest.fn().mockResolvedValue({
+        success: true,
+        tokensUsed: 6,
+        costUsd: 0.12,
+        actualModel: 'finalizer-model',
+        endpointId: 'finalizer-endpoint',
+        log: 'cycle log before finalization',
+      }),
+    };
+    const policyAudit: ToolPolicyAuditSnapshot = {
+      baselineAllowedTools: ['read_file', 'write_file'],
+      effectiveAllowedTools: ['read_file'],
+      deniedTools: [{ tool: 'write_file', reason: 'global deny policy' }],
+      appliedLayers: ['global'],
+      policyContext: {
+        providerId: 'openai/gpt-5.3-codex',
+      },
+      hasLayeredPolicy: true,
+    };
+    const executionToolPolicyPreparer: ExecutionToolPolicyPreparer = {
+      prepareForWorkItem: jest.fn(() => ({
+        toolEnforcer: {} as any,
+        policyAudit,
+      })),
+    };
+    const executionToolPolicyFinalizer: ExecutionToolPolicyFinalizer = {
+      buildExecutionLog: jest.fn(({ executionLog }) => `finalized::${executionLog}`),
+      buildDecision: jest.fn(() => ({
+        run_id: 'ignored-build-decision-run',
+        work_item_id: 'ignored-build-decision-work-item',
+        goal_id: goal.id,
+        decision_type: 'tool',
+        decision_point: 'tool_policy_resolution',
+        options_considered: [],
+        selected_option: 'layered_policy_applied',
+        reasoning: 'built in test',
+      })),
+      persistDecision: jest.fn(),
+    };
+
+    const service = new ExecutionService(
+      repository,
+      { maxConsecutiveErrors: 3 },
+      undefined,
+      {
+        executionCycleRunner,
+        executionToolPolicyPreparer,
+        executionToolPolicyFinalizer,
+      }
+    );
+
+    const workItem = createWorkItem({
+      id: 'work-item-tool-policy-finalizer',
+      goal_id: goal.id,
+      context: {
+        routeContext: {
+          source: 'gateway.message',
+          providerId: 'openai/gpt-5.3-codex',
+        },
+      },
+    });
+
+    const result = await service.executeWorkItem(workItem);
+
+    expect(executionToolPolicyFinalizer.buildExecutionLog).toHaveBeenCalledWith({
+      executionLog: 'cycle log before finalization',
+      policyAudit,
+      routeContext: expect.objectContaining({
+        source: 'gateway.message',
+        providerId: 'openai/gpt-5.3-codex',
+      }),
+    });
+    expect(executionToolPolicyFinalizer.persistDecision).toHaveBeenCalledWith(
+      repository,
+      expect.objectContaining({
+        run: expect.objectContaining({
+          work_item_id: workItem.id,
+          goal_id: goal.id,
+        }),
+        workItem,
+        policyAudit,
+        routeContext: expect.objectContaining({
+          source: 'gateway.message',
+          providerId: 'openai/gpt-5.3-codex',
+        }),
+      })
+    );
+    expect(result.run.execution_log).toBe('finalized::cycle log before finalization');
+    expect((repository as unknown as { createDecision: jest.Mock }).createDecision).not.toHaveBeenCalled();
+  });
+
+  it('uses the narrow execution resource preparer seam before run creation and cycle entry', async () => {
+    const goal = createGoal('goal-resource-preparer');
+    const repository = createRepository(goal);
+    const executionCycleRunner: ExecutionCycleRunner = {
+      executeCycle: jest.fn().mockResolvedValue({
+        success: true,
+        tokensUsed: 4,
+        costUsd: 0.08,
+        log: 'resource preparer seam log',
+      }),
+    };
+    const executionResourcePreparer: ExecutionResourcePreparer = {
+      prepareForWorkItem: jest.fn(async (workItem) => {
+        workItem.context = {
+          ...(workItem.context ?? {}),
+          selected_skill: 'github-search',
+        };
+        return { blocked: false };
+      }),
+    };
+
+    const service = new ExecutionService(
+      repository,
+      { maxConsecutiveErrors: 3 },
+      undefined,
+      {
+        executionCycleRunner,
+        executionResourcePreparer,
+      }
+    );
+
+    const workItem = createWorkItem({
+      id: 'work-item-resource-preparer',
+      goal_id: goal.id,
+      context: {
+        model: 'requested-model',
+      },
+    });
+
+    const result = await service.executeWorkItem(workItem);
+
+    expect(executionResourcePreparer.prepareForWorkItem).toHaveBeenCalledWith(workItem);
+    expect((repository as unknown as { createRun: jest.Mock }).createRun).toHaveBeenCalledTimes(1);
+    expect(executionCycleRunner.executeCycle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workItem: expect.objectContaining({
+          context: expect.objectContaining({
+            selected_skill: 'github-search',
+          }),
+        }),
+      })
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it('uses the narrow execution run completion finalizer seam for post-cycle completion assembly and goal spending follow-up', async () => {
+    const goal = createGoal('goal-run-completion-finalizer');
+    const repository = createRepository(goal);
+    const executionCycleRunner: ExecutionCycleRunner = {
+      executeCycle: jest.fn().mockResolvedValue({
+        success: true,
+        tokensUsed: 9,
+        costUsd: 0.18,
+        actualModel: 'completion-model',
+        endpointId: 'completion-endpoint',
+        artifactIds: ['artifact-1'],
+        log: 'completion seam cycle log',
+      }),
+    };
+    const executionRunCompletionFinalizer: ExecutionRunCompletionFinalizer = {
+      buildRunCompletion: jest.fn(({ executionLog, timeSeconds }) => ({
+        status: 'success',
+        error_message: undefined,
+        tokens_used: 9,
+        time_seconds: timeSeconds,
+        cost_usd: 0.18,
+        artifacts: ['artifact-1'],
+        execution_log: `completed::${executionLog}`,
+        context: {
+          selected_model: 'selected-for-test',
+          requested_model: 'requested-for-test',
+          actual_model: 'completion-model',
+          endpoint_id: 'completion-endpoint',
+        },
+      })),
+      persistGoalSpending: jest.fn(),
+    };
+
+    const service = new ExecutionService(
+      repository,
+      { maxConsecutiveErrors: 3 },
+      undefined,
+      {
+        executionCycleRunner,
+        executionRunCompletionFinalizer,
+      }
+    );
+
+    const workItem = createWorkItem({
+      id: 'work-item-run-completion-finalizer',
+      goal_id: goal.id,
+      context: {
+        selected_model: 'selected-for-test',
+        model: 'requested-for-test',
+      },
+    });
+
+    const result = await service.executeWorkItem(workItem);
+
+    expect(executionRunCompletionFinalizer.buildRunCompletion).toHaveBeenCalledWith({
+      executionResult: expect.objectContaining({
+        success: true,
+        tokensUsed: 9,
+        costUsd: 0.18,
+        actualModel: 'completion-model',
+        endpointId: 'completion-endpoint',
+        artifactIds: ['artifact-1'],
+        log: 'completion seam cycle log',
+      }),
+      executionLog: expect.stringContaining('completion seam cycle log'),
+      timeSeconds: expect.any(Number),
+      selectedModel: 'selected-for-test',
+      requestedModel: 'requested-for-test',
+    });
+    expect((repository as unknown as { completeRun: jest.Mock }).completeRun).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        execution_log: expect.stringContaining('completed::'),
+        context: expect.objectContaining({
+          selected_model: 'selected-for-test',
+          requested_model: 'requested-for-test',
+          actual_model: 'completion-model',
+          endpoint_id: 'completion-endpoint',
+        }),
+      })
+    );
+    expect(executionRunCompletionFinalizer.persistGoalSpending).toHaveBeenCalledWith(repository, {
+      goalId: goal.id,
+      tokensUsed: 9,
+      timeSeconds: expect.any(Number),
+      costUsd: 0.18,
+    });
+    expect(result.run.execution_log).toContain('completed::');
+  });
+
+  it('uses the narrow execution run result normalizer seam for persisted-run reload and retry classification', async () => {
+    const goal = createGoal('goal-run-result-normalizer');
+    const repository = createRepository(goal);
+    const executionCycleRunner: ExecutionCycleRunner = {
+      executeCycle: jest.fn().mockResolvedValue({
+        success: false,
+        error: 'run 42 failed at /tmp/demo.txt',
+        tokensUsed: 3,
+        costUsd: 0.05,
+        log: 'normalizer seam cycle log',
+      }),
+    };
+    const executionRunResultNormalizer: ExecutionRunResultNormalizer = {
+      normalizeExecutionResult: jest.fn((_repository, params) => ({
+        run: {
+          ...params.run,
+          status: 'failure',
+          execution_log: 'normalized-run-log',
+        },
+        success: params.success,
+        needsRetry: true,
+        errorSignature: 'normalized-signature',
+      })),
+    };
+
+    const service = new ExecutionService(
+      repository,
+      { maxConsecutiveErrors: 3 },
+      undefined,
+      {
+        executionCycleRunner,
+        executionRunResultNormalizer,
+      }
+    );
+
+    const workItem = createWorkItem({
+      id: 'work-item-run-result-normalizer',
+      goal_id: goal.id,
+      retry_count: 1,
+      max_retries: 4,
+    });
+
+    const result = await service.executeWorkItem(workItem);
+
+    expect(executionRunResultNormalizer.normalizeExecutionResult).toHaveBeenCalledWith(repository, {
+      run: expect.objectContaining({
+        work_item_id: workItem.id,
+        goal_id: goal.id,
+      }),
+      workItemId: workItem.id,
+      workItemRetryCount: 1,
+      workItemMaxRetries: 4,
+      success: false,
+      error: 'run 42 failed at /tmp/demo.txt',
+      maxConsecutiveErrors: 3,
+    });
+    expect(result.needsRetry).toBe(true);
+    expect(result.errorSignature).toBe('normalized-signature');
+    expect(result.run.execution_log).toBe('normalized-run-log');
+  });
+
+  it('keeps retry classification unchanged when repeated errors trigger escalation after completion', async () => {
+    const goal = createGoal('goal-repeated-error-classification');
+    const repository = createRepository(goal) as unknown as {
+      [key: string]: jest.Mock;
+    };
+    repository.getRepeatedErrorSignatures.mockReturnValue(['sig-1']);
+
+    const service = new ExecutionService(
+      repository as unknown as IWorkOrderRepository,
+      { maxConsecutiveErrors: 3 },
+      undefined,
+      {
+        executionCycleRunner: {
+          executeCycle: jest.fn().mockResolvedValue({
+            success: false,
+            error: 'same failure again',
+            tokensUsed: 2,
+            costUsd: 0.01,
+            log: 'repeat failure log',
+          }),
+        },
+      }
+    );
+
+    const workItem = createWorkItem({
+      id: 'work-item-repeated-error-classification',
+      goal_id: goal.id,
+      retry_count: 0,
+      max_retries: 2,
+    });
+
+    const result = await service.executeWorkItem(workItem);
+
+    expect(result.success).toBe(false);
+    expect(result.needsRetry).toBe(false);
   });
 
   it('keeps tool permissions isolated across concurrent runs', async () => {

@@ -628,6 +628,34 @@ describe('SchedulerCore', () => {
       expect(mockRepository.claimEventedResultContinuation).not.toHaveBeenCalled();
     });
 
+    it('should preserve run context and event payload model shapes for normal execution startup', async () => {
+      const goal = createGoal();
+      const workItem = createWorkItem();
+      mockRepository.getGoal.mockReturnValue(goal);
+      mockWorkItemManager.getNextWorkItem.mockResolvedValueOnce(workItem).mockResolvedValue(null);
+      mockExecutionPort.execute.mockResolvedValue({
+        runId: 'run-1',
+        workItemId: 'wi-1',
+        success: true,
+        tokensUsed: 10,
+        timeSeconds: 1,
+        costUsd: 0.001,
+        artifacts: [],
+      });
+
+      await scheduler.submitGoal(goal);
+      await scheduler.start();
+      await scheduler.tick();
+
+      expect(mockRepository.createRun).toHaveBeenCalledWith(expect.objectContaining({
+        context: expect.objectContaining({
+          selected_model: 'claude-3-5-sonnet',
+          model_source: 'scheduler_selector',
+        }),
+      }));
+      expect(mockRuntimeEventBus.publish).not.toHaveBeenCalled();
+    });
+
     it('should dispatch a replay replacement run through the existing task.ready path', async () => {
       const goal = createGoal();
       const workItem = createWorkItem({ status: 'in_progress' });
@@ -675,6 +703,8 @@ describe('SchedulerCore', () => {
         replacementRun,
       });
       scheduler = new SchedulerCore(mockDeps, { executionMode: 'evented' });
+      const events: SchedulerEvent[] = [];
+      scheduler.on((event) => { events.push(event); });
 
       const result = await scheduler.replayRun('run-original');
 
@@ -706,6 +736,16 @@ describe('SchedulerCore', () => {
             replay_started_at: 2000,
             result_continuation_applied: false,
           }),
+        })
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: 'run_started',
+          runId: 'run-replay',
+          data: {
+            selected_model: 'claude-3-5-sonnet',
+            replay_of_run_id: 'run-original',
+          },
         })
       );
     });

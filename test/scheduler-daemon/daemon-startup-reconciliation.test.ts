@@ -6,8 +6,21 @@ import { jest } from '@jest/globals';
 import type { IWorkOrderRepository } from '../../src/infra/persistence/repository-interface.js';
 import type { IExecutionService } from '../../src/app/lifecycle/stage-interfaces.js';
 import type { ILLMProvider } from '../../src/infra/llm/llm-provider.js';
+import type { RuntimeToolingContext } from '../../src/runtime/tooling-context/index.js';
 import { SchedulerDaemon } from '../../src/scheduler-daemon/daemon.js';
 import { buildEventedDispatchCheckpoint } from '../../src/scheduler/evented-dispatch-checkpoint.js';
+
+function createRuntimeToolingContextStub(): RuntimeToolingContext {
+  return {
+    toolProvider: {
+      getToolDefinitions: () => [],
+      getToolsForPhase: () => [],
+    },
+    getPromptProvider: () => ({
+      generatePrompt: () => '',
+    }),
+  } as unknown as RuntimeToolingContext;
+}
 
 function createRepositoryMock(): jest.Mocked<IWorkOrderRepository> {
   return {
@@ -92,6 +105,7 @@ describe('SchedulerDaemon startup reconciliation', () => {
         ipcSocketPath: path.join(os.tmpdir(), 'scheduler.sock'),
         dbPath: path.join(os.tmpdir(), 'scheduler.db'),
         executionMode: 'evented',
+        runtimeToolingContext: createRuntimeToolingContextStub(),
       }
     );
 
@@ -147,6 +161,7 @@ describe('SchedulerDaemon startup reconciliation', () => {
         dbPath: path.join(os.tmpdir(), 'scheduler.db'),
         executionMode: 'evented',
         eventedOrphanTimeoutMs: 30 * 60 * 1000,
+        runtimeToolingContext: createRuntimeToolingContextStub(),
       }
     );
 
@@ -170,6 +185,7 @@ describe('SchedulerDaemon startup reconciliation', () => {
         ipcSocketPath: path.join(os.tmpdir(), 'scheduler.sock'),
         dbPath: path.join(os.tmpdir(), 'scheduler.db'),
         executionMode: 'direct',
+        runtimeToolingContext: createRuntimeToolingContextStub(),
       }
     );
 

@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { RpcHandler } from '../../../src/gateway/rpc/rpc-handler.js';
 import * as runtimeConfig from '../../../src/infra/config/runtime-config.js';
+import * as gatewaySystemInfo from '../../../src/gateway/system/system-info.js';
 import { Session } from '../../../src/gateway/connection/session.js';
 import { GatewayError, ErrorCodes } from '../../../src/gateway/errors.js';
 import { registerSystemHandlers } from '../../../src/gateway/rpc/handlers/system-handlers.js';
@@ -101,6 +102,77 @@ describe('system handlers', () => {
         totalAgents: 1,
       },
     });
+
+    jest.spyOn(gatewaySystemInfo, 'getSystemInfo').mockReturnValue({
+      os: {
+        type: 'Darwin',
+        platform: 'darwin',
+        release: 'test',
+        version: 'test',
+        arch: 'arm64',
+        hostname: 'pony',
+        uptime: 1,
+      },
+      hardware: {
+        cpu: {
+          model: 'test',
+          cores: 8,
+          speed: 1000,
+          usage: 1,
+        },
+        memory: {
+          total: 1,
+          free: 1,
+          used: 0,
+          usagePercent: 0,
+        },
+      },
+      network: {
+        interfaces: [],
+      },
+      process: {
+        pid: 1,
+        uptime: 1,
+        memory: {
+          rss: 1,
+          heapTotal: 1,
+          heapUsed: 1,
+          external: 1,
+        },
+        cpu: {
+          user: 1,
+          system: 1,
+        },
+      },
+    });
+    jest.spyOn(gatewaySystemInfo, 'getAllProcessInfo').mockReturnValue({
+      current: {
+        pid: 1,
+        uptime: 1,
+        memory: {
+          rss: 1,
+          heapTotal: 1,
+          heapUsed: 1,
+          external: 1,
+        },
+        cpu: {
+          user: 1,
+          system: 1,
+        },
+      },
+      gateway: {
+        status: 'running',
+        pid: 1,
+        uptime: 1,
+        startedAt: 1,
+      },
+      scheduler: {
+        status: 'running',
+        pid: 2,
+        uptime: 1,
+        startedAt: 1,
+      },
+    } as ReturnType<typeof gatewaySystemInfo.getAllProcessInfo>);
 
     registerSystemHandlers(
       rpc,
@@ -238,6 +310,36 @@ describe('system handlers', () => {
       ackSampleSize: 42,
       streamSampleSize: 16,
     });
+  });
+
+  it('accepts daemon attachment snapshots without changing system.status response semantics', async () => {
+    const rpcWithAttachmentSnapshot = new RpcHandler();
+    registerSystemHandlers(
+      rpcWithAttachmentSnapshot,
+      () => mockConnectionManager,
+      () => mockScheduler,
+      () => mockChannelRouter,
+      () => [],
+      () => ({
+        isRunning: true,
+        daemonAttachment: {
+          phase: 'attached',
+          connected: true,
+          connectedAt: 123,
+        },
+        daemonConnected: false,
+        schedulerConnected: true,
+      }),
+      () => []
+    );
+
+    const result = await rpcWithAttachmentSnapshot.handle('system.status', {}, createSession(['admin'])) as {
+      gateway: {
+        daemonConnected: boolean;
+      };
+    };
+
+    expect(result.gateway.daemonConnected).toBe(true);
   });
 
   it('returns runtime rollout status', async () => {

@@ -1,7 +1,15 @@
 import { randomUUID } from 'crypto';
 import type { EventBus as RuntimeEventBus } from '../event-bus/index.js';
 import { runtimeEventBus } from '../event-bus/index.js';
-import type { ToolFailure, ToolPort, ToolRequest, ToolResult } from '../tool-boundary/index.js';
+import {
+  ToolRequestRegistry,
+  type ToolFailure,
+  type ToolPort,
+  type ToolRequest,
+  type ToolResult,
+  type ToolRequestResolutionOwner,
+  type ToolRequestTerminalPath,
+} from '../tool-boundary/index.js';
 
 export const TOOL_WORKER_SOURCE = 'local-tool-worker';
 
@@ -24,17 +32,20 @@ export interface ToolWorkerEventContext {
 export interface ToolWorkerRequestedPayload {
   request: ToolRequest;
   context: ToolWorkerEventContext;
+  inspection: ToolWorkerInspectionRecord;
 }
 
 export interface ToolWorkerStartedPayload {
   request: ToolRequest;
   context: ToolWorkerEventContext;
+  inspection: ToolWorkerInspectionRecord;
 }
 
 export interface ToolWorkerCompletedPayload {
   request: ToolRequest;
   result: ToolResult;
   context: ToolWorkerEventContext;
+  inspection: ToolWorkerInspectionRecord;
 }
 
 export interface ToolWorkerFailedPayload {
@@ -42,91 +53,331 @@ export interface ToolWorkerFailedPayload {
   result: ToolResult;
   error: ToolFailure;
   context: ToolWorkerEventContext;
+  inspection: ToolWorkerInspectionRecord;
 }
 
+export type ToolWorkerInspectionOutcome = 'in_flight' | 'success' | 'failure' | 'invalid';
+
+export interface ToolWorkerInspectionRecord {
+  toolRequestId: string;
+  runId: string;
+  workItemId: string;
+  goalId?: string;
+  toolCallId: string;
+  toolName: string;
+  outcome: ToolWorkerInspectionOutcome;
+  correlationMatched: boolean;
+  duplicateSuppressed: boolean;
+  duplicateDispatchCount: number;
+  terminalPath?: ToolRequestTerminalPath;
+  timedOut: boolean;
+  lateCompletionObserved: boolean;
+  lateCompletionCount: number;
+  invalidCompletionObserved: boolean;
+  mismatchedCompletionObserved: boolean;
+  dispatchedAt: number;
+  completedAt?: number;
+  failureCode?: string;
+  failureMessage?: string;
+}
+
+export interface ToolWorkerInspectionSummary {
+  totalRequests: number;
+  inFlightCount: number;
+  recentCount: number;
+  successCount: number;
+  failureCount: number;
+  invalidCount: number;
+  timedOutCount: number;
+  lateCompletionObservedCount: number;
+  ignoredLateCompletionCount: number;
+  duplicateSuppressedCount: number;
+  invalidCompletionCount: number;
+  mismatchedCompletionCount: number;
+}
+
+export interface ToolWorkerInspectionSnapshot {
+  summary: ToolWorkerInspectionSummary;
+  inFlight: ToolWorkerInspectionRecord[];
+  recent: ToolWorkerInspectionRecord[];
+}
+
+interface ToolWorkerMutableInspectionRecord extends ToolWorkerInspectionRecord {
+  sequence: number;
+}
+
+interface LocalToolWorkerOptions {
+  timeoutMs?: number;
+}
+
+interface LocalToolRequestTimeoutState {
+  timeoutId: ReturnType<typeof setTimeout>;
+  timedOut: boolean;
+}
+
+const DEFAULT_LOCAL_TOOL_TIMEOUT_MS = 30_000;
+
 export class LocalToolWorker {
-  private readonly handledRequests = new Map<string, Promise<ToolResult>>();
+  private readonly inspectionsByRequestId = new Map<string, ToolWorkerMutableInspectionRecord>();
+  private inspectionSequence = 0;
+  private readonly timeoutMs: number;
 
   constructor(
     private readonly toolPort: ToolPort,
-    private readonly bus: RuntimeEventBus = runtimeEventBus
-  ) {}
-
-  async dispatch(request: ToolRequest): Promise<ToolResult> {
-    const duplicate = this.handledRequests.get(request.toolRequestId);
-    if (duplicate) {
-      return duplicate;
-    }
-
-    const execution = this.executeRequest(request);
-    this.handledRequests.set(request.toolRequestId, execution);
-    return execution;
+    private readonly bus: RuntimeEventBus = runtimeEventBus,
+    private readonly requestRegistry: ToolRequestRegistry = new ToolRequestRegistry(),
+    options: LocalToolWorkerOptions = {}
+  ) {
+    this.timeoutMs = this.normalizeTimeoutMs(options.timeoutMs);
   }
 
-  private async executeRequest(request: ToolRequest): Promise<ToolResult> {
+  async dispatch(request: ToolRequest): Promise<ToolResult> {
+    const inspection = this.getOrCreateInspection(request);
+    if (!this.isNonEmptyString(request.toolRequestId)) {
+      const invalidRequest = this.validateRequest(request);
+      return this.failInvalidRequest(request, inspection, invalidRequest!);
+    }
+
+    const registration = this.requestRegistry.register(request);
+    if (registration.kind === 'duplicate') {
+      inspection.duplicateSuppressed = true;
+      inspection.duplicateDispatchCount += 1;
+      return registration.promise;
+    }
+
+    if (registration.kind === 'conflict') {
+      return this.failInvalidRequest(request, inspection, {
+        code: 'TOOL_REQUEST_CONFLICT',
+        message: this.buildRequestConflictMessage(request, registration.entry),
+        recoverable: false,
+      });
+    }
+
+    const invalidRequest = this.validateRequest(request);
+    if (invalidRequest) {
+      void this.resolveInvalidRequest(registration.owner, request, inspection, invalidRequest);
+      return registration.promise;
+    }
+
+    const timeoutState = this.startLocalTimeout(request, registration.owner, inspection);
+    void this.executeRequest(request, registration.owner, timeoutState);
+    return registration.promise;
+  }
+
+  private async executeRequest(
+    request: ToolRequest,
+    owner: ToolRequestResolutionOwner,
+    timeoutState: LocalToolRequestTimeoutState
+  ): Promise<void> {
     const context = this.buildContext(request);
-    await this.publish('tool.requested', {
-      request,
-      context,
-    } satisfies ToolWorkerRequestedPayload);
-    await this.publish('tool.started', {
-      request,
-      context,
-    } satisfies ToolWorkerStartedPayload);
+    const inspection = this.getOrCreateInspection(request);
+    let executionStarted = false;
 
     try {
-      const result = await this.toolPort.execute(request);
-      if (result.toolRequestId !== request.toolRequestId) {
-        const mismatchResult = this.buildFailedResult(request, {
-          code: 'TOOL_RESULT_MISMATCH',
-          message: `Tool result correlation mismatch for '${request.toolName}': expected ${request.toolRequestId}, received ${result.toolRequestId}`,
-          recoverable: false,
-        });
+      await this.publish('tool.requested', {
+        request,
+        context,
+        inspection: this.cloneInspection(inspection),
+      } satisfies ToolWorkerRequestedPayload);
+      if (timeoutState.timedOut) {
+        return;
+      }
 
+      await this.publish('tool.started', {
+        request,
+        context,
+        inspection: this.cloneInspection(inspection),
+      } satisfies ToolWorkerStartedPayload);
+      if (timeoutState.timedOut) {
+        return;
+      }
+
+      executionStarted = true;
+      const result = await this.toolPort.execute(request);
+      if (timeoutState.timedOut) {
+        this.recordLateCompletion(owner, inspection);
+        return;
+      }
+
+      this.clearLocalTimeout(timeoutState);
+      const normalizedResult = this.normalizeResult(request, result, inspection);
+
+      if (normalizedResult.success) {
+        this.completeInspection(inspection, 'success', undefined, {
+          terminalPath: 'tool_completed',
+        });
+        try {
+          await this.publish('tool.completed', {
+            request,
+            result: normalizedResult,
+            context,
+            inspection: this.cloneInspection(inspection),
+          } satisfies ToolWorkerCompletedPayload);
+        } catch (error) {
+          const failedResult = this.buildWorkerExceptionResult(request, error);
+          this.completeInspection(inspection, 'failure', failedResult.error, {
+            terminalPath: 'tool_worker_exception',
+          });
+          owner.resolveFailure(failedResult, {
+            terminalPath: 'tool_worker_exception',
+          });
+          return;
+        }
+
+        owner.resolveSuccess(normalizedResult, {
+          terminalPath: 'tool_completed',
+        });
+        return;
+      }
+
+      this.completeInspection(
+        inspection,
+        normalizedResult.error?.code === 'TOOL_RESULT_MISMATCH' || normalizedResult.error?.code === 'TOOL_RESULT_INVALID'
+          ? 'invalid'
+          : 'failure',
+        normalizedResult.error,
+        {
+          terminalPath:
+            normalizedResult.error?.code === 'TOOL_RESULT_MISMATCH' || normalizedResult.error?.code === 'TOOL_RESULT_INVALID'
+              ? 'tool_invalid_result'
+              : 'tool_failed_result',
+          invalidCompletionObserved:
+            normalizedResult.error?.code === 'TOOL_RESULT_MISMATCH' || normalizedResult.error?.code === 'TOOL_RESULT_INVALID',
+          mismatchedCompletionObserved: normalizedResult.error?.code === 'TOOL_RESULT_MISMATCH',
+        }
+      );
+      try {
         await this.publish('tool.failed', {
           request,
-          result: mismatchResult,
-          error: mismatchResult.error!,
+          result: normalizedResult,
+          error: normalizedResult.error!,
           context,
+          inspection: this.cloneInspection(inspection),
         } satisfies ToolWorkerFailedPayload);
-        return mismatchResult;
+      } catch (error) {
+        const failedResult = this.buildWorkerExceptionResult(request, error);
+        this.completeInspection(inspection, 'failure', failedResult.error, {
+          terminalPath: 'tool_worker_exception',
+        });
+        owner.resolveFailure(failedResult, {
+          terminalPath: 'tool_worker_exception',
+        });
+        return;
       }
 
-      if (result.success) {
-        await this.publish('tool.completed', {
-          request,
-          result,
-          context,
-        } satisfies ToolWorkerCompletedPayload);
-        return result;
+      if (
+        normalizedResult.error?.code === 'TOOL_RESULT_MISMATCH'
+        || normalizedResult.error?.code === 'TOOL_RESULT_INVALID'
+      ) {
+        owner.resolveInvalid(normalizedResult, {
+          terminalPath: 'tool_invalid_result',
+          invalidCompletionObserved: true,
+          mismatchedCompletionObserved: normalizedResult.error?.code === 'TOOL_RESULT_MISMATCH',
+        });
+      } else {
+        owner.resolveFailure(normalizedResult, {
+          terminalPath: 'tool_failed_result',
+        });
       }
-
-      await this.publish('tool.failed', {
-        request,
-        result,
-        error: result.error ?? {
-          code: 'TOOL_EXECUTION_FAILED',
-          message: 'Tool execution failed without an error payload',
-          recoverable: true,
-        },
-        context,
-      } satisfies ToolWorkerFailedPayload);
-      return result;
+      return;
     } catch (error) {
-      const failedResult = this.buildFailedResult(request, {
-        code: 'TOOL_WORKER_EXCEPTION',
-        message: error instanceof Error ? error.message : String(error),
-        recoverable: true,
+      if (timeoutState.timedOut) {
+        if (executionStarted) {
+          this.recordLateCompletion(owner, inspection);
+        }
+        return;
+      }
+
+      this.clearLocalTimeout(timeoutState);
+      const failedResult = this.buildWorkerExceptionResult(request, error);
+      this.completeInspection(inspection, 'failure', failedResult.error, {
+        terminalPath: 'tool_worker_exception',
       });
 
-      await this.publish('tool.failed', {
-        request,
-        result: failedResult,
-        error: failedResult.error!,
-        context,
-      } satisfies ToolWorkerFailedPayload);
-      return failedResult;
+      try {
+        await this.publish('tool.failed', {
+          request,
+          result: failedResult,
+          error: failedResult.error!,
+          context,
+          inspection: this.cloneInspection(inspection),
+        } satisfies ToolWorkerFailedPayload);
+      } catch {
+        // The await-based caller contract must still terminate even if diagnostics publication fails.
+      }
+
+      owner.resolveFailure(failedResult, {
+        terminalPath: 'tool_worker_exception',
+      });
     }
+  }
+
+  private buildWorkerExceptionResult(request: ToolRequest, error: unknown): ToolResult {
+    return this.buildFailedResult(request, {
+      code: 'TOOL_WORKER_EXCEPTION',
+      message: error instanceof Error ? error.message : String(error),
+      recoverable: true,
+    });
+  }
+
+  private startLocalTimeout(
+    request: ToolRequest,
+    owner: ToolRequestResolutionOwner,
+    inspection: ToolWorkerMutableInspectionRecord
+  ): LocalToolRequestTimeoutState {
+    const timeoutState = {
+      timedOut: false,
+    } as LocalToolRequestTimeoutState;
+
+    timeoutState.timeoutId = setTimeout(() => {
+      timeoutState.timedOut = true;
+
+      const timedOutResult = this.buildLocalTimeoutResult(request);
+      this.completeInspection(inspection, 'failure', timedOutResult.error, {
+        terminalPath: 'tool_timeout',
+        timedOut: true,
+      });
+      owner.resolveFailure(timedOutResult, {
+        terminalPath: 'tool_timeout',
+        timedOut: true,
+      });
+
+      void this.publish('tool.failed', {
+        request,
+        result: timedOutResult,
+        error: timedOutResult.error!,
+        context: this.buildContext(request),
+        inspection: this.cloneInspection(inspection),
+      } satisfies ToolWorkerFailedPayload).catch(() => {
+        // Timeout must still terminate the caller-facing promise even if diagnostics publication fails.
+      });
+    }, this.timeoutMs);
+
+    return timeoutState;
+  }
+
+  private clearLocalTimeout(timeoutState: LocalToolRequestTimeoutState): void {
+    clearTimeout(timeoutState.timeoutId);
+  }
+
+  private buildLocalTimeoutResult(request: ToolRequest): ToolResult {
+    return this.buildFailedResult(request, {
+      code: 'TOOL_EXECUTION_TIMEOUT',
+      message: `Tool '${request.toolName}' did not produce a terminal result before the local worker timeout`,
+      recoverable: true,
+    });
+  }
+
+  inspect(): ToolWorkerInspectionSnapshot {
+    const records = Array.from(this.inspectionsByRequestId.values())
+      .sort((left, right) => left.sequence - right.sequence)
+      .map((record) => this.cloneInspection(record));
+
+    return {
+      summary: this.buildInspectionSummary(records),
+      inFlight: records.filter((record) => record.outcome === 'in_flight'),
+      recent: records.filter((record) => record.outcome !== 'in_flight'),
+    };
   }
 
   private buildContext(request: ToolRequest): ToolWorkerEventContext {
@@ -154,18 +405,286 @@ export class LocalToolWorker {
     };
   }
 
+  private getOrCreateInspection(request: ToolRequest): ToolWorkerMutableInspectionRecord {
+    const existing = this.inspectionsByRequestId.get(request.toolRequestId);
+    if (existing) {
+      return existing;
+    }
+
+    const created: ToolWorkerMutableInspectionRecord = {
+      toolRequestId: request.toolRequestId,
+      runId: request.runId,
+      workItemId: request.workItemId,
+      goalId: request.goalId,
+      toolCallId: request.toolCallId,
+      toolName: request.toolName,
+      outcome: 'in_flight',
+      correlationMatched: true,
+      duplicateSuppressed: false,
+      duplicateDispatchCount: 0,
+      timedOut: false,
+      lateCompletionObserved: false,
+      lateCompletionCount: 0,
+      invalidCompletionObserved: false,
+      mismatchedCompletionObserved: false,
+      dispatchedAt: Date.now(),
+      sequence: this.inspectionSequence++,
+    };
+
+    this.inspectionsByRequestId.set(request.toolRequestId, created);
+    return created;
+  }
+
+  private completeInspection(
+    inspection: ToolWorkerMutableInspectionRecord,
+    outcome: Exclude<ToolWorkerInspectionOutcome, 'in_flight'>,
+    error?: ToolFailure,
+    metadata?: {
+      terminalPath: ToolRequestTerminalPath;
+      timedOut?: boolean;
+      invalidCompletionObserved?: boolean;
+      mismatchedCompletionObserved?: boolean;
+    }
+  ): void {
+    inspection.outcome = outcome;
+    inspection.terminalPath = metadata?.terminalPath;
+    inspection.timedOut = metadata?.timedOut ?? false;
+    inspection.invalidCompletionObserved = metadata?.invalidCompletionObserved ?? false;
+    inspection.mismatchedCompletionObserved = metadata?.mismatchedCompletionObserved ?? false;
+    inspection.completedAt = Date.now();
+    inspection.failureCode = error?.code;
+    inspection.failureMessage = error?.message;
+  }
+
+  private recordLateCompletion(
+    owner: ToolRequestResolutionOwner,
+    inspection: ToolWorkerMutableInspectionRecord
+  ): void {
+    owner.recordIgnoredCompletion();
+    inspection.lateCompletionObserved = true;
+    inspection.lateCompletionCount += 1;
+  }
+
+  private buildInspectionSummary(records: ToolWorkerInspectionRecord[]): ToolWorkerInspectionSummary {
+    return {
+      totalRequests: records.length,
+      inFlightCount: records.filter((record) => record.outcome === 'in_flight').length,
+      recentCount: records.filter((record) => record.outcome !== 'in_flight').length,
+      successCount: records.filter((record) => record.outcome === 'success').length,
+      failureCount: records.filter((record) => record.outcome === 'failure').length,
+      invalidCount: records.filter((record) => record.outcome === 'invalid').length,
+      timedOutCount: records.filter((record) => record.timedOut).length,
+      lateCompletionObservedCount: records.filter((record) => record.lateCompletionObserved).length,
+      ignoredLateCompletionCount: records.reduce((count, record) => count + record.lateCompletionCount, 0),
+      duplicateSuppressedCount: records.filter((record) => record.duplicateSuppressed).length,
+      invalidCompletionCount: records.filter((record) => record.invalidCompletionObserved).length,
+      mismatchedCompletionCount: records.filter((record) => record.mismatchedCompletionObserved).length,
+    };
+  }
+
+  private cloneInspection(record: ToolWorkerInspectionRecord): ToolWorkerInspectionRecord {
+    return {
+      ...record,
+    };
+  }
+
+  private validateRequest(request: ToolRequest): ToolFailure | null {
+    const missingFields: string[] = [];
+
+    if (!this.isNonEmptyString(request.toolRequestId)) {
+      missingFields.push('toolRequestId');
+    }
+    if (!this.isNonEmptyString(request.runId)) {
+      missingFields.push('runId');
+    }
+    if (!this.isNonEmptyString(request.workItemId)) {
+      missingFields.push('workItemId');
+    }
+    if (!this.isNonEmptyString(request.toolCallId)) {
+      missingFields.push('toolCallId');
+    }
+    if (!this.isNonEmptyString(request.toolName)) {
+      missingFields.push('toolName');
+    }
+
+    if (missingFields.length === 0) {
+      return null;
+    }
+
+    return {
+      code: 'TOOL_REQUEST_INVALID',
+      message: `Invalid tool request identity context: missing ${missingFields.join(', ')}`,
+      recoverable: false,
+    };
+  }
+
+  private async failInvalidRequest(
+    request: ToolRequest,
+    inspection: ToolWorkerMutableInspectionRecord,
+    error: ToolFailure
+  ): Promise<ToolResult> {
+    const failedResult = this.buildFailedResult(request, error);
+    inspection.correlationMatched = false;
+    this.completeInspection(inspection, 'invalid', error, {
+      terminalPath: 'tool_invalid_request',
+      invalidCompletionObserved: true,
+    });
+
+    try {
+      await this.publish('tool.failed', {
+        request,
+        result: failedResult,
+        error,
+        context: this.buildContext(request),
+        inspection: this.cloneInspection(inspection),
+      } satisfies ToolWorkerFailedPayload);
+    } catch (publishError) {
+      const publishFailure = this.buildWorkerExceptionResult(request, publishError);
+      this.completeInspection(inspection, 'failure', publishFailure.error);
+      return publishFailure;
+    }
+
+    return failedResult;
+  }
+
+  private async resolveInvalidRequest(
+    owner: ToolRequestResolutionOwner,
+    request: ToolRequest,
+    inspection: ToolWorkerMutableInspectionRecord,
+    error: ToolFailure
+  ): Promise<ToolResult> {
+    const failedResult = await this.failInvalidRequest(request, inspection, error);
+    if (failedResult.error?.code === 'TOOL_WORKER_EXCEPTION') {
+      owner.resolveFailure(failedResult, {
+        terminalPath: 'tool_worker_exception',
+      });
+    } else {
+      owner.resolveInvalid(failedResult, {
+        terminalPath: 'tool_invalid_request',
+        invalidCompletionObserved: true,
+      });
+    }
+    return failedResult;
+  }
+
+  private normalizeResult(
+    request: ToolRequest,
+    result: ToolResult,
+    inspection: ToolWorkerMutableInspectionRecord
+  ): ToolResult {
+    const mismatchMessage = this.buildResultMismatchMessage(request, result);
+    if (mismatchMessage) {
+      inspection.correlationMatched = false;
+      return this.buildFailedResult(request, {
+        code: 'TOOL_RESULT_MISMATCH',
+        message: mismatchMessage,
+        recoverable: false,
+      });
+    }
+
+    inspection.correlationMatched = true;
+    if (!result.success && !result.error) {
+      return this.buildFailedResult(request, {
+        code: 'TOOL_RESULT_INVALID',
+        message: `Tool '${request.toolName}' returned a failed result without an error payload`,
+        recoverable: false,
+      });
+    }
+
+    return result;
+  }
+
+  private buildResultMismatchMessage(request: ToolRequest, result: ToolResult): string | null {
+    const mismatches: string[] = [];
+
+    if (result.toolRequestId !== request.toolRequestId) {
+      mismatches.push(`toolRequestId expected ${request.toolRequestId}, received ${result.toolRequestId}`);
+    }
+    if (result.runId !== request.runId) {
+      mismatches.push(`runId expected ${request.runId}, received ${result.runId}`);
+    }
+    if (result.workItemId !== request.workItemId) {
+      mismatches.push(`workItemId expected ${request.workItemId}, received ${result.workItemId}`);
+    }
+    if (result.toolCallId !== request.toolCallId) {
+      mismatches.push(`toolCallId expected ${request.toolCallId}, received ${result.toolCallId}`);
+    }
+    if (result.toolName !== request.toolName) {
+      mismatches.push(`toolName expected ${request.toolName}, received ${result.toolName}`);
+    }
+    if (typeof request.goalId === 'string' && request.goalId.length > 0 && result.goalId !== request.goalId) {
+      mismatches.push(`goalId expected ${request.goalId}, received ${String(result.goalId)}`);
+    }
+
+    if (mismatches.length === 0) {
+      return null;
+    }
+
+    return `Tool result correlation mismatch for '${request.toolName}': ${mismatches.join('; ')}`;
+  }
+
+  private isNonEmptyString(value: unknown): value is string {
+    return typeof value === 'string' && value.length > 0;
+  }
+
+  private normalizeTimeoutMs(timeoutMs: number | undefined): number {
+    if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      return DEFAULT_LOCAL_TOOL_TIMEOUT_MS;
+    }
+
+    return timeoutMs;
+  }
+
+  private buildRequestConflictMessage(
+    request: ToolRequest,
+    existing: {
+      runId: string;
+      workItemId: string;
+      goalId?: string;
+      toolCallId: string;
+      toolName: string;
+    }
+  ): string {
+    const mismatches: string[] = [];
+
+    if (existing.runId !== request.runId) {
+      mismatches.push(`runId expected ${existing.runId}, received ${request.runId}`);
+    }
+    if (existing.workItemId !== request.workItemId) {
+      mismatches.push(`workItemId expected ${existing.workItemId}, received ${request.workItemId}`);
+    }
+    if (existing.toolCallId !== request.toolCallId) {
+      mismatches.push(`toolCallId expected ${existing.toolCallId}, received ${request.toolCallId}`);
+    }
+    if (existing.toolName !== request.toolName) {
+      mismatches.push(`toolName expected ${existing.toolName}, received ${request.toolName}`);
+    }
+    if (existing.goalId !== request.goalId) {
+      mismatches.push(`goalId expected ${String(existing.goalId)}, received ${String(request.goalId)}`);
+    }
+
+    return `Tool request registry conflict for '${request.toolName}' and toolRequestId '${request.toolRequestId}': ${mismatches.join('; ')}`;
+  }
+
   private async publish(type: ToolWorkerEventType, payload: ToolWorkerRequestedPayload | ToolWorkerStartedPayload | ToolWorkerCompletedPayload | ToolWorkerFailedPayload): Promise<void> {
+    const goalId = payload.context.goalId;
+    const runId = payload.context.runId;
+    const workItemId = payload.context.workItemId;
+    const toolRequestId = payload.context.toolRequestId;
+    const toolCallId = payload.context.toolCallId;
+    const toolName = payload.context.toolName;
+
     await this.bus.publish({
       id: randomUUID(),
       type,
       source: TOOL_WORKER_SOURCE,
       timestamp: Date.now(),
-      runId: payload.context.runId,
-      goalId: payload.context.goalId,
-      workItemId: payload.context.workItemId,
-      toolRequestId: payload.context.toolRequestId,
-      toolCallId: payload.context.toolCallId,
-      toolName: payload.context.toolName,
+      ...(this.isNonEmptyString(runId) ? { runId } : {}),
+      ...(this.isNonEmptyString(goalId) ? { goalId } : {}),
+      ...(this.isNonEmptyString(workItemId) ? { workItemId } : {}),
+      ...(this.isNonEmptyString(toolRequestId) ? { toolRequestId } : {}),
+      ...(this.isNonEmptyString(toolCallId) ? { toolCallId } : {}),
+      ...(this.isNonEmptyString(toolName) ? { toolName } : {}),
       payload,
     });
   }

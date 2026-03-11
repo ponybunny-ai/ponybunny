@@ -5,6 +5,7 @@ import type { IWorkOrderRepository } from '../../../infra/persistence/repository
 import type { Goal, Run, SuccessCriterion, WorkItem } from '../../../work-order/types/index.js';
 import { ToolAllowlist, ToolEnforcer, type ToolRegistry } from '../../../infra/tools/tool-registry.js';
 import { GatewayError, ErrorCodes } from '../../errors.js';
+import type { GatewayDaemonOperationState } from '../../integration/gateway-daemon-attachment.js';
 import { ToolManifestValidator } from '../../../deterministic-runtime/tool-manifest-validator.js';
 import { PlanCompiler, type CompileResult, type PlanV1 } from '../../../deterministic-runtime/plan-compiler.js';
 import {
@@ -47,6 +48,7 @@ export interface InternalRuntimeHandlersOptions {
     compileErrorCodes: string[];
     timestamp: number;
   }) => void;
+  detachDaemon?: () => GatewayDaemonOperationState;
 }
 
 export interface InternalPlanGetParams {
@@ -951,6 +953,15 @@ export function registerInternalRuntimeHandlers(
     ['admin'],
     async () => getRuntimeConfig()
   );
+
+  if (options?.detachDaemon) {
+    const detachDaemon = options.detachDaemon;
+    rpcHandler.register<Record<string, never>, GatewayDaemonOperationState>(
+      'internal.runtime.daemon.detach',
+      ['admin'],
+      async () => detachDaemon()
+    );
+  }
 
   rpcHandler.register<InternalPlanGetParams, InternalPlanGetResponse>(
     'internal.plan.get',

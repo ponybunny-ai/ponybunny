@@ -12,8 +12,16 @@ export type {
   LLMCompletionOptions,
   ILLMProviderManager,
 } from './types.js';
+export type {
+  LLMStreamChunkEvent,
+  LLMStreamEndEvent,
+  LLMStreamErrorEvent,
+  LLMStreamEventSink,
+  LLMStreamStartEvent,
+} from './stream-event-sink.js';
 
 export { ConfigValidationError, ConfigNotFoundError } from './types.js';
+export { createNoOpLLMStreamEventSink } from './stream-event-sink.js';
 
 // Config Loader
 export {
@@ -54,6 +62,7 @@ export {
 // Provider Manager
 export {
   LLMProviderManager,
+  configureLLMProviderManagerStreamEventSink,
   getLLMProviderManager,
   resetLLMProviderManager,
 } from './provider-manager.js';

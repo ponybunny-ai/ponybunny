@@ -6,8 +6,13 @@
 import type { WorkItem, Run, Goal } from '../work-order/types/index.js';
 import type { ILLMProvider, LLMMessage, LLMResponse, ToolCall } from '../infra/llm/llm-provider.js';
 import type { ToolEnforcer } from '../infra/tools/tool-registry.js';
-import { getGlobalPromptProvider } from '../infra/prompts/prompt-provider.js';
-import { ToolProvider, getGlobalToolProvider } from '../infra/tools/tool-provider.js';
+import type { RuntimeToolingContext } from '../runtime/tooling-context/index.js';
+import { PromptProvider } from '../infra/prompts/prompt-provider.js';
+import {
+  getLegacyCompatiblePromptProvider,
+  getLegacyCompatibleToolProvider,
+} from '../infra/prompts/legacy-prompt-tooling-compatibility.js';
+import { ToolProvider } from '../infra/tools/tool-provider.js';
 import { routeContextFromWorkItemContext } from '../infra/routing/route-context.js';
 import { loadRuntimeConfig } from '../infra/config/runtime-config.js';
 import {
@@ -66,8 +71,8 @@ interface ExecutionIntent {
 }
 
 export class ReActIntegration {
-  private promptProvider = getGlobalPromptProvider();
-  private toolProvider = getGlobalToolProvider();
+  private promptProvider: PromptProvider;
+  private toolProvider: ToolProvider;
   private readonly toolWorkersByPort = new WeakMap<ToolPort, LocalToolWorker>();
   private readonly toolWorkersByEnforcer = new WeakMap<ToolEnforcer, LocalToolWorker>();
 
@@ -75,8 +80,13 @@ export class ReActIntegration {
     private llmProvider?: ILLMProvider,
     private toolEnforcer?: ToolEnforcer,
     private toolPort?: ToolPort,
-    private toolWorker?: LocalToolWorker
-  ) {}
+    private toolWorker?: LocalToolWorker,
+    runtimeToolingContext?: RuntimeToolingContext
+  ) {
+    this.promptProvider = runtimeToolingContext?.getPromptProvider()
+      ?? getLegacyCompatiblePromptProvider(() => new PromptProvider());
+    this.toolProvider = runtimeToolingContext?.toolProvider ?? getLegacyCompatibleToolProvider();
+  }
 
   async executeWorkCycle(params: ReActCycleParams): Promise<ReActCycleResult> {
     const activeToolEnforcer = params.toolEnforcer ?? this.toolEnforcer;

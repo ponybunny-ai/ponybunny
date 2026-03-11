@@ -1,5 +1,10 @@
 import { MemoryEventBus } from '../../../src/runtime/event-bus/index.js';
-import type { ToolPort, ToolRequest, ToolResult } from '../../../src/runtime/tool-boundary/index.js';
+import {
+  ToolRequestRegistry,
+  type ToolPort,
+  type ToolRequest,
+  type ToolResult,
+} from '../../../src/runtime/tool-boundary/index.js';
 import { LocalToolAdapter } from '../../../src/runtime/tool-boundary/index.js';
 import {
   LocalToolWorker,
@@ -69,6 +74,10 @@ describe('LocalToolWorker', () => {
     });
   });
 
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('receives a ToolRequest and emits requested, started, and completed on success', async () => {
     const request = createRequest();
     const result: ToolResult = {
@@ -110,6 +119,18 @@ describe('LocalToolWorker', () => {
             toolName: request.toolName,
             source: TOOL_WORKER_SOURCE,
           },
+          inspection: expect.objectContaining({
+            toolRequestId: request.toolRequestId,
+            outcome: 'in_flight',
+            correlationMatched: true,
+            duplicateSuppressed: false,
+            duplicateDispatchCount: 0,
+            timedOut: false,
+            lateCompletionObserved: false,
+            lateCompletionCount: 0,
+            invalidCompletionObserved: false,
+            mismatchedCompletionObserved: false,
+          }),
         },
       }),
       expect.objectContaining({
@@ -131,6 +152,19 @@ describe('LocalToolWorker', () => {
             toolName: request.toolName,
             source: TOOL_WORKER_SOURCE,
           },
+          inspection: expect.objectContaining({
+            toolRequestId: request.toolRequestId,
+            outcome: 'success',
+            terminalPath: 'tool_completed',
+            correlationMatched: true,
+            duplicateSuppressed: false,
+            duplicateDispatchCount: 0,
+            timedOut: false,
+            lateCompletionObserved: false,
+            lateCompletionCount: 0,
+            invalidCompletionObserved: false,
+            mismatchedCompletionObserved: false,
+          }),
         },
       }),
     ]));
@@ -185,6 +219,16 @@ describe('LocalToolWorker', () => {
             toolName: request.toolName,
             source: TOOL_WORKER_SOURCE,
           },
+          inspection: expect.objectContaining({
+            toolRequestId: request.toolRequestId,
+            outcome: 'failure',
+            terminalPath: 'tool_failed_result',
+            correlationMatched: true,
+            failureCode: 'TOOL_EXECUTION_FAILED',
+            timedOut: false,
+            invalidCompletionObserved: false,
+            mismatchedCompletionObserved: false,
+          }),
         },
       }),
     ]));
@@ -219,12 +263,116 @@ describe('LocalToolWorker', () => {
     ]));
   });
 
-  it('normalizes a mismatched toolRequestId into a failed correlated ToolResult', async () => {
+  it('resolves one failed ToolResult if internal event publication throws before execution completes', async () => {
+    const request = createRequest();
+    const failingBus = {
+      publish: jest.fn().mockRejectedValue(new Error('event bus unavailable')),
+      subscribe: jest.fn(),
+      subscribeAll: jest.fn(),
+    };
+    const worker = new LocalToolWorker({
+      execute: jest.fn(),
+    }, failingBus as any);
+
+    await expect(worker.dispatch(request)).resolves.toEqual({
+      toolRequestId: request.toolRequestId,
+      runId: request.runId,
+      workItemId: request.workItemId,
+      goalId: request.goalId,
+      toolCallId: request.toolCallId,
+      toolName: request.toolName,
+      success: false,
+      error: {
+        code: 'TOOL_WORKER_EXCEPTION',
+        message: 'event bus unavailable',
+        recoverable: true,
+      },
+    });
+  });
+
+  it('normalizes a hanging request to one timed out failed ToolResult with preserved identity', async () => {
+    jest.useFakeTimers();
+
+    const request = createRequest();
+    const registry = new ToolRequestRegistry();
+    const toolPort: ToolPort = {
+      execute: jest.fn().mockReturnValue(new Promise<ToolResult>(() => undefined)),
+    };
+    const worker = new LocalToolWorker(toolPort, bus, registry, { timeoutMs: 25 });
+
+    const dispatchPromise = worker.dispatch(request);
+
+    await jest.advanceTimersByTimeAsync(25);
+
+    await expect(dispatchPromise).resolves.toEqual({
+      toolRequestId: request.toolRequestId,
+      runId: request.runId,
+      workItemId: request.workItemId,
+      goalId: request.goalId,
+      toolCallId: request.toolCallId,
+      toolName: request.toolName,
+      success: false,
+      error: {
+        code: 'TOOL_EXECUTION_TIMEOUT',
+        message: `Tool '${request.toolName}' did not produce a terminal result before the local worker timeout`,
+        recoverable: true,
+      },
+    });
+
+    expect(registry.inspect()).toEqual({
+      pending: [],
+      recent: [
+        expect.objectContaining({
+          toolRequestId: request.toolRequestId,
+          runId: request.runId,
+          workItemId: request.workItemId,
+          goalId: request.goalId,
+          toolCallId: request.toolCallId,
+          toolName: request.toolName,
+          state: 'resolved',
+          terminal: expect.objectContaining({
+            outcome: 'failure',
+            terminalPath: 'tool_timeout',
+            success: false,
+            failureCode: 'TOOL_EXECUTION_TIMEOUT',
+            ignoredCompletionCount: 0,
+            timedOut: true,
+            lateCompletionObserved: false,
+            invalidCompletionObserved: false,
+            mismatchedCompletionObserved: false,
+          }),
+        }),
+      ],
+    });
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'tool.failed',
+        source: TOOL_WORKER_SOURCE,
+        toolRequestId: request.toolRequestId,
+        payload: expect.objectContaining({
+          result: expect.objectContaining({
+            toolRequestId: request.toolRequestId,
+            runId: request.runId,
+            workItemId: request.workItemId,
+            goalId: request.goalId,
+            toolCallId: request.toolCallId,
+            toolName: request.toolName,
+            success: false,
+            error: expect.objectContaining({
+              code: 'TOOL_EXECUTION_TIMEOUT',
+            }),
+          }),
+        }),
+      }),
+    ]));
+  });
+
+  it('normalizes a mismatched correlated identity into a failed invalid ToolResult', async () => {
     const request = createRequest();
     const worker = new LocalToolWorker({
       execute: jest.fn().mockResolvedValue({
-        toolRequestId: `${request.toolRequestId}:mismatch`,
-        runId: request.runId,
+        toolRequestId: request.toolRequestId,
+        runId: `${request.runId}:mismatch`,
         workItemId: request.workItemId,
         goalId: request.goalId,
         toolCallId: request.toolCallId,
@@ -244,7 +392,7 @@ describe('LocalToolWorker', () => {
       success: false,
       error: {
         code: 'TOOL_RESULT_MISMATCH',
-        message: expect.stringContaining(request.toolRequestId),
+        message: expect.stringContaining(request.runId),
         recoverable: false,
       },
     });
@@ -254,8 +402,91 @@ describe('LocalToolWorker', () => {
         type: 'tool.failed',
         source: TOOL_WORKER_SOURCE,
         toolRequestId: request.toolRequestId,
+        payload: expect.objectContaining({
+          inspection: expect.objectContaining({
+            outcome: 'invalid',
+            terminalPath: 'tool_invalid_result',
+            invalidCompletionObserved: true,
+            mismatchedCompletionObserved: true,
+          }),
+        }),
       }),
     ]));
+  });
+
+  it('normalizes missing identity context into a failed invalid ToolResult without executing the port', async () => {
+    const request = createRequest({
+      toolRequestId: '',
+      runId: '',
+      toolCallId: '',
+    });
+    const toolPort: ToolPort = {
+      execute: jest.fn(),
+    };
+    const worker = new LocalToolWorker(toolPort, bus);
+
+    await expect(worker.dispatch(request)).resolves.toEqual({
+      toolRequestId: '',
+      runId: '',
+      workItemId: request.workItemId,
+      goalId: request.goalId,
+      toolCallId: '',
+      toolName: request.toolName,
+      success: false,
+      error: {
+        code: 'TOOL_REQUEST_INVALID',
+        message: 'Invalid tool request identity context: missing toolRequestId, runId, toolCallId',
+        recoverable: false,
+      },
+    });
+
+    expect(toolPort.execute).not.toHaveBeenCalled();
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'tool.failed',
+        source: TOOL_WORKER_SOURCE,
+        payload: expect.objectContaining({
+          inspection: expect.objectContaining({
+            outcome: 'invalid',
+            terminalPath: 'tool_invalid_request',
+            correlationMatched: false,
+            failureCode: 'TOOL_REQUEST_INVALID',
+            invalidCompletionObserved: true,
+            mismatchedCompletionObserved: false,
+          }),
+        }),
+      }),
+    ]));
+  });
+
+  it('normalizes failed results that omit an error payload', async () => {
+    const request = createRequest();
+    const worker = new LocalToolWorker({
+      execute: jest.fn().mockResolvedValue({
+        toolRequestId: request.toolRequestId,
+        runId: request.runId,
+        workItemId: request.workItemId,
+        goalId: request.goalId,
+        toolCallId: request.toolCallId,
+        toolName: request.toolName,
+        success: false,
+      }),
+    }, bus);
+
+    await expect(worker.dispatch(request)).resolves.toEqual({
+      toolRequestId: request.toolRequestId,
+      runId: request.runId,
+      workItemId: request.workItemId,
+      goalId: request.goalId,
+      toolCallId: request.toolCallId,
+      toolName: request.toolName,
+      success: false,
+      error: {
+        code: 'TOOL_RESULT_INVALID',
+        message: `Tool '${request.toolName}' returned a failed result without an error payload`,
+        recoverable: false,
+      },
+    });
   });
 
   it('suppresses duplicate in-process requests by toolRequestId', async () => {
@@ -288,6 +519,175 @@ describe('LocalToolWorker', () => {
     expect(events.filter((event) => event.type === 'tool.requested')).toHaveLength(1);
     expect(events.filter((event) => event.type === 'tool.started')).toHaveLength(1);
     expect(events.filter((event) => event.type === 'tool.completed')).toHaveLength(1);
+    expect(worker.inspect()).toEqual({
+      summary: {
+        totalRequests: 1,
+        inFlightCount: 0,
+        recentCount: 1,
+        successCount: 1,
+        failureCount: 0,
+        invalidCount: 0,
+        timedOutCount: 0,
+        lateCompletionObservedCount: 0,
+        ignoredLateCompletionCount: 0,
+        duplicateSuppressedCount: 1,
+        invalidCompletionCount: 0,
+        mismatchedCompletionCount: 0,
+      },
+      inFlight: [],
+      recent: [
+        expect.objectContaining({
+          toolRequestId: request.toolRequestId,
+          outcome: 'success',
+          terminalPath: 'tool_completed',
+          duplicateSuppressed: true,
+          duplicateDispatchCount: 1,
+          correlationMatched: true,
+          lateCompletionObserved: false,
+          lateCompletionCount: 0,
+        }),
+      ],
+    });
+  });
+
+  it('ignores late completion after timeout without producing a second terminal event', async () => {
+    jest.useFakeTimers();
+
+    const request = createRequest();
+    const registry = new ToolRequestRegistry();
+    let resolveResult: (result: ToolResult) => void = () => undefined;
+    const toolPort: ToolPort = {
+      execute: jest.fn().mockReturnValue(new Promise<ToolResult>((resolve) => {
+        resolveResult = resolve;
+      })),
+    };
+    const worker = new LocalToolWorker(toolPort, bus, registry, { timeoutMs: 25 });
+
+    const dispatchPromise = worker.dispatch(request);
+
+    await jest.advanceTimersByTimeAsync(25);
+    await expect(dispatchPromise).resolves.toEqual(expect.objectContaining({
+      toolRequestId: request.toolRequestId,
+      success: false,
+      error: expect.objectContaining({
+        code: 'TOOL_EXECUTION_TIMEOUT',
+      }),
+    }));
+
+    resolveResult({
+      toolRequestId: request.toolRequestId,
+      runId: request.runId,
+      workItemId: request.workItemId,
+      goalId: request.goalId,
+      toolCallId: request.toolCallId,
+      toolName: request.toolName,
+      success: true,
+      output: 'late-ok',
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(events.filter((event) => event.type === 'tool.completed')).toHaveLength(0);
+    expect(events.filter((event) => event.type === 'tool.failed')).toHaveLength(1);
+    expect(registry.inspect()).toEqual({
+      pending: [],
+      recent: [
+        expect.objectContaining({
+          toolRequestId: request.toolRequestId,
+          terminal: expect.objectContaining({
+            outcome: 'failure',
+            terminalPath: 'tool_timeout',
+            failureCode: 'TOOL_EXECUTION_TIMEOUT',
+            ignoredCompletionCount: 1,
+            timedOut: true,
+            lateCompletionObserved: true,
+          }),
+        }),
+      ],
+    });
+    expect(worker.inspect()).toEqual({
+      summary: {
+        totalRequests: 1,
+        inFlightCount: 0,
+        recentCount: 1,
+        successCount: 0,
+        failureCount: 1,
+        invalidCount: 0,
+        timedOutCount: 1,
+        lateCompletionObservedCount: 1,
+        ignoredLateCompletionCount: 1,
+        duplicateSuppressedCount: 0,
+        invalidCompletionCount: 0,
+        mismatchedCompletionCount: 0,
+      },
+      inFlight: [],
+      recent: [
+        expect.objectContaining({
+          toolRequestId: request.toolRequestId,
+          outcome: 'failure',
+          terminalPath: 'tool_timeout',
+          timedOut: true,
+          lateCompletionObserved: true,
+          lateCompletionCount: 1,
+        }),
+      ],
+    });
+  });
+
+  it('registers the request before the execution path can complete', async () => {
+    const request = createRequest();
+    const registry = new ToolRequestRegistry();
+    const toolPort: ToolPort = {
+      execute: jest.fn(async () => {
+        expect(registry.inspect()).toEqual({
+          pending: [
+            expect.objectContaining({
+              toolRequestId: request.toolRequestId,
+              runId: request.runId,
+              workItemId: request.workItemId,
+              toolCallId: request.toolCallId,
+              toolName: request.toolName,
+              state: 'pending',
+            }),
+          ],
+          recent: [],
+        });
+
+        return {
+          toolRequestId: request.toolRequestId,
+          runId: request.runId,
+          workItemId: request.workItemId,
+          goalId: request.goalId,
+          toolCallId: request.toolCallId,
+          toolName: request.toolName,
+          success: true,
+          output: 'ok',
+        };
+      }),
+    };
+    const worker = new LocalToolWorker(toolPort, bus, registry);
+
+    await expect(worker.dispatch(request)).resolves.toEqual(expect.objectContaining({
+      toolRequestId: request.toolRequestId,
+      success: true,
+      output: 'ok',
+    }));
+
+    expect(registry.inspect()).toEqual({
+      pending: [],
+      recent: [
+        expect.objectContaining({
+          toolRequestId: request.toolRequestId,
+          state: 'resolved',
+          terminal: expect.objectContaining({
+            outcome: 'success',
+            terminalPath: 'tool_completed',
+            success: true,
+            timedOut: false,
+          }),
+        }),
+      ],
+    });
   });
 
   it('remains compatible with local and MCP-backed tools through the same ToolPort boundary', async () => {
@@ -327,5 +727,87 @@ describe('LocalToolWorker', () => {
       { q: 'Darkhorseone Limited' },
       expect.objectContaining({ cwd: '/tmp/project' })
     );
+  });
+
+  it('reports recent local ToolWorker diagnostics through inspect()', async () => {
+    const firstRequest = createRequest();
+    const secondRequest = createRequest({
+      toolRequestId: 'run-1:call-2:test_tool',
+      toolCallId: 'call-2',
+    });
+
+    const worker = new LocalToolWorker({
+      execute: jest.fn()
+        .mockResolvedValueOnce({
+          toolRequestId: firstRequest.toolRequestId,
+          runId: firstRequest.runId,
+          workItemId: firstRequest.workItemId,
+          goalId: firstRequest.goalId,
+          toolCallId: firstRequest.toolCallId,
+          toolName: firstRequest.toolName,
+          success: true,
+          output: 'ok',
+        })
+        .mockResolvedValueOnce({
+          toolRequestId: secondRequest.toolRequestId,
+          runId: secondRequest.runId,
+          workItemId: secondRequest.workItemId,
+          goalId: secondRequest.goalId,
+          toolCallId: secondRequest.toolCallId,
+          toolName: secondRequest.toolName,
+          success: false,
+          error: {
+            code: 'TOOL_EXECUTION_FAILED',
+            message: 'broken',
+            recoverable: true,
+          },
+        }),
+    }, bus);
+
+    await worker.dispatch(firstRequest);
+    await worker.dispatch(secondRequest);
+
+    expect(worker.inspect()).toEqual({
+      summary: {
+        totalRequests: 2,
+        inFlightCount: 0,
+        recentCount: 2,
+        successCount: 1,
+        failureCount: 1,
+        invalidCount: 0,
+        timedOutCount: 0,
+        lateCompletionObservedCount: 0,
+        ignoredLateCompletionCount: 0,
+        duplicateSuppressedCount: 0,
+        invalidCompletionCount: 0,
+        mismatchedCompletionCount: 0,
+      },
+      inFlight: [],
+      recent: [
+        expect.objectContaining({
+          toolRequestId: firstRequest.toolRequestId,
+          runId: firstRequest.runId,
+          workItemId: firstRequest.workItemId,
+          toolCallId: firstRequest.toolCallId,
+          toolName: firstRequest.toolName,
+          outcome: 'success',
+          terminalPath: 'tool_completed',
+          correlationMatched: true,
+          duplicateSuppressed: false,
+        }),
+        expect.objectContaining({
+          toolRequestId: secondRequest.toolRequestId,
+          runId: secondRequest.runId,
+          workItemId: secondRequest.workItemId,
+          toolCallId: secondRequest.toolCallId,
+          toolName: secondRequest.toolName,
+          outcome: 'failure',
+          terminalPath: 'tool_failed_result',
+          correlationMatched: true,
+          failureCode: 'TOOL_EXECUTION_FAILED',
+          failureMessage: 'broken',
+        }),
+      ],
+    });
   });
 });

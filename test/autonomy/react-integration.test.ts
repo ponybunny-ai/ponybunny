@@ -10,17 +10,30 @@ let mockToolDefinitions: Array<{
   description: string;
   parameters: { type: 'object'; properties: Record<string, unknown>; required?: string[] };
 }> = [];
+const getLegacyCompatiblePromptProviderMock = jest.fn((createPromptProvider: () => unknown) =>
+  createPromptProvider()
+);
+const getLegacyCompatibleToolProviderMock = jest.fn(() => ({
+  getToolDefinitions: () => mockToolDefinitions,
+}));
 
 jest.mock('../../src/infra/prompts/prompt-provider.js', () => ({
-  getGlobalPromptProvider: () => ({
-    generateExecutionPrompt: mockGenerateExecutionPrompt,
-  }),
+  PromptProvider: class MockPromptProvider {
+    generateExecutionPrompt() {
+      return mockGenerateExecutionPrompt();
+    }
+  },
 }));
 
 jest.mock('../../src/infra/skills/skill-registry.js', () => ({
   getGlobalSkillRegistry: () => ({
     getSkillsForPhase: () => [],
   }),
+}));
+
+jest.mock('../../src/infra/prompts/legacy-prompt-tooling-compatibility.js', () => ({
+  getLegacyCompatiblePromptProvider: getLegacyCompatiblePromptProviderMock,
+  getLegacyCompatibleToolProvider: getLegacyCompatibleToolProviderMock,
 }));
 
 jest.mock('../../src/infra/tools/tool-provider.js', () => {
@@ -32,9 +45,6 @@ jest.mock('../../src/infra/tools/tool-provider.js', () => {
 
   return {
     ToolProvider: MockToolProvider,
-    getGlobalToolProvider: () => ({
-      getToolDefinitions: () => mockToolDefinitions,
-    }),
   };
 });
 
@@ -114,6 +124,8 @@ describe('ReActIntegration', () => {
   beforeEach(() => {
     mockGenerateExecutionPrompt.mockClear();
     mockToolDefinitions = [];
+    getLegacyCompatiblePromptProviderMock.mockClear();
+    getLegacyCompatibleToolProviderMock.mockClear();
   });
 
   it('continues to next turn after non-complete response without tool calls', async () => {
@@ -181,6 +193,66 @@ describe('ReActIntegration', () => {
     expect(result.success).toBe(true);
     expect((provider.complete as jest.Mock).mock.calls.length).toBe(2);
     expect(result.log).toContain('Completion summary: Implemented and verified task output.');
+  });
+
+  it('uses the explicit runtime tooling context instead of global prompt/tool providers', async () => {
+    const provider = createMockProvider([
+      {
+        content: 'Task is complete. All requirements met.',
+        tokensUsed: 4,
+        model: 'gpt-test',
+        finishReason: 'stop',
+      },
+    ]);
+
+    const runtimeToolingContext = {
+      getPromptProvider: () => ({
+        generateExecutionPrompt: () => 'runtime system prompt',
+      }),
+      toolProvider: {
+        getToolDefinitions: () => [
+          {
+            name: 'runtime_tool',
+            description: 'Runtime tool',
+            parameters: { type: 'object' as const, properties: {} },
+          },
+        ],
+      },
+    };
+
+    const integration = new ReActIntegration(
+      provider,
+      undefined,
+      undefined,
+      undefined,
+      runtimeToolingContext as never
+    );
+
+    const result = await integration.executeWorkCycle({
+      workItem: createWorkItem(),
+      run: createRun(),
+      signal: new AbortController().signal,
+      model: 'gpt-5.2-codex',
+    });
+
+    expect(getLegacyCompatiblePromptProviderMock).not.toHaveBeenCalled();
+    expect(getLegacyCompatibleToolProviderMock).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(provider.complete).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'system',
+          content: 'runtime system prompt',
+        }),
+      ]),
+      expect.objectContaining({
+        tools: [
+          expect.objectContaining({
+            name: 'runtime_tool',
+          }),
+        ],
+      })
+    );
   });
 
   it('routes authoritative tool execution through LocalToolWorker with run-scoped identity context', async () => {

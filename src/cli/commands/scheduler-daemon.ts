@@ -18,16 +18,14 @@ import { WorkOrderDatabase } from '../../work-order/database/manager.js';
 import { ExecutionService } from '../../app/lifecycle/execution/execution-service.js';
 import { getLLMService } from '../../infra/llm/index.js';
 import { LLMRouter, MockLLMProvider } from '../../infra/llm/llm-provider.js';
-import { createScheduler } from '../../gateway/integration/scheduler-factory.js';
 import { SchedulerDaemon } from '../../scheduler-daemon/daemon.js';
+import { createDefaultSchedulerDaemonRuntime } from '../../scheduler-daemon/bootstrap/default-daemon-runtime.js';
 import { getGlobalSkillRegistry } from '../../infra/skills/skill-registry.js';
 import { isDebugLoggingEnabled } from '../../infra/config/debug-flags.js';
 import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
 import { getManagedSkillsDir } from '../../infra/config/config-paths.js';
 import { getAsciiArtBanner } from '../../infra/ui/ascii-art-banner.js';
 import { getSchedulerConfiguredProviderIds } from '../lib/scheduler-provider-display.js';
-import { LocalExecutionAdapter } from '../../runtime/execution-boundary/index.js';
-import { LocalExecutionWorker } from '../../runtime/workers/index.js';
 import type {
   EventedRunInspectionRecord,
   EventedRunReconciliationSummary,
@@ -626,34 +624,27 @@ async function createReplayScheduler(dbPath: string) {
   await executionService.initializeSkills(process.cwd());
   await executionService.initializeMCP();
 
-  const executionPort = new LocalExecutionAdapter(executionService);
-  const executionWorker = new LocalExecutionWorker(executionPort);
-  executionWorker.start();
-
-  const scheduler = createScheduler(
-    {
-      repository,
-      executionService,
-      llmProvider,
-      executionPort,
-    },
-    {
+  const runtimeAssembly = createDefaultSchedulerDaemonRuntime({
+    repository,
+    executionService,
+    llmProvider,
+    config: {
       tickIntervalMs: runtimeConfig.scheduler.tickIntervalMs,
       maxConcurrentGoals: runtimeConfig.scheduler.maxConcurrentGoals,
-      autoStart: false,
       debug: isDebugLoggingEnabled(),
       executionMode: runtimeConfig.scheduler.executionMode,
       deterministicRuntimeEnabled: runtimeConfig.scheduler.deterministicRuntimeEnabled,
       planCompilerEnabled: runtimeConfig.scheduler.planCompilerEnabled,
       toolRoutingMode: runtimeConfig.scheduler.toolRoutingMode,
       runtimeRollout: runtimeConfig.scheduler.runtimeRollout,
-    }
-  );
+    },
+  });
+  runtimeAssembly.executionWorker.start();
 
   return {
     repository,
-    executionWorker,
-    scheduler,
+    executionWorker: runtimeAssembly.executionWorker,
+    scheduler: runtimeAssembly.scheduler,
   };
 }
 
@@ -889,6 +880,7 @@ async function runScheduler(
         mainAgentId,
         personaEnabled,
         memoryDb,
+        runtimeToolingContext: executionService.getRuntimeToolingContext(),
       }
     );
 

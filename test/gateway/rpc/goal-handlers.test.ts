@@ -130,6 +130,67 @@ describe('goal handlers remote scheduler forwarding', () => {
     expect(remoteScheduler.submitGoal).not.toHaveBeenCalled();
   });
 
+  it('preserves the selected_model to model compatibility mirror on remote goal materialization', async () => {
+    const now = Date.now();
+    const repository = {
+      createGoal: jest.fn(),
+      createWorkItem: jest.fn(() => ({ id: 'wi-compat' })),
+      getGoal: jest.fn(),
+      updateGoalStatus: jest.fn(),
+      listGoals: jest.fn(() => []),
+    } as unknown as IWorkOrderRepository;
+
+    const remoteScheduler = {
+      isSchedulerDaemonConnected: jest.fn(() => true),
+      materializeGoal: jest.fn(async () => ({
+        goal: {
+          id: 'goal-compat',
+          created_at: now,
+          updated_at: now,
+          title: 'compat title',
+          description: 'compat description',
+          success_criteria: [],
+          status: 'queued',
+          priority: 50,
+          spent_tokens: 0,
+          spent_time_minutes: 0,
+          spent_cost_usd: 0,
+        },
+        initialWorkItemId: 'wi-compat',
+      })),
+      submitGoal: jest.fn(async () => {}),
+      cancelGoal: jest.fn(async () => {}),
+    } as IRemoteSchedulerClient;
+
+    registerGoalHandlers(rpc, repository, new EventBus(), () => null, undefined, remoteScheduler);
+
+    await rpc.handle(
+      'goal.submit',
+      {
+        title: 'compat title',
+        description: 'compat description',
+        success_criteria: [],
+        context: {
+          selected_model: 'openai.gpt-5.3',
+          model_source: 'tui_selected',
+        },
+      },
+      session
+    );
+
+    expect(remoteScheduler.materializeGoal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialWorkItemSpec: expect.objectContaining({
+          context: expect.objectContaining({
+            selected_model: 'openai.gpt-5.3',
+            model: 'openai.gpt-5.3',
+            model_source: 'tui_selected',
+          }),
+        }),
+      })
+    );
+  });
+
   it('forwards goal.cancel to remote scheduler when local scheduler is unavailable', async () => {
     const now = Date.now();
     const repository = {

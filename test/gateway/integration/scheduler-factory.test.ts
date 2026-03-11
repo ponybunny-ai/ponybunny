@@ -283,6 +283,9 @@ describe('createScheduler', () => {
     let currentWorkItem = { ...workItem };
 
     (mockRepository.getGoal as jest.Mock).mockReturnValue(goal);
+    (mockRepository.getReadyWorkItems as jest.Mock).mockImplementation(() =>
+      currentWorkItem.status === 'ready' ? [currentWorkItem] : []
+    );
     (mockRepository.getWorkItemsByGoal as jest.Mock).mockImplementation(() => [currentWorkItem]);
     (mockRepository.getWorkItem as jest.Mock).mockImplementation((id: string) =>
       id === currentWorkItem.id ? currentWorkItem : undefined

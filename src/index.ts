@@ -1,5 +1,9 @@
-export { WorkOrderDatabase } from './work-order/database/manager.js';
-export { AutonomyDaemon } from './autonomy/daemon.js';
-export { ReActIntegration } from './autonomy/react-integration.js';
+/**
+ * Historical mixed root barrel.
+ *
+ * Prefer `./public.js` for the intended live package surface and
+ * `./compatibility.js` for compatibility-preserving root exports.
+ */
 
-export type * from './work-order/types/index.js';
+export * from './public.js';
+export * from './compatibility.js';

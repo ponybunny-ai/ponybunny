@@ -374,7 +374,10 @@ export class IPCBridge {
     const schedulerEnvelope = this.extractSchedulerEnvelope(event.data);
 
     // Route to EventBus based on event type
-    // This mirrors the logic in SchedulerBridge
+    // This mirrors the logic in SchedulerBridge and preserves the authoritative
+    // gateway/TUI transport protocol on `goal.*`, `workitem.*`, `run.*`, and
+    // `verification.*`. Legacy `task.*` compatibility events are intentionally
+    // not emitted here.
     switch (event.type) {
       case 'goal_started':
         this.eventBus.emit('goal.started', {

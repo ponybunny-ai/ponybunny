@@ -20,8 +20,11 @@ import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import { spawn, execSync } from 'child_process';
 
-import { GatewayServer, type Permission } from '../../gateway/index.js';
-import { WorkOrderDatabase } from '../../work-order/database/manager.js';
+import type { Permission } from '../../gateway/public.js';
+import {
+  createDefaultGatewayRuntime,
+  stopDefaultGatewayRuntime,
+} from '../../gateway/bootstrap/default-gateway-runtime.js';
 import { isDebugLoggingEnabled } from '../../infra/config/debug-flags.js';
 import { getPublicKey } from '../lib/key-manager.js';
 import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
@@ -528,24 +531,15 @@ async function runGateway(
   log(`Gateway starting on ws://${host}:${port} (db=${dbPath}, memoryDb=${memoryDbPath})`);
 
   try {
-    // Initialize database
-    const db = new Database(dbPath);
-    const memoryDb = new Database(memoryDbPath);
+    const runtime = await createDefaultGatewayRuntime({
+      host,
+      port,
+      dbPath,
+      memoryDbPath,
+      debugMode: debugEnabled,
+    });
 
-    ensureGatewaySchema(db);
-    ensureMemorySchema(memoryDb);
-
-    // Initialize repository
-    const repository = new WorkOrderDatabase(dbPath);
-    await repository.initialize();
-
-    // Create and start gateway (no scheduler - runs independently)
-    const gateway = new GatewayServer(
-      { db, dbPath, memoryDb, memoryDbPath, repository, debugMode: debugEnabled },
-      { host, port }
-    );
-
-    await gateway.start();
+    await runtime.gateway.start();
 
     // Write PID file
     writePidFile({
@@ -573,9 +567,7 @@ async function runGateway(
         console.log(chalk.yellow('\nShutting down...'));
       }
       removePidFile();
-      await gateway.stop();
-      db.close();
-      memoryDb.close();
+      await stopDefaultGatewayRuntime(runtime);
       log('Gateway stopped');
       process.exit(0);
     };

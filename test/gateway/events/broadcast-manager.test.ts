@@ -32,6 +32,9 @@ describe('BroadcastManager channel adapter events', () => {
     const manager = new BroadcastManager(mockEventBus, mockEventEmitter, mockChannelRouter);
     manager.start();
 
+    expect(handlers.has('task.narration')).toBe(false);
+    expect(handlers.has('task.result')).toBe(false);
+
     const payload = {
       timestamp: Date.now(),
       reason: 'startup',

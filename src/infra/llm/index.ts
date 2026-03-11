@@ -124,6 +124,7 @@ export type {
   LLMConfig,
   LLMCompletionOptions,
   ILLMProviderManager,
+  LLMStreamEventSink,
   EndpointHealth,
 } from './provider-manager/index.js';
 
@@ -166,6 +167,7 @@ export {
 // Provider Manager
 export {
   LLMProviderManager,
+  configureLLMProviderManagerStreamEventSink,
   getLLMProviderManager,
   resetLLMProviderManager,
 } from './provider-manager/index.js';

@@ -9,12 +9,11 @@ import type Database from 'better-sqlite3';
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
 import type { IExecutionService } from '../app/lifecycle/stage-interfaces.js';
 import type { ILLMProvider } from '../infra/llm/llm-provider.js';
+import type { RuntimeToolingContext } from '../runtime/tooling-context/index.js';
 import type { SchedulerEvent } from '../scheduler/types.js';
 import type { DebugEvent } from '../debug/types.js';
-import { LocalExecutionAdapter } from '../runtime/execution-boundary/index.js';
 import { LocalExecutionWorker } from '../runtime/workers/index.js';
 import { SchedulerCore } from '../scheduler/core/index.js';
-import { createScheduler } from '../gateway/integration/scheduler-factory.js';
 import { IPCClient } from '../ipc/ipc-client.js';
 import { IPCServer } from '../ipc/ipc-server.js';
 import { debugEmitter } from '../debug/emitter.js';
@@ -26,11 +25,14 @@ import { reconcileCronJobsFromRegistry } from '../infra/scheduler/cron-job-recon
 import { acquireSchedulerDaemonLock, releaseSchedulerDaemonLock } from './pid-lock.js';
 import { AgentScheduler } from './agent-scheduler.js';
 import { createSchemaDrivenAgentRunner } from '../infra/agents/schema-driven-agent-runner.js';
-import { getLLMService } from '../infra/llm/index.js';
 import { SchedulerEventEnvelopeResolver } from './scheduler-event-envelope.js';
 import { getRuntimeConfigPath, loadRuntimeConfig, saveRuntimeConfig } from '../infra/config/runtime-config.js';
 import type { EventedStartupReconciliationSummary } from '../scheduler/evented-dispatch-checkpoint.js';
 import { reconcileEventedStartupCandidates } from './evented-startup-reconciliation.js';
+import {
+  createDefaultSchedulerDaemonRuntime,
+  createSchedulerDaemonSessionIntake,
+} from './bootstrap/default-daemon-runtime.js';
 
 export interface SchedulerDaemonConfig {
   /** Path to Gateway IPC socket */
@@ -70,6 +72,7 @@ export interface SchedulerDaemonConfig {
   mainAgentId?: string;
   personaEnabled?: boolean;
   memoryDb?: Database.Database;
+  runtimeToolingContext: RuntimeToolingContext;
 }
 
 function resolveMainAgentId(configuredId: string | undefined, availableIds: string[]): string | null {
@@ -189,62 +192,19 @@ export class SchedulerDaemon {
 
       await this.startControlServer();
 
-      if (this.memoryDb) {
-        this.sessionIntake = new SchedulerSessionIntake({
-          repository: this.repository,
-          memoryDb: this.memoryDb,
-          llmService: getLLMService(),
-          schedulerProvider: () => this.scheduler,
-          publishSessionEvent: async (event) => {
-            await this.ipcClient.send({
-              type: 'session_event',
-              timestamp: Date.now(),
-              data: {
-                event: event.event,
-                gatewaySessionId: event.gatewaySessionId,
-                sessionId: event.sessionId,
-                payload: event.payload,
-              },
-            });
-          },
-        });
-      } else {
-        console.warn('[SchedulerDaemon] Session intake disabled: memoryDb not configured');
-      }
+      this.sessionIntake = this.createSessionIntake();
 
-      // Create scheduler with all dependencies
       const schedulerTickIntervalMs = this.config.tickIntervalMs ?? 1000;
-      const executionPort = new LocalExecutionAdapter(this.executionService);
-      this.executionWorker = new LocalExecutionWorker(executionPort);
+      const runtimeAssembly = createDefaultSchedulerDaemonRuntime({
+        repository: this.repository,
+        executionService: this.executionService,
+        llmProvider: this.llmProvider,
+        config: this.config,
+      });
+
+      this.executionWorker = runtimeAssembly.executionWorker;
       this.executionWorker.start();
-      this.scheduler = createScheduler(
-        {
-          repository: this.repository,
-          executionService: this.executionService,
-          llmProvider: this.llmProvider,
-          executionPort,
-        },
-        {
-          tickIntervalMs: schedulerTickIntervalMs,
-          maxConcurrentGoals: this.config.maxConcurrentGoals ?? 5,
-          autoStart: false,
-          debug: this.config.debug ?? false,
-          executionMode: this.config.executionMode ?? 'direct',
-          deterministicRuntimeEnabled: this.config.deterministicRuntimeEnabled ?? false,
-          planCompilerEnabled: this.config.planCompilerEnabled ?? false,
-          toolRoutingMode: this.config.toolRoutingMode ?? 'legacy',
-          runtimeRollout: this.config.runtimeRollout ?? {
-            shadowModeEnabled: false,
-            canaryPercent: 0,
-            rollbackOnFailure: true,
-            lanePercents: {
-              dryRun: 0,
-              compile: 0,
-              replay: 0,
-            },
-          },
-        }
-      );
+      this.scheduler = runtimeAssembly.scheduler;
 
       // Subscribe to scheduler events and forward to Gateway
       this.scheduler.on((event: SchedulerEvent) => {
@@ -401,6 +361,36 @@ export class SchedulerDaemon {
    */
   getScheduler(): SchedulerCore | null {
     return this.scheduler;
+  }
+
+  private createSessionIntake(): SchedulerSessionIntake | null {
+    if (!this.memoryDb) {
+      console.warn('[SchedulerDaemon] Session intake disabled: memoryDb not configured');
+      return null;
+    }
+
+    if (!this.config.runtimeToolingContext) {
+      throw new Error('[SchedulerDaemon] Session intake requires an explicit RuntimeToolingContext');
+    }
+
+    return createSchedulerDaemonSessionIntake({
+      repository: this.repository,
+      memoryDb: this.memoryDb,
+      runtimeToolingContext: this.config.runtimeToolingContext,
+      schedulerProvider: () => this.scheduler,
+      publishSessionEvent: async (event) => {
+        await this.ipcClient.send({
+          type: 'session_event',
+          timestamp: Date.now(),
+          data: {
+            event: event.event,
+            gatewaySessionId: event.gatewaySessionId,
+            sessionId: event.sessionId,
+            payload: event.payload,
+          },
+        });
+      },
+    });
   }
 
   /**

@@ -5,12 +5,15 @@ import { tmpdir } from 'node:os';
 import { Session } from '../../../src/gateway/connection/session.js';
 import { ErrorCodes } from '../../../src/gateway/errors.js';
 import { registerInternalRuntimeHandlers } from '../../../src/gateway/rpc/handlers/internal-runtime-handlers.js';
+import { GatewayDaemonAttachment } from '../../../src/gateway/integration/gateway-daemon-attachment.js';
 import type { IWorkOrderRepository } from '../../../src/infra/persistence/repository-interface.js';
 import { ToolRegistry } from '../../../src/infra/tools/tool-registry.js';
 import { ReadFileTool } from '../../../src/infra/tools/implementations/read-file-tool.js';
 import type { Goal, Run, WorkItem } from '../../../src/work-order/types/index.js';
 import { DeterministicRuntimeErrorCodes } from '../../../src/deterministic-runtime/error-codes.js';
 import type { PlanV1 } from '../../../src/deterministic-runtime/plan-compiler.js';
+import { DaemonEventEmitterMixin } from '../../../src/autonomy/daemon-event-emitter.js';
+import type { EventBus } from '../../../src/gateway/events/event-bus.js';
 import {
   type DeterministicRunEvent,
 } from '../../../src/deterministic-runtime/run-events.js';
@@ -23,6 +26,12 @@ function createSession(permissions: Array<'read' | 'write' | 'admin'>): Session 
     connectedAt: Date.now(),
     lastActivityAt: Date.now(),
   });
+}
+
+class TestDaemonEmitter extends DaemonEventEmitterMixin {
+  emitGoalCreated(goal: Goal): void {
+    super.emitGoalCreated(goal);
+  }
 }
 
 describe('internal runtime handlers', () => {
@@ -338,6 +347,117 @@ describe('internal runtime handlers', () => {
         goalSubmitFastPathEnabled: false,
         inputBackgroundColor: 'gray',
       },
+    });
+  });
+
+  it('wires internal.runtime.daemon.detach to the existing attachment-owned detach seam', async () => {
+    const rpcWithDetach = new RpcHandler();
+    const mockEventBus = {
+      emit: jest.fn(),
+      on: jest.fn(),
+      off: jest.fn(),
+      once: jest.fn(),
+    } as unknown as EventBus;
+    const attachment = new GatewayDaemonAttachment(mockEventBus);
+    const daemon = new TestDaemonEmitter();
+
+    attachment.connect(daemon);
+
+    registerInternalRuntimeHandlers(
+      rpcWithDetach,
+      repository,
+      () => ({
+        deterministicRuntimeEnabled: true,
+        planCompilerEnabled: true,
+        toolRoutingMode: 'system_only',
+        runtimeRollout: {
+          shadowModeEnabled: false,
+          canaryPercent: 0,
+          rollbackOnFailure: true,
+          lanePercents: {
+            dryRun: 0,
+            compile: 0,
+            replay: 0,
+          },
+        },
+        agent: {
+          mainAgentId: 'lead',
+        },
+        tui: {
+          inputBackgroundColor: 'gray',
+          sessionFirstEnabled: true,
+          goalSubmitFastPathEnabled: false,
+        },
+      }),
+      () => toolRegistry,
+      undefined,
+      {
+        detachDaemon: () => {
+          attachment.detach();
+          return attachment.getOperationState();
+        },
+      }
+    );
+
+    const detachResult = await rpcWithDetach.handle(
+      'internal.runtime.daemon.detach',
+      {},
+      createSession(['admin'])
+    );
+
+    daemon.emitGoalCreated(goal);
+
+    expect(detachResult).toEqual({
+      attachment: {
+        daemon: null,
+        status: {
+          phase: 'detached',
+          connected: false,
+          connectedAt: null,
+        },
+      },
+      detach: {
+        phase: 'idle',
+        attached: false,
+        detachSupported: true,
+        unsubscribeSupported: false,
+      },
+    });
+    expect(mockEventBus.emit).not.toHaveBeenCalled();
+    expect(attachment.getStatus()).toEqual({
+      phase: 'detached',
+      connected: false,
+      connectedAt: null,
+    });
+
+    const secondDetachResult = await rpcWithDetach.handle(
+      'internal.runtime.daemon.detach',
+      {},
+      createSession(['admin'])
+    );
+
+    expect(secondDetachResult).toEqual(detachResult);
+
+    const reattachedDaemon = new TestDaemonEmitter();
+    attachment.connect(reattachedDaemon);
+    reattachedDaemon.emitGoalCreated(goal);
+
+    expect(attachment.getStatus()).toEqual({
+      phase: 'attached',
+      connected: true,
+      connectedAt: expect.any(Number),
+    });
+    expect(attachment.getDetachStatus()).toEqual({
+      phase: 'attached-awaiting-daemon-unsubscribe',
+      attached: true,
+      detachSupported: true,
+      unsubscribeSupported: false,
+    });
+    expect(mockEventBus.emit).toHaveBeenCalledWith('goal.created', {
+      goalId: goal.id,
+      title: goal.title,
+      status: goal.status,
+      priority: goal.priority,
     });
   });
 

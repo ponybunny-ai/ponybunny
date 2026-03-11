@@ -72,14 +72,19 @@ async function main() {
   // Use Enhanced Services (Phase-aware prompts + Skills integration)
   console.log('[PonyBunny] 🧠 Initializing Enhanced Lifecycle Services...');
 
-  const planningService = new PlanningService(repository, llmProvider);
-  console.log('[PonyBunny] ✅ Planning Service (Enhanced) initialized');
-
   const executionService = new ExecutionService(
     repository,
     { maxConsecutiveErrors: 3 },
     llmProvider
   );
+
+  const planningService = new PlanningService(
+    repository,
+    llmProvider,
+    undefined,
+    executionService.getRuntimeToolingContext()
+  );
+  console.log('[PonyBunny] ✅ Planning Service (Enhanced) initialized');
 
   // Initialize skills for execution service
   await executionService.initializeSkills(process.cwd());

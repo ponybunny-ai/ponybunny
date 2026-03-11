@@ -23,6 +23,9 @@ export class BroadcastManager {
    * Start listening to internal events and broadcasting to clients
    */
   start(): void {
+    // Broadcast only the authoritative live gateway protocol here. Legacy
+    // gateway-facing `task.*` compatibility events remain consumer-side only.
+
     // Goal events
     this.subscribeAndBroadcast('goal.created', 'goal.created');
     this.subscribeAndBroadcast('goal.started', 'goal.started');

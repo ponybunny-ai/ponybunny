@@ -3,8 +3,10 @@ import type { IWorkOrderRepository } from '../../../infra/persistence/repository
 import type { IPlanningService, PlanningResult } from '../stage-interfaces.js';
 import type { ILLMProvider } from '../../../infra/llm/llm-provider.js';
 import type { IModelSelector } from '../../../scheduler/model-selector/types.js';
+import type { RuntimeToolingContext } from '../../../runtime/tooling-context/index.js';
+import { PromptProvider } from '../../../infra/prompts/prompt-provider.js';
 import { ModelSelector } from '../../../scheduler/model-selector/model-selector.js';
-import { getGlobalPromptProvider } from '../../../infra/prompts/prompt-provider.js';
+import { getLegacyCompatiblePromptProvider } from '../../../infra/prompts/legacy-prompt-tooling-compatibility.js';
 
 interface PlannedItem {
   id: string;
@@ -19,14 +21,17 @@ interface PlannedItem {
 
 export class PlanningService implements IPlanningService {
   private modelSelector: IModelSelector;
-  private promptProvider = getGlobalPromptProvider();
+  private promptProvider: PromptProvider;
 
   constructor(
     private repository: IWorkOrderRepository,
     private llmProvider: ILLMProvider,
-    modelSelector?: IModelSelector
+    modelSelector?: IModelSelector,
+    runtimeToolingContext?: RuntimeToolingContext
   ) {
     this.modelSelector = modelSelector ?? new ModelSelector();
+    this.promptProvider = runtimeToolingContext?.getPromptProvider()
+      ?? getLegacyCompatiblePromptProvider(() => new PromptProvider());
   }
 
   async planWorkItems(goal: Goal): Promise<PlanningResult> {

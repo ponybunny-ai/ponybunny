@@ -5,6 +5,7 @@ import type { GatewayChannelAdapterStatus } from '../../channels/channel-adapter
 import type { GatewayChannelAdapterConfig } from '../../channels/channel-adapter-config.js';
 import { normalizeAdapterConfig, sanitizeAdapterConfig } from '../../channels/channel-adapter-config.js';
 import type { StoredChannelEvent } from '../../channels/channel-event-store.js';
+import type { GatewayDaemonAttachmentStatus } from '../../integration/gateway-daemon-attachment.js';
 import type { ISchedulerCore } from '../../../scheduler/core/index.js';
 import type { ToolRegistry } from '../../../infra/tools/tool-registry.js';
 import {
@@ -532,6 +533,7 @@ export function registerSystemHandlers(
   getStoredChannelEvents: () => StoredChannelEvent[],
   getGatewayStats: () => {
     isRunning: boolean;
+    daemonAttachment?: GatewayDaemonAttachmentStatus;
     daemonConnected: boolean;
     schedulerConnected: boolean;
   },
@@ -545,7 +547,8 @@ export function registerSystemHandlers(
     streamChunkLatencyMsP95: number;
     ackSampleSize: number;
     streamSampleSize: number;
-  }
+  },
+  applyChannelUpdate?: (params: GatewayChannelsUpdateParams) => Promise<void>
 ): void {
   rpcHandler.register<Record<string, never>, SystemCapabilitiesResponse>(
     'system.capabilities',
@@ -571,6 +574,7 @@ export function registerSystemHandlers(
       const connectionManager = getConnectionManager();
       const connStats = connectionManager.getStats();
       const gatewayStats = getGatewayStats();
+      const daemonAttachment = gatewayStats.daemonAttachment;
       const realtimeMetrics = getRealtimeMetrics?.() ?? {
         schedulerCommandAckMsP95: 0,
         streamChunkLatencyMsP95: 0,
@@ -591,7 +595,7 @@ export function registerSystemHandlers(
             pending: connStats.pendingConnections,
             byIp: connStats.connectionsByIp,
           },
-          daemonConnected: gatewayStats.daemonConnected,
+          daemonConnected: daemonAttachment?.connected ?? gatewayStats.daemonConnected,
           schedulerConnected: gatewayStats.schedulerConnected,
           realtime: realtimeMetrics,
         },
@@ -764,34 +768,41 @@ export function registerSystemHandlers(
     ['admin'],
     async (params) => {
       const channelRouter = getChannelRouter();
+      const validatedConfigs = params.adapterConfigs ? validateAdapterConfigs(params.adapterConfigs) : undefined;
 
-      if (Array.isArray(params.enabledChannels)) {
-        channelRouter.setEnabledChannels(params.enabledChannels);
-      }
+      if (applyChannelUpdate) {
+        await applyChannelUpdate({
+          ...params,
+          ...(validatedConfigs ? { adapterConfigs: validatedConfigs } : {}),
+        });
+      } else {
+        if (Array.isArray(params.enabledChannels)) {
+          channelRouter.setEnabledChannels(params.enabledChannels);
+        }
 
-      if (typeof params.mirrorToAllEnabledChannels === 'boolean') {
-        channelRouter.setMirrorToAllEnabledChannels(params.mirrorToAllEnabledChannels);
-      }
+        if (typeof params.mirrorToAllEnabledChannels === 'boolean') {
+          channelRouter.setMirrorToAllEnabledChannels(params.mirrorToAllEnabledChannels);
+        }
 
-      if (Array.isArray(params.sessionChannelOverrides)) {
-        for (const override of params.sessionChannelOverrides) {
-          if (override && typeof override.sessionId === 'string') {
-            channelRouter.setSessionChannel(override.sessionId, override.channel);
+        if (Array.isArray(params.sessionChannelOverrides)) {
+          for (const override of params.sessionChannelOverrides) {
+            if (override && typeof override.sessionId === 'string') {
+              channelRouter.setSessionChannel(override.sessionId, override.channel);
+            }
           }
         }
-      }
 
-      if (Array.isArray(params.clearSessionChannelOverrides)) {
-        for (const sessionId of params.clearSessionChannelOverrides) {
-          if (typeof sessionId === 'string' && sessionId.length > 0) {
-            channelRouter.clearSessionChannel(sessionId);
+        if (Array.isArray(params.clearSessionChannelOverrides)) {
+          for (const sessionId of params.clearSessionChannelOverrides) {
+            if (typeof sessionId === 'string' && sessionId.length > 0) {
+              channelRouter.clearSessionChannel(sessionId);
+            }
           }
         }
-      }
 
-      if (params.adapterConfigs && updateChannelAdapterConfigs) {
-        const validatedConfigs = validateAdapterConfigs(params.adapterConfigs);
-        await updateChannelAdapterConfigs(validatedConfigs);
+        if (validatedConfigs && updateChannelAdapterConfigs) {
+          await updateChannelAdapterConfigs(validatedConfigs);
+        }
       }
 
       if (onChannelsUpdated) {

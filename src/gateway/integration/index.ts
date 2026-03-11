@@ -1,21 +1,30 @@
 /**
- * Gateway Integration Module
+ * Historical mixed gateway integration barrel.
  *
- * Provides bridges and adapters to connect Gateway with other system components.
+ * Prefer `./boundaries.js` for live gateway-owned seams and
+ * `./compatibility.js` for import-preserving compatibility paths.
  */
 
-// Daemon Bridge (existing)
-export { DaemonBridge, DaemonEventEmitterMixin } from './daemon-bridge.js';
-export type { IDaemonEventEmitter } from './daemon-bridge.js';
+export {
+  GatewayDaemonAttachment,
+  type GatewayDaemonAttachmentPhase,
+  type GatewayDaemonAttachmentStatus,
+  type GatewayDaemonDetachPhase,
+  type GatewayDaemonDetachStatus,
+  type GatewayDaemonDetachSurface,
+  type GatewayDaemonOperationState,
+  type GatewayDaemonAttachmentSurface,
+  SchedulerBridge,
+} from './boundaries.js';
 
-// Scheduler Bridge (new)
-export { SchedulerBridge } from './scheduler-bridge.js';
-
-// Scheduler Adapters (new)
-export { SchedulerRepositoryAdapter } from './scheduler-repository-adapter.js';
-export { ExecutionEngineAdapter } from './execution-engine-adapter.js';
-export { LocalExecutionAdapter } from '../../runtime/execution-boundary/index.js';
-
-// Scheduler Factory (new)
-export { createScheduler } from './scheduler-factory.js';
-export type { SchedulerFactoryConfig, SchedulerFactoryDependencies } from './scheduler-factory.js';
+export {
+  DaemonBridge,
+  DaemonEventEmitterMixin,
+  type IDaemonEventEmitter,
+  ExecutionEngineAdapter,
+  SchedulerRepositoryAdapter,
+  LocalExecutionAdapter,
+  createScheduler,
+  type SchedulerFactoryConfig,
+  type SchedulerFactoryDependencies,
+} from './compatibility.js';

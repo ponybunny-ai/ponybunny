@@ -24,7 +24,28 @@ import type { IRetryHandler } from './retry-handler.js';
 import { debug } from '../../debug/index.js';
 import type { IConversationMemoryService, IRecalledMemory } from './memory-service.js';
 import type { IMemoryOwnerScope } from './memory-service.js';
+import {
+  getGlobalAgentDefinitionReadAccess,
+  type IAgentDefinitionReadAccess,
+} from '../../infra/agents/agent-definition-read-access.js';
 import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
+import {
+  resolveEffectiveModelSelection,
+  type EffectiveModelResolution,
+} from '../../infra/llm/provider-manager/effective-model-resolution.js';
+
+function normalizeOptionalModel(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  return trimmed.toLowerCase() === 'auto' ? undefined : trimmed;
+}
 
 export interface ISessionRepository {
   createSession(personaId: string): IConversationSession;
@@ -108,7 +129,8 @@ export class SessionManager implements ISessionManager {
       vectorWeight: 0.7,
       keywordWeight: 0.3,
       defaultUserProfileId: 'local-default-user',
-    }
+    },
+    private readonly agentDefinitionReadAccess: IAgentDefinitionReadAccess = getGlobalAgentDefinitionReadAccess()
   ) {}
 
   async processMessage(
@@ -624,22 +646,30 @@ export class SessionManager implements ISessionManager {
   }
 
   private resolvePreferredModelForSession(session: IConversationSession): string | undefined {
+    return this.resolvePreferredModelSelectionForSession(session)?.model;
+  }
+
+  private resolvePreferredModelSelectionForSession(
+    session: IConversationSession
+  ): EffectiveModelResolution | undefined {
     const runtime = loadRuntimeConfig();
     const activeAgentId = typeof session.metadata?.activeAgentId === 'string' && session.metadata.activeAgentId.trim().length > 0
       ? session.metadata.activeAgentId.trim()
       : runtime.agent.mainAgentId;
-    const rawOverride = runtime.agent.modelOverrides?.[activeAgentId];
 
-    if (typeof rawOverride !== 'string') {
-      return undefined;
-    }
+    // Session-level preferred-model reads are consumers of the shared effective
+    // authority boundary. We intentionally stop short of tier defaults here so
+    // conversation/memory/display surfaces keep their existing undefined-vs-set
+    // behavior until a later mirror/projection cleanup session.
+    return resolveEffectiveModelSelection({
+      runtimeOverrideModel: runtime.agent.modelOverrides?.[activeAgentId],
+      agentModelHint: this.getAgentModelHint(activeAgentId),
+    });
+  }
 
-    const model = rawOverride.trim();
-    if (!model || model.toLowerCase() === 'auto') {
-      return undefined;
-    }
-
-    return model;
+  private getAgentModelHint(agentId: string): string | undefined {
+    const definition = this.agentDefinitionReadAccess.getAgentDefinitionView(agentId);
+    return normalizeOptionalModel(definition?.runnerModel) ?? normalizeOptionalModel(definition?.runnerModelHint);
   }
 
   private deriveSessionTitle(message: string): string {

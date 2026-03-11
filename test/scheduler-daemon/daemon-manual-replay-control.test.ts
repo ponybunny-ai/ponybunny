@@ -6,7 +6,20 @@ import { jest } from '@jest/globals';
 import type { IExecutionService } from '../../src/app/lifecycle/stage-interfaces.js';
 import type { ILLMProvider } from '../../src/infra/llm/llm-provider.js';
 import type { IWorkOrderRepository } from '../../src/infra/persistence/repository-interface.js';
+import type { RuntimeToolingContext } from '../../src/runtime/tooling-context/index.js';
 import { SchedulerDaemon } from '../../src/scheduler-daemon/daemon.js';
+
+function createRuntimeToolingContextStub(): RuntimeToolingContext {
+  return {
+    toolProvider: {
+      getToolDefinitions: () => [],
+      getToolsForPhase: () => [],
+    },
+    getPromptProvider: () => ({
+      generatePrompt: () => '',
+    }),
+  } as unknown as RuntimeToolingContext;
+}
 
 function createRepositoryMock(): IWorkOrderRepository {
   return {
@@ -96,6 +109,7 @@ describe('SchedulerDaemon replay control command', () => {
         controlSocketPath: path.join(os.tmpdir(), 'scheduler-control.sock'),
         dbPath: path.join(os.tmpdir(), 'scheduler.db'),
         executionMode: 'evented',
+        runtimeToolingContext: createRuntimeToolingContextStub(),
       }
     );
 
@@ -140,6 +154,7 @@ describe('SchedulerDaemon replay control command', () => {
         controlSocketPath: path.join(os.tmpdir(), 'scheduler-control.sock'),
         dbPath: path.join(os.tmpdir(), 'scheduler.db'),
         executionMode: 'evented',
+        runtimeToolingContext: createRuntimeToolingContextStub(),
       }
     );
 

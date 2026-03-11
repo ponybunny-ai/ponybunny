@@ -150,3 +150,11 @@ export type {
 } from './core/index.js';
 
 export { SchedulerCore } from './core/index.js';
+
+export {
+  createDefaultScheduler,
+  type DefaultSchedulerConfig,
+  type DefaultSchedulerDependencies,
+  ExecutionEngineAdapter,
+  SchedulerRepositoryAdapter,
+} from './composition/index.js';

@@ -17,6 +17,8 @@ import { useTerminalSize } from './hooks/use-terminal-size.js';
 import type { ViewType } from './store/types.js';
 import { getNextReasoningEffortIndex } from './model-variant.js';
 import { resolveInitialAgentIndex } from './utils/agent-selection.js';
+import { isGatewayCompatibilityEventType } from '../../gateway/compatibility.js';
+import { handleTaskCompatibilityEvent } from './task-event-compatibility.js';
 
 interface AppContentProps {
   onExit: () => void;
@@ -582,6 +584,17 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
       }
     };
 
+    if (isGatewayCompatibilityEventType(event.event)) {
+      handleTaskCompatibilityEvent(event.event, data, {
+        updateSimpleMessageByGoalId,
+        appendTimelineByGoalId,
+        updateLatestProcessingMessage,
+        appendTimelineLatest,
+        extractActionHints,
+      });
+      return;
+    }
+
     // Update state based on event type
     switch (event.event) {
       case 'goal.created':
@@ -787,45 +800,6 @@ const AppWithEventHandler: React.FC<{ url?: string; token?: string; onExit: () =
           if (typeof data?.summary === 'string') {
             updateSimpleMessageByGoalId(data.goalId, { resultSummary: data.summary });
           }
-        }
-        break;
-
-      case 'task.narration':
-        if (typeof data?.goalId === 'string') {
-          appendTimelineByGoalId(
-            data.goalId,
-            typeof data?.stage === 'string' ? data.stage : 'Execution update',
-            typeof data?.message === 'string' ? data.message : undefined
-          );
-          if (typeof data?.statusText === 'string') {
-            updateSimpleMessageByGoalId(data.goalId, { statusText: data.statusText, status: 'processing' });
-          }
-        } else {
-          appendTimelineLatest(
-            typeof data?.stage === 'string' ? data.stage : 'Execution update',
-            typeof data?.message === 'string' ? data.message : undefined
-          );
-          if (typeof data?.statusText === 'string') {
-            updateLatestProcessingMessage({ statusText: data.statusText, status: 'processing' });
-          }
-        }
-        break;
-
-      case 'task.result':
-        if (typeof data?.goalId === 'string') {
-          updateSimpleMessageByGoalId(data.goalId, {
-            resultSummary: typeof data?.summary === 'string' ? data.summary : undefined,
-            actions: typeof data?.summary === 'string' ? extractActionHints(data.summary) : undefined,
-            status: typeof data?.success === 'boolean' ? (data.success ? 'completed' : 'failed') : undefined,
-          });
-          appendTimelineByGoalId(data.goalId, 'Final result generated', typeof data?.summary === 'string' ? data.summary : undefined);
-        } else {
-          updateLatestProcessingMessage({
-            resultSummary: typeof data?.summary === 'string' ? data.summary : undefined,
-            actions: typeof data?.summary === 'string' ? extractActionHints(data.summary) : undefined,
-            status: typeof data?.success === 'boolean' ? (data.success ? 'completed' : 'failed') : undefined,
-          });
-          appendTimelineLatest('Final result generated', typeof data?.summary === 'string' ? data.summary : undefined);
         }
         break;
 
