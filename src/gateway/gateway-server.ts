@@ -38,8 +38,9 @@ import { registerConversationHandlers } from './rpc/handlers/conversation-handle
 import { registerAuditHandlers } from './rpc/handlers/audit-handlers.js';
 import { GatewayRuntimeRolloutCoordinator } from './runtime/gateway-runtime-rollout-coordinator.js';
 import { GatewaySchedulerEventAuditObserver } from './runtime/gateway-scheduler-event-audit-observer.js';
-import { GatewayRuntimeRpcSurface } from './runtime/gateway-runtime-rpc-surface.js';
-import { GatewayToolProviderRuntime } from './runtime/gateway-tool-provider-runtime.js';
+import type { GatewayRuntimeRpcSurface } from './runtime/gateway-runtime-rpc-surface.js';
+import type { GatewayToolProviderRuntime } from './runtime/gateway-tool-provider-runtime.js';
+import { createGatewayToolProviderRuntimeCluster } from './runtime/gateway-tool-provider-runtime-cluster.js';
 import { DebugEventAdapter } from '../runtime/event-bus/adapters/debug-event-adapter.js';
 import { GatewayEventAdapter } from '../runtime/event-bus/adapters/gateway-event-adapter.js';
 import { SchedulerEventAdapter } from '../runtime/event-bus/adapters/scheduler-event-adapter.js';
@@ -60,8 +61,6 @@ import { AuditLogRepository } from '../infra/persistence/audit-repository.js';
 import { AuditService } from '../infra/audit/audit-service.js';
 import { getConfigDir } from '../infra/config/config-paths.js';
 
-// Conversation imports
-import type { ToolAllowlist, ToolEnforcer, ToolRegistry } from '../infra/tools/tool-registry.js';
 import { ConfigWatcher, createConfigWatcher } from './config/config-watcher.js';
 import { loadRuntimeConfig, saveRuntimeConfig } from '../infra/config/runtime-config.js';
 import { GatewayLLMStreamEventSink } from './events/llm-stream-event-sink.js';
@@ -115,9 +114,6 @@ export class GatewayServer {
 
   // Tool components
   private toolProviderRuntime: GatewayToolProviderRuntime;
-  private toolRegistry: ToolRegistry;
-  private toolAllowlist: ToolAllowlist;
-  private toolEnforcer: ToolEnforcer;
 
   private configWatcher?: ConfigWatcher;
   private enableConfigWatch: boolean;
@@ -226,13 +222,8 @@ export class GatewayServer {
     });
 
     // Initialize tool components
-    this.toolProviderRuntime = new GatewayToolProviderRuntime({
+    const toolProviderRuntimeCluster = createGatewayToolProviderRuntimeCluster({
       streamEventSink: new GatewayLLMStreamEventSink(),
-    });
-    this.toolRegistry = this.toolProviderRuntime.toolRegistry;
-    this.toolAllowlist = this.toolProviderRuntime.toolAllowlist;
-    this.toolEnforcer = this.toolProviderRuntime.toolEnforcer;
-    this.runtimeRpcSurface = new GatewayRuntimeRpcSurface({
       rpcHandler: this.rpcHandler,
       repository: this.repository,
       getIsRunning: () => this.isRunning,
@@ -243,8 +234,9 @@ export class GatewayServer {
       getScheduler: () => this.scheduler,
       ipcBridge: this.ipcBridge,
       runtimeRolloutCoordinator: this.runtimeRolloutCoordinator,
-      toolRegistry: this.toolRegistry,
     });
+    this.toolProviderRuntime = toolProviderRuntimeCluster.toolProviderRuntime;
+    this.runtimeRpcSurface = toolProviderRuntimeCluster.runtimeRpcSurface;
 
     if (this.enableConfigWatch) {
       this.configureConfigWatcher();
