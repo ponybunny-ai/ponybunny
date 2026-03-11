@@ -14,6 +14,7 @@ import { getGlobalAgentRegistry } from '../../../infra/agents/agent-registry.js'
 import { loadRuntimeConfig } from '../../../infra/config/runtime-config.js';
 import { ensureAgentWorkdir } from '../../../infra/agents/agent-workdir.js';
 import { buildGatewayMessageRouteContext } from '../../../infra/routing/route-context.js';
+import { materializeCompatibilitySelectedModelProjection } from '../../../infra/llm/provider-manager/model-selection-compatibility.js';
 
 export interface IRemoteSchedulerClient {
   isSchedulerDaemonConnected(): boolean;
@@ -158,9 +159,9 @@ export function registerGoalHandlers(
           context: context
             ? {
                 ...context,
-                model: typeof (context as Record<string, unknown>).selected_model === 'string'
-                  ? (context as Record<string, unknown>).selected_model
-                  : undefined,
+                model: materializeCompatibilitySelectedModelProjection({
+                  selectedModel: (context as Record<string, unknown>).selected_model,
+                }).model,
               }
             : undefined,
         },

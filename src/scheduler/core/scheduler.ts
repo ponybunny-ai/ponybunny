@@ -34,6 +34,10 @@ import {
   readEventedDispatchCheckpoint,
 } from '../evented-dispatch-checkpoint.js';
 import { resolveEffectiveModelSelection } from '../../infra/llm/provider-manager/effective-model-resolution.js';
+import {
+  materializeCompatibilityRunModelProjection,
+  materializeCompatibilitySelectedModelProjection,
+} from '../../infra/llm/provider-manager/model-selection-compatibility.js';
 
 const DEFAULT_CONFIG: SchedulerConfig = {
   tickIntervalMs: 1000,
@@ -563,6 +567,10 @@ export class SchedulerCore implements ISchedulerCore {
     );
     const model = projectedModel.model;
     const modelSource = projectedModel.source;
+    const runSelectionProjection = materializeCompatibilitySelectedModelProjection({
+      selectedModel: model,
+      modelSource,
+    });
 
     // Select lane
     const laneResult = this.deps.laneSelector.selectLane(workItem, goal);
@@ -589,8 +597,8 @@ export class SchedulerCore implements ISchedulerCore {
       agent_type: workItem.item_type,
       run_sequence: existingRuns.length + 1,
       context: {
-        selected_model: model,
-        model_source: modelSource,
+        selected_model: runSelectionProjection.selected_model,
+        model_source: runSelectionProjection.model_source,
       },
     });
 
@@ -643,8 +651,8 @@ export class SchedulerCore implements ISchedulerCore {
       workItemId: workItem.id,
       runId: run.id,
       data: {
-        selected_model: model,
-        model_source: modelSource,
+        selected_model: runSelectionProjection.selected_model,
+        model_source: runSelectionProjection.model_source,
       },
     });
 
@@ -1124,6 +1132,10 @@ export class SchedulerCore implements ISchedulerCore {
             })
           )
         : null;
+      const runCompletionProjection = materializeCompatibilityRunModelProjection({
+        selectedModel: model,
+        actualModel: result.actualModel ?? model,
+      });
 
       this.deps.repository.completeRun(run.id, {
         status: result.success ? 'success' : 'failure',
@@ -1133,8 +1145,8 @@ export class SchedulerCore implements ISchedulerCore {
         artifacts: result.artifacts,
         error_message: result.error?.message,
         context: {
-          selected_model: model,
-          actual_model: result.actualModel ?? model,
+          selected_model: runCompletionProjection.selected_model,
+          actual_model: runCompletionProjection.actual_model,
           endpoint_id: result.endpointId,
           ...(completedEventedDispatch ? { evented_dispatch: completedEventedDispatch } : {}),
         },
@@ -1154,8 +1166,8 @@ export class SchedulerCore implements ISchedulerCore {
         runId: run.id,
         data: {
           success: result.success,
-          selected_model: model,
-          actual_model: result.actualModel ?? model,
+          selected_model: runCompletionProjection.selected_model,
+          actual_model: runCompletionProjection.actual_model,
           endpoint_id: result.endpointId,
         },
       });

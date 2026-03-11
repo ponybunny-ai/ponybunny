@@ -1,4 +1,5 @@
 import type { CompleteRunParams, IWorkOrderRepository } from '../../infra/persistence/repository-interface.js';
+import { materializeCompatibilityRunModelProjection } from '../../infra/llm/provider-manager/model-selection-compatibility.js';
 import type {
   ExecutionGoalSpendingUpdateParams,
   ExecutionRunCompletionFinalizer,
@@ -8,6 +9,10 @@ import type {
 export class LocalExecutionRunCompletionFinalizer implements ExecutionRunCompletionFinalizer {
   buildRunCompletion(params: ExecutionRunCompletionParams): CompleteRunParams {
     const { executionResult, executionLog, timeSeconds, selectedModel, requestedModel } = params;
+    const compatibilityProjection = materializeCompatibilityRunModelProjection({
+      selectedModel,
+      actualModel: executionResult.actualModel,
+    });
 
     return {
       status: executionResult.success ? 'success' : 'failure',
@@ -18,9 +23,9 @@ export class LocalExecutionRunCompletionFinalizer implements ExecutionRunComplet
       artifacts: executionResult.artifactIds || [],
       execution_log: executionLog,
       context: {
-        selected_model: selectedModel,
+        selected_model: compatibilityProjection.selected_model,
         requested_model: requestedModel,
-        actual_model: executionResult.actualModel,
+        actual_model: compatibilityProjection.actual_model,
         endpoint_id: executionResult.endpointId,
       },
     };

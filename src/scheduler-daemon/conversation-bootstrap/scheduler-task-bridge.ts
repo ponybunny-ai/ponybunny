@@ -10,6 +10,7 @@ import {
   resolveEffectiveModelSelection,
   type EffectiveModelResolution,
 } from '../../infra/llm/provider-manager/effective-model-resolution.js';
+import { materializeCompatibilitySelectedModelProjection } from '../../infra/llm/provider-manager/model-selection-compatibility.js';
 
 interface ResolveMainAgentModelHintOptions {
   runtimeConfig?: PonyBunnyRuntimeConfig;
@@ -103,6 +104,9 @@ export class SchedulerTaskBridge {
     // Persisted selected_model/model remain compatibility projections of the
     // effective-model authority read path resolved before execution begins.
     const selectedModel = this.resolveEffectiveModel(options?.sourceAgentId)?.model;
+    const compatibilityModelProjection = materializeCompatibilitySelectedModelProjection({
+      selectedModel,
+    });
 
     const goal = this.repository.createGoal({
       title: requirements.title,
@@ -120,7 +124,9 @@ export class SchedulerTaskBridge {
         sessionId: session.id,
         turnId: sourceTurnId,
         personaId: session.personaId,
-        ...(selectedModel ? { selected_model: selectedModel } : {}),
+        ...(compatibilityModelProjection.selected_model
+          ? { selected_model: compatibilityModelProjection.selected_model }
+          : {}),
       },
     });
 
@@ -134,10 +140,10 @@ export class SchedulerTaskBridge {
       context: {
         ...(goal.context ?? {}),
         createdViaConversation: true,
-        ...(selectedModel
+        ...(compatibilityModelProjection.selected_model
           ? {
-              selected_model: selectedModel,
-              model: selectedModel,
+              selected_model: compatibilityModelProjection.selected_model,
+              model: compatibilityModelProjection.model,
             }
           : {}),
       },
