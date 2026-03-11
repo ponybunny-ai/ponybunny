@@ -1,11 +1,22 @@
 import type { CompiledAgentConfig } from './config/index.js';
 import type { AgentRunner } from './runner-types.js';
 
+export interface RunnerRegistration {
+  type: string;
+  runner: AgentRunner;
+}
+
 export class RunnerRegistry {
   private runners = new Map<string, AgentRunner>();
 
   register(type: string, runner: AgentRunner): void {
     this.runners.set(type, runner);
+  }
+
+  registerMany(registrations: Iterable<RunnerRegistration>): void {
+    for (const registration of registrations) {
+      this.register(registration.type, registration.runner);
+    }
   }
 
   hasRunner(type: string): boolean {

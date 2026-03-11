@@ -35,6 +35,11 @@ export interface AgentSchedulerInFlight {
   nextRunAtMs: number | null;
 }
 
+export interface AgentSchedulerLoopOptions {
+  onDispatchError?: (error: unknown) => void;
+  setIntervalFn?: typeof setInterval;
+}
+
 const DEFAULT_SUCCESS_CRITERIA = [
   {
     description: 'Scheduled work item completed successfully',
@@ -64,6 +69,31 @@ const computeEffectiveTools = (allowlist: string[], denylist: string[], forbidde
 
   return allowlist.filter((tool) => !deny.has(tool) && !matchers.some((matcher) => matcher.test(tool)));
 };
+
+export function startAgentSchedulerLoop(
+  agentScheduler: Pick<AgentScheduler, 'dispatchOnce'>,
+  tickIntervalMs: number,
+  options: AgentSchedulerLoopOptions = {}
+): NodeJS.Timeout {
+  let dispatchActive = false;
+  const setIntervalFn = options.setIntervalFn ?? setInterval;
+
+  return setIntervalFn(() => {
+    if (dispatchActive) {
+      return;
+    }
+
+    dispatchActive = true;
+    agentScheduler
+      .dispatchOnce()
+      .catch((error) => {
+        options.onDispatchError?.(error);
+      })
+      .finally(() => {
+        dispatchActive = false;
+      });
+  }, tickIntervalMs);
+}
 
 export class AgentScheduler {
   private inFlightByGoalId = new Map<string, AgentSchedulerInFlight>();
