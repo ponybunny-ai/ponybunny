@@ -1,18 +1,13 @@
 const configureLLMProviderManagerStreamEventSink = jest.fn();
-const setGlobalToolProvider = jest.fn();
+const installLegacyPromptToolingGlobals = jest.fn();
 
 jest.mock('../../../src/infra/llm/provider-manager/index.js', () => ({
   configureLLMProviderManagerStreamEventSink,
 }));
 
-jest.mock('../../../src/infra/tools/tool-provider.js', () => {
-  const actual = jest.requireActual('../../../src/infra/tools/tool-provider.js');
-
-  return {
-    ...actual,
-    setGlobalToolProvider,
-  };
-});
+jest.mock('../../../src/infra/prompts/legacy-prompt-tooling-compatibility.js', () => ({
+  installLegacyPromptToolingGlobals,
+}));
 
 import { createNoOpLLMStreamEventSink } from '../../../src/infra/llm/provider-manager/stream-event-sink.js';
 import { GatewayToolProviderRuntime } from '../../../src/gateway/runtime/gateway-tool-provider-runtime.js';
@@ -20,7 +15,7 @@ import { GatewayToolProviderRuntime } from '../../../src/gateway/runtime/gateway
 describe('GatewayToolProviderRuntime', () => {
   beforeEach(() => {
     configureLLMProviderManagerStreamEventSink.mockReset();
-    setGlobalToolProvider.mockReset();
+    installLegacyPromptToolingGlobals.mockReset();
   });
 
   it('assembles the gateway tool/provider graph and binds the global provider mirror', () => {
@@ -54,7 +49,9 @@ describe('GatewayToolProviderRuntime', () => {
       'web_search',
       'find_skills',
     ]));
-    expect(setGlobalToolProvider).toHaveBeenCalledWith(runtime.toolProvider);
+    expect(installLegacyPromptToolingGlobals).toHaveBeenCalledWith({
+      toolProvider: runtime.toolProvider,
+    });
     expect(configureLLMProviderManagerStreamEventSink).toHaveBeenCalledWith(streamEventSink);
   });
 });

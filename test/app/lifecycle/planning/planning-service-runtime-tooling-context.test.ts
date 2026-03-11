@@ -1,11 +1,19 @@
 import { jest } from '@jest/globals';
 
-const getGlobalPromptProviderMock = jest.fn(() => ({
+const getLegacyCompatiblePromptProviderMock = jest.fn(() => ({
   generatePlanningPrompt: () => 'global prompt',
 }));
 
+jest.mock('../../../../src/infra/prompts/legacy-prompt-tooling-compatibility.js', () => ({
+  getLegacyCompatiblePromptProvider: getLegacyCompatiblePromptProviderMock,
+}));
+
 jest.mock('../../../../src/infra/prompts/prompt-provider.js', () => ({
-  getGlobalPromptProvider: getGlobalPromptProviderMock,
+  PromptProvider: class MockPromptProvider {
+    generatePlanningPrompt() {
+      return 'global prompt';
+    }
+  },
 }));
 
 import { PlanningService } from '../../../../src/app/lifecycle/planning/planning-service.js';
@@ -15,7 +23,11 @@ import type { Goal } from '../../../../src/work-order/types/index.js';
 import type { RuntimeToolingContext } from '../../../../src/runtime/tooling-context/index.js';
 
 describe('PlanningService runtime tooling context', () => {
-  it('uses the explicit tooling context prompt provider instead of the global singleton', async () => {
+  beforeEach(() => {
+    getLegacyCompatiblePromptProviderMock.mockClear();
+  });
+
+  it('uses the explicit tooling context prompt provider instead of the compatibility fallback', async () => {
     const repository = {
       getReadyWorkItems: jest.fn(() => []),
       createWorkItem: jest.fn(),
@@ -67,6 +79,6 @@ describe('PlanningService runtime tooling context', () => {
       ]),
       expect.any(Object)
     );
-    expect(getGlobalPromptProviderMock).not.toHaveBeenCalled();
+    expect(getLegacyCompatiblePromptProviderMock).not.toHaveBeenCalled();
   });
 });

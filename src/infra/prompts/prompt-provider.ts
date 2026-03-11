@@ -6,9 +6,14 @@
 import type { Goal, WorkItem } from '../../work-order/types/index.js';
 import type { AgentPhase, SystemPromptContext } from '../prompts/types.js';
 import { buildSystemPrompt } from '../prompts/system-prompt-builder.js';
-import { getGlobalSkillRegistry } from '../skills/skill-registry.js';
-import { getGlobalToolProvider } from '../tools/tool-provider.js';
+import type { SkillRegistry } from '../skills/skill-registry.js';
+import type { ToolProvider } from '../tools/tool-provider.js';
 import { routeContextFromWorkItemContext } from '../routing/route-context.js';
+import {
+  getLegacyCompatiblePromptProvider,
+  readLegacyPromptToolingFallback,
+  setLegacyCompatiblePromptProvider,
+} from './legacy-prompt-tooling-compatibility.js';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -29,10 +34,20 @@ export interface PromptOptions {
 }
 
 export class PromptProvider {
-  constructor(
-    private skillRegistry = getGlobalSkillRegistry(),
-    private toolProvider = getGlobalToolProvider()
-  ) {}
+  private readonly skillRegistry: SkillRegistry;
+  private readonly toolProvider: ToolProvider;
+
+  constructor(skillRegistry?: SkillRegistry, toolProvider?: ToolProvider) {
+    if (skillRegistry && toolProvider) {
+      this.skillRegistry = skillRegistry;
+      this.toolProvider = toolProvider;
+      return;
+    }
+
+    const fallback = readLegacyPromptToolingFallback();
+    this.skillRegistry = skillRegistry ?? fallback.skillRegistry;
+    this.toolProvider = toolProvider ?? fallback.toolProvider;
+  }
 
   /**
    * Generate system prompt for a given phase
@@ -212,16 +227,10 @@ export class PromptProvider {
   }
 }
 
-// Singleton instance
-let globalPromptProvider: PromptProvider | null = null;
-
 export function getGlobalPromptProvider(): PromptProvider {
-  if (!globalPromptProvider) {
-    globalPromptProvider = new PromptProvider();
-  }
-  return globalPromptProvider;
+  return getLegacyCompatiblePromptProvider(() => new PromptProvider());
 }
 
 export function setGlobalPromptProvider(provider: PromptProvider): void {
-  globalPromptProvider = provider;
+  setLegacyCompatiblePromptProvider(provider);
 }

@@ -1,5 +1,6 @@
 import { configureLLMProviderManagerStreamEventSink } from '../../infra/llm/provider-manager/index.js';
-import { ToolProvider, setGlobalToolProvider } from '../../infra/tools/tool-provider.js';
+import { installLegacyPromptToolingGlobals } from '../../infra/prompts/legacy-prompt-tooling-compatibility.js';
+import { ToolProvider } from '../../infra/tools/tool-provider.js';
 import {
   ToolAllowlist,
   ToolEnforcer,
@@ -41,7 +42,9 @@ export class GatewayToolProviderRuntime {
     this.toolEnforcer = new ToolEnforcer(this.toolRegistry, this.toolAllowlist);
     this.toolProvider = new ToolProvider(this.toolEnforcer);
 
-    setGlobalToolProvider(this.toolProvider);
+    installLegacyPromptToolingGlobals({
+      toolProvider: this.toolProvider,
+    });
     configureLLMProviderManagerStreamEventSink(dependencies.streamEventSink);
   }
 

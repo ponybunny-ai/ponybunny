@@ -10,17 +10,30 @@ let mockToolDefinitions: Array<{
   description: string;
   parameters: { type: 'object'; properties: Record<string, unknown>; required?: string[] };
 }> = [];
+const getLegacyCompatiblePromptProviderMock = jest.fn((createPromptProvider: () => unknown) =>
+  createPromptProvider()
+);
+const getLegacyCompatibleToolProviderMock = jest.fn(() => ({
+  getToolDefinitions: () => mockToolDefinitions,
+}));
 
 jest.mock('../../src/infra/prompts/prompt-provider.js', () => ({
-  getGlobalPromptProvider: () => ({
-    generateExecutionPrompt: mockGenerateExecutionPrompt,
-  }),
+  PromptProvider: class MockPromptProvider {
+    generateExecutionPrompt() {
+      return mockGenerateExecutionPrompt();
+    }
+  },
 }));
 
 jest.mock('../../src/infra/skills/skill-registry.js', () => ({
   getGlobalSkillRegistry: () => ({
     getSkillsForPhase: () => [],
   }),
+}));
+
+jest.mock('../../src/infra/prompts/legacy-prompt-tooling-compatibility.js', () => ({
+  getLegacyCompatiblePromptProvider: getLegacyCompatiblePromptProviderMock,
+  getLegacyCompatibleToolProvider: getLegacyCompatibleToolProviderMock,
 }));
 
 jest.mock('../../src/infra/tools/tool-provider.js', () => {
@@ -32,9 +45,6 @@ jest.mock('../../src/infra/tools/tool-provider.js', () => {
 
   return {
     ToolProvider: MockToolProvider,
-    getGlobalToolProvider: () => ({
-      getToolDefinitions: () => mockToolDefinitions,
-    }),
   };
 });
 
@@ -114,6 +124,8 @@ describe('ReActIntegration', () => {
   beforeEach(() => {
     mockGenerateExecutionPrompt.mockClear();
     mockToolDefinitions = [];
+    getLegacyCompatiblePromptProviderMock.mockClear();
+    getLegacyCompatibleToolProviderMock.mockClear();
   });
 
   it('continues to next turn after non-complete response without tool calls', async () => {
@@ -223,6 +235,8 @@ describe('ReActIntegration', () => {
       model: 'gpt-5.2-codex',
     });
 
+    expect(getLegacyCompatiblePromptProviderMock).not.toHaveBeenCalled();
+    expect(getLegacyCompatibleToolProviderMock).not.toHaveBeenCalled();
     expect(result.success).toBe(true);
     expect(provider.complete).toHaveBeenCalledWith(
       expect.arrayContaining([

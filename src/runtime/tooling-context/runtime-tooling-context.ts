@@ -1,7 +1,6 @@
 import type { PromptProvider } from '../../infra/prompts/prompt-provider.js';
-import { setGlobalPromptProvider } from '../../infra/prompts/prompt-provider.js';
+import { installLegacyPromptToolingGlobals } from '../../infra/prompts/legacy-prompt-tooling-compatibility.js';
 import type { SkillRegistry } from '../../infra/skills/skill-registry.js';
-import { setGlobalToolProvider } from '../../infra/tools/tool-provider.js';
 import type { ToolAllowlist, ToolEnforcer, ToolRegistry } from '../../infra/tools/tool-registry.js';
 import type { ToolProvider } from '../../infra/tools/tool-provider.js';
 
@@ -58,8 +57,10 @@ class DefaultRuntimeToolingContext implements RuntimeToolingContext {
   }
 
   syncLegacyGlobals(): void {
-    setGlobalToolProvider(this.toolProvider);
-    setGlobalPromptProvider(this.getPromptProvider());
+    installLegacyPromptToolingGlobals({
+      toolProvider: this.toolProvider,
+      promptProvider: this.getPromptProvider(),
+    });
   }
 }
 

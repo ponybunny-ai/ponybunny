@@ -13,7 +13,7 @@ import type { LLMMessage, ToolCall } from '../../infra/llm/llm-provider.js';
 import type { RuntimeToolingContext } from '../../runtime/tooling-context/index.js';
 import type { ToolEnforcer } from '../../infra/tools/tool-registry.js';
 import type { ToolProvider } from '../../infra/tools/tool-provider.js';
-import { getGlobalToolProvider } from '../../infra/tools/tool-provider.js';
+import { getLegacyCompatibleToolProvider } from '../../infra/prompts/legacy-prompt-tooling-compatibility.js';
 import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
 import { debug } from '../../debug/index.js';
 
@@ -76,7 +76,7 @@ export class ResponseGenerator implements IResponseGenerator {
     private toolEnforcer?: ToolEnforcer,
     runtimeToolingContext?: RuntimeToolingContext
   ) {
-    this.toolProvider = runtimeToolingContext?.toolProvider ?? getGlobalToolProvider();
+    this.toolProvider = runtimeToolingContext?.toolProvider ?? getLegacyCompatibleToolProvider();
   }
 
   async generate(context: IResponseContext, onChunk?: (chunk: string) => void): Promise<string> {

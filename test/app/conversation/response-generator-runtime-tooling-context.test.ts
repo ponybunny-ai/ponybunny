@@ -1,22 +1,28 @@
 import { jest } from '@jest/globals';
 
-jest.mock('../../../src/infra/tools/tool-provider.js', () => ({
-  getGlobalToolProvider: () => ({
-    getToolDefinitions: () => [
-      {
-        name: 'global_only_tool',
-        description: 'Should not be used',
-        parameters: { type: 'object', properties: {} },
-      },
-    ],
-  }),
+const getLegacyCompatibleToolProviderMock = jest.fn(() => ({
+  getToolDefinitions: () => [
+    {
+      name: 'global_only_tool',
+      description: 'Should not be used',
+      parameters: { type: 'object', properties: {} },
+    },
+  ],
+}));
+
+jest.mock('../../../src/infra/prompts/legacy-prompt-tooling-compatibility.js', () => ({
+  getLegacyCompatibleToolProvider: getLegacyCompatibleToolProviderMock,
 }));
 
 import { ResponseGenerator } from '../../../src/app/conversation/response-generator.js';
 import type { RuntimeToolingContext } from '../../../src/runtime/tooling-context/index.js';
 
 describe('ResponseGenerator runtime tooling context', () => {
-  it('uses the explicit tooling context tool provider instead of the global singleton', async () => {
+  beforeEach(() => {
+    getLegacyCompatibleToolProviderMock.mockClear();
+  });
+
+  it('uses the explicit tooling context tool provider instead of the compatibility fallback', async () => {
     const llmService = {
       completeForWorkload: jest.fn(async () => ({ content: 'response' })),
     };
@@ -75,6 +81,7 @@ describe('ResponseGenerator runtime tooling context', () => {
       recentTurns: [],
     });
 
+    expect(getLegacyCompatibleToolProviderMock).not.toHaveBeenCalled();
     expect(llmService.completeForWorkload).toHaveBeenCalledWith(
       'conversation',
       expect.any(Array),
