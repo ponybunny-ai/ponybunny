@@ -6,6 +6,7 @@ import type { RuntimeToolingContext } from '../../runtime/tooling-context/index.
 import { SessionManager } from '../../app/conversation/session-manager.js';
 import { InputAnalysisService } from '../../app/conversation/input-analysis-service.js';
 import { PersonaEngine } from '../../app/conversation/persona-engine.js';
+import type { IPersonaRepository } from '../../app/conversation/persona-engine.js';
 import { ResponseGenerator } from '../../app/conversation/response-generator.js';
 import { RetryHandler } from '../../app/conversation/retry-handler.js';
 import { ConversationMemoryService } from '../../app/conversation/memory-service.js';
@@ -22,6 +23,7 @@ import type { SchedulerCore } from '../../scheduler/core/index.js';
 import { SchedulerTaskBridge } from './scheduler-task-bridge.js';
 import { ConversationTaskMaterializer } from './conversation-task-materializer.js';
 import { getGlobalAgentDefinitionReadAccess } from '../../infra/agents/agent-definition-read-access.js';
+import type { IPersona, IPersonaSummary } from '../../domain/conversation/persona.js';
 
 export interface DefaultConversationBootstrapDependencies {
   repository: IWorkOrderRepository;
@@ -104,15 +106,56 @@ export function createDefaultConversationBootstrap(
 }
 
 function buildPersonaRepository(personasDir: string) {
+  const fallbackRepository = buildFallbackPersonaRepository();
+
   if (personasDir && personasDir.length > 0) {
     try {
-      return new FilePersonaRepository(personasDir);
+      return new LayeredPersonaRepository(
+        new FilePersonaRepository(personasDir),
+        fallbackRepository
+      );
     } catch {
-      return buildFallbackPersonaRepository();
+      return fallbackRepository;
     }
   }
 
-  return buildFallbackPersonaRepository();
+  return fallbackRepository;
+}
+
+class LayeredPersonaRepository implements IPersonaRepository {
+  constructor(
+    private readonly primary: IPersonaRepository,
+    private readonly fallback: IPersonaRepository
+  ) {}
+
+  async getPersona(id: string): Promise<IPersona | null> {
+    return await this.primary.getPersona(id) ?? this.fallback.getPersona(id);
+  }
+
+  async listPersonas(): Promise<IPersonaSummary[]> {
+    const [primaryPersonas, fallbackPersonas] = await Promise.all([
+      this.primary.listPersonas(),
+      this.fallback.listPersonas(),
+    ]);
+
+    const merged = new Map<string, IPersonaSummary>();
+    for (const persona of fallbackPersonas) {
+      merged.set(persona.id, persona);
+    }
+    for (const persona of primaryPersonas) {
+      merged.set(persona.id, persona);
+    }
+
+    return Array.from(merged.values());
+  }
+
+  async savePersona(persona: IPersona): Promise<void> {
+    await this.primary.savePersona(persona);
+  }
+
+  async deletePersona(id: string): Promise<boolean> {
+    return this.primary.deletePersona(id);
+  }
 }
 
 function buildFallbackPersonaRepository(): InMemoryPersonaRepository {

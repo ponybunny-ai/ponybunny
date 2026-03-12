@@ -203,4 +203,73 @@ describe('createDefaultConversationBootstrap', () => {
       db.close();
     }
   });
+
+  it('falls back to the built-in pony-default persona when the personas directory is empty', async () => {
+    const db = new Database(':memory:');
+    const personasDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-empty-persona-dir-'));
+    const llmService = {
+      completeForWorkload: jest.fn(async (_workload, messages) => {
+        const systemPrompt = messages[0]?.content ?? '';
+
+        if (systemPrompt.includes('expert at analyzing user input')) {
+          return {
+            content: JSON.stringify({
+              intent: {
+                primary: 'question',
+                confidence: 0.9,
+                entities: [],
+              },
+              emotion: {
+                primary: 'neutral',
+                intensity: 0.1,
+                urgency: 'low',
+              },
+              purpose: {
+                isActionable: false,
+                missingInfo: [],
+              },
+            }),
+          };
+        }
+
+        if (systemPrompt.includes('You summarize conversation turns into durable core memory')) {
+          return {
+            content: JSON.stringify({
+              summary: 'Stored summary',
+              importance: 0.6,
+            }),
+          };
+        }
+
+        return {
+          content: 'fallback persona response',
+          toolCalls: [],
+        };
+      }),
+    };
+
+    try {
+      const bootstrap = createDefaultConversationBootstrap({
+        repository: createRepositoryStub() as never,
+        memoryDb: db,
+        llmService: llmService as never,
+        runtimeToolingContext: createRuntimeToolingContextStub([]),
+        schedulerProvider: () => null,
+        personasDir,
+      });
+
+      const result = await bootstrap.conversationPort.process({
+        conversationRequestId: 'conv-req-fallback',
+        message: 'how are you?',
+      });
+
+      expect(result).toEqual(expect.objectContaining({
+        conversationRequestId: 'conv-req-fallback',
+        response: 'fallback persona response',
+      }));
+    } finally {
+      fs.rmSync(personasDir, { recursive: true, force: true });
+      db.close();
+    }
+  });
 });
