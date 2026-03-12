@@ -24,6 +24,11 @@ interface PendingCommand {
   startedAt: number;
 }
 
+const DEFAULT_SCHEDULER_COMMAND_TIMEOUT_MS = 5_000;
+const SCHEDULER_COMMAND_TIMEOUT_OVERRIDES_MS: Partial<Record<SchedulerCommandType, number>> = {
+  session_message: 120_000,
+};
+
 export class IPCBridge {
   private eventBus: EventBus;
   private ipcServer: IPCServer | null = null;
@@ -668,10 +673,11 @@ export class IPCBridge {
 
     return await new Promise<unknown>((resolve, reject) => {
       const startedAt = Date.now();
+      const timeoutMs = this.getSchedulerCommandTimeoutMs(command);
       const timeout = setTimeout(() => {
         this.pendingCommands.delete(requestId);
         reject(new Error(`Scheduler command timed out: ${command}`));
-      }, 5000);
+      }, timeoutMs);
 
       this.pendingCommands.set(requestId, { resolve, reject, timeout, startedAt });
 
@@ -756,5 +762,9 @@ export class IPCBridge {
     const sorted = [...samples].sort((a, b) => a - b);
     const index = Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1);
     return sorted[index] ?? 0;
+  }
+
+  private getSchedulerCommandTimeoutMs(command: SchedulerCommandType): number {
+    return SCHEDULER_COMMAND_TIMEOUT_OVERRIDES_MS[command] ?? DEFAULT_SCHEDULER_COMMAND_TIMEOUT_MS;
   }
 }

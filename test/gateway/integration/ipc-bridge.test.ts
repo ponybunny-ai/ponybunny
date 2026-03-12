@@ -135,6 +135,62 @@ describe('IPCBridge scheduler commands', () => {
     (mockServer.getClients as jest.Mock).mockReturnValueOnce([]);
     await expect(bridge.submitGoal('goal-x')).rejects.toThrow('Scheduler daemon is not connected');
   });
+
+  it('allows session_message commands to take longer than the default timeout', async () => {
+    jest.useFakeTimers();
+
+    try {
+      const sessionMessagePromise = bridge.sendSessionMessage({
+        gatewaySessionId: 'gateway-session-1',
+        sessionId: 'session-1',
+        message: 'how are you?',
+      });
+
+      expect(mockServer.sendToClient).toHaveBeenCalledTimes(1);
+      const message = (mockServer.sendToClient as jest.Mock).mock.calls[0][1];
+      expect(message.data.command).toBe('session_message');
+
+      jest.advanceTimersByTime(10_000);
+
+      serverMessageHandler?.(
+        {
+          type: 'scheduler_command_result',
+          timestamp: Date.now(),
+          data: {
+            requestId: message.data.requestId,
+            success: true,
+            result: {
+              sessionId: 'session-1',
+              response: 'I am doing well.',
+              state: 'idle',
+            },
+          },
+        },
+        'client-1'
+      );
+
+      await expect(sessionMessagePromise).resolves.toEqual({
+        sessionId: 'session-1',
+        response: 'I am doing well.',
+        state: 'idle',
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('keeps the shorter timeout for non-conversation scheduler commands', async () => {
+    jest.useFakeTimers();
+
+    try {
+      const submitPromise = bridge.submitGoal('goal-timeout');
+      jest.advanceTimersByTime(5_001);
+
+      await expect(submitPromise).rejects.toThrow('Scheduler command timed out: submit_goal');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 describe('IPCBridge scheduler event routing', () => {

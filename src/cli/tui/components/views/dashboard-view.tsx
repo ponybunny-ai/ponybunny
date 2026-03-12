@@ -11,6 +11,7 @@ import { useTerminalSize } from '../../hooks/use-terminal-size.js';
 import { formatDateTime, truncateDisplayWidth } from '../../utils/formatters.js';
 import { renderMarkdownToTerminalLines } from '../../utils/markdown-render.js';
 import { resolveConversationRenderState } from '../../utils/conversation-render-state.js';
+import { resolvePendingConversationState } from '../../utils/conversation-pending-state.js';
 
 type ConversationTurn = {
   role: 'user' | 'assistant' | 'system';
@@ -18,10 +19,16 @@ type ConversationTurn = {
   timestamp: number;
 };
 
+type DisplayConversationTurn = ConversationTurn & {
+  pendingSyncState?: 'awaiting_reply' | 'syncing_history' | 'failed';
+  pendingStatusText?: string;
+  pendingError?: string;
+};
+
 type RenderedConversationLine = {
   key: string;
   text: string;
-  color?: 'green' | 'blue' | 'yellow' | 'gray';
+  color?: 'green' | 'blue' | 'yellow' | 'gray' | 'red';
   dim?: boolean;
   bold?: boolean;
 };
@@ -54,36 +61,36 @@ export const DashboardView: React.FC = () => {
   const [conversationLoading, setConversationLoading] = React.useState(false);
   const [conversationError, setConversationError] = React.useState<string | null>(null);
 
-  const mergedConversationTurns = React.useMemo<ConversationTurn[]>(() => {
-    if (!activeSessionId) {
-      return conversationTurns;
+  const confirmedConversationTurns = React.useMemo<ConversationTurn[]>(
+    () => [...conversationTurns].sort((a, b) => a.timestamp - b.timestamp),
+    [conversationTurns]
+  );
+  const pendingConversationState = React.useMemo(
+    () => resolvePendingConversationState({
+      activeSessionId,
+      simpleMessages,
+      conversationTurns: confirmedConversationTurns,
+    }),
+    [activeSessionId, confirmedConversationTurns, simpleMessages]
+  );
+  const displayConversationTurns = React.useMemo<DisplayConversationTurn[]>(() => {
+    const baseTurns = confirmedConversationTurns.map((turn) => ({ ...turn }));
+    if (!pendingConversationState) {
+      return baseTurns;
     }
 
-    const optimisticTurns = simpleMessages
-      .filter((message) =>
-        message.source === 'conversation' &&
-        message.sessionId === activeSessionId &&
-        (message.status === 'pending' || message.status === 'processing')
-      )
-      .map((message) => ({
+    return [
+      ...baseTurns,
+      {
         role: 'user' as const,
-        content: message.input,
-        timestamp: message.timestamp,
-      }))
-      .filter((candidate) => {
-        return !conversationTurns.some((turn) =>
-          turn.role === 'user' &&
-          turn.content === candidate.content &&
-          Math.abs(turn.timestamp - candidate.timestamp) <= 30_000
-        );
-      });
-
-    if (optimisticTurns.length === 0) {
-      return conversationTurns;
-    }
-
-    return [...conversationTurns, ...optimisticTurns].sort((a, b) => a.timestamp - b.timestamp);
-  }, [activeSessionId, conversationTurns, simpleMessages]);
+        content: pendingConversationState.input,
+        timestamp: pendingConversationState.timestamp,
+        pendingSyncState: pendingConversationState.syncState,
+        pendingStatusText: pendingConversationState.statusText,
+        pendingError: pendingConversationState.error,
+      },
+    ].sort((a, b) => a.timestamp - b.timestamp);
+  }, [confirmedConversationTurns, pendingConversationState]);
 
   const activeWorkItems = workItems.filter(item =>
     item.status === 'in_progress' || item.status === 'ready' || item.status === 'queued'
@@ -101,18 +108,25 @@ export const DashboardView: React.FC = () => {
   const renderedConversationLines = React.useMemo<RenderedConversationLine[]>(() => {
     const lines: RenderedConversationLine[] = [];
 
-    for (const [turnIndex, turn] of mergedConversationTurns.entries()) {
+    for (const [turnIndex, turn] of displayConversationTurns.entries()) {
       const role = turn.role.toUpperCase();
       const roleColor = turn.role === 'assistant'
         ? 'blue'
         : turn.role === 'system'
           ? 'yellow'
           : 'green';
+      const pendingLabel = turn.pendingSyncState === 'awaiting_reply'
+        ? ' · sending'
+        : turn.pendingSyncState === 'syncing_history'
+          ? ' · syncing'
+          : turn.pendingSyncState === 'failed'
+            ? ' · failed'
+            : '';
 
       lines.push({
         key: `${turn.timestamp}-${turnIndex}-header`,
-        text: `${role} · ${formatDateTime(turn.timestamp)}`,
-        color: roleColor,
+        text: `${role} · ${formatDateTime(turn.timestamp)}${pendingLabel}`,
+        color: turn.pendingSyncState === 'failed' ? 'red' : roleColor,
         bold: true,
       });
 
@@ -122,7 +136,21 @@ export const DashboardView: React.FC = () => {
         lines.push({
           key: `${turn.timestamp}-${turnIndex}-content-${index}`,
           text: `  ${wrappedContentAll[index]}`,
-          dim: false,
+          dim: turn.pendingSyncState === 'awaiting_reply' || turn.pendingSyncState === 'syncing_history',
+        });
+      }
+
+      if (turn.pendingSyncState) {
+        const pendingDetail = turn.pendingSyncState === 'failed'
+          ? turn.pendingError || 'Conversation failed'
+          : turn.pendingSyncState === 'syncing_history'
+            ? 'Assistant replied. Syncing conversation history...'
+            : turn.pendingStatusText || 'Waiting for assistant reply...';
+        lines.push({
+          key: `${turn.timestamp}-${turnIndex}-pending-status`,
+          text: `  [${turn.pendingSyncState === 'failed' ? 'Error' : 'Pending'}] ${pendingDetail}`,
+          color: turn.pendingSyncState === 'failed' ? 'yellow' : 'gray',
+          dim: turn.pendingSyncState !== 'failed',
         });
       }
 
@@ -134,16 +162,16 @@ export const DashboardView: React.FC = () => {
     }
 
     return lines;
-  }, [mergedConversationTurns, streamTextWidth]);
+  }, [displayConversationTurns, streamTextWidth]);
   const conversationRenderState = resolveConversationRenderState({
     activeSessionId,
-    mergedTurnCount: mergedConversationTurns.length,
+    mergedTurnCount: displayConversationTurns.length,
     conversationLoading,
     conversationError,
   });
   const summaryRows = compactSummaryLayout ? 32 : 14;
   const pendingBannerRows = pendingEscalationCount > 0 ? 4 : 0;
-  const conversationChromeRows = 4;
+  const conversationChromeRows = pendingConversationState ? 6 : 4;
   const layoutReserveRows = 8;
   const usableRows = Math.max(8, rows - layoutReserveRows);
   const maxVisibleLines = Math.max(4, usableRows - summaryRows - pendingBannerRows - conversationChromeRows);
@@ -187,6 +215,34 @@ export const DashboardView: React.FC = () => {
 
     return null;
   }, [activeSessionId, events]);
+
+  const pendingConversationStatus = React.useMemo(() => {
+    if (!pendingConversationState) {
+      return null;
+    }
+
+    if (pendingConversationState.syncState === 'failed') {
+      return {
+        color: 'red' as const,
+        prefix: 'Conversation failed',
+        detail: pendingConversationState.error || 'Unknown error',
+      };
+    }
+
+    if (pendingConversationState.syncState === 'syncing_history') {
+      return {
+        color: 'yellow' as const,
+        prefix: 'Reply received',
+        detail: 'Syncing conversation history...',
+      };
+    }
+
+    return {
+      color: 'yellow' as const,
+      prefix: pendingConversationState.statusText || 'Waiting for assistant reply',
+      detail: truncateDisplayWidth(pendingConversationState.input, Math.max(24, streamTextWidth - 12)),
+    };
+  }, [pendingConversationState, streamTextWidth]);
 
   React.useEffect(() => {
     if (lineScrollOffset > maxLineScrollOffset) {
@@ -360,21 +416,37 @@ export const DashboardView: React.FC = () => {
           </Box>
         ) : conversationRenderState === 'loading' ? (
           <Box alignItems="center" justifyContent="center" flexGrow={1}>
-            <Text dimColor>Loading session conversation...</Text>
+            <Text dimColor>
+              {pendingConversationState
+                ? 'Waiting for assistant reply...'
+                : 'Loading session conversation...'}
+            </Text>
           </Box>
         ) : conversationRenderState === 'error' ? (
           <Box alignItems="center" justifyContent="center" flexGrow={1}>
             <Text color="red">Failed to load conversation: {conversationError}</Text>
           </Box>
         ) : conversationRenderState === 'empty' ? (
-          <Box alignItems="center" justifyContent="center" flexGrow={1}>
-            <Text dimColor>Current session has no conversation turns yet.</Text>
+          <Box alignItems="center" justifyContent="center" flexGrow={1} flexDirection="column">
+            {pendingConversationStatus ? (
+              <>
+                <Text color={pendingConversationStatus.color}>{pendingConversationStatus.prefix}</Text>
+                <Text dimColor wrap="truncate-end">{pendingConversationStatus.detail}</Text>
+              </>
+            ) : (
+              <Text dimColor>Current session has no conversation turns yet.</Text>
+            )}
           </Box>
         ) : (
           <Box flexDirection="column" flexGrow={1} paddingX={1}>
             <Text dimColor>
               Conversation lines {visibleLineStart + 1}-{visibleLineEnd} / {renderedConversationLines.length} · full markdown · wheel/↑↓/PgUp/PgDn scroll
             </Text>
+            {pendingConversationStatus ? (
+              <Text color={pendingConversationStatus.color}>
+                {pendingConversationStatus.prefix}: <Text dimColor>{pendingConversationStatus.detail}</Text>
+              </Text>
+            ) : null}
             <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1} flexDirection="column" height={maxVisibleLines + 2}>
               {paddedConversationLines.map((line) => (
                 <Text
