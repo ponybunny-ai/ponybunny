@@ -22,8 +22,6 @@ import type {
 } from "./repository-interface.js";
 import Database from 'better-sqlite3';
 import { readFileSync, existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import * as crypto from 'node:crypto';
 
@@ -34,6 +32,7 @@ import type {
   EscalationContext, DecisionOption, InFlightRunReconciliationCandidate
 } from '../../work-order/types/index.js';
 import type { DeterministicRunEvent, DeterministicRunEventType } from '../../deterministic-runtime/run-events.js';
+import { getPersistenceAssetCandidates } from '../config/runtime-asset-paths.js';
 
 interface CronJobRow {
   agent_id: string;
@@ -91,20 +90,6 @@ interface RunInspectionRow extends RunRow {
 export class WorkOrderDatabase implements IWorkOrderRepository {
   private db: Database.Database;
   private isInitialized = false;
-  private static readonly MODULE_DIR = WorkOrderDatabase.resolveModuleDir();
-
-  private static resolveModuleDir(): string {
-    const importMetaUrl = WorkOrderDatabase.readImportMetaUrl();
-    return importMetaUrl ? dirname(fileURLToPath(importMetaUrl)) : process.cwd();
-  }
-
-  private static readImportMetaUrl(): string | undefined {
-    try {
-      return (0, eval)('import.meta.url') as string;
-    } catch {
-      return undefined;
-    }
-  }
 
   constructor(private dbPath: string) {
     this.db = new Database(dbPath);
@@ -113,12 +98,7 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
   async initialize(): Promise<void> {
     if (this.isInitialized) return;
 
-    const schemaCandidates = [
-      join(WorkOrderDatabase.MODULE_DIR, 'schema.sql'),
-      join(WorkOrderDatabase.MODULE_DIR, '..', '..', '..', 'dist', 'infra', 'persistence', 'schema.sql'),
-      join(process.cwd(), 'dist', 'infra', 'persistence', 'schema.sql'),
-      join(process.cwd(), 'src', 'infra', 'persistence', 'schema.sql'),
-    ];
+    const schemaCandidates = getPersistenceAssetCandidates('schema.sql');
 
     const resolvedSchemaPath = schemaCandidates.find((candidatePath) => existsSync(candidatePath));
     if (!resolvedSchemaPath) {
@@ -138,8 +118,7 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     }
 
     const migrationCandidates = [
-      join(WorkOrderDatabase.MODULE_DIR, 'schema-migration-v2.sql'),
-      join(process.cwd(), 'src', 'infra', 'persistence', 'schema-migration-v2.sql'),
+      ...getPersistenceAssetCandidates('schema-migration-v2.sql'),
     ];
 
     const migrationPath = migrationCandidates.find((candidatePath) => existsSync(candidatePath));

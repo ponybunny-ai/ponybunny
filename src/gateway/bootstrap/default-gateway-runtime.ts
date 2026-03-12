@@ -1,15 +1,12 @@
 import Database from 'better-sqlite3';
 import { readFileSync } from 'fs';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
 
 import type { GatewayConfig } from '../types.js';
 import { GatewayServer } from '../gateway-server.js';
 import { resolveDefaultGatewaySchedulerSocketPath } from './gateway-server-runtime-lifecycle.js';
 import type { IWorkOrderRepository } from '../../infra/persistence/repository-interface.js';
 import { WorkOrderDatabase } from '../../work-order/database/manager.js';
-
-const MODULE_DIR = resolveModuleDir();
+import { getPersistenceAssetCandidates } from '../../infra/config/runtime-asset-paths.js';
 
 export interface DefaultGatewayPersistenceConfig {
   dbPath: string;
@@ -35,14 +32,8 @@ export interface DefaultGatewayRuntimeAssembly extends GatewayPersistenceAssembl
 }
 
 export function ensureGatewayPersistenceSchemas(assembly: Pick<GatewayPersistenceAssembly, 'db' | 'memoryDb'>): void {
-  applySchema(assembly.db, [
-    '../../infra/persistence/schema.sql',
-    '../../../dist/infra/persistence/schema.sql',
-  ]);
-  applySchema(assembly.memoryDb, [
-    '../../infra/persistence/schema-memory.sql',
-    '../../../dist/infra/persistence/schema-memory.sql',
-  ]);
+  applySchema(assembly.db, getPersistenceAssetCandidates('schema.sql'));
+  applySchema(assembly.memoryDb, getPersistenceAssetCandidates('schema-memory.sql'));
 }
 
 export async function createDefaultGatewayPersistence(
@@ -115,11 +106,10 @@ export async function stopDefaultGatewayRuntime(runtime: DefaultGatewayRuntimeAs
   }
 }
 
-function applySchema(db: Database.Database, relativeCandidates: string[]): void {
-  for (const candidate of relativeCandidates) {
+function applySchema(db: Database.Database, candidates: string[]): void {
+  for (const candidate of candidates) {
     try {
-      const schemaPath = join(MODULE_DIR, candidate);
-      const schema = readFileSync(schemaPath, 'utf-8');
+      const schema = readFileSync(candidate, 'utf-8');
       db.exec(schema);
       return;
     } catch {
@@ -131,18 +121,5 @@ function applySchema(db: Database.Database, relativeCandidates: string[]): void 
 function closeRepository(repository: IWorkOrderRepository): void {
   if (typeof repository.close === 'function') {
     repository.close();
-  }
-}
-
-function resolveModuleDir(): string {
-  const importMetaUrl = readImportMetaUrl();
-  return importMetaUrl ? dirname(fileURLToPath(importMetaUrl)) : process.cwd();
-}
-
-function readImportMetaUrl(): string | undefined {
-  try {
-    return (0, eval)('import.meta.url') as string;
-  } catch {
-    return undefined;
   }
 }

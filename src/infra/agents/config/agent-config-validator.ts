@@ -5,6 +5,7 @@ import type { AnySchema } from 'ajv';
 import addFormats from 'ajv-formats';
 import type { AgentConfig, CompiledAgentConfig } from './agent-config-types.js';
 import { compileAgentConfig } from './agent-config-types.js';
+import { getDocsAssetCandidates } from '../../config/runtime-asset-paths.js';
 
 export class AgentConfigValidationError extends Error {
   constructor(
@@ -69,6 +70,7 @@ function resolveSchemaPath(): string {
   }
 
   const candidates = [
+    ...getDocsAssetCandidates('schemas', 'agent.schema.json'),
     path.resolve(process.cwd(), 'docs', 'schemas', 'agent.schema.json'),
     path.resolve(process.cwd(), 'dist', 'docs', 'schemas', 'agent.schema.json'),
   ];

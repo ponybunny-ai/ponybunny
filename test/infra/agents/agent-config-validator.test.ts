@@ -1,9 +1,13 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   AgentConfigValidationError,
   validateAgentConfig,
 } from '../../../src/infra/agents/config/agent-config-validator.js';
 
 describe('Agent config validator', () => {
+  const originalCwd = process.cwd();
   const validConfig = {
     $schema: 'https://ponybunny.dho.ai/schemas/agent.schema.json',
     schemaVersion: 1,
@@ -66,6 +70,18 @@ describe('Agent config validator', () => {
   };
 
   it('accepts a minimal valid config', () => {
+    const result = validateAgentConfig(validConfig);
+    expect(result).toEqual(validConfig);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+  });
+
+  it('loads the bundled schema outside the repository cwd', () => {
+    const isolatedCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'pony-agent-schema-cwd-'));
+    process.chdir(isolatedCwd);
+
     const result = validateAgentConfig(validConfig);
     expect(result).toEqual(validConfig);
   });
