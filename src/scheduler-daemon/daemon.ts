@@ -20,11 +20,8 @@ import { debugEmitter } from '../debug/emitter.js';
 import type { AnyIPCMessage, SchedulerCommandRequest } from '../ipc/types.js';
 import { SchedulerSessionIntake } from './session-intake.js';
 import { getGlobalAgentRegistry } from '../infra/agents/agent-registry.js';
-import { getGlobalRunnerRegistry } from '../infra/agents/runner-registry.js';
-import { reconcileCronJobsFromRegistry } from '../infra/scheduler/cron-job-reconciler.js';
 import { acquireSchedulerDaemonLock, releaseSchedulerDaemonLock } from './pid-lock.js';
-import { AgentScheduler } from './agent-scheduler.js';
-import { createSchemaDrivenAgentRunner } from '../infra/agents/schema-driven-agent-runner.js';
+import type { AgentScheduler } from './agent-scheduler.js';
 import { SchedulerEventEnvelopeResolver } from './scheduler-event-envelope.js';
 import { getRuntimeConfigPath, loadRuntimeConfig, saveRuntimeConfig } from '../infra/config/runtime-config.js';
 import type { EventedStartupReconciliationSummary } from '../scheduler/evented-dispatch-checkpoint.js';
@@ -33,6 +30,8 @@ import {
   createDefaultSchedulerDaemonRuntime,
   createSchedulerDaemonSessionIntake,
 } from './bootstrap/default-daemon-runtime.js';
+import { prepareDaemonActivation } from './daemon-activation-preparation.js';
+import { startDaemonRecurringStartup } from './daemon-recurring-startup.js';
 
 export interface SchedulerDaemonConfig {
   /** Path to Gateway IPC socket */
@@ -75,18 +74,6 @@ export interface SchedulerDaemonConfig {
   runtimeToolingContext: RuntimeToolingContext;
 }
 
-function resolveMainAgentId(configuredId: string | undefined, availableIds: string[]): string | null {
-  if (configuredId && availableIds.includes(configuredId)) {
-    return configuredId;
-  }
-
-  if (availableIds.includes('lead')) {
-    return 'lead';
-  }
-
-  return availableIds.length > 0 ? availableIds[0] : null;
-}
-
 export class SchedulerDaemon {
   private scheduler: SchedulerCore | null = null;
   private ipcClient: IPCClient;
@@ -99,7 +86,6 @@ export class SchedulerDaemon {
   private hasPidLock = false;
   private agentScheduler: AgentScheduler | null = null;
   private agentSchedulerInterval: NodeJS.Timeout | null = null;
-  private agentSchedulerDispatchActive = false;
   private retentionInterval: NodeJS.Timeout | null = null;
   private retentionDispatchActive = false;
   private sessionIntake: SchedulerSessionIntake | null = null;
@@ -157,26 +143,27 @@ export class SchedulerDaemon {
 
       const registry = getGlobalAgentRegistry();
       try {
-        await registry.loadAgents({ workspaceDir: process.cwd() });
-        const availableAgentIds = registry.getAgents().map((agent) => agent.id);
-        const mainAgentId = resolveMainAgentId(this.config.mainAgentId, availableAgentIds);
+        const activationPreparation = await prepareDaemonActivation({
+          repository: this.repository,
+          registry,
+          configuredMainAgentId: this.config.mainAgentId,
+          workspaceDir: process.cwd(),
+        });
 
-        if (!mainAgentId) {
+        if (!activationPreparation.mainAgentId) {
           console.warn('[SchedulerDaemon] No valid agents available; skipping cron job reconciliation');
         }
 
-        const summary = await reconcileCronJobsFromRegistry({
-          repository: this.repository,
-          registry,
-          ...(mainAgentId ? { mainAgentId } : {}),
-        });
-
-        if (mainAgentId) {
-          console.log(`[SchedulerDaemon] Main agent selected: ${mainAgentId}`);
+        if (activationPreparation.mainAgentId) {
+          console.log(
+            `[SchedulerDaemon] Main agent selected: ${activationPreparation.mainAgentId}`
+          );
         }
         console.log(
           `[SchedulerDaemon] Cron job reconciliation complete: ` +
-          `upserted=${summary.upserted}, disabled=${summary.disabled}, skipped=${summary.skipped}`
+          `upserted=${activationPreparation.cronJobReconcileSummary.upserted}, ` +
+          `disabled=${activationPreparation.cronJobReconcileSummary.disabled}, ` +
+          `skipped=${activationPreparation.cronJobReconcileSummary.skipped}`
         );
 
         if (this.config.personaEnabled) {
@@ -230,42 +217,17 @@ export class SchedulerDaemon {
 
       this.isRunning = true;
 
-      const runnerRegistry = getGlobalRunnerRegistry();
-      const schemaRunner = createSchemaDrivenAgentRunner();
-      runnerRegistry.register('default', schemaRunner);
-      runnerRegistry.register('market_listener', schemaRunner);
-      console.log('[SchedulerDaemon] Registered default schema-driven runner');
-
-      if (this.config.agentsEnabled) {
-        this.agentScheduler = new AgentScheduler(
-          {
-            repository: this.repository,
-            scheduler: this.scheduler,
-            registry: registry,
-            logger: console,
-          },
-          {
-            claimTtlMs: schedulerTickIntervalMs * 2,
-            instanceId: `scheduler-daemon-${process.pid}`,
-          }
-        );
-        this.agentSchedulerInterval = setInterval(() => {
-          if (this.agentSchedulerDispatchActive || !this.agentScheduler) {
-            return;
-          }
-
-          this.agentSchedulerDispatchActive = true;
-          this.agentScheduler
-            .dispatchOnce()
-            .catch((error) => {
-              console.error('[SchedulerDaemon] AgentScheduler dispatch failed:', error);
-            })
-            .finally(() => {
-              this.agentSchedulerDispatchActive = false;
-            });
-        }, schedulerTickIntervalMs);
-        console.log('[SchedulerDaemon] AgentScheduler loop enabled');
-      }
+      const recurringStartup = startDaemonRecurringStartup({
+        repository: this.repository,
+        scheduler: this.scheduler,
+        registry,
+        schedulerTickIntervalMs,
+        agentsEnabled: this.config.agentsEnabled,
+        instanceId: `scheduler-daemon-${process.pid}`,
+        logger: console,
+      });
+      this.agentScheduler = recurringStartup.agentScheduler;
+      this.agentSchedulerInterval = recurringStartup.agentSchedulerInterval;
 
       this.startRunEventRetentionLoop();
 

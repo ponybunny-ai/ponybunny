@@ -6,7 +6,7 @@
 import { loadLLMConfig } from '../llm/provider-manager/config-loader.js';
 import { getGlobalSkillRegistry } from '../skills/skill-registry.js';
 import { loadMCPConfig } from '../mcp/config/mcp-config-loader.js';
-import { getGlobalAgentRegistry } from '../agents/agent-registry.js';
+import { getGlobalSubagentExecutionBoundary } from '../agents/subagent-execution-boundary.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import { getManagedSkillsDir } from '../config/config-paths.js';
 
@@ -235,20 +235,17 @@ export async function getSkillsInfo(): Promise<SkillInfo[]> {
 
 export async function getAgentsInfo(): Promise<AgentInfo[]> {
   try {
-    const registry = getGlobalAgentRegistry();
-    if (registry.getAgents().length === 0) {
-      await registry.loadAgents({ workspaceDir: process.cwd() });
-    }
-    const agents = registry.getAgents();
+    const subagentExecutionBoundary = getGlobalSubagentExecutionBoundary();
+    const agents = await subagentExecutionBoundary.listAgentCapabilities({ ensureLoaded: true });
 
     return agents.map(agent => ({
       id: agent.id,
-      name: agent.config.name,
-      type: agent.config.type,
-      enabled: agent.config.enabled,
+      name: agent.name,
+      type: agent.type,
+      enabled: agent.enabled,
       source: agent.source,
       status: agent.status,
-      scheduleKind: agent.config.schedule.kind,
+      scheduleKind: agent.scheduleKind,
     }));
   } catch (error) {
     console.error('[SchedulerCapabilities] Failed to load agents info:', error);

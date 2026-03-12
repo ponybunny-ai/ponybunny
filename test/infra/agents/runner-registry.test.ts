@@ -52,4 +52,17 @@ describe('RunnerRegistry', () => {
       "Unknown runner for enabled agent 'unknown-agent' (engine='n/a', type='unknown_type')"
     );
   });
+
+  it('registers multiple runner aliases in one call', () => {
+    const registry = new RunnerRegistry();
+    const runner: AgentRunner = { runTick: jest.fn() };
+
+    registry.registerMany([
+      { type: 'default', runner },
+      { type: 'market_listener', runner },
+    ]);
+
+    expect(registry.hasRunner('default')).toBe(true);
+    expect(registry.hasRunner('market_listener')).toBe(true);
+  });
 });

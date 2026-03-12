@@ -6,7 +6,10 @@ import path from 'node:path';
 import { AgentRegistry } from '../../../src/infra/agents/agent-registry.js';
 import { reconcileCronJobsFromRegistry } from '../../../src/infra/scheduler/cron-job-reconciler.js';
 import { WorkOrderDatabase } from '../../../src/infra/persistence/work-order-repository.js';
-import { AgentScheduler } from '../../../src/scheduler-daemon/agent-scheduler.js';
+import {
+  AgentScheduler,
+  startAgentSchedulerLoop,
+} from '../../../src/scheduler-daemon/agent-scheduler.js';
 import type {
   IScheduler,
   SchedulerEventHandler,
@@ -394,5 +397,66 @@ describe('AgentScheduler', () => {
     expect(fs.existsSync(configuredWorkdir)).toBe(true);
 
     repository.close();
+  });
+});
+
+describe('startAgentSchedulerLoop', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('suppresses overlapping dispatches until the current pass settles', async () => {
+    const dispatchControl: {
+      resolve?: (summary: { claimed: number; skipped: number; dispatched: number }) => void;
+    } = {};
+    const dispatchOnce = jest.fn(
+      () =>
+        new Promise<{ claimed: number; skipped: number; dispatched: number }>((resolve) => {
+          dispatchControl.resolve = resolve;
+        })
+    );
+    const interval = startAgentSchedulerLoop(
+      { dispatchOnce: dispatchOnce as AgentScheduler['dispatchOnce'] },
+      1000
+    );
+
+    try {
+      await jest.advanceTimersByTimeAsync(3000);
+      expect(dispatchOnce).toHaveBeenCalledTimes(1);
+
+      dispatchControl.resolve?.({ claimed: 0, skipped: 0, dispatched: 0 });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      await jest.advanceTimersByTimeAsync(1000);
+      expect(dispatchOnce).toHaveBeenCalledTimes(2);
+    } finally {
+      clearInterval(interval);
+    }
+  });
+
+  it('forwards dispatch failures through the provided error hook', async () => {
+    const error = new Error('dispatch failed');
+    const onDispatchError = jest.fn();
+    const interval = startAgentSchedulerLoop(
+      {
+        dispatchOnce: (jest.fn(async () => {
+          throw error;
+        }) as AgentScheduler['dispatchOnce']),
+      },
+      1000,
+      { onDispatchError }
+    );
+
+    try {
+      await jest.advanceTimersByTimeAsync(1000);
+      expect(onDispatchError).toHaveBeenCalledWith(error);
+    } finally {
+      clearInterval(interval);
+    }
   });
 });

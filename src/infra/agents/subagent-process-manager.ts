@@ -1,19 +1,22 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { fork, type ChildProcess } from 'node:child_process';
-import { ensureAgentWorkdir } from './agent-workdir.js';
-import { getGlobalAgentRegistry, type AgentRegistry } from './agent-registry.js';
 import type {
   SubagentChildMessage,
   SubagentInitPayload,
   SubagentParentMessage,
 } from './subagent-protocol.js';
 
+export interface SubagentProcessTarget {
+  subagentId: string;
+  workdir: string;
+}
+
 export interface SubagentExecutionContext {
   agentId: string;
   runKey: string;
   goalId?: string;
-  subAgents: string[];
+  targets: SubagentProcessTarget[];
 }
 
 export interface StartedSubagentProcess {
@@ -201,7 +204,6 @@ export class ProcessSubagentManager implements SubagentProcessManager {
   private readonly heartbeatByPid = new Map<number, TrackedHeartbeatState>();
 
   constructor(
-    private readonly registryProvider: () => AgentRegistry = () => getGlobalAgentRegistry(),
     private readonly logger: Pick<Console, 'info' | 'warn' | 'error'> = console,
     options: ProcessSubagentManagerOptions = {}
   ) {
@@ -299,29 +301,14 @@ export class ProcessSubagentManager implements SubagentProcessManager {
   }
 
   async startSubagents(context: SubagentExecutionContext): Promise<StartedSubagentProcess[]> {
-    if (context.subAgents.length === 0) {
+    if (context.targets.length === 0) {
       return [];
     }
 
-    const registry = this.registryProvider();
     const started: StartedSubagentProcess[] = [];
 
-    for (const subagentId of context.subAgents) {
-      const definition = registry.getAgent(subagentId);
-      if (!definition || !definition.config.enabled) {
-        this.logger.warn('[SubagentProcessManager] Subagent definition missing or disabled', {
-          subagentId,
-          parentAgentId: context.agentId,
-        });
-        continue;
-      }
-
-      const workdir = ensureAgentWorkdir({
-        agentId: subagentId,
-        configuredWorkdir: definition.config.workdir,
-        configPath: definition.configPath,
-      });
-
+    for (const target of context.targets) {
+      const { subagentId, workdir } = target;
       const child = fork(SUBAGENT_WORKER_MODULE, [], {
         cwd: workdir,
         stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
