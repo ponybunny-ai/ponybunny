@@ -33,7 +33,7 @@ export class OpenAIProvider implements ILLMProvider {
       });
 
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: { message: response.statusText } })) as any;
+        const error = await response.json().catch(() => ({ error: { message: response.statusText } })) as { error?: { message?: string } };
         throw new LLMProviderError(
           `OpenAI API error: ${error.error?.message || response.statusText}`,
           'openai',
@@ -159,7 +159,7 @@ export class AnthropicProvider implements ILLMProvider {
       });
 
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: { message: response.statusText } })) as any;
+        const error = await response.json().catch(() => ({ error: { message: response.statusText } })) as { error?: { message?: string } };
         throw new LLMProviderError(
           `Anthropic API error: ${error.error?.message || response.statusText}`,
           'anthropic',
@@ -167,8 +167,13 @@ export class AnthropicProvider implements ILLMProvider {
         );
       }
 
-      const data = await response.json() as any;
-      
+      const data = await response.json() as {
+        content: Array<{ text: string }>;
+        usage: { input_tokens: number; output_tokens: number };
+        model: string;
+        stop_reason: string;
+      };
+
       return {
         content: data.content[0].text,
         tokensUsed: data.usage.input_tokens + data.usage.output_tokens,

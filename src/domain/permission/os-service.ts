@@ -17,6 +17,8 @@ export type OSService =
   | 'filesystem'     // Access to sensitive filesystem paths
   | 'clipboard'      // Clipboard read/write
   | 'notifications'  // System notifications
+  | 'camera'         // Camera access
+  | 'microphone'     // Microphone access
   | 'process'        // Process management (spawn, kill)
   | 'environment';   // Environment variable access
 

@@ -64,6 +64,11 @@ describe('createScheduler', () => {
         updated_at: Date.now(),
       }),
       createContextPack: jest.fn(),
+      mergeRunContext: jest.fn(),
+      precheckEventedManualReplay: jest.fn().mockReturnValue({ status: 'ok' }),
+      claimEventedResultContinuation: jest.fn().mockReturnValue({ status: 'claimed' }),
+      startEventedManualReplay: jest.fn().mockReturnValue({ status: 'started' }),
+      listInFlightRunReconciliationCandidates: jest.fn().mockReturnValue([]),
     } as unknown as IWorkOrderRepository;
 
     // Create mock execution service

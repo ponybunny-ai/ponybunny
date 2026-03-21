@@ -13,6 +13,7 @@ import type {
 } from './types.js';
 import { ConfigValidationError } from './types.js';
 import { getConfigDir as getGlobalConfigDir } from '../../config/config-paths.js';
+import { isPonyBunnyDebugEnabled } from '../../config/debug-flags.js';
 
 /**
  * Get the PonyBunny config directory path
@@ -834,7 +835,7 @@ export function loadLLMConfig(configPath?: string): LLMConfig {
 
   try {
     if (!fs.existsSync(filePath)) {
-      console.log(`[ConfigLoader] Config file not found at ${filePath}, using defaults`);
+      if (isPonyBunnyDebugEnabled()) console.log(`[ConfigLoader] Config file not found at ${filePath}, using defaults`);
       return defaultConfig;
     }
 

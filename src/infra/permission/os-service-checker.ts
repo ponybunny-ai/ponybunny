@@ -10,6 +10,9 @@ import { randomUUID } from 'node:crypto';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 
+/** How long a permission request remains valid before expiring */
+const PERMISSION_REQUEST_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
+
 import type {
   OSService,
   IOSServiceChecker,
@@ -308,7 +311,7 @@ export class OSServiceChecker implements IOSServiceChecker {
       work_item_id: params.workItemId,
       run_id: params.runId,
       reason: params.reason,
-      expires_at: Date.now() + 30 * 60 * 1000, // 30 minutes to respond
+      expires_at: Date.now() + PERMISSION_REQUEST_EXPIRY_MS,
     });
 
     return request.id;

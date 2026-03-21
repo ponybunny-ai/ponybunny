@@ -100,7 +100,7 @@ export class IPCClient {
         if (this.config.autoReconnect) {
           console.warn(`[IPCClient] Connection failed, will retry in ${this.currentReconnectDelay}ms`);
           this.scheduleReconnect();
-          resolve(); // Don't reject, we'll retry
+          reject(ipcError); // Reject so caller knows initial connect failed
         } else {
           reject(ipcError);
         }
@@ -245,6 +245,14 @@ export class IPCClient {
 
     this.socket.on('data', (data) => {
       this.socketBuffer += data.toString();
+
+      // Guard against unbounded buffer growth (e.g. peer sends data without newlines)
+      const MAX_SOCKET_BUFFER = 1024 * 1024; // 1 MB
+      if (this.socketBuffer.length > MAX_SOCKET_BUFFER) {
+        console.error('[IPCClient] Socket buffer exceeded 1 MB, dropping buffer');
+        this.socketBuffer = '';
+        return;
+      }
 
       // Process complete lines
       let newlineIndex: number;

@@ -46,7 +46,7 @@ export class AnthropicProtocolAdapter extends BaseProtocolAdapter {
 
       // Handle assistant messages with tool calls
       if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
-        const content: any[] = [];
+        const content: Array<{ type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }> = [];
 
         // Add text content if present
         if (m.content) {
@@ -79,7 +79,7 @@ export class AnthropicProtocolAdapter extends BaseProtocolAdapter {
       };
     });
 
-    const requestBody: any = {
+    const requestBody: Record<string, unknown> = {
       model: config.model,
       messages: anthropicMessages,
       system: systemMessage?.content,
@@ -134,7 +134,7 @@ export class AnthropicProtocolAdapter extends BaseProtocolAdapter {
         thinking?: string;
         id?: string;
         name?: string;
-        input?: any;
+        input?: Record<string, unknown>;
       }>;
       usage?: { input_tokens: number; output_tokens: number };
       model?: string;

@@ -132,7 +132,7 @@ export class CodexProtocolAdapter extends BaseProtocolAdapter {
     const jsonStr = line.slice(5).trim();
     if (!jsonStr) return null;
 
-    let data: any;
+    let data: Record<string, unknown>;
     try {
       data = JSON.parse(jsonStr);
     } catch {

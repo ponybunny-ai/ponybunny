@@ -10,6 +10,9 @@ import { BaseProtocolAdapter } from './protocol-adapter.js';
  * OpenAI Responses API protocol adapter
  * Supports both OpenAI Direct and Azure OpenAI endpoints
  */
+/** Model prefix that uses max_completion_tokens instead of max_tokens */
+const OPENAI_REASONING_MODEL_PREFIX = 'gpt-5';
+
 export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
   readonly protocolId = 'openai' as const;
 
@@ -20,7 +23,7 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
 
   private shouldUseMaxCompletionTokens(model: string): boolean {
     const normalized = model.toLowerCase();
-    return normalized.startsWith('gpt-5');
+    return normalized.startsWith(OPENAI_REASONING_MODEL_PREFIX);
   }
 
   private shouldSendTemperature(model: string): boolean {
@@ -143,7 +146,7 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
       return requestBody;
     }
 
-    const requestBody: any = {
+    const requestBody: Record<string, unknown> = {
       model: config.model,
       messages: openaiMessages,
     };

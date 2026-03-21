@@ -18,19 +18,30 @@ import type {
  * - Batch logging for high-frequency operations
  * - Automatic context enrichment
  */
+export interface AuditServiceConfig {
+  asyncMode?: boolean;
+  defaultActorType?: ActorType;
+  batchSize?: number;
+  flushIntervalMs?: number;
+}
+
+const DEFAULT_AUDIT_CONFIG = {
+  batchSize: 50,
+  flushIntervalMs: 1000,
+} as const;
+
 export class AuditService implements IAuditService {
   private pendingLogs: Omit<IAuditLog, 'id' | 'timestamp'>[] = [];
   private flushTimer?: NodeJS.Timeout;
-  private readonly batchSize = 50;
-  private readonly flushIntervalMs = 1000;
+  private readonly batchSize: number;
+  private readonly flushIntervalMs: number;
 
   constructor(
     private repository: IAuditLogRepository,
-    private options: {
-      asyncMode?: boolean;      // If true, batch logs and flush periodically
-      defaultActorType?: ActorType;
-    } = {}
+    private options: AuditServiceConfig = {}
   ) {
+    this.batchSize = options.batchSize ?? DEFAULT_AUDIT_CONFIG.batchSize;
+    this.flushIntervalMs = options.flushIntervalMs ?? DEFAULT_AUDIT_CONFIG.flushIntervalMs;
     if (this.options.asyncMode) {
       this.startFlushTimer();
     }

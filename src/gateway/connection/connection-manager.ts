@@ -7,6 +7,7 @@ import { Session } from './session.js';
 import { HeartbeatHandler, type HeartbeatConfig } from './heartbeat.js';
 import type { SessionData, Permission, ResponseFrame, EventFrame } from '../types.js';
 import { EventBus } from '../events/event-bus.js';
+import { isLocalAddress } from '../utils/network.js';
 
 export interface ConnectionManagerConfig {
   maxConnectionsPerIp: number;
@@ -81,12 +82,7 @@ export class ConnectionManager {
   }
 
   private isLocalAddress(address: string): boolean {
-    return (
-      address === '127.0.0.1' ||
-      address === 'localhost' ||
-      address === '::1' ||
-      address === '::ffff:127.0.0.1'
-    );
+    return isLocalAddress(address);
   }
 
   addPendingConnection(ws: WebSocket, remoteAddress: string, authTimeoutMs: number): void {

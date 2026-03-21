@@ -7,6 +7,7 @@ import { ToolRegistry } from '../../tools/tool-registry.js';
 import { getMCPConnectionManager } from '../client/connection-manager.js';
 import { adaptMCPTools } from '../adapters/tool-adapter.js';
 import { clearMCPToolSchemaCache } from '../../tools/tool-provider.js';
+import { isPonyBunnyDebugEnabled } from '../../config/debug-flags.js';
 
 /**
  * Register all tools from all connected MCP servers into the ToolRegistry
@@ -20,7 +21,7 @@ export async function registerMCPTools(registry: ToolRegistry): Promise<void> {
   let totalRegistered = 0;
 
   for (const [serverName, mcpTools] of toolsMap.entries()) {
-    console.log(`[MCP] Registering ${mcpTools.length} tools from ${serverName}...`);
+    if (isPonyBunnyDebugEnabled()) console.log(`[MCP] Registering ${mcpTools.length} tools from ${serverName}...`);
 
     // Convert MCP tools to PonyBunny ToolDefinitions
     const adaptedTools = adaptMCPTools(serverName, mcpTools);
@@ -32,14 +33,14 @@ export async function registerMCPTools(registry: ToolRegistry): Promise<void> {
     }
   }
 
-  console.log(`[MCP] Registered ${totalRegistered} tools from ${toolsMap.size} servers`);
+  if (isPonyBunnyDebugEnabled()) console.log(`[MCP] Registered ${totalRegistered} tools from ${toolsMap.size} servers`);
 }
 
 /**
  * Refresh MCP tools in the registry (useful after tool list changes)
  */
 export async function refreshMCPTools(registry: ToolRegistry): Promise<void> {
-  console.log('[MCP] Refreshing MCP tools...');
+  if (isPonyBunnyDebugEnabled()) console.log('[MCP] Refreshing MCP tools...');
 
   // Clear cached MCP tool schemas
   clearMCPToolSchemaCache();
@@ -54,7 +55,7 @@ export async function refreshMCPTools(registry: ToolRegistry): Promise<void> {
     }
   }
 
-  console.log(`[MCP] Removed ${removedCount} existing MCP tools`);
+  if (isPonyBunnyDebugEnabled()) console.log(`[MCP] Removed ${removedCount} existing MCP tools`);
 
   // Re-register all MCP tools
   await registerMCPTools(registry);
@@ -64,7 +65,7 @@ export async function refreshMCPTools(registry: ToolRegistry): Promise<void> {
  * Initialize MCP integration and register tools
  */
 export async function initializeMCPIntegration(registry: ToolRegistry): Promise<void> {
-  console.log('[MCP] Initializing MCP integration...');
+  if (isPonyBunnyDebugEnabled()) console.log('[MCP] Initializing MCP integration...');
 
   const connectionManager = getMCPConnectionManager();
 
@@ -74,5 +75,5 @@ export async function initializeMCPIntegration(registry: ToolRegistry): Promise<
   // Register initial tools
   await registerMCPTools(registry);
 
-  console.log('[MCP] MCP integration initialized');
+  if (isPonyBunnyDebugEnabled()) console.log('[MCP] MCP integration initialized');
 }

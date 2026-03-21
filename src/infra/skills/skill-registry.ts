@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import path from 'node:path';
 import type { Skill, SkillLoadOptions, SkillPromptFormat, ISkillRegistry } from './types.js';
 import { loadSkillsWithPrecedence } from './skill-loader.js';
+import { isPonyBunnyDebugEnabled } from '../config/debug-flags.js';
 
 const readFile = promisify(fs.readFile);
 
@@ -47,7 +48,7 @@ export class SkillRegistry implements ISkillRegistry {
     }
 
     this.loaded = true;
-    console.log(`[SkillRegistry] Loaded ${this.skills.size} skills`);
+    if (isPonyBunnyDebugEnabled()) console.log(`[SkillRegistry] Loaded ${this.skills.size} skills`);
   }
 
   getSkills(): Skill[] {

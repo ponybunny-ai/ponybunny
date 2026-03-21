@@ -191,6 +191,14 @@ export class IPCServer {
     socket.on('data', (data) => {
       buffer += data.toString();
 
+      // Guard against unbounded buffer growth
+      const MAX_BUFFER = 1024 * 1024; // 1 MB
+      if (buffer.length > MAX_BUFFER) {
+        console.error(`[IPCServer] Client ${clientId} buffer exceeded 1 MB, dropping buffer`);
+        buffer = '';
+        return;
+      }
+
       // Process complete lines
       let newlineIndex: number;
       while ((newlineIndex = buffer.indexOf('\n')) !== -1) {

@@ -17,6 +17,7 @@ import type {
   MCPConnectionState,
 } from './types.js';
 import { MCPConnectionError, MCPToolError } from './types.js';
+import { isPonyBunnyDebugEnabled } from '../../config/debug-flags.js';
 
 export interface MCPClientOptions {
   serverName: string;
@@ -163,7 +164,7 @@ export class MCPClient {
                 console.error(`[MCPClient:${this.options.serverName}] Tools list changed error:`, error);
                 return;
               }
-              console.log(`[MCPClient:${this.options.serverName}] Tools list changed`);
+              if (isPonyBunnyDebugEnabled()) console.log(`[MCPClient:${this.options.serverName}] Tools list changed`);
               this.options.onToolsChanged?.();
             },
           },
@@ -173,7 +174,7 @@ export class MCPClient {
                 console.error(`[MCPClient:${this.options.serverName}] Resources list changed error:`, error);
                 return;
               }
-              console.log(`[MCPClient:${this.options.serverName}] Resources list changed`);
+              if (isPonyBunnyDebugEnabled()) console.log(`[MCPClient:${this.options.serverName}] Resources list changed`);
               this.options.onResourcesChanged?.();
             },
           },
@@ -183,7 +184,7 @@ export class MCPClient {
                 console.error(`[MCPClient:${this.options.serverName}] Prompts list changed error:`, error);
                 return;
               }
-              console.log(`[MCPClient:${this.options.serverName}] Prompts list changed`);
+              if (isPonyBunnyDebugEnabled()) console.log(`[MCPClient:${this.options.serverName}] Prompts list changed`);
               this.options.onPromptsChanged?.();
             },
           },
@@ -353,7 +354,7 @@ export class MCPClient {
       this.reconnectAttempts < this.maxReconnectAttempts
     ) {
       this.reconnectAttempts++;
-      console.log(
+      if (isPonyBunnyDebugEnabled()) console.log(
         `[MCPClient:${this.options.serverName}] Reconnecting (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`
       );
 

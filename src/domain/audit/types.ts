@@ -250,7 +250,7 @@ export interface IAuditService {
 // Audit Query Filters
 // ============================================================================
 
-export interface AuditLogFilter {
+export interface IAuditLogFilter {
   actor?: string;
   actor_type?: ActorType;
   action?: AuditAction;
@@ -271,7 +271,7 @@ export interface AuditLogFilter {
 // Audit Statistics
 // ============================================================================
 
-export interface AuditStatistics {
+export interface IAuditStatistics {
   total_entries: number;
   entries_by_action: Record<string, number>;
   entries_by_entity_type: Record<string, number>;

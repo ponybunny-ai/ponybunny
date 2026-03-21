@@ -58,7 +58,8 @@ function listOtherEnabledEndpointConfigs(): EndpointConfig[] {
 function resolveOpenAICompatibleConfig(): { apiKey: string; baseUrl: string } | null {
   const credential = getCachedEndpointCredential('openai-compatible');
   const apiKey = process.env.OPENAI_COMPATIBLE_API_KEY || credential?.apiKey;
-  const baseUrl = process.env.OPENAI_COMPATIBLE_BASE_URL || credential?.baseUrl || 'https://api.openai.com/v1';
+  const OPENAI_DEFAULT_BASE_URL = 'https://api.openai.com/v1';
+  const baseUrl = process.env.OPENAI_COMPATIBLE_BASE_URL || credential?.baseUrl || OPENAI_DEFAULT_BASE_URL;
 
   if (!apiKey) {
     return null;

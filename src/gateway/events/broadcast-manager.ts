@@ -6,6 +6,7 @@ import type { GatewayEventType } from '../types.js';
 import type { EventBus } from './event-bus.js';
 import { EventEmitter } from './event-emitter.js';
 import type { ChannelRouter } from '../channels/channel-router.js';
+import { isPonyBunnyDebugEnabled } from '../../infra/config/debug-flags.js';
 
 export class BroadcastManager {
   private eventBus: EventBus;
@@ -96,7 +97,7 @@ export class BroadcastManager {
     const gatewaySessionId = this.extractGatewaySessionId(data);
     if (gatewaySessionId) {
       const sent = this.eventEmitter.emitToSession(gatewaySessionId, event, data) ? 1 : 0;
-      console.log(`[BroadcastManager] Sent ${event} to session ${gatewaySessionId} (${sent})`);
+      if (isPonyBunnyDebugEnabled()) console.log(`[BroadcastManager] Sent ${event} to session ${gatewaySessionId} (${sent})`);
       return;
     }
 
@@ -106,7 +107,7 @@ export class BroadcastManager {
     if (goalId) {
       // Broadcast to goal subscribers
       const sent = this.eventEmitter.emitToGoalSubscribers(goalId, event, data);
-      console.log(`[BroadcastManager] Sent ${event} to ${sent} subscribers of goal ${goalId}`);
+      if (isPonyBunnyDebugEnabled()) console.log(`[BroadcastManager] Sent ${event} to ${sent} subscribers of goal ${goalId}`);
     } else {
       const channelFilter = this.channelRouter.buildSessionFilter(data);
       const sent = this.eventEmitter.emitToFiltered(
@@ -114,7 +115,7 @@ export class BroadcastManager {
         data,
         (session) => session.hasPermission('read') && channelFilter(session)
       );
-      console.log(`[BroadcastManager] Broadcast ${event} to ${sent} clients`);
+      if (isPonyBunnyDebugEnabled()) console.log(`[BroadcastManager] Broadcast ${event} to ${sent} clients`);
     }
   }
 

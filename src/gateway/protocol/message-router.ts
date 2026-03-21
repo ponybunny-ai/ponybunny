@@ -11,6 +11,7 @@ import type { ConnectionManager } from '../connection/connection-manager.js';
 import type { RpcHandler } from '../rpc/rpc-handler.js';
 import type { AuthManager } from '../auth/auth-manager.js';
 import { Session } from '../connection/session.js';
+import { getWsConnectionId } from '../connection/ws-metadata.js';
 
 export class MessageRouter {
   private parser: MessageParser;
@@ -146,8 +147,7 @@ export class MessageRouter {
         }
 
         // Validate token directly
-        const tokenStore = (this.authManager as any).tokenStore;
-        const tokenData = tokenStore.validateToken(token);
+        const tokenData = this.authManager.validateToken(token);
         if (!tokenData) {
           throw GatewayError.authFailed('Invalid or expired token');
         }
@@ -222,9 +222,7 @@ export class MessageRouter {
   }
 
   private getConnectionId(ws: WebSocket): string {
-    // Use the WebSocket object's identity as connection ID
-    // In practice, we could use a WeakMap or attach an ID to the socket
-    return `conn_${(ws as any)._connectionId || Math.random().toString(36).slice(2)}`;
+    return `conn_${getWsConnectionId(ws) || Math.random().toString(36).slice(2)}`;
   }
 
   private sendResponse(ws: WebSocket, id: string, result: unknown): void {

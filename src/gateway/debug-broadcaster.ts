@@ -10,6 +10,7 @@ import type { DebugEvent } from '../debug/types.js';
 import type { ConnectionManager } from './connection/connection-manager.js';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { isPonyBunnyDebugEnabled } from '../infra/config/debug-flags.js';
 
 /**
  * Debug event frame sent to clients.
@@ -84,13 +85,13 @@ export function setupDebugBroadcaster(
   // Subscribe to debug events
   debugEmitter.onDebug(handleDebugEvent);
 
-  console.log('[DebugBroadcaster] Debug mode enabled, broadcasting events to subscribed clients');
+  if (isPonyBunnyDebugEnabled()) console.log('[DebugBroadcaster] Debug mode enabled, broadcasting events to subscribed clients');
 
   // Return cleanup function
   return () => {
     debugEmitter.offDebug(handleDebugEvent);
     debugEmitter.disable();
-    console.log('[DebugBroadcaster] Debug mode disabled');
+    if (isPonyBunnyDebugEnabled()) console.log('[DebugBroadcaster] Debug mode disabled');
   };
 }
 

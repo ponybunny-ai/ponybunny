@@ -141,16 +141,9 @@ export interface IArgSchema {
 // OS Service Types
 // ============================================================================
 
-export type OSService =
-  | 'keychain'       // System keychain/credential store
-  | 'browser'        // Browser automation
-  | 'docker'         // Docker daemon
-  | 'network'        // Network access
-  | 'filesystem'     // Filesystem access
-  | 'clipboard'      // Clipboard access
-  | 'notifications'  // System notifications
-  | 'camera'         // Camera access
-  | 'microphone';    // Microphone access
+// Single authoritative OSService type lives in os-service.ts
+import type { OSService } from './os-service.js';
+export type { OSService };
 
 // ============================================================================
 // Enforcement Result

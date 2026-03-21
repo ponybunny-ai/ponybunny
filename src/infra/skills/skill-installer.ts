@@ -8,6 +8,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { getSkillsShClient, type SkillsShSkill } from './skills-sh-client.js';
 import { parseFrontmatter } from './skill-loader.js';
+import { isPonyBunnyDebugEnabled } from '../config/debug-flags.js';
 
 const mkdir = promisify(fs.mkdir);
 const writeFile = promisify(fs.writeFile);
@@ -41,7 +42,7 @@ export class SkillInstaller {
     options: SkillInstallOptions
   ): Promise<SkillInstallResult> {
     try {
-      console.log(`[SkillInstaller] Installing skill: ${skillPath}`);
+      if (isPonyBunnyDebugEnabled()) console.log(`[SkillInstaller] Installing skill: ${skillPath}`);
 
       // Download skill content
       const content = await this.client.downloadSkill(skillPath);
@@ -57,7 +58,7 @@ export class SkillInstaller {
       // Check if skill already exists
       const exists = await this.skillExists(skillMdPath);
       if (exists && !options.overwrite) {
-        console.log(`[SkillInstaller] Skill already exists: ${skillName}`);
+        if (isPonyBunnyDebugEnabled()) console.log(`[SkillInstaller] Skill already exists: ${skillName}`);
         return {
           success: true,
           skillName,
@@ -72,7 +73,7 @@ export class SkillInstaller {
       // Write SKILL.md
       await writeFile(skillMdPath, content, 'utf-8');
 
-      console.log(`[SkillInstaller] Successfully installed: ${skillName} at ${skillDir}`);
+      if (isPonyBunnyDebugEnabled()) console.log(`[SkillInstaller] Successfully installed: ${skillName} at ${skillDir}`);
 
       return {
         success: true,

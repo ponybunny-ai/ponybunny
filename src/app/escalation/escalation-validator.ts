@@ -77,25 +77,25 @@ const COMMON_RULES: IValidationRule[] = [
   {
     field: 'context.attemptedAction',
     required: true,
-    validator: (v, p) => typeof (p.context as any)?.attemptedAction === 'string' && (p.context as any).attemptedAction.length > 0,
+    validator: (_v, p) => typeof p.context?.attemptedAction === 'string' && p.context.attemptedAction.length > 0,
     errorMessage: 'Attempted action description is required',
   },
   {
     field: 'context.reason',
     required: true,
-    validator: (v, p) => typeof (p.context as any)?.reason === 'string' && (p.context as any).reason.length > 0,
+    validator: (_v, p) => typeof p.context?.reason === 'string' && p.context.reason.length > 0,
     errorMessage: 'Reason for escalation is required',
   },
   {
     field: 'context.previousAttempts',
     required: true,
-    validator: (v, p) => Array.isArray((p.context as any)?.previousAttempts),
+    validator: (_v, p) => Array.isArray(p.context?.previousAttempts),
     errorMessage: 'Previous attempts array is required (can be empty)',
   },
   {
     field: 'context.analysis',
     required: true,
-    validator: (v, p) => typeof (p.context as any)?.analysis === 'string' && (p.context as any).analysis.length >= 20,
+    validator: (_v, p) => typeof p.context?.analysis === 'string' && p.context.analysis.length >= 20,
     errorMessage: 'Analysis must be at least 20 characters',
   },
   {
@@ -111,9 +111,9 @@ const TYPE_SPECIFIC_RULES: IValidationRule[] = [
   {
     field: 'context.riskAssessment',
     required: true,
-    validator: (v, p) => {
-      const ra = (p.context as any)?.riskAssessment;
-      return ra &&
+    validator: (_v, p) => {
+      const ra = p.context?.riskAssessment;
+      return !!ra &&
         ['low', 'medium', 'high', 'critical'].includes(ra.impact) &&
         ['low', 'medium', 'high'].includes(ra.likelihood) &&
         Array.isArray(ra.affectedSystems) &&
@@ -126,10 +126,10 @@ const TYPE_SPECIFIC_RULES: IValidationRule[] = [
   {
     field: 'context.requiredCredentials',
     required: true,
-    validator: (v, p) => {
-      const creds = (p.context as any)?.requiredCredentials;
+    validator: (_v, p) => {
+      const creds = p.context?.requiredCredentials;
       return Array.isArray(creds) && creds.length > 0 &&
-        creds.every((c: any) => c.type && c.service && c.scope && c.reason);
+        creds.every((c) => c.type && c.service && c.scope && c.reason);
     },
     errorMessage: 'Required credentials with type, service, scope, and reason are required',
     appliesTo: ['credential'],
@@ -138,10 +138,10 @@ const TYPE_SPECIFIC_RULES: IValidationRule[] = [
   {
     field: 'context.validationResults',
     required: true,
-    validator: (v, p) => {
-      const results = (p.context as any)?.validationResults;
+    validator: (_v, p) => {
+      const results = p.context?.validationResults;
       return Array.isArray(results) && results.length > 0 &&
-        results.every((r: any) => r.checkName && typeof r.passed === 'boolean' && r.message);
+        results.every((r) => r.checkName && typeof r.passed === 'boolean' && r.message);
     },
     errorMessage: 'Validation results with checkName, passed, and message are required',
     appliesTo: ['validation_failed'],
@@ -150,9 +150,9 @@ const TYPE_SPECIFIC_RULES: IValidationRule[] = [
   {
     field: 'context.stuckInfo',
     required: true,
-    validator: (v, p) => {
-      const info = (p.context as any)?.stuckInfo;
-      return info &&
+    validator: (_v, p) => {
+      const info = p.context?.stuckInfo;
+      return !!info &&
         typeof info.stuckSince === 'number' &&
         typeof info.stuckReason === 'string' &&
         typeof info.retryCount === 'number' &&
@@ -311,13 +311,13 @@ export class EscalationPacketValidator implements IEscalationPacketValidator {
 
   private getFieldValue(packet: Partial<IEscalationPacket>, field: string): unknown {
     const parts = field.split('.');
-    let value: any = packet;
+    let value: unknown = packet;
 
     for (const part of parts) {
       if (value === null || value === undefined) {
         return undefined;
       }
-      value = value[part];
+      value = (value as Record<string, unknown>)[part];
     }
 
     return value;

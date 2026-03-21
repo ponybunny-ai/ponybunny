@@ -12,6 +12,7 @@ import type {
 } from './types.js';
 import { MCPConnectionError } from './types.js';
 import { loadMCPConfig, listEnabledMCPServers } from '../config/mcp-config-loader.js';
+import { isPonyBunnyDebugEnabled } from '../../config/debug-flags.js';
 
 export interface ConnectionManagerOptions {
   onConnectionStateChange?: (serverName: string, state: MCPConnectionState) => void;
@@ -35,12 +36,12 @@ export class MCPConnectionManager {
   async initialize(): Promise<void> {
     const config = loadMCPConfig();
     if (!config?.mcpServers) {
-      console.log('[MCPConnectionManager] No MCP servers configured');
+      if (isPonyBunnyDebugEnabled()) console.log('[MCPConnectionManager] No MCP servers configured');
       return;
     }
 
     const enabledServers = listEnabledMCPServers();
-    console.log(`[MCPConnectionManager] Initializing ${enabledServers.length} MCP servers...`);
+    if (isPonyBunnyDebugEnabled()) console.log(`[MCPConnectionManager] Initializing ${enabledServers.length} MCP servers...`);
 
     const connectionPromises = enabledServers.map(async (serverName) => {
       const serverConfig = config.mcpServers[serverName];
@@ -48,7 +49,7 @@ export class MCPConnectionManager {
 
       try {
         await this.connectServer(serverName, serverConfig);
-        console.log(`[MCPConnectionManager] Connected to ${serverName}`);
+        if (isPonyBunnyDebugEnabled()) console.log(`[MCPConnectionManager] Connected to ${serverName}`);
       } catch (error) {
         console.error(`[MCPConnectionManager] Failed to connect to ${serverName}:`, error);
       }
@@ -65,7 +66,7 @@ export class MCPConnectionManager {
     if (this.clients.has(serverName)) {
       const client = this.clients.get(serverName)!;
       if (client.getState() === 'connected') {
-        console.log(`[MCPConnectionManager] Already connected to ${serverName}`);
+        if (isPonyBunnyDebugEnabled()) console.log(`[MCPConnectionManager] Already connected to ${serverName}`);
         return;
       }
     }
@@ -252,7 +253,7 @@ export class MCPConnectionManager {
    * Reload configuration and reconnect servers
    */
   async reloadConfiguration(): Promise<void> {
-    console.log('[MCPConnectionManager] Reloading configuration...');
+    if (isPonyBunnyDebugEnabled()) console.log('[MCPConnectionManager] Reloading configuration...');
 
     // Disconnect all current connections
     await this.disconnectAll();

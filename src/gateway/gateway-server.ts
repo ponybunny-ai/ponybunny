@@ -28,6 +28,9 @@ import { IPCBridge } from './integration/ipc-bridge.js';
 import type { ISchedulerCore } from '../scheduler/core/index.js';
 import type { IDaemonEventEmitter } from '../autonomy/daemon-event-emitter.js';
 import { IPCServer } from '../ipc/ipc-server.js';
+import { isPonyBunnyDebugEnabled } from '../infra/config/debug-flags.js';
+import { setWsConnectionId, getWsConnectionId } from './connection/ws-metadata.js';
+import { isLocalAddress as isLocalAddr } from './utils/network.js';
 
 import { registerGoalHandlers } from './rpc/handlers/goal-handlers.js';
 import { registerWorkItemHandlers } from './rpc/handlers/workitem-handlers.js';
@@ -250,7 +253,7 @@ export class GatewayServer {
     this.configWatcher = createConfigWatcher(configDir);
 
     this.configWatcher.on('change', (event: { path: string; timestamp: number }) => {
-      console.log(`[GatewayServer] Config file changed: ${event.path}`);
+      if (isPonyBunnyDebugEnabled()) console.log(`[GatewayServer] Config file changed: ${event.path}`);
       this.eventBus.emit('config.changed', event);
       
       if (this.config.autoRestart) {
@@ -518,7 +521,7 @@ export class GatewayServer {
     const remoteAddress = req.socket.remoteAddress || 'unknown';
 
     // Assign connection ID
-    (ws as any)._connectionId = `conn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    setWsConnectionId(ws, `conn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
 
     // Check connection limit
     if (!this.connectionManager.canAcceptConnection(remoteAddress)) {
@@ -581,7 +584,7 @@ export class GatewayServer {
       const stats = this.connectionManager.getConnectionCount(remoteAddress);
       console.log(`[GatewayServer] 🔌 Connection closed: ${code} ${reason.toString()} from ${remoteAddress} [${stats.current - 1}/${stats.max}]`);
       this.connectionManager.handleDisconnect(ws);
-      this.authManager.cancelAuth((ws as any)._connectionId);
+      this.authManager.cancelAuth(getWsConnectionId(ws) ?? '');
     });
 
     // Set up error handler
@@ -594,14 +597,8 @@ export class GatewayServer {
    * Check if an address is a local/loopback address
    */
   private isLocalAddress(address: string): boolean {
-    const isLocal = (
-      address === '127.0.0.1' ||
-      address === '::1' ||
-      address === '::ffff:127.0.0.1' ||
-      address === 'localhost' ||
-      address.startsWith('::ffff:127.')
-    );
-    console.log(`[GatewayServer] isLocalAddress check: "${address}" => ${isLocal}`);
+    const isLocal = isLocalAddr(address);
+    if (isPonyBunnyDebugEnabled()) console.log(`[GatewayServer] isLocalAddress check: "${address}" => ${isLocal}`);
     return isLocal;
   }
 }

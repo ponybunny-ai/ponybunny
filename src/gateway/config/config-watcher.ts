@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { EventEmitter } from 'events';
+import { isPonyBunnyDebugEnabled } from '../../infra/config/debug-flags.js';
 
 export interface ConfigWatcherOptions {
   configPaths: string[];
@@ -41,7 +42,7 @@ export class ConfigWatcher extends EventEmitter {
         });
 
         this.watchers.push(watcher);
-        console.log(`[ConfigWatcher] Watching: ${configPath}`);
+        if (isPonyBunnyDebugEnabled()) console.log(`[ConfigWatcher] Watching: ${configPath}`);
       } catch (error) {
         console.error(`[ConfigWatcher] Failed to watch ${configPath}:`, error);
       }
@@ -65,7 +66,7 @@ export class ConfigWatcher extends EventEmitter {
     }
     this.debounceTimers.clear();
 
-    console.log('[ConfigWatcher] Stopped watching config files');
+    if (isPonyBunnyDebugEnabled()) console.log('[ConfigWatcher] Stopped watching config files');
   }
 
   private handleConfigChange(configPath: string): void {

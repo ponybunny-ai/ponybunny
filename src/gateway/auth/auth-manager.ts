@@ -25,10 +25,16 @@ import { GatewayError, ErrorCodes } from '../errors.js';
 
 export interface AuthManagerConfig {
   challengeTtlMs: number;
+  /** Maximum auth attempts per connection within the rate-limit window */
+  maxAuthAttemptsPerWindow: number;
+  /** Rate-limit window duration in milliseconds */
+  rateLimitWindowMs: number;
 }
 
 const DEFAULT_CONFIG: AuthManagerConfig = {
   challengeTtlMs: 60000,
+  maxAuthAttemptsPerWindow: 10,
+  rateLimitWindowMs: 60000,
 };
 
 interface PendingAuth {
@@ -45,6 +51,7 @@ export class AuthManager {
   private signatureVerifier: SignatureVerifier;
   private tokenStore: PairingTokenStore;
   private pendingAuths = new Map<string, PendingAuth>();
+  private authAttempts = new Map<string, number[]>();
   private config: AuthManagerConfig;
 
   constructor(db: Database.Database, config: Partial<AuthManagerConfig> = {}) {
@@ -57,9 +64,26 @@ export class AuthManager {
   }
 
   /**
+   * Check and record an auth attempt; throws if rate limit exceeded.
+   */
+  private checkRateLimit(connectionId: string): void {
+    const now = Date.now();
+    const windowStart = now - this.config.rateLimitWindowMs;
+    const attempts = (this.authAttempts.get(connectionId) ?? []).filter((t) => t > windowStart);
+    attempts.push(now);
+    this.authAttempts.set(connectionId, attempts);
+
+    if (attempts.length > this.config.maxAuthAttemptsPerWindow) {
+      throw new GatewayError(ErrorCodes.AUTH_FAILED, 'Rate limit exceeded, try again later');
+    }
+  }
+
+  /**
    * Handle auth.hello - Start authentication for known client
    */
   handleHello(connectionId: string, publicKey: string): { challenge: string } {
+    this.checkRateLimit(connectionId);
+
     if (!this.signatureVerifier.isValidPublicKey(publicKey)) {
       throw GatewayError.invalidParams('Invalid public key format');
     }
@@ -88,6 +112,8 @@ export class AuthManager {
    * Handle auth.pair - Start pairing flow for new client
    */
   handlePair(connectionId: string, pairingToken: string): { challenge: string } {
+    this.checkRateLimit(connectionId);
+
     const token = this.tokenStore.validateToken(pairingToken);
     if (!token) {
       throw new GatewayError(ErrorCodes.INVALID_TOKEN, 'Invalid or expired pairing token');
@@ -177,6 +203,13 @@ export class AuthManager {
   }
 
   /**
+   * Validate a token directly (used for auth.token flow)
+   */
+  validateToken(token: string) {
+    return this.tokenStore.validateToken(token);
+  }
+
+  /**
    * Cancel pending authentication
    */
   cancelAuth(connectionId: string): void {
@@ -230,6 +263,17 @@ export class AuthManager {
     for (const [id, pending] of this.pendingAuths) {
       if (now > pending.expiresAt) {
         this.pendingAuths.delete(id);
+      }
+    }
+
+    // Prune stale rate-limit entries
+    const windowStart = now - this.config.rateLimitWindowMs;
+    for (const [id, attempts] of this.authAttempts) {
+      const recent = attempts.filter((t) => t > windowStart);
+      if (recent.length === 0) {
+        this.authAttempts.delete(id);
+      } else {
+        this.authAttempts.set(id, recent);
       }
     }
   }

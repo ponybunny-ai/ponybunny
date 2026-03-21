@@ -83,20 +83,22 @@ function hasCyclicDependency(
   itemId: string,
   dependencies: string[],
   allWorkItems: Map<string, WorkItem>,
-  visited: Set<string> = new Set()
+  ancestors: Set<string> = new Set()
 ): boolean {
-  if (visited.has(itemId)) {
+  if (ancestors.has(itemId)) {
     return true;
   }
 
-  visited.add(itemId);
+  ancestors.add(itemId);
 
   for (const depId of dependencies) {
     const dep = allWorkItems.get(depId);
-    if (dep && hasCyclicDependency(depId, dep.dependencies, allWorkItems, new Set(visited))) {
+    if (dep && hasCyclicDependency(depId, dep.dependencies, allWorkItems, ancestors)) {
       return true;
     }
   }
+
+  ancestors.delete(itemId);
 
   return false;
 }

@@ -3,6 +3,7 @@
  */
 
 import type { WebSocket } from 'ws';
+import { isPonyBunnyDebugEnabled } from '../../infra/config/debug-flags.js';
 
 export interface HeartbeatConfig {
   intervalMs: number;
@@ -75,7 +76,7 @@ export class HeartbeatHandler {
         // Connection didn't respond to last ping
         const timeSinceLastPong = now - state.lastPong;
         if (timeSinceLastPong > this.config.timeoutMs) {
-          console.log(`[Heartbeat] Connection ${sessionId} timed out`);
+          if (isPonyBunnyDebugEnabled()) console.log(`[Heartbeat] Connection ${sessionId} timed out`);
           this.onTimeout?.(sessionId);
           continue;
         }

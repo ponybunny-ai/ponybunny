@@ -1245,8 +1245,27 @@ Respond with at most 2 short planning lines, then immediately issue the first co
     }
   }
 
-  private async collectArtifacts(_context: ReActContext): Promise<string[]> {
-    return [];
+  private async collectArtifacts(context: ReActContext): Promise<string[]> {
+    const artifacts: string[] = [];
+    const seen = new Set<string>();
+
+    // Scan observations for file paths produced by tool executions
+    const filePathPattern = /(?:(?:created|wrote|saved|generated|output)\s+(?:to\s+)?|file:\s*)([^\s"'`]+\.\w{1,10})/gi;
+
+    for (const step of context.conversationHistory) {
+      if (step.type !== 'observation') continue;
+
+      let match: RegExpExecArray | null;
+      while ((match = filePathPattern.exec(step.content)) !== null) {
+        const filePath = match[1];
+        if (!seen.has(filePath)) {
+          seen.add(filePath);
+          artifacts.push(filePath);
+        }
+      }
+    }
+
+    return artifacts;
   }
 
   private buildExecutionLog(context: ReActContext): string {

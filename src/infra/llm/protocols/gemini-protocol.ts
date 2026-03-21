@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { LLMMessage, LLMResponse, ToolCall, StreamChunk } from '../llm-provider.js';
 import type {
   EndpointCredentials,
@@ -37,7 +38,7 @@ export class GeminiProtocolAdapter extends BaseProtocolAdapter {
 
       // Handle assistant messages with tool calls
       if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
-        const parts: any[] = [];
+        const parts: Array<{ text?: string; functionCall?: { name: string; args: Record<string, unknown> } }> = [];
 
         // Add text content if present
         if (m.content) {
@@ -71,7 +72,7 @@ export class GeminiProtocolAdapter extends BaseProtocolAdapter {
       ? { parts: [{ text: systemMessage.content }] }
       : undefined;
 
-    const requestBody: any = {
+    const requestBody: Record<string, unknown> = {
       contents,
       systemInstruction,
       generationConfig: {
@@ -132,7 +133,7 @@ export class GeminiProtocolAdapter extends BaseProtocolAdapter {
             text?: string;
             functionCall?: {
               name: string;
-              args: any;
+              args: Record<string, unknown>;
             };
           }>;
         };
@@ -159,7 +160,7 @@ export class GeminiProtocolAdapter extends BaseProtocolAdapter {
             textParts.push(part.text);
           } else if (part?.functionCall) {
             toolCalls.push({
-              id: `call_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+              id: randomUUID(),
               type: 'function',
               function: {
                 name: part.functionCall.name,
@@ -265,7 +266,7 @@ export class GeminiProtocolAdapter extends BaseProtocolAdapter {
               text?: string;
               functionCall?: {
                 name: string;
-                args: any;
+                args: Record<string, unknown>;
               };
             }>;
           };

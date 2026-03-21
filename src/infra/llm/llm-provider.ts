@@ -1,3 +1,5 @@
+import { isPonyBunnyDebugEnabled } from '../config/debug-flags.js';
+
 export interface ToolCall {
   id: string;              // Unique ID for the tool call
   type: 'function';
@@ -191,7 +193,7 @@ export class LLMRouter implements ILLMProvider {
 
     setTimeout(() => {
       this.failedProviders.delete(providerName);
-      console.log(`[LLMRouter] Re-enabled provider ${providerName}`);
+      if (isPonyBunnyDebugEnabled()) console.log(`[LLMRouter] Re-enabled provider ${providerName}`);
     }, 60000);
   }
 

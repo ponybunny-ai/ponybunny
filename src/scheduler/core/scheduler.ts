@@ -668,10 +668,18 @@ export class SchedulerCore implements ISchedulerCore {
       data: { stage: 'execution', progress: 10 },
     });
 
-    // Execute work item (async, don't await)
-    this.dispatchExecution(context).catch((error) => {
-      this.debug('Execution error:', error);
-    });
+    // In evented mode the dispatch just publishes a lightweight event, so
+    // awaiting it keeps the tick deterministic.  In direct mode the actual
+    // execution is long-running — fire-and-forget to avoid blocking the tick.
+    if (this.config.executionMode === 'evented') {
+      await this.dispatchExecution(context).catch((error) => {
+        this.debug('Execution error:', error);
+      });
+    } else {
+      this.dispatchExecution(context).catch((error) => {
+        this.debug('Execution error:', error);
+      });
+    }
   }
 
   /**
