@@ -1,156 +1,192 @@
-# CLAUDE.md
+# PonyBunny Claude Code Working Rules
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## Mission
 
-## Project Overview
+PonyBunny is being developed into a harness-first agent system.
 
-PonyBunny is an **Autonomous AI Employee System** — a local-first CLI + server runtime where humans set goals and AI delivers results autonomously. Built on a **Gateway (WebSocket) + Scheduler (execution engine)** architecture with SQLite persistence and multi-LLM provider support (Anthropic, OpenAI, Gemini).
+This repository must be evolved with a strong bias toward:
+- explicit contracts
+- observable execution
+- evaluable changes
+- structured session handoff
+- small safe migrations
+- auditability
+- recoverability
+- harness improvement driven by evidence
 
-The CLI binary is `pb`. Config lives in `~/.config/ponybunny/` (legacy `~/.ponybunny/` auto-migrates).
+The goal is not merely to add features.
+The goal is to improve PonyBunny as a reliable harness-oriented system.
 
-## Build, Test & Run
+---
 
-```bash
-# Build
-npm run build              # Compile TypeScript to dist/ + copy assets
-npm run build:cli          # Build CLI binary (pb command)
-npm run build:all          # Both
+## Core Principles
 
-# Test (Jest with ts-jest ESM)
-npm test                   # All tests
-npx jest test/path/to/file.test.ts  # Single test file
-npm run test:watch         # Watch mode
-npm run test:coverage      # Coverage report
+1. Harness-first over feature-first.
+2. Explicit contracts over hidden coupling.
+3. Verification over self-report.
+4. Structured handoff over conversational continuity.
+5. Small safe migrations over broad rewrites.
+6. Auditability is mandatory.
+7. Generator does not self-certify correctness.
+8. Runtime semantics matter more than local code neatness.
+9. Failed runs, traces, and evals are inputs for harness improvement.
+10. Preserve existing invariants unless a change is deliberate and documented.
 
-# Module-specific tests
-npm run test:cli           # CLI tests
-npm run test:infra         # Infrastructure tests
-npm run test:gateway       # Gateway tests
-npm run test:scheduler     # Scheduler + daemon tests
-npm run test:autonomy      # Autonomy tests
-npm run test:domain        # Domain logic tests
-npm run test:mcp           # MCP integration tests
+---
 
-# E2E tests (use tsx, NOT Jest)
-npx tsx test/e2e-lifecycle.ts
-npx tsx test/e2e/tool-calling-demo.ts
+## Required Working Model
 
-# Run
-pb                         # Interactive TUI (connects to ws://127.0.0.1:18789)
-pb service start all       # Start Gateway + Scheduler
-pb service status          # Check services
-pb service stop all        # Stop all
-PONY_DB_PATH=./pony.db node dist/main.js  # Run daemon directly
-```
+When work is non-trivial, follow this order:
 
-### Web Frontend (`web/`)
+1. Understand current state and constraints.
+2. Clarify invariants and boundaries.
+3. Produce a plan before broad code changes.
+4. Implement in narrow phases.
+5. Evaluate before claiming completion.
+6. Record important decisions.
+7. Leave structured handoff notes before ending work.
 
-Separate Next.js 16 app with Tailwind 4 + shadcn/ui. Has its own `package.json` and `node_modules`.
+Do not treat coding as the whole task.
+In this repository, implementation is only one stage in a larger harness engineering loop.
 
-```bash
-cd web && npm run dev      # Dev server
-cd web && npm run build    # Production build
-```
+---
 
-## Architecture
+## Preferred Delegation
 
-```
-CLI/TUI → Gateway (WebSocket :18789) → IPC (Unix socket) → Scheduler → LLM Providers / Tools
-                                                          → SQLite (Goals, Runs, Artifacts)
-```
+Use the appropriate subagent whenever the task clearly matches its role:
 
-**Hexagonal Architecture** with strict layer rules:
+- architecture, harness boundaries, migration strategy -> harness-architect
+- phase planning, milestone breakdown, dependency sequencing -> planner
+- implementation of an approved narrow scope -> generator
+- validation, checks, acceptance review, regression analysis -> evaluator
+- runtime failure analysis and root-cause work -> debugger
+- harness-level improvement based on evidence -> harness-optimizer
+- ADRs, technical documentation, handoff docs -> docs-writer
 
-| Layer | Path | Responsibility |
-|-------|------|---------------|
-| **Domain** | `src/domain/` | Pure business logic — types, state machine, skill definitions. **NEVER imports from app/infra/gateway/scheduler.** |
-| **App** | `src/app/` | Application services, defines interfaces (ports) |
-| **Infra** | `src/infra/` | Infrastructure adapters — SQLite, LLM providers, tools, MCP, config |
-| **Gateway** | `src/gateway/` | WebSocket server, auth, connection management, message routing, RPC handlers |
-| **Scheduler** | `src/scheduler/` | Task orchestration, model/lane selection, budget tracking, quality gates |
-| **Runtime** | `src/runtime/` | Execution engine — worker, tool, and conversation boundaries |
-| **Autonomy** | `src/autonomy/` | ReAct loop integration, daemon mode |
-| **CLI** | `src/cli/` | Commander.js commands + Ink (React) terminal UI |
-| **IPC** | `src/ipc/` | Inter-process communication (Unix socket between Gateway and Scheduler) |
+If a task spans multiple roles, keep the roles separated rather than collapsing everything into one pass.
 
-### IPC Layer (Gateway ↔ Scheduler)
+---
 
-Gateway and Scheduler communicate via Unix domain socket (`/tmp/ponybunny-ipc.sock`) using line-delimited JSON. The IPC server runs in Gateway; the IPC client runs in Scheduler Daemon.
+## Non-Negotiable Behaviour Rules
 
-Key message types: `scheduler_event`, `session_event`, `debug_event`, `scheduler_command` (with `requestId` for request/response). The client auto-reconnects with exponential backoff (1s → 30s) and buffers up to 1000 messages during disconnection.
+### Planning and scope
+- Do not perform a broad rewrite without a migration plan.
+- Do not silently expand scope during implementation.
+- Do not redesign unrelated modules while fixing a local issue.
+- Do not change public or cross-module contracts without surfacing it.
 
-### State Machine
+### Verification
+- Do not claim "done" merely because code was written.
+- Do not claim "fixed" without evidence.
+- Do not claim "working" if validation has not been performed.
+- If evidence is incomplete, state clearly what is implemented and what remains unverified.
 
-State transitions are validated via `src/domain/work-order/state-machine.ts` before any status update:
+### Runtime and harness safety
+- Do not weaken audit logging, traceability, or observability without explicit instruction.
+- Do not obscure side effects.
+- Do not introduce hidden state unless it is necessary and clearly documented.
+- Do not merge planner, generator, and evaluator responsibilities into a single vague behaviour.
 
-- **Goal**: `queued → active → completed` (or `cancelled` from queued/active/blocked; `blocked ↔ active`)
-- **WorkItem**: `queued → ready → in_progress → verify → done` (with `failed → ready` retry path; `blocked` from queued/ready/in_progress/failed)
-- **Run**: `running → success|failure|timeout|aborted` (all terminal)
+### Documentation and handoff
+- Do not end a substantial session without a structured handoff.
+- Do not leave architectural decisions undocumented if they affect future work.
+- Do not mark something as verified unless the evidence path is stated.
 
-### 8-Phase Autonomous Lifecycle
+---
 
-Intake → Elaboration → Planning → Execution → Verification → Evaluation → Publish → Monitor
+## Status Vocabulary
 
-### Execution Lanes
+Use these exact status words when reporting progress:
 
-The Scheduler assigns work items to lanes: `main` (primary, max 5), `subagent` (max 3), `cron` (scheduled, max 2), `session` (interactive, unlimited).
+- proposed
+- planned
+- implemented
+- verified
+- documented
+- blocked
 
-### LLM Provider System
+Definitions:
 
-Two selection modes:
-- **Agent-based**: `getLLMProviderManager()` → `manager.complete('execution', messages)` — maps lifecycle phases to models
-- **Tier-based**: `LLMService` → `service.getModelForTier('complex')` — simple/medium/complex tiers with primary + fallback chains
+- proposed: an idea or change direction exists, but no approved plan yet
+- planned: scoped and sequenced, ready for implementation
+- implemented: code or files changed, but not yet proven correct
+- verified: backed by checks, tests, traces, or other explicit evidence
+- documented: relevant ADRs, notes, or handoff records updated
+- blocked: cannot safely proceed without missing information, dependency, or decision
 
-## Critical Code Conventions
+Never blur the distinction between implemented and verified.
 
-### ESM imports MUST use `.js` extension
-```typescript
-import { Goal } from './types.js';           // ✅
-import { Goal } from './types';              // ❌
-```
+---
 
-### Naming
-- Classes: `PascalCase` — Interfaces: `I`-prefix (`IWorkOrderRepository`)
-- Files: `kebab-case` — DB fields: `snake_case`
-- Functions: `camelCase` — Constants: `UPPER_SNAKE`
+## Session End Requirements
 
-### Other rules
-- **Dependency injection via constructor** — never instantiate dependencies inside services
-- **Named exports** — avoid `export default`
-- **`import type`** for type-only imports
-- **State transitions must be validated** via state machine before updating
-- **TypeScript**: target ES2022, strict mode, module ESNext
+At the end of any meaningful work session, provide a handoff section containing:
 
-### Debug output
-All debug `console` output **must** be gated by debug flag helpers from `src/infra/config/debug-flags.ts`:
-```typescript
-import { isPonyBunnyDebugEnabled } from '../infra/config/debug-flags.js';
-if (isPonyBunnyDebugEnabled()) { console.log('[Module] ...'); }
-```
-Additional helpers: `isDebugLoggingEnabled()` (legacy compat), `isAntigravityDebugEnabled()` (Antigravity traces). Never read `process.env.PONY_BUNNY_DEBUG` directly in feature modules. Operational errors (`console.error`) must NOT be gated.
+1. What changed
+2. Current status using the approved status vocabulary
+3. What was verified
+4. What remains unverified
+5. Known risks or open questions
+6. Recommended next safest step
+7. Files or docs the next session should read first
 
-## Testing Conventions
+For significant work, also include:
+- affected invariants
+- contract changes, if any
+- whether follow-up evaluation is required
 
-**Mock credentials** to prevent loading real `~/.ponybunny/credentials.json`:
-```typescript
-jest.mock('../../../src/infra/config/credentials-loader.js', () => ({
-  getCachedEndpointCredential: jest.fn(() => null),
-  clearCredentialsCache: jest.fn(),
-}));
-```
+---
 
-Jest uses `ts-jest` ESM preset. Module mapper converts `.js` → `.ts` for test resolution. Setup file: `test/jest-setup.ts`. Tests live in `test/` (mirroring `src/` structure) and also alongside source in `src/**/*.test.ts`.
+## Architecture Bias for This Repository
 
-## Configuration Change Coupling (Mandatory)
+When making decisions, prefer:
+- stable boundaries over convenience coupling
+- narrow tools over overly-smart multi-purpose tools
+- explicit schemas over loose payloads
+- observable event flow over hidden transitions
+- resumable execution over fragile continuity
+- evaluator-backed decisions over generator self-approval
 
-When changing runtime config structure (add/remove/rename fields), **all three** must update in the same PR:
-1. Schema: `docs/schemas/ponybunny.schema.json` + onboarding schema template
-2. Example: `docs/config-templates/ponybunny.example.json`
-3. `pb init` behavior + tests: `src/infra/config/onboarding.ts`
+---
 
-## Key Documentation
+## Evidence Standards
 
-- Architecture: `docs/techspec/architecture-overview.md`
-- Development patterns: `docs/development/AGENTS.md`
-- CLI reference: `docs/cli/CLI-USAGE.md`
-- MCP integration: `docs/mcp/README.md`
+Acceptable evidence includes:
+- targeted tests
+- trace review
+- log review
+- state transition review
+- contract checks
+- reproducible execution results
+- explicit before/after behavioural comparison
+
+Unacceptable evidence includes:
+- "it should work"
+- "the code looks right"
+- "the logic is straightforward"
+- "I implemented it"
+
+---
+
+## Handoff Artefact Expectations
+
+Where relevant, produce or update:
+- migration notes
+- ADRs
+- phase progress notes
+- verification checklists
+- failure notes
+- next-step recommendations
+
+If work is partial, say so plainly.
+
+---
+
+## Repository-Wide Working Intent
+
+Claude Code should help turn PonyBunny into a harness-first system by:
+- making work more phase-driven
+- making outcomes more verifiable
+- making failures easier to diagnose
+- making future sessions easier to continue
+- improving the development harness itself over time

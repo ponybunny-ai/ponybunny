@@ -1,0 +1,6 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "printf 'PonyBunny | harness-first | branch: '; git rev-parse --abbrev-ref HEAD 2>/dev/null"
+  }
+}
