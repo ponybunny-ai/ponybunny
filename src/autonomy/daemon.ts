@@ -1,12 +1,25 @@
+/**
+ * @deprecated Use GoalHarness + HarnessDaemon instead (ADR-001).
+ * AutonomyDaemon is replaced by the GoalHarness composition architecture:
+ * - GoalHarness handles elaborate → plan → delegate
+ * - SchedulerCore handles execution and production infrastructure
+ * - HarnessDaemon provides the polling loop
+ *
+ * This class is preserved for backwards compatibility but is no longer
+ * used by main.ts or the scheduler-daemon.
+ */
+
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
 import type { IExecutionService, IVerificationService, IEvaluationService, IPlanningService, IElaborationService } from '../app/lifecycle/stage-interfaces.js';
 import type { WorkItem, Goal } from '../work-order/types/index.js';
 
+/** @deprecated Use HarnessDaemonConfig instead */
 export interface AutonomyDaemonConfig {
   maxConcurrentRuns: number;
   pollingIntervalMs: number;
 }
 
+/** @deprecated Use GoalHarness + HarnessDaemon instead (ADR-001) */
 export class AutonomyDaemon {
   private isRunning = false;
   private pollingTimer?: NodeJS.Timeout;

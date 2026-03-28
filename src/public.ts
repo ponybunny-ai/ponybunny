@@ -6,6 +6,14 @@
  */
 
 export { WorkOrderDatabase } from './work-order/database/manager.js';
+/** @deprecated Use GoalHarness + HarnessDaemon instead (ADR-001) */
 export { AutonomyDaemon } from './autonomy/daemon.js';
+
+// ADR-001: GoalHarness composition architecture
+export { GoalHarness } from './harness/goal-harness.js';
+export { HarnessDaemon } from './harness/harness-daemon.js';
+export type { IGoalHarness, GoalSubmission, GoalHarnessResult } from './harness/goal-harness-interface.js';
+export type { GoalHarnessDependencies } from './harness/goal-harness.js';
+export type { HarnessDaemonConfig } from './harness/harness-daemon.js';
 
 export type * from './work-order/types/index.js';

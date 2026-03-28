@@ -1,19 +1,17 @@
 /**
  * Integration test: Gateway → SchedulerCore lifecycle gap verification
  *
- * Documents and tests the known architectural boundary: goals submitted via the
- * gateway path flow through SchedulerDaemon → SchedulerCore, which has NO
- * ElaborationService and NO GlobalKnowledgeService injection.
+ * Documents and tests the known architectural boundary: SchedulerCore intentionally
+ * has NO ElaborationService and NO GlobalKnowledgeService injection. This boundary
+ * is correct — elaboration belongs in GoalHarness, not SchedulerCore (ADR-001).
  *
- * This is intentionally a "gap test" — it proves the absence of elaboration in
- * the SchedulerCore path, serving as a regression guardrail. If elaboration is
- * later added to SchedulerCore, this test should be updated to reflect that.
+ * ADR-001 Status: The lifecycle gap is CLOSED at the GoalHarness layer.
+ * When GoalHarness is injected into SchedulerDaemon, the materialize_goal handler
+ * routes through GoalHarness (elaborate → plan → delegate to SchedulerCore).
+ * SchedulerCore still has no elaboration — this is by design.
  *
- * Two execution engines exist in PonyBunny:
- *   1. AutonomyDaemon (main.ts) — full lifecycle: elaborate → plan → execute → verify → evaluate
- *   2. SchedulerCore (scheduler-daemon) — no elaboration: submitGoal → tick → execute
- *
- * Goals submitted via the gateway go through engine #2.
+ * Architecture (ADR-001):
+ *   All Entry Points → GoalHarness (elaborate → plan) → SchedulerCore (execute + all infra)
  */
 import type { SchedulerDependencies } from '../../src/scheduler/core/types.js';
 

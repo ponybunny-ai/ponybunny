@@ -16,6 +16,11 @@ import { createDefaultScheduler } from '../../scheduler/composition/index.js';
 import type { SchedulerCore } from '../../scheduler/core/index.js';
 import type { SchedulerSessionEvent } from '../session-intake.js';
 import { SchedulerSessionIntake } from '../session-intake.js';
+import { ElaborationService } from '../../app/lifecycle/elaboration/elaboration-service.js';
+import { PlanningService } from '../../app/lifecycle/planning/planning-service.js';
+import { GlobalKnowledgeService } from '../../domain/knowledge/index.js';
+import { GoalHarness } from '../../harness/goal-harness.js';
+import type { IGoalHarness } from '../../harness/goal-harness-interface.js';
 
 export interface DefaultSchedulerDaemonRuntimeConfig {
   tickIntervalMs?: number;
@@ -112,4 +117,52 @@ export function createSchedulerDaemonSessionIntake(
     schedulerProvider: deps.schedulerProvider,
     publishSessionEvent: deps.publishSessionEvent,
   });
+}
+
+/**
+ * ADR-001: Assemble GoalHarness with all dependencies.
+ *
+ * Returns undefined if GlobalKnowledgeService cannot be initialized
+ * (e.g., missing table), preserving rollback safety.
+ */
+export interface GoalHarnessAssemblyDependencies {
+  repository: IWorkOrderRepository;
+  llmProvider: ILLMProvider;
+  scheduler: SchedulerCore;
+  runtimeToolingContext?: RuntimeToolingContext;
+  /** Explicit database handle for GlobalKnowledgeService. If not provided, GoalHarness is not created. */
+  knowledgeDb?: Database.Database;
+}
+
+export function assembleGoalHarness(
+  deps: GoalHarnessAssemblyDependencies
+): IGoalHarness | undefined {
+  let globalKnowledge: GlobalKnowledgeService | undefined;
+  if (deps.knowledgeDb) {
+    try {
+      globalKnowledge = new GlobalKnowledgeService(deps.knowledgeDb);
+      console.log('[GoalHarness Assembly] Global Knowledge Service initialized');
+    } catch {
+      console.warn('[GoalHarness Assembly] Global Knowledge Service unavailable — GoalHarness will proceed without it');
+    }
+  }
+
+  const elaborationService = new ElaborationService(deps.repository, globalKnowledge);
+  const planningService = new PlanningService(
+    deps.repository,
+    deps.llmProvider,
+    undefined,
+    deps.runtimeToolingContext,
+    globalKnowledge
+  );
+
+  const harness = new GoalHarness({
+    repository: deps.repository,
+    elaborationService,
+    planningService,
+    schedulerCore: deps.scheduler,
+  });
+
+  console.log('[GoalHarness Assembly] GoalHarness assembled successfully');
+  return harness;
 }

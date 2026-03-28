@@ -8,6 +8,8 @@ import { AutonomyDaemon } from '../../src/autonomy/daemon.js';
 import { DaemonEventEmitterMixin } from '../../src/autonomy/daemon-event-emitter.js';
 import { ReActIntegration } from '../../src/autonomy/react-integration.js';
 import { WorkOrderDatabase } from '../../src/work-order/database/manager.js';
+import { GoalHarness } from '../../src/harness/goal-harness.js';
+import { HarnessDaemon } from '../../src/harness/harness-daemon.js';
 
 describe('root public surface split', () => {
   test('historical mixed root barrel delegates through explicit live and compatibility entrypoints', () => {
@@ -24,6 +26,11 @@ describe('root public surface split', () => {
     expect('DaemonEventEmitterMixin' in rootPublic).toBe(false);
   });
 
+  test('live root surface exports GoalHarness and HarnessDaemon (ADR-001)', () => {
+    expect(rootPublic.GoalHarness).toBe(GoalHarness);
+    expect(rootPublic.HarnessDaemon).toBe(HarnessDaemon);
+  });
+
   test('root compatibility surface keeps historical daemon/execution exports explicit', () => {
     expect(rootCompatibility.ReActIntegration).toBe(ReActIntegration);
     expect(rootCompatibility.DaemonEventEmitterMixin).toBe(DaemonEventEmitterMixin);
@@ -36,5 +43,10 @@ describe('root public surface split', () => {
     expect(rootIndex.AutonomyDaemon).toBe(AutonomyDaemon);
     expect(rootIndex.ReActIntegration).toBe(ReActIntegration);
     expect(rootIndex.DaemonEventEmitterMixin).toBe(DaemonEventEmitterMixin);
+  });
+
+  test('historical mixed root barrel includes GoalHarness and HarnessDaemon', () => {
+    expect(rootIndex.GoalHarness).toBe(GoalHarness);
+    expect(rootIndex.HarnessDaemon).toBe(HarnessDaemon);
   });
 });

@@ -1,17 +1,26 @@
-import { AutonomyDaemon } from './autonomy/daemon.js';
+/**
+ * PonyBunny Main Entry Point — ADR-001 Phase 3
+ *
+ * Uses HarnessDaemon + GoalHarness + SchedulerCore instead of AutonomyDaemon.
+ * GoalHarness owns elaborate → plan → delegate.
+ * SchedulerCore owns execution and all production infrastructure.
+ * HarnessDaemon provides the polling loop.
+ */
+
 import { WorkOrderDatabase } from './work-order/database/manager.js';
 import { ExecutionService } from './app/lifecycle/execution/execution-service.js';
-import { VerificationService } from './app/lifecycle/verification/verification-service.js';
-import { EvaluationService } from './app/lifecycle/evaluation/evaluation-service.js';
 import { PlanningService } from './app/lifecycle/planning/planning-service.js';
 import { ElaborationService } from './app/lifecycle/elaboration/elaboration-service.js';
 import { GlobalKnowledgeService } from './domain/knowledge/index.js';
+import { GoalHarness } from './harness/goal-harness.js';
+import { HarnessDaemon } from './harness/harness-daemon.js';
 import { getLLMService } from './infra/llm/index.js';
 import type { ILLMProvider } from './infra/llm/llm-provider.js';
 import { MockLLMProvider, LLMRouter } from './infra/llm/llm-provider.js';
 import { getGlobalSkillRegistry } from './infra/skills/skill-registry.js';
 import { getConfigDir, getManagedSkillsDir } from './infra/config/config-paths.js';
 import { loadRuntimeConfig } from './infra/config/runtime-config.js';
+import { createDefaultScheduler } from './scheduler/composition/index.js';
 
 const DB_PATH = loadRuntimeConfig().paths.database;
 
@@ -106,31 +115,49 @@ async function main() {
 
   console.log('[PonyBunny] ✅ Execution Service (Enhanced) initialized');
 
-  const verificationService = new VerificationService();
-  console.log('[PonyBunny] ✅ Verification Service initialized');
-
-  const evaluationService = new EvaluationService(repository);
-  console.log('[PonyBunny] ✅ Evaluation Service initialized');
-
   const elaborationService = new ElaborationService(repository, globalKnowledge);
-  console.log('[PonyBunny] ✅ Elaboration Service initialized\n');
+  console.log('[PonyBunny] ✅ Elaboration Service initialized');
 
-  const daemon = new AutonomyDaemon(
-    repository,
-    planningService,
-    executionService,
-    verificationService,
-    evaluationService,
+  // ADR-001: Create SchedulerCore for production execution infrastructure
+  const scheduler = createDefaultScheduler(
     {
-      maxConcurrentRuns: 2,
-      pollingIntervalMs: 5000,
+      repository,
+      executionService,
+      llmProvider,
     },
-    elaborationService
+    {
+      tickIntervalMs: 1000,
+      maxConcurrentGoals: 5,
+      autoStart: false,
+    }
   );
+  await scheduler.start();
+  console.log('[PonyBunny] ✅ SchedulerCore initialized');
 
-  process.on('SIGINT', () => {
+  // ADR-001: Create GoalHarness (elaborate → plan → delegate to SchedulerCore)
+  const goalHarness = new GoalHarness({
+    repository,
+    elaborationService,
+    planningService,
+    schedulerCore: scheduler,
+  });
+  console.log('[PonyBunny] ✅ GoalHarness initialized');
+
+  // ADR-001: Create HarnessDaemon (polling loop feeding GoalHarness)
+  const daemon = new HarnessDaemon(
+    repository,
+    goalHarness,
+    {
+      maxConcurrentGoals: 2,
+      pollingIntervalMs: 5000,
+    }
+  );
+  console.log('[PonyBunny] ✅ HarnessDaemon initialized\n');
+
+  process.on('SIGINT', async () => {
     console.log('\n[PonyBunny] 👋 Shutting down gracefully...');
     daemon.stop();
+    await scheduler.stop();
     process.exit(0);
   });
 
@@ -143,11 +170,11 @@ async function main() {
   console.log(`📚 Skills Loaded: ${skillRegistry.getSkills().length}`);
   console.log('');
   console.log('✨ Enhanced Features:');
+  console.log('  ✅ GoalHarness (ADR-001) — unified goal lifecycle');
   console.log('  ✅ Phase-aware System Prompts');
   console.log('  ✅ Skill-driven Execution');
   console.log('  ✅ Budget-conscious Planning');
-  console.log('  ✅ Default Concise Mode');
-  console.log('  ✅ Clear Escalation Paths');
+  console.log('  ✅ SchedulerCore Production Infrastructure');
   console.log('═══════════════════════════════════════════════════════\n');
 
   await daemon.start();

@@ -12,6 +12,7 @@ import type { ILLMProvider } from '../infra/llm/llm-provider.js';
 import type { RuntimeToolingContext } from '../runtime/tooling-context/index.js';
 import type { SchedulerEvent } from '../scheduler/types.js';
 import type { DebugEvent } from '../debug/types.js';
+import type { IGoalHarness } from '../harness/goal-harness-interface.js';
 import { LocalExecutionWorker } from '../runtime/workers/index.js';
 import { SchedulerCore } from '../scheduler/core/index.js';
 import { IPCClient } from '../ipc/ipc-client.js';
@@ -72,6 +73,8 @@ export interface SchedulerDaemonConfig {
   personaEnabled?: boolean;
   memoryDb?: Database.Database;
   runtimeToolingContext: RuntimeToolingContext;
+  /** Optional GoalHarness — when present, materialize_goal routes through elaborate→plan→delegate (ADR-001) */
+  goalHarness?: IGoalHarness;
 }
 
 export class SchedulerDaemon {
@@ -711,6 +714,39 @@ export class SchedulerDaemon {
           return;
         }
 
+        // ADR-001: When GoalHarness is active, route through elaborate→plan→delegate.
+        // GoalHarness creates the goal record, elaborates, plans, and delegates to SchedulerCore.
+        // The initialWorkItemSpec stub is skipped — PlanningService generates real work items.
+        if (this.config.goalHarness) {
+          const harnessResult = await this.config.goalHarness.submitGoal({
+            title: command.goalSpec.title,
+            description: command.goalSpec.description,
+            success_criteria: command.goalSpec.success_criteria.map((item) => ({
+              ...item,
+              required: item.required ?? true,
+            })),
+            priority: command.goalSpec.priority,
+            budget_tokens: command.goalSpec.budget_tokens,
+            budget_time_minutes: command.goalSpec.budget_time_minutes,
+            budget_cost_usd: command.goalSpec.budget_cost_usd,
+            context: command.goalSpec.context,
+          });
+
+          await respond(command.requestId, true, undefined, {
+            goal: harnessResult.goal,
+            initialWorkItemId: undefined,
+            harnessResult: {
+              elaborationApplied: harnessResult.elaborationApplied,
+              planGenerated: harnessResult.planGenerated,
+              workItemCount: harnessResult.workItemCount,
+              escalations: harnessResult.escalations,
+              delegatedToScheduler: harnessResult.delegatedToScheduler,
+            },
+          });
+          return;
+        }
+
+        // Legacy path: create goal + optional stub work item (no elaboration, no planning)
         const goal = this.repository.createGoal({
           title: command.goalSpec.title,
           description: command.goalSpec.description,
