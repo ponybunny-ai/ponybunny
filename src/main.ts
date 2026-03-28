@@ -4,6 +4,7 @@ import { ExecutionService } from './app/lifecycle/execution/execution-service.js
 import { VerificationService } from './app/lifecycle/verification/verification-service.js';
 import { EvaluationService } from './app/lifecycle/evaluation/evaluation-service.js';
 import { PlanningService } from './app/lifecycle/planning/planning-service.js';
+import { GlobalKnowledgeService } from './domain/knowledge/index.js';
 import { getLLMService } from './infra/llm/index.js';
 import type { ILLMProvider } from './infra/llm/llm-provider.js';
 import { MockLLMProvider, LLMRouter } from './infra/llm/llm-provider.js';
@@ -72,6 +73,15 @@ async function main() {
   // Use Enhanced Services (Phase-aware prompts + Skills integration)
   console.log('[PonyBunny] 🧠 Initializing Enhanced Lifecycle Services...');
 
+  // Initialize cross-goal knowledge service (graceful if table missing)
+  let globalKnowledge: GlobalKnowledgeService | undefined;
+  try {
+    globalKnowledge = new GlobalKnowledgeService(repository.getDatabase());
+    console.log('[PonyBunny] ✅ Global Knowledge Service initialized');
+  } catch {
+    console.warn('[PonyBunny] ⚠️  Global Knowledge Service unavailable (table may not exist yet)');
+  }
+
   const executionService = new ExecutionService(
     repository,
     { maxConsecutiveErrors: 3 },
@@ -82,7 +92,8 @@ async function main() {
     repository,
     llmProvider,
     undefined,
-    executionService.getRuntimeToolingContext()
+    executionService.getRuntimeToolingContext(),
+    globalKnowledge
   );
   console.log('[PonyBunny] ✅ Planning Service (Enhanced) initialized');
 

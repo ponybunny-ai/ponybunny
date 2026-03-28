@@ -1,9 +1,17 @@
 import type { Goal } from '../../../work-order/types/index.js';
 import type { IWorkOrderRepository } from '../../../infra/persistence/repository-interface.js';
+import type { GlobalKnowledgeService } from '../../../domain/knowledge/index.js';
 import type { IElaborationService, ElaborationResult } from '../stage-interfaces.js';
 
 export class ElaborationService implements IElaborationService {
-  constructor(private repository: IWorkOrderRepository) {}
+  private globalKnowledge?: GlobalKnowledgeService;
+
+  constructor(
+    private repository: IWorkOrderRepository,
+    globalKnowledge?: GlobalKnowledgeService,
+  ) {
+    this.globalKnowledge = globalKnowledge;
+  }
 
   async elaborateGoal(goal: Goal): Promise<ElaborationResult> {
     const clarifications: string[] = [];
@@ -39,11 +47,34 @@ export class ElaborationService implements IElaborationService {
       }
     }
 
+    // Inject known pitfalls from global knowledge into clarifications
+    // so the goal owner is aware of past failures relevant to this goal
+    if (this.globalKnowledge) {
+      try {
+        const pitfalls = this.globalKnowledge.getRelevantKnowledge({
+          knowledgeType: 'pitfall',
+          limit: 5,
+          minConfidence: 0.4,
+        });
+        if (pitfalls.length > 0) {
+          const pitfallWarnings = pitfalls.map(
+            p => `[Known pitfall, confidence ${p.confidence.toFixed(1)}]: ${p.content}`
+          );
+          clarifications.push(
+            `Global knowledge contains ${pitfalls.length} relevant pitfall(s) from previous goals:\n` +
+            pitfallWarnings.join('\n')
+          );
+        }
+      } catch {
+        // global_knowledge table may not exist yet — graceful degradation
+      }
+    }
+
     const updatedGoal = { ...goal };
 
     if (escalations.length > 0) {
       this.repository.updateGoalStatus(goal.id, 'blocked');
-      
+
       for (const escalation of escalations) {
         this.repository.createEscalation({
           work_item_id: '',

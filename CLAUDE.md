@@ -200,3 +200,7 @@ Claude Code should help turn PonyBunny into a harness-first system by:
      Format: - [YYYY-MM-DD] Problem description → Prevention measure → Related PR/commit
      This section starts empty and grows through real failures. Combined with
      the `pb learn` pipeline (when available), entries can be semi-automatically proposed. -->
+
+- [2026-03-28] GlobalKnowledgeService was wired into `pb work` CLI but NOT into `main.ts` scheduler path, so knowledge injection only worked for CLI invocations, not daemon-scheduled goals → Always verify that services are wired into ALL execution paths (CLI + scheduler daemon + gateway), not just the one being actively developed
+- [2026-03-28] Phases were marked "verified" in commit messages without runtime evidence (no test executions, no trace review) → Never claim verified status without stating the specific evidence; "implemented" is the honest status when only code was written
+- [2026-03-28] Schema-driven agents (e.g. Entropy Agent) were assessed as "config-only" when the config IS the implementation — the schema-driven runner infrastructure already executes them → Before claiming an agent lacks runtime, check whether the runner registry + agent scheduler already handles its type/engine

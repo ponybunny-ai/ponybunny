@@ -34,6 +34,7 @@ export function startDaemonRecurringStartup(
   runnerRegistry.registerMany([
     { type: 'default', runner: schemaRunner },
     { type: 'market_listener', runner: schemaRunner },
+    { type: 'harness', runner: schemaRunner },
   ]);
   logger.log('[SchedulerDaemon] Registered default schema-driven runner');
 

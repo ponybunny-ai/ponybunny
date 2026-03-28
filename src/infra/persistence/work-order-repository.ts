@@ -95,6 +95,11 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     this.db = new Database(dbPath);
   }
 
+  /** Expose the underlying database for cross-cutting services (e.g. GlobalKnowledgeService). */
+  getDatabase(): Database.Database {
+    return this.db;
+  }
+
   async initialize(): Promise<void> {
     if (this.isInitialized) return;
 

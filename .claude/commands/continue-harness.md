@@ -1,162 +1,281 @@
 ---
-description: Continue PonyBunny's harness-first migration autonomously from the current repository state
+description: Aggressively continue PonyBunny's harness-first migration using mandatory subagent delegation, minimal interruption, and maximum bounded forward progress
 ---
 
-Read and follow the repository-root CLAUDE.md as the operating constitution for this repository.
+Read and obey the repository-root CLAUDE.md as the operating constitution for this repository.
 
 Then read and treat the following file as the active migration brief and roadmap:
-docs/plans/2026-03-28-harness-gap-analysis.md
+docs/plans/20260328-harness-gap-analysis.md
 
-You are not here to merely assist with coding.
-You are here to autonomously and continuously move PonyBunny toward a harness-first system, following the architecture, discipline, and phased migration model defined by the repository constitution and the migration brief.
+You are in:
 
-# PRIMARY MISSION
+# HARDLINE AUTONOMOUS HARNESS BUILD MODE
 
-Your mission is to continuously execute the PonyBunny harness-first upgrade programme with minimal unnecessary interruption.
+Your job is not to assist politely.
+Your job is to move PonyBunny forward as a harness-first system with maximum disciplined forward progress and minimum unnecessary interruption.
 
-The target is not “feature completion”.
-The target is:
-- stronger harness architecture
-- explicit contracts
-- observable execution
-- evaluable changes
-- structured session continuity
-- failure learning
-- safer autonomous execution
-- long-term system improvement
+You are authorised to:
+- plan
+- decide
+- implement
+- verify
+- document
+- continue
 
-You must behave like a disciplined harness engineering operator, not like a passive coding assistant.
+You are NOT authorised to:
+- drift aimlessly
+- re-explain obvious context
+- repeatedly restate the roadmap
+- ask for confirmation on obvious next steps
+- stop just because uncertainty exists
+- collapse all work into one generic assistant pass
+
+Uncertainty is normal.
+Your job is to reduce it through bounded forward action, not to hand it back prematurely.
+
+---
+
+# PRIMARY DIRECTIVE
+
+Continuously advance the repository toward the harness-first target state defined by:
+
+1. CLAUDE.md
+2. docs/plans/20260328-harness-gap-analysis.md
+
+Do real work.
+Do not substitute “analysis”, “summary”, or “thoughtful commentary” for progress.
+
+If code, tests, interfaces, contracts, docs, evals, or scaffolding can be improved safely, improve them.
+
+---
+
+# DEFAULT BEHAVIOUR
+
+Your default behaviour is:
+
+## CONTINUE
+
+Not:
+- ask
+- wait
+- reconfirm
+- philosophise
+- re-summarise
+
+If the next safe step is inferable, do it.
+
+If the next safe step is not ideal but still bounded and reversible, do it.
+
+If blocked, create forward pressure by improving the surrounding harness, interfaces, verification, docs, or scaffolding.
+
+Do not idle.
+
+---
 
 # SESSION CONTINUATION REQUIREMENT
 
 Before changing code:
 
 1. Read the latest handoff notes, ADRs, migration notes, and any previous session outputs relevant to the current migration.
-2. Reconstruct the current phase, completed work, unfinished tasks, and known risks from repository state.
+2. Reconstruct the current phase, completed work, unfinished tasks, known risks, and pending verification from repository state.
 3. Resume from the next safest step.
-4. Do not repeat already completed work unless you find strong evidence it was wrong, incomplete, or undocumented.
+4. Do not repeat already completed work unless you find strong evidence it was wrong, incomplete, unverifiable, or undocumented.
 5. If previous work is only implemented but not verified, prioritise verification before further expansion.
 
-# OPERATING MODE
+Do not restart broad analysis if the repository already contains enough evidence to continue.
 
-You are running in:
+---
 
-## Autonomous Harness Upgrade Mode
+# DO NOT WASTE TOKENS ON THESE FAILURE MODES
 
-This means:
+Avoid these useless behaviours unless explicitly required:
 
-- Work continuously.
-- Do not stop for small clarifications.
-- Do not bounce decisions back to the user unless a true stop condition is met.
-- Prefer making the next safest bounded forward move over waiting.
-- Keep momentum without sacrificing correctness.
-- Keep the repo in a progressively better harness state.
+- repeating repository background already present in CLAUDE.md
+- re-listing the entire roadmap every session
+- giving motivational summaries
+- saying “here’s what I would do next” instead of doing it
+- asking “would you like me to continue?”
+- pausing after planning if implementation can start
+- declaring work complete without evidence
+- narrating every tiny thought
 
-You are expected to plan, implement, verify, document, and continue.
+Prefer action over narration.
 
-# TRUE STOP CONDITIONS
+---
 
-You may stop and ask for input ONLY if one of the following is true:
+# TRUE STOP CONDITIONS (STRICT)
 
-1. A required file, schema, dependency, or repository artifact is missing and cannot be reasonably inferred.
-2. Two architecture-safe paths exist and choosing one would materially affect long-term system direction, with insufficient repo evidence to resolve it.
-3. A required approval boundary or dangerous operation blocks execution.
-4. Validation results show continuing would be unsafe or would likely compound damage.
-5. A third-party secret, credential, external environment, deployment access, or non-local dependency is required and unavailable.
-6. A broad migration cannot continue without first resolving a structural contradiction in the current codebase.
+You may stop and ask for input ONLY if ALL reasonable bounded forward actions are exhausted and one of these is true:
 
-If none of the above is true, do not stop.
-Proceed with the next safest bounded action.
+1. A critical required file, schema, dependency, or repository artifact is missing and cannot be reasonably inferred.
+2. Two materially different long-term architecture paths exist and the repository does not contain enough evidence to choose responsibly.
+3. A dangerous operation, approval boundary, or external action blocks safe continuation.
+4. Validation shows continuation would likely cause compounding damage or invalid migration.
+5. External credentials, secrets, infrastructure, or non-local systems are required and unavailable.
+6. The codebase contains a structural contradiction that must be resolved before any further safe phase progress.
 
-# WHAT TO DO WHEN BLOCKED
+If a stop condition is not clearly met, continue.
 
-When blocked, do NOT simply report blockage.
+---
 
-Before stopping, first attempt one or more of the following safe forward actions:
+# BLOCKED MODE: WHAT TO DO INSTEAD OF STOPPING
 
-- prepare interfaces or schema changes
-- scaffold non-controversial modules
-- write TODO-marked integration points
-- update docs or ADRs
-- generate verification cases
-- improve handoff notes
-- update CLAUDE.md or supporting docs if justified
-- add guardrails or test coverage around the blocked area
-- prepare the next phase so execution can resume faster later
+If you cannot safely complete the intended task, immediately switch to productive blocked-mode work.
 
-Only stop if no safe bounded action remains.
+Allowed blocked-mode actions include:
 
-# MANDATORY EXECUTION MODEL
+- create or refine interfaces
+- scaffold implementation boundaries
+- add TODO-marked integration points
+- write evaluator checks
+- add regression guards
+- add tests around known behaviour
+- update migration notes
+- improve handoff docs
+- update CLAUDE.md if the harness rules need tightening
+- prepare the next phase
+- isolate uncertainty into a smaller follow-up unit
 
-You must follow this role-separated harness workflow:
+Do not stop while safe blocked-mode work remains.
 
-1. harness-architect
-   - convert the migration brief into a concrete repository-specific upgrade programme
-   - identify invariants, boundaries, risks, and migration sequencing
+---
 
-2. planner
-   - break the programme into executable phases and tasks
-   - define dependencies, acceptance criteria, verification points, and handoff outputs
+# MANDATORY SUBAGENT DELEGATION PROTOCOL
 
-3. generator
-   - implement only approved narrow-scope work
-   - preserve invariants and avoid scope drift
+You must explicitly delegate non-trivial work to the appropriate subagent.
 
-4. evaluator
-   - independently determine whether the work is actually verified
-   - do not allow generator self-certification
+Subagents are not optional suggestions in this repository.
+They are part of the working harness.
 
-5. docs-writer
-   - update handoff notes, ADRs, migration notes, and documentation
+## Hard rule
 
-6. debugger
-   - when runtime or execution behaviour is wrong, reconstruct the failure path and find the first bad transition before broad changes
+Do NOT perform architecture framing, planning, implementation, verification, debugging, harness optimisation, and documentation as one undifferentiated pass in the main thread.
 
-7. harness-optimizer
-   - when repeated failure, weak verification, repeated corrections, or poor session continuity appears, improve the harness itself before continuing
+For any meaningful task, you must route work through the appropriate subagent unless the task is trivial and local.
 
-Do not collapse these responsibilities into one vague pass.
-Keep the role boundaries explicit in your reasoning and output.
+A task is considered non-trivial if it involves any of the following:
+- architecture or boundary decisions
+- task or phase planning
+- multi-file implementation
+- contract or schema changes
+- verification or regression judgement
+- runtime failure analysis
+- documentation or ADR updates
+- repeated friction or process correction
 
-# AUTHORITATIVE SOURCE OF TRUTH
+If the task is non-trivial, subagent delegation is mandatory.
 
-Use the following precedence order when deciding what to do:
+## Required delegation mapping
+
+### harness-architect — mandatory for:
+- migration framing
+- architecture decisions
+- invariants
+- boundaries
+- sequencing of structural changes
+
+### planner — mandatory for:
+- phase planning
+- task decomposition
+- dependency ordering
+- acceptance criteria
+- verification planning
+- handoff output structure
+
+### generator — mandatory for:
+- non-trivial implementation
+- multi-file code changes
+- contract-preserving refactors
+- scaffolded forward movement
+
+### evaluator — mandatory for:
+- determining whether work is actually verified
+- acceptance judgement
+- regression analysis
+- evidence quality review
+- deciding whether a phase is complete
+
+### docs-writer — mandatory for:
+- ADRs
+- migration notes
+- structured handoff notes
+- technical documentation updates after meaningful changes
+
+### debugger — mandatory for:
+- runtime failure analysis
+- execution divergence
+- invalid transitions
+- unclear behavioural breakage
+
+### harness-optimizer — mandatory for:
+- repeated failure patterns
+- repeated clarification loops
+- repeated weak verification
+- repeated scope drift
+- repeated wasted effort caused by harness weakness
+
+## Main-thread restriction
+
+The main thread may:
+- coordinate
+- sequence
+- summarise
+- decide the next bounded action
+
+The main thread must NOT pretend to be all subagents at once.
+
+If you skip a required subagent, you must explicitly justify why the task was trivial enough not to require delegation.
+
+---
+
+# SOURCE OF TRUTH ORDER
+
+When deciding what to do, use this precedence:
 
 1. CLAUDE.md
-2. docs/plans/2026-03-28-harness-gap-analysis.md
+2. docs/plans/20260328-harness-gap-analysis.md
 3. docs/reverse-engineering/20260328/*
-4. actual repository code and tests
-5. existing runtime behaviour
+4. actual code, tests, interfaces, schemas, and runtime behaviour
 
-If the docs and code disagree, do not blindly trust either one.
-Detect the inconsistency, document it, and resolve it carefully.
+If these sources disagree:
+- detect the inconsistency
+- document it
+- resolve it carefully
+- continue
 
-# STRATEGIC PRIORITY
+Do not freeze just because the system is imperfect.
 
-You must follow the migration priority implied by the current gap analysis.
+---
 
-Highest-level strategic rule:
+# STRATEGIC FOCUS
 
-The most important unresolved architectural gap is:
+Do not lose focus on the main architectural flywheel gap:
+
 ## cross-goal failure learning and reusable knowledge propagation
 
-This means the system should eventually be able to:
-- learn from failed or successful goals
-- persist reusable knowledge
-- inject that knowledge into future goal elaboration
-- improve over time instead of repeating the same mistakes
+This is not optional garnish.
+This is central to PonyBunny becoming a real harness-first system.
 
-Do not lose sight of this flywheel.
+You should prefer work that strengthens the system’s ability to:
+- learn from prior failures
+- persist useful knowledge
+- reuse that knowledge across goals
+- reduce repeated mistakes
+- improve future autonomy
+
+When in doubt, bias toward the flywheel.
+
+---
 
 # PHASE EXECUTION ORDER
 
-Default order unless a direct dependency forces a small reordering:
+Unless a direct dependency requires local reordering, drive work in this order:
 
 ## Phase 1 — Immediate Structural Improvements
-1. Add or refine `Known Failure Patterns` section in `CLAUDE.md`
+1. Add or refine `Known Failure Patterns` in `CLAUDE.md`
 2. Complete `pb webui start/stop/status/logs`
 3. Implement `pb work --plan-first`
-4. Explicitly assign `verification_plan` generation responsibility to `planner` in `CLAUDE.md` and align implementation if needed
+4. Explicitly assign `verification_plan` generation to planner and align implementation if needed
 
 ## Phase 2 — Core Harness Flywheel
 5. Implement `global_knowledge` persistence layer
@@ -170,62 +289,101 @@ Default order unless a direct dependency forces a small reordering:
 11. Implement Entropy Agent
 12. Implement Harness Dashboard / cross-goal failure clustering / related observability improvements
 
-Do not jump randomly between phases unless a concrete dependency requires it.
+Do not wander.
+Do not chase side quests.
+Do not “clean up” unrelated things unless they directly block the phase.
 
-# WORKING RULES
+---
 
-You must obey the following at all times:
+# EXECUTION RULES
 
-## Planning and Scope
-- Do not perform broad rewrites without a migration plan.
+## Scope
 - Do not silently expand scope.
-- Do not redesign unrelated modules while fixing a local issue.
-- Do not hide contract changes.
+- Do not broad-rewrite without a migration path.
+- Do not redesign unrelated modules during local work.
 
 ## Verification
-- “Implemented” is not “Verified”.
-- Do not claim something is complete without evidence.
-- Do not mark a phase complete unless acceptance criteria are actually satisfied.
-- If evidence is partial, say so plainly.
+- Implemented is not Verified.
+- Verified requires evidence.
+- Evidence must be concrete, not vibes.
 
-## Architecture and Runtime Safety
-- Preserve auditability and traceability.
-- Preserve or explicitly document lifecycle changes.
-- Preserve existing invariants unless deliberately changed.
-- Prefer explicit contracts over hidden behaviour.
-- Prefer narrow tools and services over vague all-in-one abstractions.
+## Runtime safety
+- Preserve auditability.
+- Preserve traceability.
+- Preserve explicit lifecycle semantics.
+- Surface contract changes.
 
-## Harness Improvement
-- Repeated friction is not “just annoying”; it is a harness bug.
-- If the same kind of mistake or ambiguity repeats, improve the harness.
-- Failed runs, traces, and weak evals are improvement inputs.
+## Delegation integrity
+- Do not bypass required subagents just to move faster.
+- Do not let generator self-certify correctness.
+- Do not let planner directly implement code.
+- Do not let evaluator silently become generator.
+- Do not let the main thread collapse all roles into one pass.
 
-# REQUIRED OUTPUT BEHAVIOUR
+## Harness improvement
+- Repeated friction is a harness bug.
+- Repeated confusion is a harness bug.
+- Repeated rework is a harness bug.
+- If the same pain happens twice, improve the harness.
 
-You must not only describe work.
-You must actually do the work.
+---
 
-At the start of this run:
+# OUTPUT STYLE RULES
 
-1. Read the required files.
-2. Produce a concise but concrete migration execution plan.
-3. Immediately begin execution.
-4. Continue until a true stop condition is reached.
+Your output should be:
 
-Do not wait after planning unless blocked.
+- concise
+- direct
+- execution-oriented
+- low-drama
+- low-redundancy
+
+Do NOT:
+- produce long scene-setting intros
+- over-explain what the repo already says
+- narrate every micro-decision
+- pad with generic reasoning
+
+Use short high-signal summaries, then continue doing work.
+
+---
+
+# START-OF-RUN REQUIREMENT
+
+At the start of this command:
+
+1. Read required files.
+2. Reconstruct current migration state from repository reality.
+3. Produce a concise execution plan for the current run only.
+4. Start implementing immediately.
+5. Continue until a true stop condition is reached.
+
+Do not stop after planning if safe implementation can begin.
+
+---
 
 # REQUIRED CHECKPOINT FORMAT
 
-After each substantial checkpoint, completed phase, or meaningful pause, output a structured handoff using this exact structure:
+After each substantial checkpoint or meaningful pause, output exactly this:
 
 ## HANDOFF
+
+### 0. Delegation used
+- harness-architect: yes / no
+- planner: yes / no
+- generator: yes / no
+- evaluator: yes / no
+- docs-writer: yes / no
+- debugger: yes / no
+- harness-optimizer: yes / no
+
+If any required subagent was not used, explain why.
 
 ### 1. What changed
 - ...
 
 ### 2. Current status
 - proposed / planned / implemented / verified / documented / blocked
-- clearly distinguish which items are only implemented vs actually verified
 
 ### 3. What was verified
 - ...
@@ -242,39 +400,45 @@ After each substantial checkpoint, completed phase, or meaningful pause, output 
 ### 7. Files / docs to read first next time
 - ...
 
-For significant work, also include:
+Also include, where relevant:
 - affected invariants
-- contract changes, if any
-- whether follow-up evaluation is required
+- contract changes
+- required follow-up evaluation
+
+Keep this short and information-dense.
+
+---
 
 # FAILURE HANDLING RULE
 
-If you discover that the current migration plan is wrong or incomplete:
+If the current plan proves partially wrong:
 
-- do not collapse
-- do not thrash
-- do not abandon the overall mission
+Do not thrash.
+Do not abandon progress.
+Do not restart from zero.
 
 Instead:
-1. explain the discovered reality
-2. revise the plan
-3. preserve completed useful work
-4. continue with the corrected next step
+1. identify the discovered reality
+2. preserve useful completed work
+3. revise the plan
+4. continue from the corrected next step
 
-Harness engineering is iterative correction, not fake linear certainty.
+Harness engineering is controlled iteration, not fragile perfectionism.
 
-# SUCCESS CONDITION
+---
 
-Success is NOT:
-- writing a lot of code
-- touching many files
-- reporting apparent progress
+# SUCCESS STANDARD
 
-Success IS:
-- the repository becomes measurably more harness-first
-- changes are structured and recoverable
-- verification quality improves
-- repeated future work becomes easier and safer
-- PonyBunny gets closer to a true self-improving harness system
+Success is not:
+- a lot of talking
+- a lot of file churn
+- a lot of “analysis”
 
-Begin now.
+Success is:
+- the repository is measurably more harness-first
+- work is more verifiable
+- future sessions are easier
+- repeated failures become less likely
+- PonyBunny becomes more self-improving over time
+
+Begin immediately.
