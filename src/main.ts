@@ -14,6 +14,8 @@ import { ElaborationService } from './app/lifecycle/elaboration/elaboration-serv
 import { GlobalKnowledgeService } from './domain/knowledge/index.js';
 import { GoalHarness } from './harness/goal-harness.js';
 import { HarnessDaemon } from './harness/harness-daemon.js';
+import { PostGoalEvaluator } from './harness/post-goal-evaluator.js';
+import { EvaluationService } from './app/lifecycle/evaluation/evaluation-service.js';
 import { getLLMService } from './infra/llm/index.js';
 import type { ILLMProvider } from './infra/llm/llm-provider.js';
 import { MockLLMProvider, LLMRouter } from './infra/llm/llm-provider.js';
@@ -143,6 +145,15 @@ async function main() {
   });
   console.log('[PonyBunny] ✅ GoalHarness initialized');
 
+  // ADR-001 Phase 5: Post-goal evaluation hook
+  const evaluationService = new EvaluationService(repository);
+  const postGoalEvaluator = new PostGoalEvaluator({
+    schedulerCore: scheduler,
+    evaluationService,
+    repository,
+  });
+  console.log('[PonyBunny] ✅ PostGoalEvaluator initialized');
+
   // ADR-001: Create HarnessDaemon (polling loop feeding GoalHarness)
   const daemon = new HarnessDaemon(
     repository,
@@ -150,7 +161,8 @@ async function main() {
     {
       maxConcurrentGoals: 2,
       pollingIntervalMs: 5000,
-    }
+    },
+    postGoalEvaluator,
   );
   console.log('[PonyBunny] ✅ HarnessDaemon initialized\n');
 

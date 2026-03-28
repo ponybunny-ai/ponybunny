@@ -15,3 +15,10 @@ export type { GoalHarnessDependencies } from './goal-harness.js';
 
 export { HarnessDaemon } from './harness-daemon.js';
 export type { HarnessDaemonConfig } from './harness-daemon.js';
+
+export { PostGoalEvaluator } from './post-goal-evaluator.js';
+export type {
+  PostGoalEvaluatorDependencies,
+  WorkItemEvaluation,
+  GoalEvaluationReport,
+} from './post-goal-evaluator.js';

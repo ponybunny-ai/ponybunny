@@ -21,6 +21,8 @@ import { PlanningService } from '../../app/lifecycle/planning/planning-service.j
 import { GlobalKnowledgeService } from '../../domain/knowledge/index.js';
 import { GoalHarness } from '../../harness/goal-harness.js';
 import type { IGoalHarness } from '../../harness/goal-harness-interface.js';
+import { PostGoalEvaluator } from '../../harness/post-goal-evaluator.js';
+import { EvaluationService } from '../../app/lifecycle/evaluation/evaluation-service.js';
 
 export interface DefaultSchedulerDaemonRuntimeConfig {
   tickIntervalMs?: number;
@@ -165,4 +167,29 @@ export function assembleGoalHarness(
 
   console.log('[GoalHarness Assembly] GoalHarness assembled successfully');
   return harness;
+}
+
+/**
+ * ADR-001 Phase 5: Assemble PostGoalEvaluator for post-goal evaluation hooks.
+ *
+ * Subscribes to SchedulerCore goal_completed/goal_failed events and evaluates
+ * work item outcomes via EvaluationService.
+ */
+export interface PostGoalEvaluatorAssemblyDependencies {
+  repository: IWorkOrderRepository;
+  scheduler: SchedulerCore;
+}
+
+export function assemblePostGoalEvaluator(
+  deps: PostGoalEvaluatorAssemblyDependencies
+): PostGoalEvaluator {
+  const evaluationService = new EvaluationService(deps.repository);
+  const evaluator = new PostGoalEvaluator({
+    schedulerCore: deps.scheduler,
+    evaluationService,
+    repository: deps.repository,
+  });
+
+  console.log('[PostGoalEvaluator Assembly] PostGoalEvaluator assembled successfully');
+  return evaluator;
 }

@@ -13,6 +13,7 @@ import type { RuntimeToolingContext } from '../runtime/tooling-context/index.js'
 import type { SchedulerEvent } from '../scheduler/types.js';
 import type { DebugEvent } from '../debug/types.js';
 import type { IGoalHarness } from '../harness/goal-harness-interface.js';
+import type { PostGoalEvaluator } from '../harness/post-goal-evaluator.js';
 import { LocalExecutionWorker } from '../runtime/workers/index.js';
 import { SchedulerCore } from '../scheduler/core/index.js';
 import { IPCClient } from '../ipc/ipc-client.js';
@@ -30,6 +31,7 @@ import { reconcileEventedStartupCandidates } from './evented-startup-reconciliat
 import {
   createDefaultSchedulerDaemonRuntime,
   createSchedulerDaemonSessionIntake,
+  assemblePostGoalEvaluator,
 } from './bootstrap/default-daemon-runtime.js';
 import { prepareDaemonActivation } from './daemon-activation-preparation.js';
 import { startDaemonRecurringStartup } from './daemon-recurring-startup.js';
@@ -96,6 +98,7 @@ export class SchedulerDaemon {
   private schedulerEventEnvelopeResolver: SchedulerEventEnvelopeResolver;
   private executionWorker: LocalExecutionWorker | null = null;
   private startupReconciliationSummary: EventedStartupReconciliationSummary | null = null;
+  private postGoalEvaluator: PostGoalEvaluator | null = null;
 
   constructor(
     repository: IWorkOrderRepository,
@@ -216,6 +219,13 @@ export class SchedulerDaemon {
       // Start scheduler
       await this.scheduler.start();
 
+      // ADR-001 Phase 5: Start post-goal evaluation hook
+      this.postGoalEvaluator = assemblePostGoalEvaluator({
+        repository: this.repository,
+        scheduler: this.scheduler,
+      });
+      this.postGoalEvaluator.start();
+
       await this.recoverQueuedGoals();
 
       this.isRunning = true;
@@ -246,6 +256,8 @@ export class SchedulerDaemon {
       }
       this.retentionDispatchActive = false;
       this.agentScheduler = null;
+      this.postGoalEvaluator?.stop();
+      this.postGoalEvaluator = null;
       this.executionWorker?.stop();
       this.executionWorker = null;
       if (this.controlServer) {
@@ -289,6 +301,12 @@ export class SchedulerDaemon {
     if (this.memoryDb) {
       this.memoryDb.close();
       this.memoryDb = null;
+    }
+
+    // ADR-001 Phase 5: Stop post-goal evaluation hook before scheduler
+    if (this.postGoalEvaluator) {
+      this.postGoalEvaluator.stop();
+      this.postGoalEvaluator = null;
     }
 
     // Stop scheduler

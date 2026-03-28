@@ -11,6 +11,7 @@
 
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
 import type { IGoalHarness } from './goal-harness-interface.js';
+import type { PostGoalEvaluator } from './post-goal-evaluator.js';
 
 export interface HarnessDaemonConfig {
   pollingIntervalMs: number;
@@ -25,7 +26,8 @@ export class HarnessDaemon {
   constructor(
     private readonly repository: IWorkOrderRepository,
     private readonly goalHarness: IGoalHarness,
-    private readonly config: HarnessDaemonConfig
+    private readonly config: HarnessDaemonConfig,
+    private readonly postGoalEvaluator?: PostGoalEvaluator,
   ) {}
 
   async start(): Promise<void> {
@@ -34,6 +36,7 @@ export class HarnessDaemon {
     }
 
     await this.repository.initialize();
+    this.postGoalEvaluator?.start();
     this.isRunning = true;
     console.log('[HarnessDaemon] Started');
     await this.mainLoop();
@@ -45,6 +48,7 @@ export class HarnessDaemon {
     }
 
     this.isRunning = false;
+    this.postGoalEvaluator?.stop();
     if (this.pollingTimer) {
       clearTimeout(this.pollingTimer);
       this.pollingTimer = undefined;
