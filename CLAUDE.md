@@ -43,11 +43,20 @@ pb service stop all        # Stop all
 PONY_DB_PATH=./pony.db node dist/main.js  # Run daemon directly
 ```
 
+### Web Frontend (`web/`)
+
+Separate Next.js 16 app with Tailwind 4 + shadcn/ui. Has its own `package.json` and `node_modules`.
+
+```bash
+cd web && npm run dev      # Dev server
+cd web && npm run build    # Production build
+```
+
 ## Architecture
 
 ```
-CLI/TUI → Gateway (WebSocket) → Scheduler (Orchestration) → LLM Providers / Tools
-                               → SQLite (Goals, Runs, Artifacts)
+CLI/TUI → Gateway (WebSocket :18789) → IPC (Unix socket) → Scheduler → LLM Providers / Tools
+                                                          → SQLite (Goals, Runs, Artifacts)
 ```
 
 **Hexagonal Architecture** with strict layer rules:
@@ -57,18 +66,40 @@ CLI/TUI → Gateway (WebSocket) → Scheduler (Orchestration) → LLM Providers 
 | **Domain** | `src/domain/` | Pure business logic — types, state machine, skill definitions. **NEVER imports from app/infra/gateway/scheduler.** |
 | **App** | `src/app/` | Application services, defines interfaces (ports) |
 | **Infra** | `src/infra/` | Infrastructure adapters — SQLite, LLM providers, tools, MCP, config |
-| **Gateway** | `src/gateway/` | WebSocket server, auth, connection management, message routing |
-| **Scheduler** | `src/scheduler/` | Task orchestration, model/lane selection, 8-phase agent lifecycle |
+| **Gateway** | `src/gateway/` | WebSocket server, auth, connection management, message routing, RPC handlers |
+| **Scheduler** | `src/scheduler/` | Task orchestration, model/lane selection, budget tracking, quality gates |
 | **Runtime** | `src/runtime/` | Execution engine — worker, tool, and conversation boundaries |
 | **Autonomy** | `src/autonomy/` | ReAct loop integration, daemon mode |
 | **CLI** | `src/cli/` | Commander.js commands + Ink (React) terminal UI |
 | **IPC** | `src/ipc/` | Inter-process communication (Unix socket between Gateway and Scheduler) |
 
+### IPC Layer (Gateway ↔ Scheduler)
+
+Gateway and Scheduler communicate via Unix domain socket (`/tmp/ponybunny-ipc.sock`) using line-delimited JSON. The IPC server runs in Gateway; the IPC client runs in Scheduler Daemon.
+
+Key message types: `scheduler_event`, `session_event`, `debug_event`, `scheduler_command` (with `requestId` for request/response). The client auto-reconnects with exponential backoff (1s → 30s) and buffers up to 1000 messages during disconnection.
+
+### State Machine
+
+State transitions are validated via `src/domain/work-order/state-machine.ts` before any status update:
+
+- **Goal**: `queued → active → completed` (or `cancelled` from queued/active/blocked; `blocked ↔ active`)
+- **WorkItem**: `queued → ready → in_progress → verify → done` (with `failed → ready` retry path; `blocked` from queued/ready/in_progress/failed)
+- **Run**: `running → success|failure|timeout|aborted` (all terminal)
+
 ### 8-Phase Autonomous Lifecycle
+
 Intake → Elaboration → Planning → Execution → Verification → Evaluation → Publish → Monitor
 
-### Web Frontend
-`web/` is a separate Next.js 16 app with Tailwind 4 + shadcn/ui. Has its own `package.json` and `node_modules`.
+### Execution Lanes
+
+The Scheduler assigns work items to lanes: `main` (primary, max 5), `subagent` (max 3), `cron` (scheduled, max 2), `session` (interactive, unlimited).
+
+### LLM Provider System
+
+Two selection modes:
+- **Agent-based**: `getLLMProviderManager()` → `manager.complete('execution', messages)` — maps lifecycle phases to models
+- **Tier-based**: `LLMService` → `service.getModelForTier('complex')` — simple/medium/complex tiers with primary + fallback chains
 
 ## Critical Code Conventions
 
@@ -96,7 +127,7 @@ All debug `console` output **must** be gated by debug flag helpers from `src/inf
 import { isPonyBunnyDebugEnabled } from '../infra/config/debug-flags.js';
 if (isPonyBunnyDebugEnabled()) { console.log('[Module] ...'); }
 ```
-Never read `process.env.PONY_BUNNY_DEBUG` directly in feature modules. Operational errors (`console.error`) must NOT be gated.
+Additional helpers: `isDebugLoggingEnabled()` (legacy compat), `isAntigravityDebugEnabled()` (Antigravity traces). Never read `process.env.PONY_BUNNY_DEBUG` directly in feature modules. Operational errors (`console.error`) must NOT be gated.
 
 ## Testing Conventions
 
@@ -108,7 +139,7 @@ jest.mock('../../../src/infra/config/credentials-loader.js', () => ({
 }));
 ```
 
-Jest uses `ts-jest` ESM preset. Module mapper converts `.js` → `.ts` for test resolution. Setup file: `test/jest-setup.ts`.
+Jest uses `ts-jest` ESM preset. Module mapper converts `.js` → `.ts` for test resolution. Setup file: `test/jest-setup.ts`. Tests live in `test/` (mirroring `src/` structure) and also alongside source in `src/**/*.test.ts`.
 
 ## Configuration Change Coupling (Mandatory)
 
