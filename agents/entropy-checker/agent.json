@@ -1,0 +1,125 @@
+{
+    "$schema": "https://ponybunny.dho.ai/schemas/agent.schema.json",
+    "schemaVersion": 1,
+    "id": "entropy-checker",
+    "name": "Entropy Checker",
+    "description": "Periodic documentation-code drift detection",
+    "enabled": true,
+    "type": "harness",
+    "subAgents": [],
+    "schedule": {
+        "enabled": true,
+        "everyMs": 604800000,
+        "jitterMs": 60000,
+        "timezone": "Europe/London",
+        "catchUp": {
+            "mode": "coalesce",
+            "maxReplayTicks": 1
+        },
+        "windows": [
+            {
+                "days": ["mon"],
+                "start": "03:00",
+                "end": "05:00"
+            }
+        ]
+    },
+    "policy": {
+        "toolAllowlist": [
+            "read_file",
+            "list_dir",
+            "search_code"
+        ],
+        "toolDenylist": [
+            "write_file",
+            "execute_command",
+            "web_search"
+        ],
+        "skills": {
+            "available": [],
+            "denied": [
+                "playwright",
+                "dev-browser"
+            ]
+        },
+        "mcp": {
+            "available": [],
+            "denied": [
+                "playwright.*",
+                "filesystem.write_file"
+            ]
+        },
+        "forbiddenPatterns": [
+            {
+                "pattern": "write",
+                "description": "Entropy checker is read-only",
+                "severity": "high"
+            },
+            {
+                "pattern": "delete",
+                "description": "Entropy checker must not delete anything",
+                "severity": "high"
+            },
+            {
+                "pattern": "execute",
+                "description": "Entropy checker must not execute commands",
+                "severity": "high"
+            }
+        ],
+        "prompts": {
+            "consistency_check": "You are the Entropy Checker agent for PonyBunny. Your role is to detect drift between documentation, configuration, and code implementation. Check the following dimensions of consistency:\n\n1. CLAUDE.md sub-agent roles vs .claude/commands/ skill files — verify each role listed in CLAUDE.md has a corresponding skill definition, and vice versa.\n2. docs/reverse-engineering/ API descriptions vs src/gateway/rpc/ handler implementations — verify documented endpoints match actual code.\n3. docs/schemas/ JSON schemas vs src/infra/config/ actual configuration structures — verify schema definitions match runtime types.\n4. Agent persona configs in agents/ vs agent-registry expectations — verify all enabled agents have valid configs.\n5. Known Failure Patterns section in CLAUDE.md — verify any referenced files, functions, or PRs still exist.\n\nFor each inconsistency found, produce a structured report with:\n- dimension: which check category\n- severity: low | medium | high\n- description: what is inconsistent\n- location: file paths involved\n- recommendation: suggested fix\n\nReturn ONLY valid JSON array of inconsistency objects. If no inconsistencies found, return an empty array []."
+        },
+        "limits": {
+            "max_tokens": 30000,
+            "max_files_scanned": 200,
+            "max_report_items": 50
+        },
+        "approval": {
+            "required": false
+        },
+        "privacy": {
+            "redactPiiByDefault": false
+        }
+    },
+    "runner": {
+        "engine": "default",
+        "entrypoint": "agents.entropy-checker.run",
+        "config": {
+            "tick_defaults": {
+                "max_events_per_tick": 50,
+                "default_lookback_window": "7d"
+            },
+            "circuit_breaker": {
+                "failure_threshold": 3,
+                "backoff_minutes": 120
+            },
+            "check_dimensions": [
+                "claude_md_roles_vs_skills",
+                "reverse_eng_docs_vs_rpc",
+                "schemas_vs_config",
+                "agent_configs_validity",
+                "failure_patterns_freshness"
+            ],
+            "thresholds": {
+                "escalation_on_high_severity": true,
+                "max_drift_score": 50
+            }
+        }
+    },
+    "ui": {
+        "icon": "shield-check",
+        "accent": "#7C3AED",
+        "order": 20,
+        "group": "harness"
+    },
+    "tags": [
+        "harness",
+        "entropy",
+        "consistency",
+        "drift-detection"
+    ],
+    "meta": {
+        "auditable": true,
+        "founderFacing": false
+    }
+}

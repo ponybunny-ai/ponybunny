@@ -110,6 +110,64 @@ describe('PlanningService', () => {
     expect(result.workItems).toHaveLength(2);
   });
 
+  test('should include global knowledge in LLM prompt when provided', async () => {
+    mockRepo.getReadyWorkItems.mockReturnValue([]);
+
+    const mockKnowledge = {
+      getRelevantKnowledge: jest.fn().mockImplementation((opts: any) => {
+        if (opts.knowledgeType === 'pitfall') {
+          return [{ content: 'Never call eval()' }];
+        }
+        if (opts.knowledgeType === 'pattern') {
+          return [{ content: 'Use dependency injection' }];
+        }
+        return [];
+      }),
+    };
+
+    const serviceWithKnowledge = new PlanningService(
+      mockRepo as unknown as IWorkOrderRepository,
+      mockLLM as unknown as ILLMProvider,
+      undefined,
+      undefined,
+      mockKnowledge as any
+    );
+
+    const mockPlan = [{
+      id: 'temp-1',
+      title: 'Task',
+      description: 'D',
+      item_type: 'code',
+      priority: 50,
+      estimated_effort: 'S',
+      dependencies: [],
+      verification_plan: { quality_gates: [], acceptance_criteria: [] }
+    }];
+
+    mockLLM.complete.mockResolvedValue({
+      content: JSON.stringify(mockPlan),
+      tokensUsed: 100,
+      model: 'test-model',
+      finishReason: 'stop'
+    } as any);
+
+    mockRepo.createWorkItem.mockImplementation((params: any) => ({
+      id: 'real-1',
+      ...params,
+    }));
+
+    await serviceWithKnowledge.planWorkItems(mockGoal);
+
+    // Verify LLM was called and the prompt contains the knowledge sections
+    expect(mockLLM.complete).toHaveBeenCalled();
+    const llmCallArgs = mockLLM.complete.mock.calls[0];
+    const messages = llmCallArgs[0] as any[];
+    const userMessage = messages.find((m: any) => m.role === 'user');
+    expect(userMessage.content).toContain('GLOBAL KNOWLEDGE');
+    expect(userMessage.content).toContain('Never call eval()');
+    expect(userMessage.content).toContain('Use dependency injection');
+  });
+
   test('should detect cyclic dependencies', async () => {
     mockRepo.getReadyWorkItems.mockReturnValue([]);
 

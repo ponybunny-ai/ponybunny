@@ -5,7 +5,7 @@ description: Continue PonyBunny's harness-first migration autonomously from the 
 Read and follow the repository-root CLAUDE.md as the operating constitution for this repository.
 
 Then read and treat the following file as the active migration brief and roadmap:
-docs/plans/20260328-harness-gap-analysis.md
+docs/plans/2026-03-28-harness-gap-analysis.md
 
 You are not here to merely assist with coding.
 You are here to autonomously and continuously move PonyBunny toward a harness-first system, following the architecture, discipline, and phased migration model defined by the repository constitution and the migration brief.
@@ -123,7 +123,7 @@ Keep the role boundaries explicit in your reasoning and output.
 Use the following precedence order when deciding what to do:
 
 1. CLAUDE.md
-2. docs/plans/20260328-harness-gap-analysis.md
+2. docs/plans/2026-03-28-harness-gap-analysis.md
 3. docs/reverse-engineering/20260328/*
 4. actual repository code and tests
 5. existing runtime behaviour

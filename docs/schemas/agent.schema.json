@@ -722,6 +722,78 @@
         }
       ]
     },
+    "harnessRunnerConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tick_defaults",
+        "circuit_breaker"
+      ],
+      "properties": {
+        "tick_defaults": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max_events_per_tick",
+            "default_lookback_window"
+          ],
+          "properties": {
+            "max_events_per_tick": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "default_lookback_window": {
+              "type": "string",
+              "pattern": "^[0-9]+[smhd]$"
+            }
+          }
+        },
+        "circuit_breaker": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "failure_threshold",
+            "backoff_minutes"
+          ],
+          "properties": {
+            "failure_threshold": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "backoff_minutes": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "check_dimensions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{1,63}$"
+          },
+          "description": "Consistency check dimensions to evaluate"
+        },
+        "thresholds": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "maxLength": 100
+              }
+            ]
+          }
+        }
+      }
+    },
     "genericRunnerConfig": {
       "$ref": "#/$defs/runnerConfigBase"
     },
@@ -847,6 +919,25 @@
           }
         },
         {
+          "description": "Harness / internal analysis agent",
+          "properties": {
+            "type": {
+              "const": "harness"
+            },
+            "runner": {
+              "type": "object",
+              "properties": {
+                "config": {
+                  "$ref": "#/$defs/harnessRunnerConfig"
+                }
+              },
+              "required": [
+                "config"
+              ]
+            }
+          }
+        },
+        {
           "description": "Fallback for future PonyBunny-compatible agent types",
           "properties": {
             "type": {
@@ -856,7 +947,8 @@
                   "growth",
                   "delivery",
                   "compliance",
-                  "support_ops"
+                  "support_ops",
+                  "harness"
                 ]
               }
             },
