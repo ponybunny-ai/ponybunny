@@ -466,9 +466,30 @@ CREATE TABLE IF NOT EXISTS cron_job_runs (
 
 CREATE INDEX IF NOT EXISTS idx_cron_job_runs_agent_scheduled ON cron_job_runs(agent_id, scheduled_for_ms);
 
+-- ============================================================================
+-- Global Knowledge — cross-goal failure learning and reusable knowledge
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS global_knowledge (
+    id TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL,
+    source_goal_id TEXT,
+    source_context_pack_id TEXT,
+    knowledge_type TEXT NOT NULL CHECK(knowledge_type IN ('pitfall', 'pattern', 'approach', 'decision')),
+    domain_tags TEXT,               -- JSON array: ["typescript", "api", "testing"]
+    content TEXT NOT NULL,
+    confidence REAL DEFAULT 0.5,    -- Rises with occurrence_count
+    occurrence_count INTEGER DEFAULT 1,
+    last_reinforced_at INTEGER NOT NULL,
+    FOREIGN KEY(source_goal_id) REFERENCES goals(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_global_knowledge_type ON global_knowledge(knowledge_type);
+CREATE INDEX IF NOT EXISTS idx_global_knowledge_confidence ON global_knowledge(confidence DESC);
+CREATE INDEX IF NOT EXISTS idx_global_knowledge_source_goal ON global_knowledge(source_goal_id);
+
 -- Update schema version
 INSERT OR REPLACE INTO meta (key, value, updated_at)
-VALUES ('schema_version', '1.3.0', strftime('%s', 'now') * 1000);
+VALUES ('schema_version', '1.4.0', strftime('%s', 'now') * 1000);
 
 -- Initialize schema version
 INSERT OR IGNORE INTO meta (key, value, updated_at)

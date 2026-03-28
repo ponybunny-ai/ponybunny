@@ -4,6 +4,7 @@ import type { IPlanningService, PlanningResult } from '../stage-interfaces.js';
 import type { ILLMProvider } from '../../../infra/llm/llm-provider.js';
 import type { IModelSelector } from '../../../scheduler/model-selector/types.js';
 import type { RuntimeToolingContext } from '../../../runtime/tooling-context/index.js';
+import type { GlobalKnowledgeService } from '../../../domain/knowledge/index.js';
 import { PromptProvider } from '../../../infra/prompts/prompt-provider.js';
 import { ModelSelector } from '../../../scheduler/model-selector/model-selector.js';
 import { getLegacyCompatiblePromptProvider } from '../../../infra/prompts/legacy-prompt-tooling-compatibility.js';
@@ -22,16 +23,19 @@ interface PlannedItem {
 export class PlanningService implements IPlanningService {
   private modelSelector: IModelSelector;
   private promptProvider: PromptProvider;
+  private globalKnowledge?: GlobalKnowledgeService;
 
   constructor(
     private repository: IWorkOrderRepository,
     private llmProvider: ILLMProvider,
     modelSelector?: IModelSelector,
-    runtimeToolingContext?: RuntimeToolingContext
+    runtimeToolingContext?: RuntimeToolingContext,
+    globalKnowledge?: GlobalKnowledgeService
   ) {
     this.modelSelector = modelSelector ?? new ModelSelector();
     this.promptProvider = runtimeToolingContext?.getPromptProvider()
       ?? getLegacyCompatiblePromptProvider(() => new PromptProvider());
+    this.globalKnowledge = globalKnowledge;
   }
 
   async planWorkItems(goal: Goal): Promise<PlanningResult> {
@@ -89,10 +93,37 @@ export class PlanningService implements IPlanningService {
       spentTokens: goal.spent_tokens,
     });
 
+    // Inject known pitfalls and patterns from global knowledge (if available)
+    let knowledgeSection = '';
+    if (this.globalKnowledge) {
+      try {
+        const pitfalls = this.globalKnowledge.getRelevantKnowledge({ knowledgeType: 'pitfall', limit: 5, minConfidence: 0.3 });
+        const patterns = this.globalKnowledge.getRelevantKnowledge({ knowledgeType: 'pattern', limit: 3, minConfidence: 0.3 });
+        const approaches = this.globalKnowledge.getRelevantKnowledge({ knowledgeType: 'approach', limit: 3, minConfidence: 0.3 });
+
+        const sections: string[] = [];
+        if (pitfalls.length > 0) {
+          sections.push('Known Pitfalls (avoid these):\n' + pitfalls.map(p => `- ${p.content}`).join('\n'));
+        }
+        if (patterns.length > 0) {
+          sections.push('Known Patterns:\n' + patterns.map(p => `- ${p.content}`).join('\n'));
+        }
+        if (approaches.length > 0) {
+          sections.push('Proven Approaches:\n' + approaches.map(a => `- ${a.content}`).join('\n'));
+        }
+
+        if (sections.length > 0) {
+          knowledgeSection = '\n\n--- GLOBAL KNOWLEDGE (from previous goals) ---\n' + sections.join('\n\n') + '\n--- END GLOBAL KNOWLEDGE ---\n';
+        }
+      } catch {
+        // global_knowledge table may not exist yet — graceful degradation
+      }
+    }
+
     const userPrompt = `Goal Title: ${goal.title}
 Goal Description: ${goal.description}
 Budget Tokens: ${goal.budget_tokens || 'N/A'}
-
+${knowledgeSection}
 Break this down into execution steps.
 
 Output format: JSON array of objects.

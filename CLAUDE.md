@@ -57,6 +57,7 @@ Use the appropriate subagent whenever the task clearly matches its role:
 
 - architecture, harness boundaries, migration strategy -> harness-architect
 - phase planning, milestone breakdown, dependency sequencing -> planner
+- verification plan generation for work items -> planner
 - implementation of an approved narrow scope -> generator
 - validation, checks, acceptance review, regression analysis -> evaluator
 - runtime failure analysis and root-cause work -> debugger
@@ -190,3 +191,12 @@ Claude Code should help turn PonyBunny into a harness-first system by:
 - making failures easier to diagnose
 - making future sessions easier to continue
 - improving the development harness itself over time
+
+---
+
+## Known Failure Patterns (Accumulated)
+
+<!-- Each time an Agent makes a mistake that is fixed, append a rule here.
+     Format: - [YYYY-MM-DD] Problem description → Prevention measure → Related PR/commit
+     This section starts empty and grows through real failures. Combined with
+     the `pb learn` pipeline (when available), entries can be semi-automatically proposed. -->
