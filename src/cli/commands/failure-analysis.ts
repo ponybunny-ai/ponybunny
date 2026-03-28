@@ -104,13 +104,14 @@ export const failureAnalysisCommand = new Command('failure-analysis')
       const goalStatsQuery = goalId
         ? `SELECT g.id, g.title, g.status,
              (SELECT COUNT(*) FROM runs r WHERE r.goal_id = g.id) as total_runs,
-             (SELECT COUNT(*) FROM runs r WHERE r.goal_id = g.id AND r.status = 'failed') as failed_runs
+             (SELECT COUNT(*) FROM runs r WHERE r.goal_id = g.id AND r.status = 'failure') as failed_runs
            FROM goals g WHERE g.id = ?`
-        : `SELECT g.id, g.title, g.status,
-             (SELECT COUNT(*) FROM runs r WHERE r.goal_id = g.id) as total_runs,
-             (SELECT COUNT(*) FROM runs r WHERE r.goal_id = g.id AND r.status = 'failed') as failed_runs
-           FROM goals g
-           HAVING total_runs > 0
+        : `SELECT * FROM (
+             SELECT g.id, g.title, g.status,
+               (SELECT COUNT(*) FROM runs r WHERE r.goal_id = g.id) as total_runs,
+               (SELECT COUNT(*) FROM runs r WHERE r.goal_id = g.id AND r.status = 'failure') as failed_runs
+             FROM goals g
+           ) WHERE total_runs > 0
            ORDER BY failed_runs DESC
            LIMIT ?`;
       const goalParams = goalId ? [goalId] : [limit];

@@ -1,5 +1,5 @@
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
-import type { IExecutionService, IVerificationService, IEvaluationService, IPlanningService } from '../app/lifecycle/stage-interfaces.js';
+import type { IExecutionService, IVerificationService, IEvaluationService, IPlanningService, IElaborationService } from '../app/lifecycle/stage-interfaces.js';
 import type { WorkItem, Goal } from '../work-order/types/index.js';
 
 export interface AutonomyDaemonConfig {
@@ -18,7 +18,8 @@ export class AutonomyDaemon {
     private executionService: IExecutionService,
     private verificationService: IVerificationService,
     private evaluationService: IEvaluationService,
-    private config: AutonomyDaemonConfig
+    private config: AutonomyDaemonConfig,
+    private elaborationService?: IElaborationService
   ) {}
 
   async start(): Promise<void> {
@@ -71,12 +72,30 @@ export class AutonomyDaemon {
 
   private async processQueuedGoals(): Promise<void> {
     const queuedGoals = this.repository.listGoals({ status: 'queued' });
-    
+
     for (const goal of queuedGoals) {
       try {
+        // Elaboration step: enrich goal context before planning
+        if (this.elaborationService) {
+          console.log(`[AutonomyDaemon] Elaborating goal: ${goal.title} (${goal.id})`);
+          const elaboration = await this.elaborationService.elaborateGoal(goal);
+
+          if (elaboration.clarifications.length > 0) {
+            console.log(`[AutonomyDaemon] Elaboration clarifications for goal ${goal.id}:`);
+            for (const clarification of elaboration.clarifications) {
+              console.log(`  - ${clarification}`);
+            }
+          }
+
+          if (elaboration.escalations.length > 0) {
+            console.warn(`[AutonomyDaemon] Elaboration escalated goal ${goal.id} (${elaboration.escalations.length} issue(s)) - skipping planning`);
+            continue;
+          }
+        }
+
         console.log(`[AutonomyDaemon] Planning goal: ${goal.title} (${goal.id})`);
         const plan = await this.planningService.planWorkItems(goal);
-        
+
         if (plan.workItems.length > 0) {
           console.log(`[AutonomyDaemon] Plan created with ${plan.workItems.length} work items`);
           this.repository.updateGoalStatus(goal.id, 'active');

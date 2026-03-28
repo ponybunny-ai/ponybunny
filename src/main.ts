@@ -4,6 +4,7 @@ import { ExecutionService } from './app/lifecycle/execution/execution-service.js
 import { VerificationService } from './app/lifecycle/verification/verification-service.js';
 import { EvaluationService } from './app/lifecycle/evaluation/evaluation-service.js';
 import { PlanningService } from './app/lifecycle/planning/planning-service.js';
+import { ElaborationService } from './app/lifecycle/elaboration/elaboration-service.js';
 import { GlobalKnowledgeService } from './domain/knowledge/index.js';
 import { getLLMService } from './infra/llm/index.js';
 import type { ILLMProvider } from './infra/llm/llm-provider.js';
@@ -109,7 +110,10 @@ async function main() {
   console.log('[PonyBunny] ✅ Verification Service initialized');
 
   const evaluationService = new EvaluationService(repository);
-  console.log('[PonyBunny] ✅ Evaluation Service initialized\n');
+  console.log('[PonyBunny] ✅ Evaluation Service initialized');
+
+  const elaborationService = new ElaborationService(repository, globalKnowledge);
+  console.log('[PonyBunny] ✅ Elaboration Service initialized\n');
 
   const daemon = new AutonomyDaemon(
     repository,
@@ -120,7 +124,8 @@ async function main() {
     {
       maxConcurrentRuns: 2,
       pollingIntervalMs: 5000,
-    }
+    },
+    elaborationService
   );
 
   process.on('SIGINT', () => {

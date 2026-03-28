@@ -324,6 +324,34 @@ export const commands: CommandDefinition[] = [
     usage: '/workstream',
   },
 
+  // Service management
+  {
+    name: 'webui',
+    aliases: ['web', 'ui'],
+    group: 'System',
+    description: 'Manage the PonyBunny Web UI (start/stop/status/logs)',
+    usage: '/webui <start|stop|status|logs> [--port <port>]',
+    args: [{ name: 'subcommand', required: true, description: 'start, stop, status, or logs' }],
+  },
+
+  // Harness commands
+  {
+    name: 'learn',
+    aliases: ['kn'],
+    group: 'System',
+    description: 'Extract knowledge from goals into the global knowledge base',
+    usage: '/learn [--goal <goal-id>] [--all] [--dry-run]',
+    args: [{ name: 'options', required: false, description: 'Goal ID, --all, or --dry-run' }],
+  },
+  {
+    name: 'failure-analysis',
+    aliases: ['fa'],
+    group: 'System',
+    description: 'Analyze failure patterns across goals',
+    usage: '/failure-analysis [--top <n>] [--goal <goal-id>]',
+    args: [{ name: 'options', required: false, description: 'Top N or goal filter' }],
+  },
+
   // Utility commands
   {
     name: 'clear',

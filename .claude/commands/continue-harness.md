@@ -1,5 +1,5 @@
 ---
-description: Aggressively continue PonyBunny's harness-first migration using mandatory subagent delegation, minimal interruption, and maximum bounded forward progress
+description: Aggressively continue PonyBunny's harness-first migration using explicit subagent invocation, minimal interruption, and maximum bounded forward progress
 ---
 
 Read and obey the repository-root CLAUDE.md as the operating constitution for this repository.
@@ -140,20 +140,32 @@ Do not stop while safe blocked-mode work remains.
 
 ---
 
-# MANDATORY SUBAGENT DELEGATION PROTOCOL
+# EXPLICIT SUBAGENT INVOCATION PROTOCOL
 
-You must explicitly delegate non-trivial work to the appropriate subagent.
+You must explicitly invoke the appropriate subagent for non-trivial work.
 
-Subagents are not optional suggestions in this repository.
-They are part of the working harness.
+Do not merely “act as if” you used the subagent.
+Do not silently perform the work in the main thread if a subagent is required.
+
+Subagents are part of the harness and must be used as actual delegated workers.
 
 ## Hard rule
 
-Do NOT perform architecture framing, planning, implementation, verification, debugging, harness optimisation, and documentation as one undifferentiated pass in the main thread.
+For any non-trivial step, explicitly delegate using clear invocation language in this form:
 
-For any meaningful task, you must route work through the appropriate subagent unless the task is trivial and local.
+- Use the harness-architect subagent to ...
+- Use the planner subagent to ...
+- Use the generator subagent to ...
+- Use the evaluator subagent to ...
+- Use the docs-writer subagent to ...
+- Use the debugger subagent to ...
+- Use the harness-optimizer subagent to ...
 
-A task is considered non-trivial if it involves any of the following:
+Do not keep this implicit.
+
+## Non-trivial work requires explicit subagent invocation
+
+A task is non-trivial if it involves any of the following:
 - architecture or boundary decisions
 - task or phase planning
 - multi-file implementation
@@ -163,18 +175,21 @@ A task is considered non-trivial if it involves any of the following:
 - documentation or ADR updates
 - repeated friction or process correction
 
-If the task is non-trivial, subagent delegation is mandatory.
+If the task is non-trivial, explicit subagent invocation is mandatory.
 
-## Required delegation mapping
+## Required invocation mapping
 
-### harness-architect — mandatory for:
+### harness-architect — explicitly invoke for:
 - migration framing
 - architecture decisions
 - invariants
 - boundaries
 - sequencing of structural changes
 
-### planner — mandatory for:
+Invocation pattern:
+Use the harness-architect subagent to analyse the current repository state, identify invariants and boundaries, and produce the architecture-safe migration framing for this step.
+
+### planner — explicitly invoke for:
 - phase planning
 - task decomposition
 - dependency ordering
@@ -182,37 +197,55 @@ If the task is non-trivial, subagent delegation is mandatory.
 - verification planning
 - handoff output structure
 
-### generator — mandatory for:
+Invocation pattern:
+Use the planner subagent to break this work into executable tasks with dependencies, acceptance criteria, verification points, and handoff expectations.
+
+### generator — explicitly invoke for:
 - non-trivial implementation
 - multi-file code changes
 - contract-preserving refactors
 - scaffolded forward movement
 
-### evaluator — mandatory for:
+Invocation pattern:
+Use the generator subagent to implement the approved scope only, preserving invariants and avoiding scope drift.
+
+### evaluator — explicitly invoke for:
 - determining whether work is actually verified
 - acceptance judgement
 - regression analysis
 - evidence quality review
 - deciding whether a phase is complete
 
-### docs-writer — mandatory for:
+Invocation pattern:
+Use the evaluator subagent to determine whether this work is actually verified, including acceptance criteria, regression risk, and evidence quality.
+
+### docs-writer — explicitly invoke for:
 - ADRs
 - migration notes
 - structured handoff notes
 - technical documentation updates after meaningful changes
 
-### debugger — mandatory for:
+Invocation pattern:
+Use the docs-writer subagent to update the relevant handoff notes, ADRs, migration notes, or technical documentation for this change.
+
+### debugger — explicitly invoke for:
 - runtime failure analysis
 - execution divergence
 - invalid transitions
 - unclear behavioural breakage
 
-### harness-optimizer — mandatory for:
+Invocation pattern:
+Use the debugger subagent to reconstruct the failure path, identify the first bad transition, and propose the minimal correct fix.
+
+### harness-optimizer — explicitly invoke for:
 - repeated failure patterns
 - repeated clarification loops
 - repeated weak verification
 - repeated scope drift
 - repeated wasted effort caused by harness weakness
+
+Invocation pattern:
+Use the harness-optimizer subagent to analyse the recurring friction or failure pattern and recommend a harness-level improvement before continuing.
 
 ## Main-thread restriction
 
@@ -222,9 +255,12 @@ The main thread may:
 - summarise
 - decide the next bounded action
 
-The main thread must NOT pretend to be all subagents at once.
+The main thread must NOT:
+- perform architecture framing, planning, implementation, verification, debugging, and documentation as one undifferentiated pass
+- pretend it delegated when it did not
+- self-collapse all roles into one assistant response
 
-If you skip a required subagent, you must explicitly justify why the task was trivial enough not to require delegation.
+If a required subagent is not invoked, you must explicitly explain why the task was truly trivial enough not to require delegation.
 
 ---
 
@@ -354,11 +390,14 @@ At the start of this command:
 
 1. Read required files.
 2. Reconstruct current migration state from repository reality.
-3. Produce a concise execution plan for the current run only.
-4. Start implementing immediately.
-5. Continue until a true stop condition is reached.
+3. Explicitly invoke the required subagents for the current step.
+4. Produce a concise execution plan for the current run only.
+5. Start implementing immediately.
+6. Continue until a true stop condition is reached.
 
 Do not stop after planning if safe implementation can begin.
+
+Do not keep subagent delegation implicit at the start of the run.
 
 ---
 
@@ -377,7 +416,8 @@ After each substantial checkpoint or meaningful pause, output exactly this:
 - debugger: yes / no
 - harness-optimizer: yes / no
 
-If any required subagent was not used, explain why.
+For each "yes", briefly state what it was used for.
+For each required "no", explain why the task was truly trivial enough not to require explicit delegation.
 
 ### 1. What changed
 - ...
