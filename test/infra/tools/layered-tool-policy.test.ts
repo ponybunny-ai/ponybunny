@@ -77,6 +77,40 @@ describe('LayeredToolPolicyResolver', () => {
     expect(resolved.appliedLayers).toEqual(['global', 'agent:reviewer']);
   });
 
+  it('resolves group:browser to all Playwright browser tools', () => {
+    const browserTools = [
+      'browser_navigate',
+      'browser_screenshot',
+      'browser_click',
+      'browser_type',
+      'browser_evaluate',
+      'browser_select_option',
+      'browser_hover',
+      'browser_drag',
+      'browser_press_key',
+      'browser_close',
+    ];
+    const allToolsWithBrowser = [...ALL_TOOLS, ...browserTools];
+
+    const policy: LayeredToolPolicy = {
+      global: {
+        deny: ['group:browser'],
+      },
+    };
+
+    const resolved = resolveLayeredToolPolicy({
+      allTools: allToolsWithBrowser,
+      policy,
+      context: {},
+      baselineAllowedTools: allToolsWithBrowser,
+    });
+
+    for (const tool of browserTools) {
+      expect(resolved.deniedTools.has(tool)).toBe(true);
+    }
+    expect(resolved.allowedTools.has('read_file')).toBe(true);
+  });
+
   it('applies sandbox layer when sandboxed context is true', () => {
     const policy: LayeredToolPolicy = {
       sandbox: {

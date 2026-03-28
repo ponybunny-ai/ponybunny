@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { MessageSquare, Activity, Settings, Server } from 'lucide-react';
+import { MessageSquare, Activity, Settings, Server, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navItems = [
@@ -10,6 +10,11 @@ const navItems = [
     href: '/chat',
     label: 'Conversation',
     icon: MessageSquare,
+  },
+  {
+    href: '/dashboard',
+    label: 'Harness Dashboard',
+    icon: BarChart3,
   },
   {
     href: '/status',

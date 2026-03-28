@@ -52,12 +52,23 @@
     },
     "playwright": {
       "enabled": false,
-      "transport": "http",
-      "url": "http://localhost:17777/mcp",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest"
+      ],
       "allowedTools": [
-        "playwright.navigate",
-        "playwright.get_content",
-        "playwright.query_selector_all"
+        "browser_navigate",
+        "browser_screenshot",
+        "browser_click",
+        "browser_type",
+        "browser_evaluate",
+        "browser_select_option",
+        "browser_hover",
+        "browser_drag",
+        "browser_press_key",
+        "browser_close"
       ],
       "autoReconnect": true,
       "timeout": 60000

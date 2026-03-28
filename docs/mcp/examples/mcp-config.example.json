@@ -52,6 +52,29 @@
       ],
       "autoReconnect": true,
       "timeout": 60000
+    },
+    "playwright": {
+      "enabled": false,
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest"
+      ],
+      "allowedTools": [
+        "browser_navigate",
+        "browser_screenshot",
+        "browser_click",
+        "browser_type",
+        "browser_evaluate",
+        "browser_select_option",
+        "browser_hover",
+        "browser_drag",
+        "browser_press_key",
+        "browser_close"
+      ],
+      "autoReconnect": true,
+      "timeout": 60000
     }
   }
 }

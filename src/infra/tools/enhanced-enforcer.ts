@@ -336,5 +336,17 @@ export const DEFAULT_TOOL_LAYERS: Record<string, ResponsibilityLayer> = {
   http_request: 'approval_required',
   database_query: 'approval_required',
 
+  // Approval Required (Layer 2) - Browser automation (Playwright MCP)
+  browser_navigate: 'approval_required',
+  browser_screenshot: 'approval_required',
+  browser_click: 'approval_required',
+  browser_type: 'approval_required',
+  browser_evaluate: 'approval_required',
+  browser_select_option: 'approval_required',
+  browser_hover: 'approval_required',
+  browser_drag: 'approval_required',
+  browser_press_key: 'approval_required',
+  browser_close: 'approval_required',
+
   // Forbidden (Layer 3) - Never allowed (handled by patterns, not tool names)
 };

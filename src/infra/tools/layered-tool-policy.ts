@@ -37,6 +37,18 @@ const DEFAULT_TOOL_GROUPS: Record<string, string[]> = {
   'group:web': ['web_search'],
   'group:skills': ['find_skills'],
   'group:code': ['search_code'],
+  'group:browser': [
+    'browser_navigate',
+    'browser_screenshot',
+    'browser_click',
+    'browser_type',
+    'browser_evaluate',
+    'browser_select_option',
+    'browser_hover',
+    'browser_drag',
+    'browser_press_key',
+    'browser_close',
+  ],
 };
 
 const DEFAULT_TOOL_PROFILES: Record<string, string[]> = {

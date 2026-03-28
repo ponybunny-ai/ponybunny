@@ -21,6 +21,7 @@ import { resultsCommand } from './commands/results.js';
 import { webuiCommand } from './commands/webui.js';
 import { learnCommand } from './commands/learn.js';
 import { failureAnalysisCommand } from './commands/failure-analysis.js';
+import { dashboardCommand } from './commands/dashboard.js';
 import { createEventsCommand } from './commands/events.js';
 import { startTui } from './tui/start.js';
 
@@ -54,6 +55,7 @@ program.addCommand(resultsCommand);
 program.addCommand(webuiCommand);
 program.addCommand(learnCommand);
 program.addCommand(failureAnalysisCommand);
+program.addCommand(dashboardCommand);
 registerWorkCommand(program);
 registerSkillsCommand(program);
 

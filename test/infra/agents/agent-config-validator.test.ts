@@ -168,6 +168,65 @@ describe('Agent config validator', () => {
     }
   });
 
+  it('accepts type-specific harness runner configuration', () => {
+    const harnessConfig = {
+      ...validConfig,
+      id: 'entropy-checker',
+      name: 'Entropy Checker',
+      description: 'Periodic documentation-code drift detection',
+      type: 'harness',
+      schedule: {
+        enabled: true,
+        everyMs: 604800000,
+        jitterMs: 60000,
+        timezone: 'Europe/London',
+        catchUp: { mode: 'coalesce', maxReplayTicks: 1 },
+        windows: [{ days: ['mon'], start: '03:00', end: '05:00' }],
+      },
+      policy: {
+        ...validConfig.policy,
+        toolAllowlist: ['read_file', 'list_dir', 'search_code'],
+        toolDenylist: ['write_file', 'execute_command', 'web_search'],
+      },
+      runner: {
+        engine: 'default',
+        entrypoint: 'agents.entropy-checker.run',
+        config: {
+          tick_defaults: {
+            max_events_per_tick: 50,
+            default_lookback_window: '7d',
+          },
+          circuit_breaker: {
+            failure_threshold: 3,
+            backoff_minutes: 120,
+          },
+          check_dimensions: [
+            'claude_md_roles_vs_skills',
+            'reverse_eng_docs_vs_rpc',
+            'schemas_vs_config',
+            'agent_configs_validity',
+            'failure_patterns_freshness',
+          ],
+          thresholds: {
+            escalation_on_high_severity: true,
+            max_drift_score: 50,
+          },
+        },
+      },
+    };
+
+    const result = validateAgentConfig(harnessConfig);
+    expect(result).toEqual(harnessConfig);
+  });
+
+  it('validates real entropy-checker agent.json from disk', () => {
+    const configPath = path.join(originalCwd, 'agents', 'entropy-checker', 'agent.json');
+    const rawConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    const result = validateAgentConfig(rawConfig);
+    expect(result.id).toBe('entropy-checker');
+    expect(result.type).toBe('harness');
+  });
+
   it('accepts schedule.enabled as a boolean toggle', () => {
     const disabledScheduleConfig = {
       ...validConfig,

@@ -227,4 +227,25 @@ describe('EnhancedToolEnforcer', () => {
       expect(summary.approval_required).toContain('execute_command');
     });
   });
+
+  describe('Playwright browser tools Layer 2 assignment', () => {
+    it('should assign all browser tools to approval_required layer', () => {
+      const browserTools = [
+        'browser_navigate',
+        'browser_screenshot',
+        'browser_click',
+        'browser_type',
+        'browser_evaluate',
+        'browser_select_option',
+        'browser_hover',
+        'browser_drag',
+        'browser_press_key',
+        'browser_close',
+      ];
+
+      for (const tool of browserTools) {
+        expect(DEFAULT_TOOL_LAYERS[tool]).toBe('approval_required');
+      }
+    });
+  });
 });

@@ -22,6 +22,12 @@ This agent implements the "Entropy Agent" concept from the harness gap analysis 
 - **Catch-up**: Coalesce missed runs (max 1 replay)
 - **Jitter**: Up to 60 seconds
 
+## Execution Model
+
+The entropy checker runs via the `SchemaDrivenAgentRunner`. The `policy.prompts.consistency_check` prompt is sent to the LLM along with a JSON payload containing the agent's configuration metadata. The LLM performs the drift detection using the allowed read-only tools (`read_file`, `list_dir`, `search_code`).
+
+The `runner.entrypoint` field (`agents.entropy-checker.run`) is informational metadata included in the LLM payload — it does not resolve to a code module. All checking logic is driven by the prompt.
+
 ## Constraints
 
 - **Read-only**: No file writes, command execution, or web access
@@ -39,8 +45,14 @@ Produces a JSON array of inconsistency reports, each containing:
 
 High-severity findings trigger an Escalation (type: ambiguous, severity: low) for human review.
 
+## Known Limitations
+
+- **Schedule windows not enforced**: The `schedule.windows` field specifies Monday 03:00-05:00, but the `cron-job-reconciler.ts` maps only the interval (`everyMs`) and timezone. Window enforcement is not yet implemented in the scheduler tick logic. The agent will currently run on its interval regardless of day/time window.
+
 ## Related
 
 - Gap analysis: docs/plans/2026-03-28-harness-gap-analysis.md (Gap 4.C)
 - Cron infrastructure: src/infra/scheduler/cron-job-reconciler.ts
 - Agent registry: src/infra/agents/agent-registry.ts
+- Schema: docs/schemas/agent.schema.json (harnessRunnerConfig at $defs)
+- Validation tests: test/infra/agents/agent-config-validator.test.ts
