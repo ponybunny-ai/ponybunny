@@ -73,7 +73,7 @@ That coexistence is central to understanding the current architecture.
 | Debug server runtime | `debug-server/server/src/debug-server.ts` | Connects to Gateway, ingests debug events, serves debug API/UI | `SQLiteDebugStore`, `GatewayClient`, `TokenManager`, `EventCollector`, `APIServer` |
 | Main web application | `web/package.json` | Starts Next.js web UI via `next dev/build/start` | Next.js app under `web/src/app`, server-side `GatewayConnection`, API routes |
 | Debug web UI | `debug-server/webui/package.json` | Starts separate Next.js debug web UI | Next.js app under `debug-server/webui/src/app` |
-| Legacy monolithic runtime | `src/main.ts` | Older single-process runtime started by `npm start` | Skill registry, `WorkOrderDatabase`, LLM service, `PlanningService`, `ExecutionService`, `VerificationService`, `EvaluationService`, `AutonomyDaemon` |
+| Legacy monolithic runtime | `src/main.ts` | Older single-process runtime started by `npm start` | Skill registry, `WorkOrderDatabase`, LLM service, `PlanningService`, `ExecutionService`, `VerificationService`, `EvaluationService`, `GoalHarness`, `HarnessDaemon` |
 | Legacy browser debug proxy | `src/cli/debug-webui/index.ts` | Older lightweight debug web proxy path still present in repo | `DebugWebServer` from `src/cli/debug-webui/server.ts` |
 
 ### Practical startup patterns
@@ -89,7 +89,7 @@ That coexistence is central to understanding the current architecture.
   - runs `ExecutionService` locally without Gateway/Scheduler
 - Legacy standalone mode:
   - `npm start`
-  - runs `src/main.ts` and `AutonomyDaemon`
+  - runs `src/main.ts` with `HarnessDaemon` + `GoalHarness`
 
 ## 3. Module Inventory
 

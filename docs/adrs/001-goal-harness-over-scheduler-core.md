@@ -1,6 +1,6 @@
 # ADR-001: GoalHarness Composition Over SchedulerCore
 
-**Status:** implemented (Phases 1-4 verified, Phase 5 deferred)
+**Status:** implemented (Phases 1-3 verified, Phase 4 complete 2026-03-28, Phase 5 deferred)
 **Date:** 2026-03-28
 **Deciders:** Architecture session
 **Scope:** Goal lifecycle unification across all execution paths
@@ -122,9 +122,9 @@ When GoalHarness is active, the gateway's stub "analysis" work item (initialWork
 Modified:
 - `src/main.ts` -- use HarnessDaemon (polling loop + GoalHarness) instead of AutonomyDaemon
 
-### Phase 4: Deprecate and remove AutonomyDaemon
+### Phase 4: Deprecate and remove AutonomyDaemon ✅ (2026-03-28)
 
-Remove `src/autonomy/daemon.ts` and associated imports. Mark as breaking if any external consumers depend on it.
+Removed `src/autonomy/daemon.ts`, deprecated export from `src/public.ts`, and two dedicated test files. Updated CLAUDE.md failure pattern, architecture-discovery.md, and gateway comment. No external consumers affected. Test count: 1897 (was 1905; delta = 8 tests in deleted files).
 
 ### Phase 5: Add post-goal evaluation hook
 
@@ -206,7 +206,7 @@ Subscribe to SchedulerCore's `goal_completed` event. Wire EvaluationService for 
 ## References
 
 - SchedulerCore interface: `src/scheduler/core/types.ts` (ISchedulerCore)
-- AutonomyDaemon: `src/autonomy/daemon.ts`
+- AutonomyDaemon: removed in Phase 4 (was `src/autonomy/daemon.ts`)
 - Gateway lifecycle gap: documented in `CLAUDE.md` failure patterns (2026-03-28)
 - ElaborationService: `src/app/lifecycle/` (stage-interfaces.ts defines IElaborationService)
 - GlobalKnowledgeService: wiring verified in harness migration Phase 3

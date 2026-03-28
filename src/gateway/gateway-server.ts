@@ -390,7 +390,7 @@ export class GatewayServer {
   }
 
   /**
-   * Connect to an AutonomyDaemon for event bridging
+   * Connect to a daemon event emitter for event bridging
    */
   connectDaemon(daemon: IDaemonEventEmitter): void {
     this.daemonAttachment.connect(daemon);
