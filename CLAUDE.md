@@ -194,6 +194,17 @@ Claude Code should help turn PonyBunny into a harness-first system by:
 
 ---
 
+## Quick Reference
+
+- Build, test, and run commands: see `docs/development/CLAUDE.md`
+- ESM imports require `.js` extension in all TypeScript files
+- Test runner: Jest (`npx jest test/path/to/file.test.ts` for single files)
+- E2E tests run with `npx tsx`, not Jest
+- Database: SQLite at `PONY_DB_PATH` (default `./pony.db`)
+- Config dir: `~/.ponybunny/` (credentials, llm-config, mcp-config)
+
+---
+
 ## Known Failure Patterns (Accumulated)
 
 <!-- Each time an Agent makes a mistake that is fixed, append a rule here.
@@ -201,10 +212,10 @@ Claude Code should help turn PonyBunny into a harness-first system by:
      This section starts empty and grows through real failures. Combined with
      the `pb learn` pipeline (when available), entries can be semi-automatically proposed. -->
 
-- [2026-03-28] GlobalKnowledgeService was wired into `pb work` CLI but NOT into `main.ts` scheduler path, so knowledge injection only worked for CLI invocations, not daemon-scheduled goals → Always verify that services are wired into ALL execution paths (CLI + scheduler daemon + gateway), not just the one being actively developed
-- [2026-03-28] Phases were marked "verified" in commit messages without runtime evidence (no test executions, no trace review) → Never claim verified status without stating the specific evidence; "implemented" is the honest status when only code was written
-- [2026-03-28] Schema-driven agents (e.g. Entropy Agent) were assessed as "config-only" when the config IS the implementation — the schema-driven runner infrastructure already executes them → Before claiming an agent lacks runtime, check whether the runner registry + agent scheduler already handles its type/engine
-- [2026-03-28] ElaborationService was implemented with GlobalKnowledgeService injection support but never instantiated in any production path (AutonomyDaemon, SchedulerDaemon, or CLI) — the service accepted the dependency but nobody passed it → When adding dependency injection to a service, verify the service is actually instantiated WITH that dependency in all production entry points, not just that the constructor accepts it
-- [2026-03-28] `pb learn` and `pb failure-analysis` commands were implemented as source files and registered in CLI (commander) but not in TUI slash-command registry — they were invisible to TUI users → When adding new CLI commands, verify registration in BOTH the commander CLI (`src/cli/index.ts`) AND the TUI slash-command registry (`src/cli/tui/commands/registry.ts`)
-- [2026-03-28] `pb failure-analysis` used `r.status = 'failed'` for runs table but the schema defines `failure` as the status value — query always returned 0 failed runs; also used `HAVING` on a non-aggregate query which crashes in better-sqlite3 → Always verify SQL enum values match the schema definition; prefer subquery + WHERE over HAVING for non-aggregate filters
-- [2026-03-28] Gateway `goal.submit` path creates a stub "analysis" work item and sends it directly to SchedulerCore, bypassing AutonomyDaemon's elaborate→plan→execute lifecycle entirely — goals submitted via gateway never receive GlobalKnowledgeService pitfall injection or proper planning. The system has two execution paths (main.ts AutonomyDaemon vs gateway+scheduler-daemon) with different lifecycle completeness → When adding lifecycle services, verify they are reachable from ALL goal submission paths, not just the daemon you are currently working on; document which paths provide full lifecycle and which are partial
+- Verify services are wired into ALL execution paths (CLI + scheduler daemon + gateway), not just the one being developed — GlobalKnowledgeService was missing from scheduler path
+- Never claim "verified" without stating specific evidence — phases were marked verified in commits without runtime proof
+- Check if schema-driven runner infrastructure already executes an agent before claiming it lacks runtime — Entropy Agent config IS the implementation
+- Verify DI services are instantiated WITH dependencies in all production entry points — ElaborationService accepted GlobalKnowledgeService but no caller passed it
+- Register new commands in BOTH commander CLI (`src/cli/index.ts`) AND TUI slash-command registry (`src/cli/tui/commands/registry.ts`)
+- Verify SQL enum values match schema definitions; use subquery+WHERE over HAVING for non-aggregate filters — `failure` not `failed` for run status
+- [Verified by integration test] Two execution engines exist: (1) AutonomyDaemon (main.ts): elaborate→plan→execute→verify→evaluate with GlobalKnowledgeService pitfall injection, (2) SchedulerCore (scheduler-daemon/gateway): submitGoal→tick→execute with NO elaboration or knowledge injection. Gateway `goal.submit` routes through engine #2 → goals skip pitfall injection entirely. When adding lifecycle services, verify they are reachable from BOTH engines
