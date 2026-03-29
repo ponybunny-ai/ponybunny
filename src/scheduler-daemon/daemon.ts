@@ -879,6 +879,21 @@ export class SchedulerDaemon {
         return;
       }
 
+      if (command.command === 'evaluation_list') {
+        if (!this.postGoalEvaluator) {
+          await respond(command.requestId, true, undefined, { reports: [] });
+          return;
+        }
+
+        const reports = this.postGoalEvaluator.getReports({
+          goalId: command.goalId,
+          limit: command.limit ?? 50,
+        });
+
+        await respond(command.requestId, true, undefined, { reports });
+        return;
+      }
+
       await respond(command.requestId, false, `Unknown scheduler command: ${command.command}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

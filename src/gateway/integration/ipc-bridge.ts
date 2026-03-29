@@ -295,6 +295,54 @@ export class IPCBridge {
     return result as { agentId: string; model: string | null };
   }
 
+  async listEvaluationReports(params: {
+    goalId?: string;
+    limit?: number;
+  }): Promise<{
+    reports: Array<{
+      goalId: string;
+      timestamp: number;
+      trigger: 'goal_completed' | 'goal_failed';
+      workItemResults: Array<{
+        workItemId: string;
+        runId: string | null;
+        evaluation: unknown;
+        skipped: boolean;
+      }>;
+      summary: {
+        total: number;
+        publish: number;
+        retry: number;
+        replan: number;
+        escalate: number;
+        skipped: number;
+      };
+      unactionableDecisions: string[];
+    }>;
+  }> {
+    const result = await this.sendSchedulerCommand('evaluation_list', params);
+    return result as { reports: Array<{
+      goalId: string;
+      timestamp: number;
+      trigger: 'goal_completed' | 'goal_failed';
+      workItemResults: Array<{
+        workItemId: string;
+        runId: string | null;
+        evaluation: unknown;
+        skipped: boolean;
+      }>;
+      summary: {
+        total: number;
+        publish: number;
+        retry: number;
+        replan: number;
+        escalate: number;
+        skipped: number;
+      };
+      unactionableDecisions: string[];
+    }>; };
+  }
+
   getRealtimeMetrics(): {
     schedulerCommandAckMsP95: number;
     streamChunkLatencyMsP95: number;

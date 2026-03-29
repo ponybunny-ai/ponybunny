@@ -487,9 +487,31 @@ CREATE INDEX IF NOT EXISTS idx_global_knowledge_type ON global_knowledge(knowled
 CREATE INDEX IF NOT EXISTS idx_global_knowledge_confidence ON global_knowledge(confidence DESC);
 CREATE INDEX IF NOT EXISTS idx_global_knowledge_source_goal ON global_knowledge(source_goal_id);
 
+-- ============================================================================
+-- Goal Evaluation Reports — PostGoalEvaluator output persistence
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS goal_evaluation_reports (
+    id TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL,
+    goal_id TEXT NOT NULL,
+    "trigger" TEXT NOT NULL CHECK("trigger" IN ('goal_completed', 'goal_failed')),
+    work_item_results TEXT NOT NULL,    -- JSON array of WorkItemEvaluation
+    summary_total INTEGER NOT NULL DEFAULT 0,
+    summary_publish INTEGER NOT NULL DEFAULT 0,
+    summary_retry INTEGER NOT NULL DEFAULT 0,
+    summary_replan INTEGER NOT NULL DEFAULT 0,
+    summary_escalate INTEGER NOT NULL DEFAULT 0,
+    summary_skipped INTEGER NOT NULL DEFAULT 0,
+    unactionable_decisions TEXT,        -- JSON array of strings
+    FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_goal_eval_reports_goal ON goal_evaluation_reports(goal_id);
+CREATE INDEX IF NOT EXISTS idx_goal_eval_reports_created ON goal_evaluation_reports(created_at DESC);
+
 -- Update schema version
 INSERT OR REPLACE INTO meta (key, value, updated_at)
-VALUES ('schema_version', '1.4.0', strftime('%s', 'now') * 1000);
+VALUES ('schema_version', '1.5.0', strftime('%s', 'now') * 1000);
 
 -- Initialize schema version
 INSERT OR IGNORE INTO meta (key, value, updated_at)

@@ -88,7 +88,8 @@ export type SchedulerCommandType =
   | 'session_end'
   | 'session_archive'
   | 'session_resume'
-  | 'session_status';
+  | 'session_status'
+  | 'evaluation_list';
 
 export interface SchedulerCommandRequest {
   requestId: string;

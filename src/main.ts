@@ -152,6 +152,7 @@ async function main() {
     evaluationService,
     repository,
     globalKnowledgeService: globalKnowledge,
+    db: repository.getDatabase(),
   });
   console.log('[PonyBunny] ✅ PostGoalEvaluator initialized');
 

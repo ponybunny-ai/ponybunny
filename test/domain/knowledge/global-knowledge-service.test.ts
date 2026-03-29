@@ -364,9 +364,9 @@ describe('global_knowledge schema', () => {
     }).toThrow();
   });
 
-  it('schema version is 1.4.0', () => {
+  it('schema version is 1.5.0', () => {
     const row = db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string } | undefined;
     expect(row).toBeDefined();
-    expect(row!.value).toBe('1.4.0');
+    expect(row!.value).toBe('1.5.0');
   });
 });

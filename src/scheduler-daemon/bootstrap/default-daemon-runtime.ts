@@ -202,6 +202,7 @@ export function assemblePostGoalEvaluator(
     evaluationService,
     repository: deps.repository,
     globalKnowledgeService,
+    db: deps.knowledgeDb,
   });
 
   console.log('[PostGoalEvaluator Assembly] PostGoalEvaluator assembled successfully');

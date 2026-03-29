@@ -39,6 +39,7 @@ import { registerApprovalHandlers } from './rpc/handlers/approval-handlers.js';
 import { registerDebugHandlers } from './rpc/handlers/debug-handlers.js';
 import { registerConversationHandlers } from './rpc/handlers/conversation-handlers.js';
 import { registerAuditHandlers } from './rpc/handlers/audit-handlers.js';
+import { registerEvaluationHandlers } from './rpc/handlers/evaluation-handlers.js';
 import { GatewayRuntimeRolloutCoordinator } from './runtime/gateway-runtime-rollout-coordinator.js';
 import { GatewaySchedulerEventAuditObserver } from './runtime/gateway-scheduler-event-audit-observer.js';
 import type { GatewayRuntimeRpcSurface } from './runtime/gateway-runtime-rpc-surface.js';
@@ -294,6 +295,8 @@ export class GatewayServer {
     registerConversationHandlers(this.rpcHandler, this.eventBus, this.ipcBridge);
 
     registerAuditHandlers(this.rpcHandler, this.auditService, this.auditRepository);
+
+    registerEvaluationHandlers(this.rpcHandler, this.ipcBridge);
 
     this.runtimeRpcSurface.register();
 

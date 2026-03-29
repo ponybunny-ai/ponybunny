@@ -351,6 +351,17 @@ export const commands: CommandDefinition[] = [
     usage: '/failure-analysis [--top <n>] [--goal <goal-id>]',
     args: [{ name: 'options', required: false, description: 'Top N or goal filter' }],
   },
+  {
+    name: 'knowledge',
+    aliases: ['kb'],
+    group: 'System',
+    description: 'Manage the global knowledge base (list, stats, reinforce)',
+    usage: '/knowledge <list|stats|reinforce> [options]',
+    args: [
+      { name: 'subcommand', required: true, description: 'list, stats, or reinforce' },
+      { name: 'options', required: false, description: 'Subcommand options (--type, --limit, or knowledge ID)' },
+    ],
+  },
 
   // Utility commands
   {
