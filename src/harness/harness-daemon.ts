@@ -145,6 +145,7 @@ export class HarnessDaemon {
       if (result.status === 'rejected') {
         this.logger.error({ goalId: goal.id, event: 'goal_processing_failed' }, `Failed to process goal ${goal.id}`, result.reason as Error);
       } else if (result.status === 'fulfilled') {
+        this.persistentMetrics?.increment('goalsProcessed');
         const harnessResult = result.value;
         // Goal was blocked during elaboration (not delegated, has escalations).
         // Create a ContextPack so blocked goals participate in the knowledge flywheel.

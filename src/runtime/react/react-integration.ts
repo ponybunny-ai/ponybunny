@@ -23,6 +23,7 @@ import {
   type ToolResult,
 } from '../tool-boundary/index.js';
 import { LocalToolWorker } from '../workers/index.js';
+import { ToolExecutor } from '../tool-boundary/tool-executor.js';
 
 export interface ReActCycleParams {
   workItem: WorkItem;
@@ -1221,7 +1222,7 @@ Respond with at most 2 short planning lines, then immediately issue the first co
       return existingWorker;
     }
 
-    const worker = new LocalToolWorker(toolPort);
+    const worker = new LocalToolWorker(new ToolExecutor(toolPort));
     this.toolWorkersByPort.set(toolPort, worker);
     return worker;
   }
@@ -1232,7 +1233,7 @@ Respond with at most 2 short planning lines, then immediately issue the first co
       return existingWorker;
     }
 
-    const worker = new LocalToolWorker(new LocalToolAdapter(toolEnforcer));
+    const worker = new LocalToolWorker(new ToolExecutor(new LocalToolAdapter(toolEnforcer)));
     this.toolWorkersByEnforcer.set(toolEnforcer, worker);
     return worker;
   }
