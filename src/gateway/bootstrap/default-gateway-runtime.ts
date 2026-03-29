@@ -8,6 +8,8 @@ import { WorkOrderDatabase } from '../../work-order/database/manager.js';
 import { DatabaseMigrator } from '../../infra/persistence/migrator.js';
 import { MAIN_DB_MIGRATIONS, MEMORY_DB_MIGRATIONS } from '../../infra/persistence/migrations/index.js';
 import { JsonLogger } from '../../infra/observability/logger.js';
+import { SQLiteMetricsRecorder } from '../../infra/observability/sqlite-metrics-recorder.js';
+import { RuntimeEventTracer } from '../../infra/observability/runtime-event-tracer.js';
 
 export interface DefaultGatewayPersistenceConfig {
   dbPath: string;
@@ -70,6 +72,8 @@ export async function createDefaultGatewayRuntime(
 
   try {
     const gatewayLogger = new JsonLogger({ level: config.debugMode ? 'debug' : 'info' });
+    const metrics = new SQLiteMetricsRecorder(persistence.db);
+    const tracer = new RuntimeEventTracer(persistence.db, gatewayLogger);
 
     const gateway = new GatewayServer(
       {
@@ -81,6 +85,8 @@ export async function createDefaultGatewayRuntime(
         debugMode: config.debugMode,
         schedulerSocketPath: resolveDefaultGatewaySchedulerSocketPath(),
         logger: gatewayLogger.child({ component: 'Gateway' }),
+        metrics,
+        tracer,
       },
       {
         host: config.host,

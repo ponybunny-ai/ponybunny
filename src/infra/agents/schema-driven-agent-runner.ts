@@ -15,6 +15,7 @@ import { getLLMProviderManager } from '../llm/provider-manager/provider-manager.
 import { UnifiedLLMService } from '../llm/unified-llm-service.js';
 import { NoopLogger } from '../observability/logger.js';
 import { NoopTracer } from '../observability/noop-tracer.js';
+import type { ITracer } from '../observability/tracer.js';
 import { loadRuntimeConfig } from '../config/runtime-config.js';
 import { OSPermissionRepository, OSServiceChecker } from '../permission/os-service-checker.js';
 import {
@@ -297,11 +298,12 @@ export class DefaultAgentExecutionEngine implements AgentExecutionEngine {
     private readonly subagentExecutionBoundary: SubagentExecutionBoundary =
       getGlobalSubagentExecutionBoundary(),
     llmService?: ILLMService,
+    tracer?: ITracer,
   ) {
     this.llmService = llmService ?? new UnifiedLLMService(
       getLLMProviderManager(),
       new NoopLogger(),
-      new NoopTracer(),
+      tracer ?? new NoopTracer(),
     );
   }
 

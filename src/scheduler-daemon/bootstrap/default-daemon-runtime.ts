@@ -24,6 +24,8 @@ import type { IGoalHarness } from '../../harness/goal-harness-interface.js';
 import { PostGoalEvaluator } from '../../harness/post-goal-evaluator.js';
 import { EvaluationService } from '../../app/lifecycle/evaluation/evaluation-service.js';
 import { JsonLogger } from '../../infra/observability/logger.js';
+import type { IMetricsRecorder } from '../../infra/observability/metrics.js';
+import type { ITracer } from '../../infra/observability/tracer.js';
 
 export interface DefaultSchedulerDaemonRuntimeConfig {
   tickIntervalMs?: number;
@@ -186,6 +188,9 @@ export interface PostGoalEvaluatorAssemblyDependencies {
   knowledgeDb?: Database.Database;
   /** Optional logger — defaults to JsonLogger if not provided. */
   logger?: import('../../infra/observability/logger.js').ILogger;
+  metrics?: IMetricsRecorder;
+  /** Optional tracer for distributed tracing (ADR-002 C3). */
+  tracer?: ITracer;
 }
 
 export function assemblePostGoalEvaluator(
@@ -211,6 +216,7 @@ export function assemblePostGoalEvaluator(
     globalKnowledgeService,
     db: deps.knowledgeDb,
     logger: evalLogger.child({ component: 'PostGoalEvaluator' }),
+    metrics: deps.metrics,
   });
 
   console.log('[PostGoalEvaluator Assembly] PostGoalEvaluator assembled successfully');

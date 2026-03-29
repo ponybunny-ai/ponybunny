@@ -12,6 +12,7 @@
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
 import type { IGoalHarness } from './goal-harness-interface.js';
 import type { PostGoalEvaluator } from './post-goal-evaluator.js';
+import type { PersistentSchedulerMetrics } from '../scheduler/core/persistent-metrics.js';
 import type { ILogger } from '../infra/observability/logger.js';
 import { NoopLogger } from '../infra/observability/logger.js';
 
@@ -23,6 +24,7 @@ export interface HarnessDaemonConfig {
 export class HarnessDaemon {
   private isRunning = false;
   private pollingTimer?: NodeJS.Timeout;
+  private metricsFlushInterval: NodeJS.Timeout | null = null;
   private activeGoalCount = 0;
   private wakeResolve: (() => void) | null = null;
   private readonly logger: ILogger;
@@ -33,6 +35,7 @@ export class HarnessDaemon {
     private readonly config: HarnessDaemonConfig,
     private readonly postGoalEvaluator?: PostGoalEvaluator,
     logger?: ILogger,
+    private readonly persistentMetrics?: PersistentSchedulerMetrics,
   ) {
     this.logger = logger ?? new NoopLogger();
   }
@@ -44,7 +47,13 @@ export class HarnessDaemon {
 
     await this.repository.initialize();
     this.postGoalEvaluator?.start();
+    this.persistentMetrics?.restore();
     this.isRunning = true;
+
+    if (this.persistentMetrics) {
+      this.metricsFlushInterval = setInterval(() => this.persistentMetrics?.flush(), 60_000);
+    }
+
     this.logger.info({ event: 'harness_daemon_started' }, 'HarnessDaemon started');
     await this.mainLoop();
   }
@@ -56,6 +65,13 @@ export class HarnessDaemon {
 
     this.isRunning = false;
     this.postGoalEvaluator?.stop();
+
+    if (this.metricsFlushInterval) {
+      clearInterval(this.metricsFlushInterval);
+      this.metricsFlushInterval = null;
+    }
+    this.persistentMetrics?.flush();
+
     if (this.pollingTimer) {
       clearTimeout(this.pollingTimer);
       this.pollingTimer = undefined;

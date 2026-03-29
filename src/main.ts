@@ -19,12 +19,14 @@ import { EvaluationService } from './app/lifecycle/evaluation/evaluation-service
 import { getLLMService } from './infra/llm/index.js';
 import { JsonLogger } from './infra/observability/logger.js';
 import { SQLiteMetricsRecorder } from './infra/observability/sqlite-metrics-recorder.js';
+import { RuntimeEventTracer } from './infra/observability/runtime-event-tracer.js';
 import type { ILLMProvider } from './infra/llm/llm-provider.js';
 import { MockLLMProvider, LLMRouter } from './infra/llm/llm-provider.js';
 import { getGlobalSkillRegistry } from './infra/skills/skill-registry.js';
 import { getConfigDir, getManagedSkillsDir } from './infra/config/config-paths.js';
 import { loadRuntimeConfig } from './infra/config/runtime-config.js';
 import { createDefaultScheduler } from './scheduler/composition/index.js';
+import { PersistentSchedulerMetrics } from './scheduler/core/persistent-metrics.js';
 
 const DB_PATH = loadRuntimeConfig().paths.database;
 
@@ -141,6 +143,7 @@ async function main() {
   // Structured logger and metrics for harness components (ADR-002 C1, C2)
   const logger = new JsonLogger({ level: 'info' });
   const metrics = new SQLiteMetricsRecorder(repository.getDatabase());
+  const tracer = new RuntimeEventTracer(repository.getDatabase(), logger);
 
   // ADR-001: Create GoalHarness (elaborate → plan → delegate to SchedulerCore)
   const goalHarness = new GoalHarness({
@@ -165,6 +168,9 @@ async function main() {
   });
   console.log('[PonyBunny] ✅ PostGoalEvaluator initialized');
 
+  // ADR-002 D3: Persistent scheduler metrics with lifecycle management
+  const persistentMetrics = new PersistentSchedulerMetrics(repository.getDatabase());
+
   // ADR-001: Create HarnessDaemon (polling loop feeding GoalHarness)
   const daemon = new HarnessDaemon(
     repository,
@@ -175,6 +181,7 @@ async function main() {
     },
     postGoalEvaluator,
     logger.child({ component: 'HarnessDaemon' }),
+    persistentMetrics,
   );
   console.log('[PonyBunny] ✅ HarnessDaemon initialized\n');
 

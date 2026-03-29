@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import type { IConversationTurn } from '../../domain/conversation/session.js';
+import { EmbeddingLruCache } from '../../infra/persistence/embedding-lru-cache.js';
 
 export type MemoryOwnerType = 'agent' | 'user';
 
@@ -144,12 +145,20 @@ interface MergedMemory {
 }
 
 export class ConversationMemoryService implements IConversationMemoryService {
+  private readonly embeddingCache: EmbeddingLruCache;
+
   constructor(
     private repository: IMemoryRepository,
     private embeddingService: IEmbeddingService,
     private cacheMaxEntries = 5000,
     private coreSummaryService?: ICoreMemorySummaryService
-  ) {}
+  ) {
+    this.embeddingCache = new EmbeddingLruCache({
+      maxEntries: this.cacheMaxEntries,
+      sqliteGet: (key, model) => this.repository.getCachedEmbedding(key, model),
+      sqliteSet: (key, model, embedding) => this.repository.upsertCachedEmbedding(key, model, embedding),
+    });
+  }
 
   async indexTurn(
     sessionId: string,
@@ -347,15 +356,13 @@ export class ConversationMemoryService implements IConversationMemoryService {
     const normalizedText = normalizeText(text);
     const cacheKey = createHash('sha256').update(normalizedText).digest('hex');
 
-    const cached = this.repository.getCachedEmbedding(cacheKey, this.embeddingService.model);
+    const cached = this.embeddingCache.get(cacheKey, this.embeddingService.model);
     if (cached) {
-      this.repository.touchCachedEmbedding(cacheKey, this.embeddingService.model);
       return cached;
     }
 
     const embedding = await this.embeddingService.embed(normalizedText);
-    this.repository.upsertCachedEmbedding(cacheKey, this.embeddingService.model, embedding);
-    this.repository.pruneEmbeddingCache(this.cacheMaxEntries);
+    this.embeddingCache.set(cacheKey, this.embeddingService.model, embedding);
     return embedding;
   }
 }

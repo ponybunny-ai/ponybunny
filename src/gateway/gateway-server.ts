@@ -30,6 +30,10 @@ import type { IDaemonEventEmitter } from '../runtime/events/daemon-event-emitter
 import { IPCServer } from '../ipc/ipc-server.js';
 import type { ILogger } from '../infra/observability/logger.js';
 import { NoopLogger } from '../infra/observability/logger.js';
+import type { IMetricsRecorder } from '../infra/observability/metrics.js';
+import { NoopMetricsRecorder } from '../infra/observability/metrics.js';
+import type { ITracer } from '../infra/observability/tracer.js';
+import { NoopTracer } from '../infra/observability/noop-tracer.js';
 import { setWsConnectionId, getWsConnectionId } from './connection/ws-metadata.js';
 import { isLocalAddress as isLocalAddr } from './utils/network.js';
 
@@ -86,6 +90,8 @@ export interface GatewayServerDependencies {
   enableConfigWatch?: boolean;
   schedulerSocketPath?: string;
   logger?: ILogger;
+  metrics?: IMetricsRecorder;
+  tracer?: ITracer;
 }
 
 export class GatewayServer {
@@ -131,6 +137,8 @@ export class GatewayServer {
   private enableConfigWatch: boolean;
 
   private isRunning = false;
+  private readonly metrics: IMetricsRecorder;
+  private readonly tracer: ITracer;
   private runtimeRolloutCoordinator: GatewayRuntimeRolloutCoordinator;
   private runtimeRpcSurface: GatewayRuntimeRpcSurface;
   private schedulerEventAuditObserver: GatewaySchedulerEventAuditObserver;
@@ -148,6 +156,8 @@ export class GatewayServer {
     this.debugMode = dependencies.debugMode ?? false;
     this.enableConfigWatch = dependencies.enableConfigWatch ?? false;
     this.logger = dependencies.logger ?? new NoopLogger();
+    this.metrics = dependencies.metrics ?? new NoopMetricsRecorder();
+    this.tracer = dependencies.tracer ?? new NoopTracer();
 
     // Initialize components
     this.eventBus = new EventBus(this.logger.child({ component: 'EventBus' }));

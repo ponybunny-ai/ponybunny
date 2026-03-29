@@ -33,6 +33,9 @@ import {
   createSchedulerDaemonSessionIntake,
   assemblePostGoalEvaluator,
 } from './bootstrap/default-daemon-runtime.js';
+import { SQLiteMetricsRecorder } from '../infra/observability/sqlite-metrics-recorder.js';
+import { JsonLogger } from '../infra/observability/logger.js';
+import { RuntimeEventTracer } from '../infra/observability/runtime-event-tracer.js';
 import { prepareDaemonActivation } from './daemon-activation-preparation.js';
 import { startDaemonRecurringStartup } from './daemon-recurring-startup.js';
 
@@ -219,11 +222,18 @@ export class SchedulerDaemon {
       // Start scheduler
       await this.scheduler.start();
 
+      // ADR-002 C1/C3: Structured observability for daemon components
+      const daemonLogger = new JsonLogger({ level: this.config.debug ? 'debug' : 'info' });
+      const tracer = new RuntimeEventTracer(this.repository.getDatabase(), daemonLogger);
+
       // ADR-001 Phase 5: Start post-goal evaluation hook
       this.postGoalEvaluator = assemblePostGoalEvaluator({
         repository: this.repository,
         scheduler: this.scheduler,
         knowledgeDb: this.repository.getDatabase(),
+        logger: daemonLogger,
+        metrics: new SQLiteMetricsRecorder(this.repository.getDatabase()),
+        tracer,
       });
       this.postGoalEvaluator.start();
 
