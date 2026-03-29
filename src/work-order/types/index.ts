@@ -1,4 +1,4 @@
-export type GoalStatus = 'queued' | 'active' | 'blocked' | 'completed' | 'cancelled';
+export type GoalStatus = 'queued' | 'plan_review' | 'active' | 'blocked' | 'completed' | 'cancelled';
 
 export type WorkItemStatus = 
   | 'queued'       

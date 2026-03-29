@@ -71,6 +71,7 @@ export function formatDuration(ms: number): string {
 export function formatGoalStatus(status: GoalStatus): string {
   const icons: Record<GoalStatus, string> = {
     queued: '○',
+    plan_review: '⏸',
     active: '●',
     blocked: '◐',
     completed: '✓',
@@ -209,6 +210,7 @@ export function formatCost(usd: number): string {
 export function getGoalStatusIcon(status: GoalStatus): string {
   const icons: Record<GoalStatus, string> = {
     queued: '○',
+    plan_review: '⏸',
     active: '●',
     blocked: '◐',
     completed: '✓',

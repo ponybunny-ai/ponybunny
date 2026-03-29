@@ -1,5 +1,5 @@
 import { GatewayDaemonAttachment } from '../../../src/gateway/integration/gateway-daemon-attachment.js';
-import { DaemonEventEmitterMixin } from '../../../src/autonomy/daemon-event-emitter.js';
+import { DaemonEventEmitterMixin } from '../../../src/runtime/events/daemon-event-emitter.js';
 import type { DaemonEventForwardingBinding } from '../../../src/gateway/integration/daemon-event-forwarding.js';
 import type { EventBus } from '../../../src/gateway/events/event-bus.js';
 import type {

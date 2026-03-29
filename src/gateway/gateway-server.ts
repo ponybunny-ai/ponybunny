@@ -26,7 +26,7 @@ import {
 import { SchedulerBridge } from './integration/scheduler-bridge.js';
 import { IPCBridge } from './integration/ipc-bridge.js';
 import type { ISchedulerCore } from '../scheduler/core/index.js';
-import type { IDaemonEventEmitter } from '../autonomy/daemon-event-emitter.js';
+import type { IDaemonEventEmitter } from '../runtime/events/daemon-event-emitter.js';
 import { IPCServer } from '../ipc/ipc-server.js';
 import { isPonyBunnyDebugEnabled } from '../infra/config/debug-flags.js';
 import { setWsConnectionId, getWsConnectionId } from './connection/ws-metadata.js';
@@ -40,6 +40,9 @@ import { registerDebugHandlers } from './rpc/handlers/debug-handlers.js';
 import { registerConversationHandlers } from './rpc/handlers/conversation-handlers.js';
 import { registerAuditHandlers } from './rpc/handlers/audit-handlers.js';
 import { registerEvaluationHandlers } from './rpc/handlers/evaluation-handlers.js';
+import { registerPlanReviewHandlers } from './rpc/handlers/plan-review-handlers.js';
+import { registerHarnessMetricsHandlers } from './rpc/handlers/harness-metrics-handlers.js';
+import { HarnessMetricsService } from '../app/observability/harness-metrics-service.js';
 import { GatewayRuntimeRolloutCoordinator } from './runtime/gateway-runtime-rollout-coordinator.js';
 import { GatewaySchedulerEventAuditObserver } from './runtime/gateway-scheduler-event-audit-observer.js';
 import type { GatewayRuntimeRpcSurface } from './runtime/gateway-runtime-rpc-surface.js';
@@ -297,6 +300,19 @@ export class GatewayServer {
     registerAuditHandlers(this.rpcHandler, this.auditService, this.auditRepository);
 
     registerEvaluationHandlers(this.rpcHandler, this.ipcBridge);
+
+    registerPlanReviewHandlers(
+      this.rpcHandler,
+      this.repository,
+      this.ipcBridge,
+      this.eventBus,
+      this.auditService,
+    );
+
+    registerHarnessMetricsHandlers(
+      this.rpcHandler,
+      new HarnessMetricsService(this.db),
+    );
 
     this.runtimeRpcSurface.register();
 

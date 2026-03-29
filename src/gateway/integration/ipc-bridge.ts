@@ -129,6 +129,10 @@ export class IPCBridge {
     await this.sendSchedulerCommand('cancel_goal', { goalId, reason });
   }
 
+  async approvePlan(goalId: string): Promise<void> {
+    await this.sendSchedulerCommand('approve_plan', { goalId });
+  }
+
   async openSession(params: {
     gatewaySessionId: string;
     personaId?: string;

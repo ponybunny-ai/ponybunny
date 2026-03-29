@@ -53,6 +53,7 @@ function createMockGoalHarness(): jest.Mocked<IGoalHarness> {
   return {
     submitGoal: jest.fn().mockResolvedValue(makeHarnessResult()),
     processQueuedGoal: jest.fn().mockResolvedValue(makeHarnessResult()),
+    approvePlan: jest.fn().mockResolvedValue(undefined),
     cancelGoal: jest.fn().mockResolvedValue(undefined),
   };
 }

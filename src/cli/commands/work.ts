@@ -33,6 +33,7 @@ export function registerWorkCommand(program: Command) {
     .option('--db <path>', 'Path to SQLite database', runtimeConfig.paths.database)
     .option('--model <model>', 'Specific LLM model to use')
     .option('--plan-first', 'Show execution plan and wait for approval before executing')
+    .option('--review-plan', 'Submit via daemon with plan review — pause after planning for approval')
     .action(async (task, options) => {
       console.log(chalk.bold.cyan('\n🐴 PonyBunny Autonomous Agent\n'));
 
@@ -97,6 +98,100 @@ export function registerWorkCommand(program: Command) {
           required: true
         }],
       });
+
+      // --review-plan: submit via daemon/RPC with plan review pause
+      if (options.reviewPlan) {
+        const { GatewayClient } = await import('../gateway/gateway-client.js');
+        const client = new GatewayClient();
+
+        try {
+          client.start();
+          // Wait for connection (up to 5 seconds)
+          await new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error('Connection timeout')), 5000);
+            client.onConnected = () => { clearTimeout(timeout); resolve(); };
+            client.onError = (err) => { clearTimeout(timeout); reject(err); };
+          });
+        } catch {
+          spinner.fail('Cannot connect to gateway. Start the daemon first: pb gateway start');
+          client.stop();
+          repository.close();
+          process.exit(1);
+        }
+
+        spinner.text = 'Submitting goal with plan review...';
+
+        const goalResult = await client.request<{ id: string; status: string }>('goal.submit', {
+          title: 'CLI Task',
+          description: task,
+          success_criteria: [{
+            description: 'Task executed successfully',
+            type: 'heuristic',
+            verification_method: 'manual',
+            required: true,
+          }],
+          context: { review_plan: true, selected_model: model },
+        });
+
+        spinner.succeed(`Goal submitted: ${goalResult.id}`);
+
+        // Poll for plan_review status
+        const pollSpinner = ora('Waiting for plan generation...').start();
+        let planReady = false;
+        for (let i = 0; i < 120; i++) { // 2 min max
+          const status = await client.request<{ status: string }>('goal.status', { goalId: goalResult.id });
+          if (status.status === 'plan_review') {
+            planReady = true;
+            break;
+          }
+          if (status.status === 'active' || status.status === 'completed' || status.status === 'cancelled' || status.status === 'blocked') {
+            pollSpinner.info(`Goal moved to ${status.status} — plan review was not triggered`);
+            client.stop();
+            repository.close();
+            process.exit(0);
+          }
+          await new Promise(r => setTimeout(r, 1000));
+        }
+
+        if (!planReady) {
+          pollSpinner.fail('Timed out waiting for plan generation');
+          client.stop();
+          repository.close();
+          process.exit(1);
+        }
+
+        // Fetch and display the plan
+        const planData = await client.request<{
+          goalId: string;
+          status: string;
+          workItems: WorkItem[];
+        }>('plan.get', { goalId: goalResult.id });
+
+        pollSpinner.succeed(`Plan ready: ${planData.workItems.length} work item(s)`);
+        displayPlan(planData.workItems, new Map());
+
+        // Ask for user approval
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        const answer = await rl.question(chalk.bold('\nApprove and execute this plan? [y/N] '));
+        rl.close();
+
+        if (answer.toLowerCase() !== 'y' && answer.toLowerCase() !== 'yes') {
+          await client.request('plan.reject', { goalId: goalResult.id, reason: 'Rejected by user via CLI' });
+          console.log(chalk.yellow('\nPlan rejected. Goal cancelled.'));
+          client.stop();
+          repository.close();
+          process.exit(0);
+        }
+
+        await client.request('plan.approve', { goalId: goalResult.id });
+        console.log(chalk.green('\nPlan approved. Goal delegated to scheduler for execution.'));
+        console.log(chalk.dim(`  Goal ID: ${goalResult.id}`));
+        console.log(chalk.dim('  Monitor progress: pb events tail'));
+
+        client.stop();
+        repository.close();
+        return;
+      }
 
       // --plan-first: use PlanningService to generate work items, display plan, and ask for approval
       if (options.planFirst) {

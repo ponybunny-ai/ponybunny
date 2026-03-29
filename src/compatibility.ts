@@ -6,5 +6,5 @@
  * boundary.
  */
 
-export { ReActIntegration } from './autonomy/react-integration.js';
-export { DaemonEventEmitterMixin, type IDaemonEventEmitter } from './autonomy/daemon-event-emitter.js';
+export { ReActIntegration } from './runtime/react/react-integration.js';
+export { DaemonEventEmitterMixin, type IDaemonEventEmitter } from './runtime/events/daemon-event-emitter.js';

@@ -12,7 +12,7 @@ import { ReadFileTool } from '../../../src/infra/tools/implementations/read-file
 import type { Goal, Run, WorkItem } from '../../../src/work-order/types/index.js';
 import { DeterministicRuntimeErrorCodes } from '../../../src/deterministic-runtime/error-codes.js';
 import type { PlanV1 } from '../../../src/deterministic-runtime/plan-compiler.js';
-import { DaemonEventEmitterMixin } from '../../../src/autonomy/daemon-event-emitter.js';
+import { DaemonEventEmitterMixin } from '../../../src/runtime/events/daemon-event-emitter.js';
 import type { EventBus } from '../../../src/gateway/events/event-bus.js';
 import {
   type DeterministicRunEvent,

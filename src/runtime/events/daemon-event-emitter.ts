@@ -1,4 +1,4 @@
-import type { Goal, WorkItem, Run, Escalation } from '../work-order/types/index.js';
+import type { Goal, WorkItem, Run, Escalation } from '../../work-order/types/index.js';
 
 export interface DaemonEventSubscription {
   release(): void;

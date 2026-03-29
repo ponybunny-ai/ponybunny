@@ -71,6 +71,22 @@ export class GoalHarness implements IGoalHarness {
     return this.elaboratePlanDelegate(goal);
   }
 
+  async approvePlan(goalId: string): Promise<void> {
+    const goal = this.repository.getGoal(goalId);
+    if (!goal) {
+      throw new Error(`[GoalHarness] Goal not found: ${goalId}`);
+    }
+    if (goal.status !== 'plan_review') {
+      throw new Error(
+        `[GoalHarness] Goal ${goalId} is not in plan_review (status: ${goal.status})`
+      );
+    }
+
+    this.repository.updateGoalStatus(goalId, 'active');
+    console.log(`[GoalHarness] Plan approved for goal ${goalId} — delegating to SchedulerCore`);
+    await this.schedulerCore.submitGoal(goal);
+  }
+
   async cancelGoal(goalId: string): Promise<void> {
     console.log(`[GoalHarness] Cancelling goal: ${goalId}`);
     await this.schedulerCore.cancelGoal(goalId);
@@ -129,6 +145,23 @@ export class GoalHarness implements IGoalHarness {
     console.log(
       `[GoalHarness] Plan created with ${plan.workItems.length} work items for goal ${goal.id}`
     );
+
+    // Step 4.5: If review_plan mode, pause at plan_review instead of delegating
+    const reviewPlan = goal.context?.review_plan === true;
+    if (reviewPlan) {
+      this.repository.updateGoalStatus(goal.id, 'plan_review');
+      console.log(`[GoalHarness] Goal ${goal.id} paused at plan_review — awaiting approval`);
+
+      return {
+        goal: { ...goal, status: 'plan_review' as const },
+        elaborationApplied: true,
+        planGenerated: true,
+        workItemCount: plan.workItems.length,
+        escalations: [],
+        delegatedToScheduler: false,
+        awaitingPlanReview: true,
+      };
+    }
 
     // Step 5: Mark goal active
     this.repository.updateGoalStatus(goal.id, 'active');

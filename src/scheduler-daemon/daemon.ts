@@ -879,6 +879,22 @@ export class SchedulerDaemon {
         return;
       }
 
+      if (command.command === 'approve_plan') {
+        if (!command.goalId) {
+          await respond(command.requestId, false, 'goalId is required for approve_plan');
+          return;
+        }
+
+        if (!this.config.goalHarness) {
+          await respond(command.requestId, false, 'GoalHarness is required for approve_plan');
+          return;
+        }
+
+        await this.config.goalHarness.approvePlan(command.goalId);
+        await respond(command.requestId, true);
+        return;
+      }
+
       if (command.command === 'evaluation_list') {
         if (!this.postGoalEvaluator) {
           await respond(command.requestId, true, undefined, { reports: [] });

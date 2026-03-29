@@ -18,7 +18,7 @@ import {
   CodexAccountProvider,
   AntigravityAccountProvider,
 } from '../../infra/llm/index.js';
-import type { ReActCycleParams } from '../../autonomy/react-integration.js';
+import type { ReActCycleParams } from '../../runtime/react/react-integration.js';
 import { loadLLMConfig } from '../../infra/llm/provider-manager/config-loader.js';
 import {
   createLocalSessionId,

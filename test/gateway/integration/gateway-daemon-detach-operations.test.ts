@@ -1,4 +1,4 @@
-import { DaemonEventEmitterMixin } from '../../../src/autonomy/daemon-event-emitter.js';
+import { DaemonEventEmitterMixin } from '../../../src/runtime/events/daemon-event-emitter.js';
 import {
   getGatewayDaemonDetachStatus,
   getGatewayDaemonOperationState,

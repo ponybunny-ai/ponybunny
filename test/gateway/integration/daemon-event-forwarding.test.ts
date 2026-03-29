@@ -1,4 +1,4 @@
-import { DaemonEventEmitterMixin } from '../../../src/autonomy/daemon-event-emitter.js';
+import { DaemonEventEmitterMixin } from '../../../src/runtime/events/daemon-event-emitter.js';
 import { registerDaemonEventForwarders } from '../../../src/gateway/integration/daemon-event-forwarding.js';
 import type { EventBus } from '../../../src/gateway/events/event-bus.js';
 import type { Goal, Run } from '../../../src/work-order/types/index.js';

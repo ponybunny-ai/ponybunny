@@ -1,5 +1,5 @@
-import { DaemonEventEmitterMixin } from '../../src/autonomy/daemon-event-emitter.js';
-import type { Goal, WorkItem } from '../../src/work-order/types/index.js';
+import { DaemonEventEmitterMixin } from '../../../src/runtime/events/daemon-event-emitter.js';
+import type { Goal, WorkItem } from '../../../src/work-order/types/index.js';
 
 class TestDaemonEmitter extends DaemonEventEmitterMixin {
   emitGoalUpdated(goal: Goal): void {

@@ -1,8 +1,8 @@
-import type { ILLMProvider, LLMMessage, LLMProviderConfig, LLMResponse } from '../../src/infra/llm/llm-provider.js';
-import type { Run, WorkItem } from '../../src/work-order/types/index.js';
-import type { ToolEnforcer } from '../../src/infra/tools/tool-registry.js';
-import type { ToolPort, ToolRequest } from '../../src/runtime/tool-boundary/index.js';
-import { LocalToolWorker } from '../../src/runtime/workers/index.js';
+import type { ILLMProvider, LLMMessage, LLMProviderConfig, LLMResponse } from '../../../src/infra/llm/llm-provider.js';
+import type { Run, WorkItem } from '../../../src/work-order/types/index.js';
+import type { ToolEnforcer } from '../../../src/infra/tools/tool-registry.js';
+import type { ToolPort, ToolRequest } from '../../../src/runtime/tool-boundary/index.js';
+import { LocalToolWorker } from '../../../src/runtime/workers/index.js';
 
 const mockGenerateExecutionPrompt = jest.fn(() => 'system prompt');
 let mockToolDefinitions: Array<{
@@ -17,7 +17,7 @@ const getLegacyCompatibleToolProviderMock = jest.fn(() => ({
   getToolDefinitions: () => mockToolDefinitions,
 }));
 
-jest.mock('../../src/infra/prompts/prompt-provider.js', () => ({
+jest.mock('../../../src/infra/prompts/prompt-provider.js', () => ({
   PromptProvider: class MockPromptProvider {
     generateExecutionPrompt() {
       return mockGenerateExecutionPrompt();
@@ -25,18 +25,18 @@ jest.mock('../../src/infra/prompts/prompt-provider.js', () => ({
   },
 }));
 
-jest.mock('../../src/infra/skills/skill-registry.js', () => ({
+jest.mock('../../../src/infra/skills/skill-registry.js', () => ({
   getGlobalSkillRegistry: () => ({
     getSkillsForPhase: () => [],
   }),
 }));
 
-jest.mock('../../src/infra/prompts/legacy-prompt-tooling-compatibility.js', () => ({
+jest.mock('../../../src/infra/prompts/legacy-prompt-tooling-compatibility.js', () => ({
   getLegacyCompatiblePromptProvider: getLegacyCompatiblePromptProviderMock,
   getLegacyCompatibleToolProvider: getLegacyCompatibleToolProviderMock,
 }));
 
-jest.mock('../../src/infra/tools/tool-provider.js', () => {
+jest.mock('../../../src/infra/tools/tool-provider.js', () => {
   class MockToolProvider {
     getToolDefinitions() {
       return mockToolDefinitions;
@@ -48,7 +48,7 @@ jest.mock('../../src/infra/tools/tool-provider.js', () => {
   };
 });
 
-import { ReActIntegration } from '../../src/autonomy/react-integration.js';
+import { ReActIntegration } from '../../../src/runtime/react/react-integration.js';
 
 function createWorkItem(overrides: Partial<WorkItem> = {}): WorkItem {
   return {

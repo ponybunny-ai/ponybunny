@@ -3,26 +3,26 @@
  * Integrates with new System Prompt Builder and native tool calling
  */
 
-import type { WorkItem, Run, Goal } from '../work-order/types/index.js';
-import type { ILLMProvider, LLMMessage, LLMResponse, ToolCall } from '../infra/llm/llm-provider.js';
-import type { ToolEnforcer } from '../infra/tools/tool-registry.js';
-import type { RuntimeToolingContext } from '../runtime/tooling-context/index.js';
-import { PromptProvider } from '../infra/prompts/prompt-provider.js';
+import type { WorkItem, Run, Goal } from '../../work-order/types/index.js';
+import type { ILLMProvider, LLMMessage, LLMResponse, ToolCall } from '../../infra/llm/llm-provider.js';
+import type { ToolEnforcer } from '../../infra/tools/tool-registry.js';
+import type { RuntimeToolingContext } from '../tooling-context/index.js';
+import { PromptProvider } from '../../infra/prompts/prompt-provider.js';
 import {
   getLegacyCompatiblePromptProvider,
   getLegacyCompatibleToolProvider,
-} from '../infra/prompts/legacy-prompt-tooling-compatibility.js';
-import { ToolProvider } from '../infra/tools/tool-provider.js';
-import { routeContextFromWorkItemContext } from '../infra/routing/route-context.js';
-import { loadRuntimeConfig } from '../infra/config/runtime-config.js';
+} from '../../infra/prompts/legacy-prompt-tooling-compatibility.js';
+import { ToolProvider } from '../../infra/tools/tool-provider.js';
+import { routeContextFromWorkItemContext } from '../../infra/routing/route-context.js';
+import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
 import {
   formatToolResultForModel,
   LocalToolAdapter,
   type ToolPort,
   type ToolRequest,
   type ToolResult,
-} from '../runtime/tool-boundary/index.js';
-import { LocalToolWorker } from '../runtime/workers/index.js';
+} from '../tool-boundary/index.js';
+import { LocalToolWorker } from '../workers/index.js';
 
 export interface ReActCycleParams {
   workItem: WorkItem;
@@ -495,7 +495,7 @@ export class ReActIntegration {
 
   private buildInitialObservation(
     workItem: WorkItem,
-    tools: import('../infra/llm/llm-provider.js').ToolDefinition[]
+    tools: import('../../infra/llm/llm-provider.js').ToolDefinition[]
   ): string {
     const routeContext = routeContextFromWorkItemContext(workItem.context);
 
@@ -566,7 +566,7 @@ Respond with at most 2 short planning lines, then immediately issue the first co
     return raw.length <= 1200 ? raw : `${raw.slice(0, 1200)}\n... (truncated)`;
   }
 
-  private buildLocalToolHints(tools: import('../infra/llm/llm-provider.js').ToolDefinition[]): string {
+  private buildLocalToolHints(tools: import('../../infra/llm/llm-provider.js').ToolDefinition[]): string {
     const mcpTools = tools.filter((tool) => tool.name.startsWith('mcp__')).map((tool) => tool.name);
     const builtinTools = tools
       .filter((tool) => !tool.name.startsWith('mcp__') && tool.name !== 'complete_task')
@@ -593,7 +593,7 @@ Respond with at most 2 short planning lines, then immediately issue the first co
 
   private buildRuntimeEnvelopeAudit(
     workItem: WorkItem,
-    tools: import('../infra/llm/llm-provider.js').ToolDefinition[]
+    tools: import('../../infra/llm/llm-provider.js').ToolDefinition[]
   ): string {
     const routeContext = routeContextFromWorkItemContext(workItem.context);
     const toolNames = tools.map((tool) => tool.name).join(', ');
@@ -606,7 +606,7 @@ Respond with at most 2 short planning lines, then immediately issue the first co
   }
 
   private buildImmediateActionDirective(
-    tools: import('../infra/llm/llm-provider.js').ToolDefinition[],
+    tools: import('../../infra/llm/llm-provider.js').ToolDefinition[],
     fromEmptyResponse: boolean
   ): string {
     const prioritized = [...tools].sort((a, b) => {
@@ -746,7 +746,7 @@ Respond with at most 2 short planning lines, then immediately issue the first co
   private async executeLocalFallback(
     context: ReActContext,
     workItem: WorkItem,
-    tools: import('../infra/llm/llm-provider.js').ToolDefinition[],
+    tools: import('../../infra/llm/llm-provider.js').ToolDefinition[],
     toolWorker: LocalToolWorker | undefined,
     messages: LLMMessage[]
   ): Promise<LLMResponse | null> {
@@ -900,7 +900,7 @@ Respond with at most 2 short planning lines, then immediately issue the first co
 
   private buildSearchArgsFromSchema(
     query: string,
-    toolDef: import('../infra/llm/llm-provider.js').ToolDefinition
+    toolDef: import('../../infra/llm/llm-provider.js').ToolDefinition
   ): Array<Record<string, unknown>> {
     const required = toolDef.parameters.required ?? [];
     const properties = toolDef.parameters.properties ?? {};
@@ -945,7 +945,7 @@ Respond with at most 2 short planning lines, then immediately issue the first co
     return deduped;
   }
 
-  private isFallbackSearchTool(tool: import('../infra/llm/llm-provider.js').ToolDefinition): boolean {
+  private isFallbackSearchTool(tool: import('../../infra/llm/llm-provider.js').ToolDefinition): boolean {
     if (tool.name === 'complete_task') {
       return false;
     }
@@ -960,7 +960,7 @@ Respond with at most 2 short planning lines, then immediately issue the first co
   }
 
   private rankFallbackSearchTool(
-    tool: import('../infra/llm/llm-provider.js').ToolDefinition
+    tool: import('../../infra/llm/llm-provider.js').ToolDefinition
   ): number {
     const name = tool.name.toLowerCase();
     const keys = Object.keys(tool.parameters.properties ?? {});
@@ -1128,7 +1128,7 @@ Respond with at most 2 short planning lines, then immediately issue the first co
 
   private async callLLMWithTools(
     messages: LLMMessage[],
-    tools: import('../infra/llm/llm-provider.js').ToolDefinition[],
+    tools: import('../../infra/llm/llm-provider.js').ToolDefinition[],
     model?: string,
     requireToolCall: boolean = false
   ): Promise<LLMResponse> {

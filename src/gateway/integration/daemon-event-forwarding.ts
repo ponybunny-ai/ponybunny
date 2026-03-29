@@ -1,7 +1,7 @@
 import type {
   DaemonEventSubscription,
   IDaemonEventEmitter,
-} from '../../autonomy/daemon-event-emitter.js';
+} from '../../runtime/events/daemon-event-emitter.js';
 import type { EventBus } from '../events/event-bus.js';
 
 export interface DaemonEventForwardingBinding {

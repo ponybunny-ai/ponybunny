@@ -20,6 +20,9 @@ function deriveSummary(goal: Goal): string {
   if (goal.status === 'active') {
     return 'Goal is currently running.';
   }
+  if (goal.status === 'plan_review') {
+    return 'Plan ready — awaiting approval.';
+  }
   return 'Goal is queued.';
 }
 
@@ -190,7 +193,9 @@ export const GoalsView: React.FC = () => {
               ? '✓'
               : (goal.status === 'blocked' || goal.status === 'cancelled')
                 ? '✗'
-                : '•';
+                : goal.status === 'plan_review'
+                  ? '⏸'
+                  : '•';
             const title = goal.title || goal.description;
             return (
               <Box key={goal.id}>

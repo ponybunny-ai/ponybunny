@@ -1,7 +1,8 @@
 import type { GoalStatus, WorkItemStatus, RunStatus } from '../types.js';
 
 export const GOAL_TRANSITIONS: Record<GoalStatus, GoalStatus[]> = {
-  queued: ['active', 'cancelled'],
+  queued: ['active', 'plan_review', 'cancelled'],
+  plan_review: ['active', 'cancelled'],
   active: ['blocked', 'completed', 'cancelled'],
   blocked: ['active', 'cancelled'],
   completed: [],

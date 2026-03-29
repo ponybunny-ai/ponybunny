@@ -1,7 +1,7 @@
 import type { ILLMProvider } from '../../infra/llm/llm-provider.js';
 import type { ToolEnforcer } from '../../infra/tools/tool-registry.js';
 import type { RuntimeToolingContext } from '../tooling-context/index.js';
-import { ReActIntegration } from '../../autonomy/react-integration.js';
+import { ReActIntegration } from '../react/react-integration.js';
 import type {
   ExecutionCycleRequest,
   ExecutionCycleResult,

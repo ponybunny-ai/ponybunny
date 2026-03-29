@@ -26,6 +26,7 @@ export interface GoalHarnessResult {
   workItemCount: number;
   escalations: string[];
   delegatedToScheduler: boolean;
+  awaitingPlanReview?: boolean;
 }
 
 export interface IGoalHarness {
@@ -34,6 +35,9 @@ export interface IGoalHarness {
 
   /** Elaborate, plan, and delegate an existing queued goal. Used by HarnessDaemon. */
   processQueuedGoal(goalId: string): Promise<GoalHarnessResult>;
+
+  /** Approve a plan_review goal: mark active and delegate to SchedulerCore. */
+  approvePlan(goalId: string): Promise<void>;
 
   /** Cancel a goal via SchedulerCore. */
   cancelGoal(goalId: string): Promise<void>;

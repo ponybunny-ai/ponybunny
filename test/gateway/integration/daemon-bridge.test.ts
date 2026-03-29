@@ -2,7 +2,7 @@ import {
   DaemonBridge,
   DaemonEventEmitterMixin as GatewayDaemonEventEmitterMixin,
 } from '../../../src/gateway/integration/daemon-bridge.js';
-import { DaemonEventEmitterMixin as AutonomyDaemonEventEmitterMixin } from '../../../src/autonomy/daemon-event-emitter.js';
+import { DaemonEventEmitterMixin as AutonomyDaemonEventEmitterMixin } from '../../../src/runtime/events/daemon-event-emitter.js';
 import { GatewayDaemonAttachment } from '../../../src/gateway/integration/gateway-daemon-attachment.js';
 import type { EventBus } from '../../../src/gateway/events/event-bus.js';
 

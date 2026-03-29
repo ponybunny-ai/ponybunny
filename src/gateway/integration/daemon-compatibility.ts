@@ -9,9 +9,9 @@
 export {
   DaemonEventEmitterMixin,
   type IDaemonEventEmitter,
-} from '../../autonomy/daemon-event-emitter.js';
+} from '../../runtime/events/daemon-event-emitter.js';
 import type { EventBus } from '../events/event-bus.js';
-import type { IDaemonEventEmitter } from '../../autonomy/daemon-event-emitter.js';
+import type { IDaemonEventEmitter } from '../../runtime/events/daemon-event-emitter.js';
 import {
   GatewayDaemonAttachment,
   type GatewayDaemonAttachmentStatus,
