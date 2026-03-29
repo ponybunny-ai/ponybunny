@@ -223,6 +223,7 @@ export class SchedulerDaemon {
       this.postGoalEvaluator = assemblePostGoalEvaluator({
         repository: this.repository,
         scheduler: this.scheduler,
+        knowledgeDb: this.repository.getDatabase(),
       });
       this.postGoalEvaluator.start();
 

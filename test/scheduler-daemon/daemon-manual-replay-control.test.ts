@@ -82,6 +82,8 @@ function createRepositoryMock(): IWorkOrderRepository {
     createContextPack: () => {
       throw new Error('not used');
     },
+    getLatestContextPack: () => undefined,
+    getDatabase: () => { throw new Error('not used'); },
     upsertCronJob: () => {
       throw new Error('not used');
     },

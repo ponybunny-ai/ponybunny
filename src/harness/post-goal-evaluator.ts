@@ -16,6 +16,7 @@ import type { ISchedulerCore } from '../scheduler/core/types.js';
 import type { IEvaluationService, EvaluationResult, VerificationResult } from '../app/lifecycle/stage-interfaces.js';
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
 import type { SchedulerEvent, SchedulerEventHandler } from '../scheduler/types.js';
+import type { GlobalKnowledgeService } from '../domain/knowledge/index.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,6 +26,7 @@ export interface PostGoalEvaluatorDependencies {
   schedulerCore: ISchedulerCore;
   evaluationService: IEvaluationService;
   repository: IWorkOrderRepository;
+  globalKnowledgeService?: GlobalKnowledgeService;
 }
 
 export interface WorkItemEvaluation {
@@ -65,6 +67,7 @@ export class PostGoalEvaluator {
   private readonly schedulerCore: ISchedulerCore;
   private readonly evaluationService: IEvaluationService;
   private readonly repository: IWorkOrderRepository;
+  private readonly globalKnowledgeService?: GlobalKnowledgeService;
 
   private readonly reports: GoalEvaluationReport[] = [];
   private handler: SchedulerEventHandler | null = null;
@@ -73,6 +76,7 @@ export class PostGoalEvaluator {
     this.schedulerCore = deps.schedulerCore;
     this.evaluationService = deps.evaluationService;
     this.repository = deps.repository;
+    this.globalKnowledgeService = deps.globalKnowledgeService;
   }
 
   // -------------------------------------------------------------------------
@@ -120,6 +124,41 @@ export class PostGoalEvaluator {
 
   getReports(): GoalEvaluationReport[] {
     return [...this.reports];
+  }
+
+  // -------------------------------------------------------------------------
+  // Knowledge extraction (flywheel write side)
+  // -------------------------------------------------------------------------
+
+  /**
+   * After goal evaluation, extract knowledge from the goal's ContextPack
+   * into GlobalKnowledgeService. This closes the failure learning flywheel:
+   *   Goal completes → PostGoalEvaluator → extractFromContextPack → global_knowledge table
+   *   Next goal → Elaboration → getRelevantKnowledge → pitfalls injected
+   *
+   * Errors are caught and logged — knowledge extraction must never crash the scheduler.
+   */
+  private async extractKnowledgeForGoal(goalId: string): Promise<void> {
+    if (!this.globalKnowledgeService) {
+      return;
+    }
+
+    try {
+      const contextPack = this.repository.getLatestContextPack(goalId);
+      if (!contextPack) {
+        console.log(`${LOG_PREFIX} No ContextPack found for goal ${goalId} — skipping knowledge extraction`);
+        return;
+      }
+
+      const extracted = this.globalKnowledgeService.extractFromContextPack(contextPack);
+      if (extracted.length > 0) {
+        console.log(
+          `${LOG_PREFIX} Extracted ${extracted.length} knowledge entries from goal ${goalId}`,
+        );
+      }
+    } catch (err) {
+      console.error(`${LOG_PREFIX} Knowledge extraction failed for goal ${goalId}:`, err);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -236,6 +275,9 @@ export class PostGoalEvaluator {
       `${LOG_PREFIX} Goal ${goalId} evaluated: ` +
       `${summary.publish}p/${summary.retry}r/${summary.escalate}e/${summary.replan}rp/${summary.skipped}s`,
     );
+
+    // Extract knowledge from ContextPack into GlobalKnowledge (flywheel write side)
+    await this.extractKnowledgeForGoal(goalId);
 
     return report;
   }

@@ -178,16 +178,30 @@ export function assembleGoalHarness(
 export interface PostGoalEvaluatorAssemblyDependencies {
   repository: IWorkOrderRepository;
   scheduler: SchedulerCore;
+  /** Database handle for GlobalKnowledgeService. If provided, enables automatic knowledge extraction. */
+  knowledgeDb?: Database.Database;
 }
 
 export function assemblePostGoalEvaluator(
   deps: PostGoalEvaluatorAssemblyDependencies
 ): PostGoalEvaluator {
   const evaluationService = new EvaluationService(deps.repository);
+
+  let globalKnowledgeService: GlobalKnowledgeService | undefined;
+  if (deps.knowledgeDb) {
+    try {
+      globalKnowledgeService = new GlobalKnowledgeService(deps.knowledgeDb);
+      console.log('[PostGoalEvaluator Assembly] Global Knowledge Service wired for flywheel');
+    } catch {
+      console.warn('[PostGoalEvaluator Assembly] Global Knowledge Service unavailable — knowledge extraction disabled');
+    }
+  }
+
   const evaluator = new PostGoalEvaluator({
     schedulerCore: deps.scheduler,
     evaluationService,
     repository: deps.repository,
+    globalKnowledgeService,
   });
 
   console.log('[PostGoalEvaluator Assembly] PostGoalEvaluator assembled successfully');

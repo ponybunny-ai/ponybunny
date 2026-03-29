@@ -151,6 +151,7 @@ async function main() {
     schedulerCore: scheduler,
     evaluationService,
     repository,
+    globalKnowledgeService: globalKnowledge,
   });
   console.log('[PonyBunny] ✅ PostGoalEvaluator initialized');
 

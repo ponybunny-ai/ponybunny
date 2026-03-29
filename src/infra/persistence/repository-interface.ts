@@ -9,10 +9,12 @@ import type {
   InFlightRunReconciliationCandidate,
 } from '../../domain/types.js';
 import type { DeterministicRunEvent, DeterministicRunEventType } from '../../deterministic-runtime/run-events.js';
+import type Database from 'better-sqlite3';
 
 export interface IWorkOrderRepository {
   initialize(): Promise<void>;
   close(): void;
+  getDatabase(): Database.Database;
   
   createGoal(params: CreateGoalParams): Goal;
   getGoal(id: string): Goal | undefined;
@@ -91,6 +93,7 @@ export interface IWorkOrderRepository {
   createDecision(params: CreateDecisionParams): Decision;
   createEscalation(params: CreateEscalationParams): Escalation;
   createContextPack(params: CreateContextPackParams): ContextPack;
+  getLatestContextPack(goal_id: string, pack_type?: ContextPack['pack_type']): ContextPack | undefined;
 
   upsertCronJob(params: UpsertCronJobParams): CronJob;
   getCronJob(agent_id: string): CronJob | undefined;

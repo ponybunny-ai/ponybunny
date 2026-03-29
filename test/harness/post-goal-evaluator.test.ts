@@ -65,7 +65,7 @@ function createMockDeps(): {
   deps: PostGoalEvaluatorDependencies;
   handlers: SchedulerEventHandler[];
   evaluationService: jest.Mocked<IEvaluationService>;
-  repository: jest.Mocked<Pick<IWorkOrderRepository, 'getWorkItemsByGoal' | 'getRunsByWorkItem'>>;
+  repository: jest.Mocked<Pick<IWorkOrderRepository, 'getWorkItemsByGoal' | 'getRunsByWorkItem' | 'getLatestContextPack'>>;
 } {
   const handlers: SchedulerEventHandler[] = [];
 
@@ -84,7 +84,8 @@ function createMockDeps(): {
   const repository = {
     getWorkItemsByGoal: jest.fn().mockReturnValue([]),
     getRunsByWorkItem: jest.fn().mockReturnValue([]),
-  } as unknown as jest.Mocked<Pick<IWorkOrderRepository, 'getWorkItemsByGoal' | 'getRunsByWorkItem'>>;
+    getLatestContextPack: jest.fn().mockReturnValue(undefined),
+  } as unknown as jest.Mocked<Pick<IWorkOrderRepository, 'getWorkItemsByGoal' | 'getRunsByWorkItem' | 'getLatestContextPack'>>;
 
   return {
     deps: {
@@ -540,6 +541,150 @@ describe('PostGoalEvaluator', () => {
       // Handler was removed, so no handlers to call
       expect(handlers).toHaveLength(0);
       expect(evaluationService.evaluateRun).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---- Knowledge extraction (flywheel write side) ----
+
+  describe('knowledge extraction', () => {
+    function makeContextPack() {
+      return {
+        id: 'cp-1',
+        created_at: Date.now(),
+        goal_id: 'goal-1',
+        pack_type: 'daily_checkpoint' as const,
+        snapshot_data: {
+          goal_state: {
+            current_work_items: [],
+            completed_work_items: ['wi-1'],
+            blocked_work_items: [],
+            recent_decisions: [],
+            active_escalations: [],
+          },
+          execution_summary: {
+            total_runs: 1,
+            success_count: 1,
+            failure_count: 0,
+            most_common_errors: [],
+          },
+          knowledge_base: {
+            learned_patterns: ['Pattern A'],
+            pitfalls_discovered: ['Pitfall X'],
+            successful_approaches: ['Approach Z'],
+          },
+          next_actions: {
+            recommended_work_items: [],
+            risk_factors: [],
+          },
+        },
+        compressed: false,
+        size_bytes: 100,
+      };
+    }
+
+    it('calls extractFromContextPack when GlobalKnowledgeService and ContextPack are available', async () => {
+      const { deps, repository } = createMockDeps();
+      const mockGKS = {
+        extractFromContextPack: jest.fn().mockReturnValue([
+          { id: 'gk-1', knowledge_type: 'pitfall', content: 'Pitfall X' },
+          { id: 'gk-2', knowledge_type: 'pattern', content: 'Pattern A' },
+          { id: 'gk-3', knowledge_type: 'approach', content: 'Approach Z' },
+        ]),
+      };
+      deps.globalKnowledgeService = mockGKS as any;
+
+      const contextPack = makeContextPack();
+      repository.getLatestContextPack.mockReturnValue(contextPack);
+      repository.getWorkItemsByGoal.mockReturnValue([]);
+
+      const logSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      const evaluator = new PostGoalEvaluator(deps);
+      await evaluator.evaluateGoal('goal-1', 'goal_completed');
+
+      expect(repository.getLatestContextPack).toHaveBeenCalledWith('goal-1');
+      expect(mockGKS.extractFromContextPack).toHaveBeenCalledWith(contextPack);
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Extracted 3 knowledge entries'),
+      );
+      logSpy.mockRestore();
+    });
+
+    it('skips knowledge extraction when no GlobalKnowledgeService is provided', async () => {
+      const { deps, repository } = createMockDeps();
+      // No globalKnowledgeService set
+      repository.getWorkItemsByGoal.mockReturnValue([]);
+
+      const evaluator = new PostGoalEvaluator(deps);
+      await evaluator.evaluateGoal('goal-1', 'goal_completed');
+
+      expect(repository.getLatestContextPack).not.toHaveBeenCalled();
+    });
+
+    it('skips knowledge extraction when no ContextPack exists for the goal', async () => {
+      const { deps, repository } = createMockDeps();
+      const mockGKS = { extractFromContextPack: jest.fn() };
+      deps.globalKnowledgeService = mockGKS as any;
+
+      repository.getLatestContextPack.mockReturnValue(undefined);
+      repository.getWorkItemsByGoal.mockReturnValue([]);
+
+      const logSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      const evaluator = new PostGoalEvaluator(deps);
+      await evaluator.evaluateGoal('goal-1', 'goal_completed');
+
+      expect(mockGKS.extractFromContextPack).not.toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.stringContaining('No ContextPack found'),
+      );
+      logSpy.mockRestore();
+    });
+
+    it('catches and logs errors from knowledge extraction without failing evaluation', async () => {
+      const { deps, repository } = createMockDeps();
+      const mockGKS = {
+        extractFromContextPack: jest.fn().mockImplementation(() => {
+          throw new Error('DB write failed');
+        }),
+      };
+      deps.globalKnowledgeService = mockGKS as any;
+
+      repository.getLatestContextPack.mockReturnValue(makeContextPack());
+      repository.getWorkItemsByGoal.mockReturnValue([]);
+
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation();
+
+      const evaluator = new PostGoalEvaluator(deps);
+      const report = await evaluator.evaluateGoal('goal-1', 'goal_completed');
+
+      // Report should still be returned successfully
+      expect(report.goalId).toBe('goal-1');
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Knowledge extraction failed'),
+        expect.any(Error),
+      );
+      errorSpy.mockRestore();
+    });
+
+    it('does not log extraction count when no entries are extracted', async () => {
+      const { deps, repository } = createMockDeps();
+      const mockGKS = { extractFromContextPack: jest.fn().mockReturnValue([]) };
+      deps.globalKnowledgeService = mockGKS as any;
+
+      repository.getLatestContextPack.mockReturnValue(makeContextPack());
+      repository.getWorkItemsByGoal.mockReturnValue([]);
+
+      const logSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      const evaluator = new PostGoalEvaluator(deps);
+      await evaluator.evaluateGoal('goal-1', 'goal_completed');
+
+      const extractionLogs = logSpy.mock.calls.filter(
+        call => typeof call[0] === 'string' && call[0].includes('Extracted'),
+      );
+      expect(extractionLogs).toHaveLength(0);
+      logSpy.mockRestore();
     });
   });
 });
