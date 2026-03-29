@@ -8,30 +8,11 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import Database from 'better-sqlite3';
-import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
 import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
 import { GlobalKnowledgeService } from '../../domain/knowledge/index.js';
+import { ensureMainSchema } from '../../infra/persistence/ensure-schema.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
 const runtimeConfig = loadRuntimeConfig();
-
-function ensureSchema(db: Database.Database): void {
-  try {
-    const schemaPath = join(__dirname, '../../infra/persistence/schema.sql');
-    const schema = readFileSync(schemaPath, 'utf-8');
-    db.exec(schema);
-  } catch {
-    try {
-      const distSchemaPath = join(__dirname, '../../../dist/infra/persistence/schema.sql');
-      const schema = readFileSync(distSchemaPath, 'utf-8');
-      db.exec(schema);
-    } catch {
-      // Schema already exists
-    }
-  }
-}
 
 function statusColor(rate: number, goodThreshold: number, badThreshold: number): typeof chalk.green {
   if (rate >= goodThreshold) return chalk.green;
@@ -49,7 +30,7 @@ export const dashboardCommand = new Command('dashboard')
     const cutoff = Date.now() - days * 86400000;
 
     const db = new Database(dbPath);
-    ensureSchema(db);
+    ensureMainSchema(db);
 
     try {
       console.log(chalk.bold(`\nPonyBunny Harness Dashboard`));

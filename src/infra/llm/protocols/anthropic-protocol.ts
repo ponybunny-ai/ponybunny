@@ -1,4 +1,5 @@
 import type { LLMMessage, LLMResponse, ToolCall, StreamChunk } from '../llm-provider.js';
+import type { LLMErrorCode } from '../llm-error.js';
 import type {
   EndpointCredentials,
   ProtocolRequestConfig,
@@ -196,6 +197,27 @@ export class AnthropicProtocolAdapter extends BaseProtocolAdapter {
     }
 
     return headers;
+  }
+
+  classifyError(status: number, response?: unknown): LLMErrorCode {
+    // Anthropic-specific error classification using response body
+    if (typeof response === 'object' && response !== null) {
+      const resp = response as Record<string, unknown>;
+      const error = resp.error as Record<string, unknown> | undefined;
+      const errorType = error?.type as string | undefined;
+
+      if (errorType === 'invalid_request_error') {
+        const msg = String(error?.message ?? '').toLowerCase();
+        if (msg.includes('context') || msg.includes('token')) return 'context_exceeded';
+        if (msg.includes('content') || msg.includes('safety')) return 'content_policy';
+      }
+      if (errorType === 'authentication_error') return 'auth_failed';
+      if (errorType === 'permission_error') return 'auth_failed';
+      if (errorType === 'not_found_error') return 'model_unavailable';
+      if (errorType === 'rate_limit_error') return 'rate_limited';
+      if (errorType === 'overloaded_error') return 'server_error';
+    }
+    return super.classifyError(status, response);
   }
 
   isRecoverableError(status: number, _response?: unknown): boolean {

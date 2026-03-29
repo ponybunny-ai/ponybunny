@@ -95,13 +95,27 @@ export interface ILLMProvider {
 }
 
 export class LLMProviderError extends Error {
+  /** Structured error code for machine-readable retry decisions. */
+  public readonly errorCode: import('./llm-error.js').LLMErrorCode;
+
+  /** Provider-reported retry-after delay in milliseconds (rate_limited). */
+  public readonly retryAfterMs?: number;
+
   constructor(
     message: string,
     public provider: string,
-    public recoverable: boolean = true
+    public recoverable: boolean = true,
+    options?: {
+      errorCode?: import('./llm-error.js').LLMErrorCode;
+      retryAfterMs?: number;
+      cause?: unknown;
+    }
   ) {
     super(message);
     this.name = 'LLMProviderError';
+    this.errorCode = options?.errorCode ?? 'unknown';
+    this.retryAfterMs = options?.retryAfterMs;
+    if (options?.cause) this.cause = options.cause;
   }
 }
 

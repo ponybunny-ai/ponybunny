@@ -22,6 +22,7 @@ export class HarnessDaemon {
   private isRunning = false;
   private pollingTimer?: NodeJS.Timeout;
   private activeGoalCount = 0;
+  private wakeResolve: (() => void) | null = null;
 
   constructor(
     private readonly repository: IWorkOrderRepository,
@@ -61,6 +62,18 @@ export class HarnessDaemon {
     return this.isRunning;
   }
 
+  /**
+   * Signal the daemon to process pending goals immediately,
+   * without waiting for the next polling interval.
+   * Call this from Gateway after a new goal is submitted.
+   */
+  wake(): void {
+    if (this.wakeResolve) {
+      this.wakeResolve();
+      this.wakeResolve = null;
+    }
+  }
+
   private async mainLoop(): Promise<void> {
     while (this.isRunning) {
       try {
@@ -70,7 +83,12 @@ export class HarnessDaemon {
       }
 
       if (this.isRunning) {
-        await this.sleep(this.config.pollingIntervalMs);
+        // Wait for polling interval OR wake signal, whichever comes first
+        await Promise.race([
+          this.sleep(this.config.pollingIntervalMs),
+          new Promise<void>((resolve) => { this.wakeResolve = resolve; }),
+        ]);
+        this.wakeResolve = null;
       }
     }
   }

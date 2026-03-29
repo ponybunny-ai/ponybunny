@@ -23,6 +23,7 @@ import { createDefaultSchedulerDaemonRuntime } from '../../scheduler-daemon/boot
 import { getGlobalSkillRegistry } from '../../infra/skills/skill-registry.js';
 import { isDebugLoggingEnabled } from '../../infra/config/debug-flags.js';
 import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
+import { ensureMemorySchema } from '../../infra/persistence/ensure-schema.js';
 import { getManagedSkillsDir } from '../../infra/config/config-paths.js';
 import { getAsciiArtBanner } from '../../infra/ui/ascii-art-banner.js';
 import { getSchedulerConfiguredProviderIds } from '../lib/scheduler-provider-display.js';
@@ -107,20 +108,6 @@ function log(message: string): void {
   appendFileSync(LOG_FILE, line);
 }
 
-function ensureMemorySchema(db: Database.Database): void {
-  try {
-    const schemaPath = join(__dirname, '../../infra/persistence/schema-memory.sql');
-    const schema = readFileSync(schemaPath, 'utf-8');
-    db.exec(schema);
-  } catch {
-    try {
-      const distSchemaPath = join(__dirname, '../../../dist/infra/persistence/schema-memory.sql');
-      const schema = readFileSync(distSchemaPath, 'utf-8');
-      db.exec(schema);
-    } catch {
-    }
-  }
-}
 
 function formatUptime(ms: number): string {
   const seconds = Math.floor(ms / 1000);

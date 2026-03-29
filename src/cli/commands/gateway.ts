@@ -28,6 +28,7 @@ import {
 import { isDebugLoggingEnabled } from '../../infra/config/debug-flags.js';
 import { getPublicKey } from '../lib/key-manager.js';
 import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
+import { ensureMainSchema, ensureMemorySchema } from '../../infra/persistence/ensure-schema.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -115,43 +116,12 @@ function removeDaemonPidFile(): void {
   }
 }
 
-function ensureGatewaySchema(db: Database.Database): void {
-  try {
-    const schemaPath = join(__dirname, '../../infra/persistence/schema.sql');
-    const schema = readFileSync(schemaPath, 'utf-8');
-    db.exec(schema);
-  } catch {
-    try {
-      const distSchemaPath = join(__dirname, '../../../dist/infra/persistence/schema.sql');
-      const schema = readFileSync(distSchemaPath, 'utf-8');
-      db.exec(schema);
-    } catch {
-      // Schema might already exist
-    }
-  }
-}
-
-function ensureMemorySchema(db: Database.Database): void {
-  try {
-    const schemaPath = join(__dirname, '../../infra/persistence/schema-memory.sql');
-    const schema = readFileSync(schemaPath, 'utf-8');
-    db.exec(schema);
-  } catch {
-    try {
-      const distSchemaPath = join(__dirname, '../../../dist/infra/persistence/schema-memory.sql');
-      const schema = readFileSync(distSchemaPath, 'utf-8');
-      db.exec(schema);
-    } catch {
-      // Schema might already exist
-    }
-  }
-}
 
 async function getOrCreateLocalPairingToken(dbPath: string, permissions: Permission[]): Promise<string | null> {
   try {
     const publicKey = getPublicKey();
     const db = new Database(dbPath);
-    ensureGatewaySchema(db);
+    ensureMainSchema(db);
 
     const { PairingTokenStore } = await import('../../gateway/auth/pairing-token-store.js');
     const tokenStore = new PairingTokenStore(db);
@@ -899,15 +869,7 @@ gatewayCommand
       const db = new Database(dbPath);
 
       // Load schema
-      const schemaPath = join(__dirname, '../../infra/persistence/schema.sql');
-      try {
-        const schema = readFileSync(schemaPath, 'utf-8');
-        db.exec(schema);
-      } catch {
-        const distSchemaPath = join(__dirname, '../../../dist/infra/persistence/schema.sql');
-        const schema = readFileSync(distSchemaPath, 'utf-8');
-        db.exec(schema);
-      }
+      ensureMainSchema(db);
 
       // Create token using PairingTokenStore directly
       const { PairingTokenStore } = await import('../../gateway/auth/pairing-token-store.js');
@@ -945,15 +907,7 @@ gatewayCommand
       const db = new Database(dbPath);
 
       // Load schema
-      const schemaPath = join(__dirname, '../../infra/persistence/schema.sql');
-      try {
-        const schema = readFileSync(schemaPath, 'utf-8');
-        db.exec(schema);
-      } catch {
-        const distSchemaPath = join(__dirname, '../../../dist/infra/persistence/schema.sql');
-        const schema = readFileSync(distSchemaPath, 'utf-8');
-        db.exec(schema);
-      }
+      ensureMainSchema(db);
 
       const { PairingTokenStore } = await import('../../gateway/auth/pairing-token-store.js');
       const tokenStore = new PairingTokenStore(db);
@@ -1000,15 +954,7 @@ gatewayCommand
       const db = new Database(dbPath);
 
       // Load schema
-      const schemaPath = join(__dirname, '../../infra/persistence/schema.sql');
-      try {
-        const schema = readFileSync(schemaPath, 'utf-8');
-        db.exec(schema);
-      } catch {
-        const distSchemaPath = join(__dirname, '../../../dist/infra/persistence/schema.sql');
-        const schema = readFileSync(distSchemaPath, 'utf-8');
-        db.exec(schema);
-      }
+      ensureMainSchema(db);
 
       const { PairingTokenStore } = await import('../../gateway/auth/pairing-token-store.js');
       const tokenStore = new PairingTokenStore(db);

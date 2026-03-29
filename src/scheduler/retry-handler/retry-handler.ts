@@ -7,6 +7,8 @@
 import type { WorkItem } from '../../work-order/types/index.js';
 import type { RetryDecision, ExecutionError } from '../types.js';
 import type { IRetryHandler, RetryConfig, ErrorPattern } from './types.js';
+import type { LLMErrorCode } from '../../infra/llm/llm-error.js';
+import { LLM_ERROR_DEFAULTS } from '../../infra/llm/llm-error.js';
 
 const DEFAULT_CONFIG: RetryConfig = {
   maxRetries: 3,
@@ -177,7 +179,13 @@ export class RetryHandler implements IRetryHandler {
       };
     }
 
-    // Match error pattern
+    // Prefer structured LLMErrorCode over string pattern matching
+    const structuredCode = this.extractLLMErrorCode(error);
+    if (structuredCode && structuredCode !== 'unknown') {
+      return this.buildRetryDecisionFromErrorCode(workItem, error, structuredCode);
+    }
+
+    // Fall back to string pattern matching for non-LLM errors
     const pattern = this.matchErrorPattern(error);
     if (pattern) {
       return this.buildRetryDecision(workItem, error, pattern);
@@ -332,5 +340,45 @@ export class RetryHandler implements IRetryHandler {
    */
   getConfig(): RetryConfig {
     return { ...this.config };
+  }
+
+  /**
+   * Extract a structured LLMErrorCode from an ExecutionError, if present.
+   * The error code is attached by the LLM provider manager when it creates
+   * the error from protocol adapter classification.
+   */
+  private extractLLMErrorCode(error: ExecutionError): LLMErrorCode | null {
+    // Check if the original error (or its code field) contains a known LLMErrorCode
+    const code = error.code as string;
+    if (code in LLM_ERROR_DEFAULTS) {
+      return code as LLMErrorCode;
+    }
+    return null;
+  }
+
+  /**
+   * Build retry decision from a structured LLMErrorCode.
+   * Uses the error defaults table instead of string pattern matching.
+   */
+  private buildRetryDecisionFromErrorCode(
+    workItem: WorkItem,
+    error: ExecutionError,
+    code: LLMErrorCode
+  ): RetryDecision {
+    const defaults = LLM_ERROR_DEFAULTS[code];
+    if (!defaults.recoverable) {
+      return {
+        shouldRetry: false,
+        strategy: defaults.strategy,
+        reason: `LLM error [${code}]: ${error.message}`,
+      };
+    }
+
+    return {
+      shouldRetry: true,
+      strategy: defaults.strategy,
+      reason: `LLM error [${code}]: ${error.message}`,
+      delayMs: this.getRetryDelay(workItem.retry_count),
+    };
   }
 }

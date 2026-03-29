@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { LLMMessage, LLMResponse, ToolCall, StreamChunk } from '../llm-provider.js';
+import type { LLMErrorCode } from '../llm-error.js';
 import type {
   EndpointCredentials,
   ProtocolRequestConfig,
@@ -216,6 +217,17 @@ export class GeminiProtocolAdapter extends BaseProtocolAdapter {
       return `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:generateContent`;
     }
     return baseUrl;
+  }
+
+  classifyError(status: number, response?: unknown): LLMErrorCode {
+    if (typeof response === 'object' && response !== null) {
+      const resp = response as Record<string, unknown>;
+      if (resp.promptFeedback && typeof resp.promptFeedback === 'object') {
+        const feedback = resp.promptFeedback as Record<string, unknown>;
+        if (feedback.blockReason) return 'content_policy';
+      }
+    }
+    return super.classifyError(status, response);
   }
 
   isRecoverableError(status: number, response?: unknown): boolean {

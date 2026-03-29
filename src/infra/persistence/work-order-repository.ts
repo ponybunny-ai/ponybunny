@@ -21,7 +21,6 @@ import type {
   CreateCronJobRunParams,
 } from "./repository-interface.js";
 import Database from 'better-sqlite3';
-import { readFileSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import * as crypto from 'node:crypto';
 
@@ -32,7 +31,6 @@ import type {
   EscalationContext, DecisionOption, InFlightRunReconciliationCandidate
 } from '../../work-order/types/index.js';
 import type { DeterministicRunEvent, DeterministicRunEventType } from '../../deterministic-runtime/run-events.js';
-import { getPersistenceAssetCandidates } from '../config/runtime-asset-paths.js';
 
 interface CronJobRow {
   agent_id: string;
@@ -103,43 +101,13 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
   async initialize(): Promise<void> {
     if (this.isInitialized) return;
 
-    const schemaCandidates = getPersistenceAssetCandidates('schema.sql');
+    const { DatabaseMigrator } = await import('./migrator.js');
+    const { MAIN_DB_MIGRATIONS } = await import('./migrations/index.js');
 
-    const resolvedSchemaPath = schemaCandidates.find((candidatePath) => existsSync(candidatePath));
-    if (!resolvedSchemaPath) {
-      throw new Error('Could not locate persistence schema.sql in dist/ or src/ paths');
-    }
+    const migrator = new DatabaseMigrator(this.db);
+    migrator.run(MAIN_DB_MIGRATIONS);
 
-    const schema = readFileSync(resolvedSchemaPath, 'utf-8');
-    
-    this.db.exec(schema);
-    this.applySchemaMigrationV2();
     this.isInitialized = true;
-  }
-
-  private applySchemaMigrationV2(): void {
-    if (this.hasColumn('goals', 'allowed_actions')) {
-      return;
-    }
-
-    const migrationCandidates = [
-      ...getPersistenceAssetCandidates('schema-migration-v2.sql'),
-    ];
-
-    const migrationPath = migrationCandidates.find((candidatePath) => existsSync(candidatePath));
-    if (!migrationPath) {
-      this.db.exec('ALTER TABLE goals ADD COLUMN allowed_actions TEXT');
-      this.db.exec("UPDATE goals SET allowed_actions = '[\"read_file\",\"write_file\",\"run_command\"]' WHERE allowed_actions IS NULL");
-      return;
-    }
-
-    const migrationSql = readFileSync(migrationPath, 'utf-8');
-    this.db.exec(migrationSql);
-  }
-
-  private hasColumn(tableName: string, columnName: string): boolean {
-    const rows = this.db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
-    return rows.some((row) => row.name === columnName);
   }
 
   close(): void {

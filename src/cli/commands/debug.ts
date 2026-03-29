@@ -12,6 +12,7 @@ import { spawn } from 'child_process';
 import Database from 'better-sqlite3';
 import { startDebugTui } from '../debug-tui/index.js';
 import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
+import { ensureMainSchema } from '../../infra/persistence/ensure-schema.js';
 
 const runtimeConfig = loadRuntimeConfig();
 const DEFAULT_HOST = runtimeConfig.gateway.host;
@@ -248,19 +249,7 @@ async function getOrCreateAdminToken(dbPath: string): Promise<string> {
   const db = new Database(dbPath);
 
   // Ensure schema exists
-  try {
-    const schemaPath = join(__dirname, '../../infra/persistence/schema.sql');
-    const schema = readFileSync(schemaPath, 'utf-8');
-    db.exec(schema);
-  } catch {
-    try {
-      const distSchemaPath = join(__dirname, '../../../dist/infra/persistence/schema.sql');
-      const schema = readFileSync(distSchemaPath, 'utf-8');
-      db.exec(schema);
-    } catch {
-      // Schema might already exist
-    }
-  }
+  ensureMainSchema(db);
 
   const tokenStore = new PairingTokenStore(db);
   const { token, id } = tokenStore.createToken(['read', 'write', 'admin']);

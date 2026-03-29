@@ -1,4 +1,6 @@
 import type { LLMMessage, LLMResponse, ToolDefinition, StreamChunk } from '../llm-provider.js';
+import type { LLMErrorCode } from '../llm-error.js';
+import { classifyHttpStatus } from '../llm-error.js';
 
 /**
  * Supported protocol identifiers
@@ -91,6 +93,12 @@ export interface IProtocolAdapter {
   extractErrorMessage(response: unknown): string;
 
   /**
+   * Classify an error response into a structured LLMErrorCode.
+   * More reliable than string matching for retry decisions.
+   */
+  classifyError(status: number, response?: unknown): LLMErrorCode;
+
+  /**
    * Check if this adapter supports streaming
    */
   supportsStreaming(): boolean;
@@ -123,6 +131,10 @@ export abstract class BaseProtocolAdapter implements IProtocolAdapter {
     _config?: ProtocolRequestConfig
   ): string {
     return baseUrl;
+  }
+
+  classifyError(status: number, _response?: unknown): LLMErrorCode {
+    return classifyHttpStatus(status);
   }
 
   isRecoverableError(status: number, _response?: unknown): boolean {

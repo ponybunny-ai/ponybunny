@@ -1,12 +1,18 @@
 import type { WorkItem, WorkItemType, EffortEstimate } from '../../work-order/types/index.js';
 import type { IComplexityScorer, ComplexityScore, ComplexityFactor, ModelTier } from './types.js';
 
+/**
+ * Item type complexity scores.
+ * Reflects actual LLM computation difficulty, not importance.
+ * Refactoring requires understanding existing code + restructuring = highest.
+ * Documentation is straightforward = lowest.
+ */
 const ITEM_TYPE_SCORES: Record<WorkItemType, number> = {
   doc: 20,
   test: 40,
-  refactor: 50,
-  code: 60,
-  analysis: 70,
+  analysis: 60,
+  code: 70,
+  refactor: 90,
 };
 
 const EFFORT_SCORES: Record<EffortEstimate, number> = {
@@ -25,61 +31,47 @@ export class ComplexityScorer implements IComplexityScorer {
   score(workItem: WorkItem): ComplexityScore {
     const factors: ComplexityFactor[] = [];
 
-    // Factor 1: Item type (25%)
+    // Factor 1: Item type (35%) — strongest signal of LLM computation difficulty
     const itemTypeValue = ITEM_TYPE_SCORES[workItem.item_type] ?? 50;
     factors.push({
       name: 'item_type',
-      weight: 0.25,
+      weight: 0.35,
       value: itemTypeValue,
-      contribution: itemTypeValue * 0.25,
+      contribution: itemTypeValue * 0.35,
     });
 
-    // Factor 2: Estimated effort (30%)
+    // Factor 2: Estimated effort (35%) — human estimate, more reliable than description length
     const effortValue = EFFORT_SCORES[workItem.estimated_effort] ?? 50;
     factors.push({
       name: 'estimated_effort',
-      weight: 0.30,
+      weight: 0.35,
       value: effortValue,
-      contribution: effortValue * 0.30,
+      contribution: effortValue * 0.35,
     });
 
-    // Factor 3: Dependencies count (15%)
+    // Factor 3: Dependency count (20%) — more deps = more integration complexity
     const depCount = workItem.dependencies.length;
-    const depValue = depCount === 0 ? 0 : depCount <= 2 ? 30 : depCount <= 4 ? 60 : 100;
+    const depValue = Math.min(depCount / 5, 1) * 100;
     factors.push({
-      name: 'dependencies',
-      weight: 0.15,
-      value: depValue,
-      contribution: depValue * 0.15,
+      name: 'dependency_count',
+      weight: 0.20,
+      value: Math.round(depValue),
+      contribution: depValue * 0.20,
     });
 
-    // Factor 4: Description length (15%)
-    const descLen = workItem.description.length;
-    const descValue = descLen < 100 ? 20 : descLen < 500 ? 50 : descLen < 1000 ? 75 : 100;
+    // Factor 4: Quality gates count (10%) — more gates = more verification complexity
+    const gateCount = workItem.verification_plan?.quality_gates?.length ?? 0;
+    const gateValue = Math.min(gateCount / 5, 1) * 100;
     factors.push({
-      name: 'description_length',
-      weight: 0.15,
-      value: descValue,
-      contribution: descValue * 0.15,
-    });
-
-    // Factor 5: Priority (10%)
-    const priorityValue = Math.min(100, Math.max(0, workItem.priority));
-    factors.push({
-      name: 'priority',
+      name: 'quality_gates_count',
       weight: 0.10,
-      value: priorityValue,
-      contribution: priorityValue * 0.10,
+      value: Math.round(gateValue),
+      contribution: gateValue * 0.10,
     });
 
-    // Factor 6: Retry count (5%)
-    const retryValue = workItem.retry_count === 0 ? 0 : workItem.retry_count === 1 ? 50 : 100;
-    factors.push({
-      name: 'retry_count',
-      weight: 0.05,
-      value: retryValue,
-      contribution: retryValue * 0.05,
-    });
+    // Removed: description_length (not correlated with LLM complexity)
+    // Removed: priority (importance ≠ computational difficulty)
+    // Removed: retry_count (retries handled by RetryHandler, not model selection)
 
     const totalScore = factors.reduce((sum, f) => sum + f.contribution, 0);
     const tier = this.determineTier(totalScore);

@@ -1,4 +1,5 @@
 import type { LLMMessage, LLMResponse, ToolCall, StreamChunk } from '../llm-provider.js';
+import type { LLMErrorCode } from '../llm-error.js';
 import type {
   EndpointCredentials,
   ProtocolRequestConfig,
@@ -372,6 +373,24 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
       'Content-Type': 'application/json',
       'api-key': credentials.apiKey || '',
     };
+  }
+
+  classifyError(status: number, response?: unknown): LLMErrorCode {
+    if (typeof response === 'object' && response !== null) {
+      const resp = response as Record<string, unknown>;
+      const error = resp.error as Record<string, unknown> | undefined;
+      const errorCode = error?.code as string | undefined;
+      const errorType = error?.type as string | undefined;
+
+      if (errorCode === 'context_length_exceeded' || errorType === 'invalid_request_error') {
+        const msg = String(error?.message ?? '').toLowerCase();
+        if (msg.includes('context') || msg.includes('token') || msg.includes('maximum')) return 'context_exceeded';
+        if (msg.includes('content_policy') || msg.includes('safety')) return 'content_policy';
+      }
+      if (errorCode === 'insufficient_quota') return 'quota_exceeded';
+      if (errorCode === 'model_not_found') return 'model_unavailable';
+    }
+    return super.classifyError(status, response);
   }
 
   isRecoverableError(status: number, _response?: unknown): boolean {

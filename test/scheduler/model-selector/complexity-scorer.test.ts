@@ -33,13 +33,9 @@ describe('ComplexityScorer', () => {
         item_type: 'doc',
         estimated_effort: 'S',
         dependencies: [],
-        description: 'Short',
-        priority: 10,
-        retry_count: 0,
       });
 
       const result = scorer.score(workItem);
-
       expect(result.tier).toBe('simple');
       expect(result.score).toBeLessThanOrEqual(35);
     });
@@ -49,13 +45,9 @@ describe('ComplexityScorer', () => {
         item_type: 'code',
         estimated_effort: 'M',
         dependencies: ['dep-1'],
-        description: 'A medium length description that provides some context',
-        priority: 50,
-        retry_count: 0,
       });
 
       const result = scorer.score(workItem);
-
       expect(result.tier).toBe('medium');
       expect(result.score).toBeGreaterThan(35);
       expect(result.score).toBeLessThanOrEqual(65);
@@ -63,16 +55,22 @@ describe('ComplexityScorer', () => {
 
     test('should classify complex tasks (score > 65)', () => {
       const workItem = createWorkItem({
-        item_type: 'analysis',
+        item_type: 'refactor',
         estimated_effort: 'XL',
         dependencies: ['dep-1', 'dep-2', 'dep-3', 'dep-4', 'dep-5'],
-        description: 'A'.repeat(1200),
-        priority: 90,
-        retry_count: 2,
+        verification_plan: {
+          quality_gates: [
+            { name: 'test', type: 'deterministic', required: true },
+            { name: 'lint', type: 'deterministic', required: true },
+            { name: 'build', type: 'deterministic', required: true },
+            { name: 'coverage', type: 'llm_review', required: false },
+            { name: 'security', type: 'llm_review', required: false },
+          ],
+          acceptance_criteria: [],
+        },
       });
 
       const result = scorer.score(workItem);
-
       expect(result.tier).toBe('complex');
       expect(result.score).toBeGreaterThan(65);
     });
@@ -82,73 +80,55 @@ describe('ComplexityScorer', () => {
     test('should score item_type correctly', () => {
       const docItem = createWorkItem({ item_type: 'doc' });
       const analysisItem = createWorkItem({ item_type: 'analysis' });
+      const refactorItem = createWorkItem({ item_type: 'refactor' });
 
-      const docResult = scorer.score(docItem);
-      const analysisResult = scorer.score(analysisItem);
-
-      const docFactor = docResult.factors.find(f => f.name === 'item_type');
-      const analysisFactor = analysisResult.factors.find(f => f.name === 'item_type');
-
-      expect(docFactor?.value).toBe(20);
-      expect(analysisFactor?.value).toBe(70);
+      expect(scorer.score(docItem).factors.find(f => f.name === 'item_type')?.value).toBe(20);
+      expect(scorer.score(analysisItem).factors.find(f => f.name === 'item_type')?.value).toBe(60);
+      expect(scorer.score(refactorItem).factors.find(f => f.name === 'item_type')?.value).toBe(90);
     });
 
     test('should score estimated_effort correctly', () => {
       const smallItem = createWorkItem({ estimated_effort: 'S' });
       const xlItem = createWorkItem({ estimated_effort: 'XL' });
 
-      const smallResult = scorer.score(smallItem);
-      const xlResult = scorer.score(xlItem);
-
-      const smallFactor = smallResult.factors.find(f => f.name === 'estimated_effort');
-      const xlFactor = xlResult.factors.find(f => f.name === 'estimated_effort');
-
-      expect(smallFactor?.value).toBe(20);
-      expect(xlFactor?.value).toBe(100);
+      expect(scorer.score(smallItem).factors.find(f => f.name === 'estimated_effort')?.value).toBe(20);
+      expect(scorer.score(xlItem).factors.find(f => f.name === 'estimated_effort')?.value).toBe(100);
     });
 
-    test('should score dependencies correctly', () => {
+    test('should score dependency_count correctly', () => {
       const noDeps = createWorkItem({ dependencies: [] });
       const twoDeps = createWorkItem({ dependencies: ['a', 'b'] });
       const fiveDeps = createWorkItem({ dependencies: ['a', 'b', 'c', 'd', 'e'] });
 
-      const noResult = scorer.score(noDeps);
-      const twoResult = scorer.score(twoDeps);
-      const fiveResult = scorer.score(fiveDeps);
-
-      expect(noResult.factors.find(f => f.name === 'dependencies')?.value).toBe(0);
-      expect(twoResult.factors.find(f => f.name === 'dependencies')?.value).toBe(30);
-      expect(fiveResult.factors.find(f => f.name === 'dependencies')?.value).toBe(100);
+      expect(scorer.score(noDeps).factors.find(f => f.name === 'dependency_count')?.value).toBe(0);
+      expect(scorer.score(twoDeps).factors.find(f => f.name === 'dependency_count')?.value).toBe(40);
+      expect(scorer.score(fiveDeps).factors.find(f => f.name === 'dependency_count')?.value).toBe(100);
     });
 
-    test('should score description_length correctly', () => {
-      const short = createWorkItem({ description: 'Short' });
-      const medium = createWorkItem({ description: 'A'.repeat(300) });
-      const long = createWorkItem({ description: 'A'.repeat(800) });
-      const veryLong = createWorkItem({ description: 'A'.repeat(1500) });
+    test('should score quality_gates_count correctly', () => {
+      const noGates = createWorkItem();
+      const withGates = createWorkItem({
+        verification_plan: {
+          quality_gates: [
+            { name: 'test', type: 'deterministic', required: true },
+            { name: 'lint', type: 'deterministic', required: true },
+            { name: 'build', type: 'deterministic', required: true },
+          ],
+          acceptance_criteria: [],
+        },
+      });
 
-      expect(scorer.score(short).factors.find(f => f.name === 'description_length')?.value).toBe(20);
-      expect(scorer.score(medium).factors.find(f => f.name === 'description_length')?.value).toBe(50);
-      expect(scorer.score(long).factors.find(f => f.name === 'description_length')?.value).toBe(75);
-      expect(scorer.score(veryLong).factors.find(f => f.name === 'description_length')?.value).toBe(100);
+      expect(scorer.score(noGates).factors.find(f => f.name === 'quality_gates_count')?.value).toBe(0);
+      expect(scorer.score(withGates).factors.find(f => f.name === 'quality_gates_count')?.value).toBe(60);
     });
 
-    test('should score retry_count correctly', () => {
-      const noRetry = createWorkItem({ retry_count: 0 });
-      const oneRetry = createWorkItem({ retry_count: 1 });
-      const multiRetry = createWorkItem({ retry_count: 3 });
+    test('should not include description_length or priority factors', () => {
+      const workItem = createWorkItem();
+      const result = scorer.score(workItem);
 
-      expect(scorer.score(noRetry).factors.find(f => f.name === 'retry_count')?.value).toBe(0);
-      expect(scorer.score(oneRetry).factors.find(f => f.name === 'retry_count')?.value).toBe(50);
-      expect(scorer.score(multiRetry).factors.find(f => f.name === 'retry_count')?.value).toBe(100);
-    });
-
-    test('should clamp priority to 0-100', () => {
-      const lowPriority = createWorkItem({ priority: -10 });
-      const highPriority = createWorkItem({ priority: 150 });
-
-      expect(scorer.score(lowPriority).factors.find(f => f.name === 'priority')?.value).toBe(0);
-      expect(scorer.score(highPriority).factors.find(f => f.name === 'priority')?.value).toBe(100);
+      expect(result.factors.find(f => f.name === 'description_length')).toBeUndefined();
+      expect(result.factors.find(f => f.name === 'priority')).toBeUndefined();
+      expect(result.factors.find(f => f.name === 'retry_count')).toBeUndefined();
     });
   });
 
@@ -159,6 +139,12 @@ describe('ComplexityScorer', () => {
 
       const totalWeight = result.factors.reduce((sum, f) => sum + f.weight, 0);
       expect(totalWeight).toBeCloseTo(1.0, 5);
+    });
+
+    test('should have exactly 4 factors', () => {
+      const workItem = createWorkItem();
+      const result = scorer.score(workItem);
+      expect(result.factors).toHaveLength(4);
     });
 
     test('should calculate contributions correctly', () => {
@@ -176,6 +162,16 @@ describe('ComplexityScorer', () => {
 
       const expectedScore = result.factors.reduce((sum, f) => sum + f.contribution, 0);
       expect(result.score).toBe(Math.round(expectedScore));
+    });
+
+    test('item_type and estimated_effort should dominate scoring (70%)', () => {
+      const workItem = createWorkItem();
+      const result = scorer.score(workItem);
+
+      const itemType = result.factors.find(f => f.name === 'item_type')!;
+      const effort = result.factors.find(f => f.name === 'estimated_effort')!;
+
+      expect(itemType.weight + effort.weight).toBeCloseTo(0.70, 5);
     });
   });
 });

@@ -9,6 +9,8 @@ import type {
 } from './types.js';
 import type { LLMMessage, LLMResponse } from '../llm-provider.js';
 import { LLMProviderError } from '../llm-provider.js';
+import { classifyNetworkError } from '../llm-error.js';
+import { CircuitBreaker } from '../circuit-breaker.js';
 import { getCachedConfig, reloadConfig, clearConfigCache } from './config-loader.js';
 import { EndpointManager, getEndpointManager } from './endpoint-manager.js';
 import { WorkloadModelResolver, getWorkloadModelResolver } from './agent-model-resolver.js';
@@ -36,6 +38,7 @@ export class LLMProviderManager implements ILLMProviderManager {
   private defaultMaxTokens: number;
   private defaultTemperature: number;
   private streamEventSink: LLMStreamEventSink;
+  private readonly circuitBreakers = new Map<string, CircuitBreaker>();
 
   constructor(streamEventSink: LLMStreamEventSink = configuredStreamEventSink) {
     this.endpointManager = getEndpointManager();
@@ -186,21 +189,34 @@ export class LLMProviderManager implements ILLMProviderManager {
         continue;
       }
 
-      // Try each endpoint
+      // Try each endpoint (skip circuit-broken ones)
       for (const endpointId of endpoints) {
+        const breaker = this.getCircuitBreaker(endpointId);
+        if (!breaker.isCallAllowed()) {
+          console.warn(`[ProviderManager] Circuit open for ${endpointId}, skipping`);
+          continue;
+        }
+
         try {
-          return await this.callEndpoint(
+          const result = await this.callEndpoint(
             endpointId,
             resolvedModelId,
             messages,
             options,
             openaiOperation
           );
+          breaker.recordSuccess();
+          return result;
         } catch (error) {
           lastError = error as Error;
           console.warn(
             `[ProviderManager] Endpoint ${endpointId} failed for ${modelId}: ${(error as Error).message}`
           );
+
+          // Record failure in circuit breaker
+          if (error instanceof LLMProviderError) {
+            breaker.recordFailure(error.errorCode);
+          }
 
           // Mark endpoint as failed
           this.endpointManager.markEndpointFailed(endpointId, (error as Error).message);
@@ -337,12 +353,18 @@ export class LLMProviderManager implements ILLMProviderManager {
 
       if (!response.ok) {
         const errorMessage = adapter.extractErrorMessage(data);
+        const errorCode = adapter.classifyError(response.status, data);
         const recoverable = adapter.isRecoverableError(response.status, data);
+        const retryAfter = response.headers.get('retry-after');
 
         throw new LLMProviderError(
           `${endpointId} API error: ${errorMessage}`,
           endpointId,
-          recoverable
+          recoverable,
+          {
+            errorCode,
+            retryAfterMs: retryAfter ? parseInt(retryAfter, 10) * 1000 : undefined,
+          }
         );
       }
 
@@ -362,7 +384,8 @@ export class LLMProviderManager implements ILLMProviderManager {
       throw new LLMProviderError(
         `${endpointId} request failed: ${(error as Error).message}`,
         endpointId,
-        true
+        true,
+        { errorCode: classifyNetworkError(error), cause: error }
       );
     }
   }
@@ -417,7 +440,8 @@ export class LLMProviderManager implements ILLMProviderManager {
         throw new LLMProviderError(
           `${endpointId} API error: ${errorMessage}`,
           endpointId,
-          adapter.isRecoverableError(response.status, data)
+          adapter.isRecoverableError(response.status, data),
+          { errorCode: adapter.classifyError(response.status, data) }
         );
       }
 
@@ -579,7 +603,8 @@ export class LLMProviderManager implements ILLMProviderManager {
       throw new LLMProviderError(
         `${endpointId} streaming request failed: ${(error as Error).message}`,
         endpointId,
-        true
+        true,
+        { errorCode: classifyNetworkError(error), cause: error }
       );
     }
   }
@@ -806,6 +831,22 @@ export class LLMProviderManager implements ILLMProviderManager {
    */
   getAllWorkloadIds(): string[] {
     return this.workloadModelResolver.getAllWorkloadIds();
+  }
+
+  /**
+   * Get circuit breaker status for all endpoints (for debug/health dashboards).
+   */
+  getCircuitBreakerHealth(): Array<{ endpointId: string; state: string; failureCount: number; openedAt?: number }> {
+    return Array.from(this.circuitBreakers.entries()).map(([, breaker]) => breaker.getStatus());
+  }
+
+  private getCircuitBreaker(endpointId: string): CircuitBreaker {
+    let breaker = this.circuitBreakers.get(endpointId);
+    if (!breaker) {
+      breaker = new CircuitBreaker(endpointId);
+      this.circuitBreakers.set(endpointId, breaker);
+    }
+    return breaker;
   }
 }
 

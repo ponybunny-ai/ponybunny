@@ -14,9 +14,10 @@ describe('default gateway runtime bootstrap surface', () => {
     expect(source).toContain("import { GatewayServer } from '../gateway-server.js';");
     expect(source).toContain("import { resolveDefaultGatewaySchedulerSocketPath } from './gateway-server-runtime-lifecycle.js';");
     expect(source).toContain("import { WorkOrderDatabase } from '../../work-order/database/manager.js';");
-    expect(source).toContain("import { getPersistenceAssetCandidates } from '../../infra/config/runtime-asset-paths.js';");
-    expect(source).toContain("applySchema(assembly.db, getPersistenceAssetCandidates('schema.sql'));");
-    expect(source).toContain("applySchema(assembly.memoryDb, getPersistenceAssetCandidates('schema-memory.sql'));");
+    expect(source).toContain("import { DatabaseMigrator } from '../../infra/persistence/migrator.js';");
+    expect(source).toContain("import { MAIN_DB_MIGRATIONS, MEMORY_DB_MIGRATIONS } from '../../infra/persistence/migrations/index.js';");
+    expect(source).toContain('new DatabaseMigrator(assembly.db).run(MAIN_DB_MIGRATIONS)');
+    expect(source).toContain('new DatabaseMigrator(assembly.memoryDb).run(MEMORY_DB_MIGRATIONS)');
     expect(source).toContain('schedulerSocketPath: resolveDefaultGatewaySchedulerSocketPath()');
   });
 });

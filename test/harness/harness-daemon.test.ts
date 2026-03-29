@@ -375,4 +375,45 @@ describe('HarnessDaemon', () => {
       expect(evaluator.createBlockedGoalContextPack).not.toHaveBeenCalled();
     });
   });
+
+  describe('wake signal', () => {
+    it('wake() causes immediate goal processing without waiting for polling interval', async () => {
+      // Use a very long polling interval so we can prove wake() bypasses it
+      const queuedGoal = makeGoal({ id: 'woken-goal' });
+
+      // Return empty on first poll, then a goal on wake-triggered poll
+      repository.listGoals
+        .mockReturnValueOnce([])     // initial cycle
+        .mockReturnValueOnce([queuedGoal])  // after wake
+        .mockReturnValue([]);
+
+      daemon = new HarnessDaemon(
+        repository as unknown as IWorkOrderRepository,
+        goalHarness,
+        { pollingIntervalMs: 60_000, maxConcurrentGoals: 5 } // 60s poll — test would timeout without wake
+      );
+
+      startDaemonNonBlocking(daemon);
+      await new Promise((r) => setTimeout(r, 30)); // let first cycle complete
+
+      expect(goalHarness.processQueuedGoal).not.toHaveBeenCalled();
+
+      // Wake the daemon — should trigger cycle immediately
+      daemon.wake();
+      await new Promise((r) => setTimeout(r, 30));
+
+      expect(goalHarness.processQueuedGoal).toHaveBeenCalledWith('woken-goal');
+    });
+
+    it('wake() is safe to call when daemon is not running', () => {
+      daemon = new HarnessDaemon(
+        repository as unknown as IWorkOrderRepository,
+        goalHarness,
+        { pollingIntervalMs: 100, maxConcurrentGoals: 2 }
+      );
+
+      // Should not throw
+      daemon.wake();
+    });
+  });
 });

@@ -1,12 +1,12 @@
 import Database from 'better-sqlite3';
-import { readFileSync } from 'fs';
 
 import type { GatewayConfig } from '../types.js';
 import { GatewayServer } from '../gateway-server.js';
 import { resolveDefaultGatewaySchedulerSocketPath } from './gateway-server-runtime-lifecycle.js';
 import type { IWorkOrderRepository } from '../../infra/persistence/repository-interface.js';
 import { WorkOrderDatabase } from '../../work-order/database/manager.js';
-import { getPersistenceAssetCandidates } from '../../infra/config/runtime-asset-paths.js';
+import { DatabaseMigrator } from '../../infra/persistence/migrator.js';
+import { MAIN_DB_MIGRATIONS, MEMORY_DB_MIGRATIONS } from '../../infra/persistence/migrations/index.js';
 
 export interface DefaultGatewayPersistenceConfig {
   dbPath: string;
@@ -32,8 +32,8 @@ export interface DefaultGatewayRuntimeAssembly extends GatewayPersistenceAssembl
 }
 
 export function ensureGatewayPersistenceSchemas(assembly: Pick<GatewayPersistenceAssembly, 'db' | 'memoryDb'>): void {
-  applySchema(assembly.db, getPersistenceAssetCandidates('schema.sql'));
-  applySchema(assembly.memoryDb, getPersistenceAssetCandidates('schema-memory.sql'));
+  new DatabaseMigrator(assembly.db).run(MAIN_DB_MIGRATIONS);
+  new DatabaseMigrator(assembly.memoryDb).run(MEMORY_DB_MIGRATIONS);
 }
 
 export async function createDefaultGatewayPersistence(
@@ -106,17 +106,6 @@ export async function stopDefaultGatewayRuntime(runtime: DefaultGatewayRuntimeAs
   }
 }
 
-function applySchema(db: Database.Database, candidates: string[]): void {
-  for (const candidate of candidates) {
-    try {
-      const schema = readFileSync(candidate, 'utf-8');
-      db.exec(schema);
-      return;
-    } catch {
-      // Try the next known source/dist location.
-    }
-  }
-}
 
 function closeRepository(repository: IWorkOrderRepository): void {
   if (typeof repository.close === 'function') {

@@ -9,6 +9,22 @@ export type {
 
 export { LLMProviderError, LLMRouter, MockLLMProvider } from './llm-provider.js';
 
+// Structured error types
+export type { LLMErrorCode } from './llm-error.js';
+export { LLM_ERROR_DEFAULTS, classifyHttpStatus, classifyNetworkError } from './llm-error.js';
+
+// Circuit breaker
+export type { CircuitState, CircuitBreakerConfig } from './circuit-breaker.js';
+export { CircuitBreaker, DEFAULT_CIRCUIT_BREAKER_CONFIG } from './circuit-breaker.js';
+
+// Unified LLM service interface (ADR-002 target API)
+export type {
+  LLMWorkload,
+  ILLMService,
+  LLMCompletionOptions as UnifiedLLMCompletionOptions,
+  ProviderHealthSnapshot,
+} from './llm-service.interface.js';
+
 // Provider implementations (legacy, kept for backward compatibility)
 export { OpenAIProvider, AnthropicProvider } from './providers.js';
 export { GeminiProvider } from './gemini-provider.js';

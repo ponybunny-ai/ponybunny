@@ -8,31 +8,12 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import Database from 'better-sqlite3';
-import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
 import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
 import { GlobalKnowledgeService } from '../../domain/knowledge/index.js';
+import { ensureMainSchema } from '../../infra/persistence/ensure-schema.js';
 import type { ContextPack, ContextPackRow } from '../../work-order/types/index.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
 const runtimeConfig = loadRuntimeConfig();
-
-function ensureSchema(db: Database.Database): void {
-  try {
-    const schemaPath = join(__dirname, '../../infra/persistence/schema.sql');
-    const schema = readFileSync(schemaPath, 'utf-8');
-    db.exec(schema);
-  } catch {
-    try {
-      const distSchemaPath = join(__dirname, '../../../dist/infra/persistence/schema.sql');
-      const schema = readFileSync(distSchemaPath, 'utf-8');
-      db.exec(schema);
-    } catch {
-      // Schema already exists
-    }
-  }
-}
 
 function parseContextPackRow(row: ContextPackRow): ContextPack {
   return {
@@ -61,7 +42,7 @@ export const learnCommand = new Command('learn')
     }
 
     const db = new Database(dbPath);
-    ensureSchema(db);
+    ensureMainSchema(db);
     const knowledgeService = new GlobalKnowledgeService(db);
 
     try {
