@@ -10,6 +10,8 @@ import { unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import type { AnyIPCMessage, IPCMessage } from './types.js';
 import { IPCError, IPCErrorType } from './types.js';
+import type { ILogger } from '../infra/observability/logger.js';
+import { NoopLogger } from '../infra/observability/logger.js';
 
 export interface IPCServerConfig {
   /** Unix socket path */
@@ -18,6 +20,8 @@ export interface IPCServerConfig {
   heartbeatIntervalMs?: number;
   /** Heartbeat timeout in milliseconds (default: 60000) */
   heartbeatTimeoutMs?: number;
+  /** Optional structured logger (defaults to NoopLogger) */
+  logger?: ILogger;
 }
 
 export type IPCMessageHandler = (message: AnyIPCMessage, clientId: string) => void;
@@ -43,12 +47,15 @@ export class IPCServer {
   private config: Required<IPCServerConfig>;
   private isRunning = false;
   private nextClientId = 1;
+  private readonly logger: ILogger;
 
   constructor(config: IPCServerConfig) {
+    this.logger = config.logger ?? new NoopLogger();
     this.config = {
       socketPath: config.socketPath,
       heartbeatIntervalMs: config.heartbeatIntervalMs ?? 30000,
       heartbeatTimeoutMs: config.heartbeatTimeoutMs ?? 60000,
+      logger: this.logger,
     };
   }
 
@@ -69,7 +76,7 @@ export class IPCServer {
       this.server = createServer((socket) => this.handleConnection(socket));
 
       this.server.on('error', (error) => {
-        console.error('[IPCServer] Server error:', error);
+        this.logger.error({ event: 'ipc_server_error' }, 'Server error', error instanceof Error ? error : new Error(String(error)));
         if (!this.isRunning) {
           reject(new IPCError(IPCErrorType.CONNECTION_FAILED, 'Failed to start IPC server', error as Error));
         }
@@ -77,7 +84,7 @@ export class IPCServer {
 
       this.server.listen(this.config.socketPath, () => {
         this.isRunning = true;
-        console.log(`[IPCServer] Listening on ${this.config.socketPath}`);
+        this.logger.info({ event: 'ipc_server_listening', socketPath: this.config.socketPath }, `Listening on ${this.config.socketPath}`);
 
         // Start heartbeat mechanism
         this.startHeartbeat();
@@ -113,7 +120,7 @@ export class IPCServer {
     if (this.server) {
       await new Promise<void>((resolve) => {
         this.server!.close(() => {
-          console.log('[IPCServer] Server closed');
+          this.logger.info({ event: 'ipc_server_closed' }, 'Server closed');
           resolve();
         });
       });
@@ -183,7 +190,7 @@ export class IPCServer {
     };
 
     this.clients.set(clientId, client);
-    console.log(`[IPCServer] Client connected: ${clientId}`);
+    this.logger.info({ event: 'ipc_server_client_connected', clientId }, `Client connected: ${clientId}`);
 
     // Set up line-delimited JSON parser
     let buffer = '';
@@ -194,7 +201,7 @@ export class IPCServer {
       // Guard against unbounded buffer growth
       const MAX_BUFFER = 1024 * 1024; // 1 MB
       if (buffer.length > MAX_BUFFER) {
-        console.error(`[IPCServer] Client ${clientId} buffer exceeded 1 MB, dropping buffer`);
+        this.logger.error({ event: 'ipc_server_buffer_overflow', clientId, bufferLength: buffer.length }, `Client ${clientId} buffer exceeded 1 MB, dropping buffer`);
         buffer = '';
         return;
       }
@@ -212,11 +219,11 @@ export class IPCServer {
     });
 
     socket.on('error', (error) => {
-      console.error(`[IPCServer] Client ${clientId} error:`, error);
+      this.logger.error({ event: 'ipc_server_client_error', clientId }, `Client ${clientId} error`, error instanceof Error ? error : new Error(String(error)));
     });
 
     socket.on('close', () => {
-      console.log(`[IPCServer] Client disconnected: ${clientId}`);
+      this.logger.info({ event: 'ipc_server_client_disconnected', clientId }, `Client disconnected: ${clientId}`);
       this.clients.delete(clientId);
     });
   }
@@ -242,7 +249,7 @@ export class IPCServer {
         const client = this.clients.get(clientId);
         if (client) {
           client.clientInfo = message.data as any;
-          console.log(`[IPCServer] Client ${clientId} identified:`, message.data);
+          this.logger.info({ event: 'ipc_server_client_identified', clientId, clientInfo: message.data }, `Client ${clientId} identified`);
         }
         return;
       }
@@ -251,7 +258,7 @@ export class IPCServer {
       if (message.type === 'disconnect') {
         const client = this.clients.get(clientId);
         if (client) {
-          console.log(`[IPCServer] Client ${clientId} disconnecting:`, message.data);
+          this.logger.info({ event: 'ipc_server_client_disconnecting', clientId, reason: message.data }, `Client ${clientId} disconnecting`);
           client.socket.end();
         }
         return;
@@ -262,11 +269,11 @@ export class IPCServer {
         try {
           handler(message, clientId);
         } catch (error) {
-          console.error(`[IPCServer] Handler error for client ${clientId}:`, error);
+          this.logger.error({ event: 'ipc_server_handler_error', clientId }, `Handler error for client ${clientId}`, error instanceof Error ? error : new Error(String(error)));
         }
       }
     } catch (error) {
-      console.error(`[IPCServer] Failed to parse message from ${clientId}:`, error);
+      this.logger.error({ event: 'ipc_server_parse_error', clientId }, `Failed to parse message from ${clientId}`, error instanceof Error ? error : new Error(String(error)));
     }
   }
 
@@ -281,7 +288,7 @@ export class IPCServer {
         // Check if client has timed out
         const timeSinceLastPong = now - client.lastPongAt;
         if (timeSinceLastPong > this.config.heartbeatTimeoutMs) {
-          console.warn(`[IPCServer] Client ${clientId} timed out (no pong for ${timeSinceLastPong}ms)`);
+          this.logger.warn({ event: 'ipc_server_client_timeout', clientId, timeSinceLastPongMs: timeSinceLastPong }, `Client ${clientId} timed out (no pong for ${timeSinceLastPong}ms)`);
           client.socket.end();
           this.clients.delete(clientId);
           continue;
@@ -297,7 +304,7 @@ export class IPCServer {
           client.socket.write(JSON.stringify(pingMessage) + '\n');
           client.lastPingAt = now;
         } catch (error) {
-          console.error(`[IPCServer] Failed to send ping to ${clientId}:`, error);
+          this.logger.error({ event: 'ipc_server_ping_failed', clientId }, `Failed to send ping to ${clientId}`, error instanceof Error ? error : new Error(String(error)));
         }
       }
     }, this.config.heartbeatIntervalMs);

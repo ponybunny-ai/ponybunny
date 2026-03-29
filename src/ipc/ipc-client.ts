@@ -8,6 +8,8 @@
 import { connect, Socket } from 'net';
 import type { AnyIPCMessage, IPCConnectionState } from './types.js';
 import { IPCError, IPCErrorType } from './types.js';
+import type { ILogger } from '../infra/observability/logger.js';
+import { NoopLogger } from '../infra/observability/logger.js';
 
 export interface IPCClientConfig {
   /** Unix socket path to connect to */
@@ -26,6 +28,8 @@ export interface IPCClientConfig {
     version: string;
     pid: number;
   };
+  /** Optional structured logger (defaults to NoopLogger) */
+  logger?: ILogger;
 }
 
 export type IPCConnectionStateHandler = (state: IPCConnectionState) => void;
@@ -41,8 +45,10 @@ export class IPCClient {
   private stateHandlers: Set<IPCConnectionStateHandler> = new Set();
   private messageHandlers: Set<IPCMessageHandler> = new Set();
   private socketBuffer = '';
+  private readonly logger: ILogger;
 
   constructor(config: IPCClientConfig) {
+    this.logger = config.logger ?? new NoopLogger();
     this.config = {
       socketPath: config.socketPath,
       autoReconnect: config.autoReconnect ?? true,
@@ -54,6 +60,7 @@ export class IPCClient {
         version: '1.0.0',
         pid: process.pid,
       },
+      logger: this.logger,
     };
     this.currentReconnectDelay = this.config.reconnectDelayMs;
   }
@@ -75,7 +82,7 @@ export class IPCClient {
         this.socket!.off('error', onError);
         this.setState('connected');
         this.currentReconnectDelay = this.config.reconnectDelayMs;
-        console.log(`[IPCClient] Connected to ${this.config.socketPath}`);
+        this.logger.info({ event: 'ipc_client_connected', socketPath: this.config.socketPath }, `Connected to ${this.config.socketPath}`);
 
         // Send connect message
         this.sendConnectMessage();
@@ -98,7 +105,7 @@ export class IPCClient {
         );
 
         if (this.config.autoReconnect) {
-          console.warn(`[IPCClient] Connection failed, will retry in ${this.currentReconnectDelay}ms`);
+          this.logger.warn({ event: 'ipc_client_connection_failed', retryDelayMs: this.currentReconnectDelay }, `Connection failed, will retry in ${this.currentReconnectDelay}ms`);
           this.scheduleReconnect();
           reject(ipcError); // Reject so caller knows initial connect failed
         } else {
@@ -140,7 +147,7 @@ export class IPCClient {
     }
 
     this.setState('disconnected');
-    console.log('[IPCClient] Disconnected');
+    this.logger.info({ event: 'ipc_client_disconnected' }, 'Disconnected');
   }
 
   /**
@@ -155,7 +162,7 @@ export class IPCClient {
         // Drop oldest message
         this.messageBuffer.shift();
         this.messageBuffer.push(message);
-        console.warn('[IPCClient] Message buffer full, dropped oldest message');
+        this.logger.warn({ event: 'ipc_client_buffer_full', bufferSize: this.config.maxBufferSize }, 'Message buffer full, dropped oldest message');
       }
       return;
     }
@@ -224,13 +231,13 @@ export class IPCClient {
     }
 
     this.state = state;
-    console.log(`[IPCClient] State changed: ${state}`);
+    this.logger.debug({ event: 'ipc_client_state_changed', state }, `State changed: ${state}`);
 
     for (const handler of this.stateHandlers) {
       try {
         handler(state);
       } catch (error) {
-        console.error('[IPCClient] State handler error:', error);
+        this.logger.error({ event: 'ipc_client_state_handler_error' }, 'State handler error', error instanceof Error ? error : new Error(String(error)));
       }
     }
   }
@@ -249,7 +256,7 @@ export class IPCClient {
       // Guard against unbounded buffer growth (e.g. peer sends data without newlines)
       const MAX_SOCKET_BUFFER = 1024 * 1024; // 1 MB
       if (this.socketBuffer.length > MAX_SOCKET_BUFFER) {
-        console.error('[IPCClient] Socket buffer exceeded 1 MB, dropping buffer');
+        this.logger.error({ event: 'ipc_client_buffer_overflow', bufferLength: this.socketBuffer.length }, 'Socket buffer exceeded 1 MB, dropping buffer');
         this.socketBuffer = '';
         return;
       }
@@ -267,11 +274,11 @@ export class IPCClient {
     });
 
     this.socket.on('error', (error) => {
-      console.error('[IPCClient] Socket error:', error);
+      this.logger.error({ event: 'ipc_client_socket_error' }, 'Socket error', error instanceof Error ? error : new Error(String(error)));
     });
 
     this.socket.on('close', () => {
-      console.log('[IPCClient] Connection closed');
+      this.logger.info({ event: 'ipc_client_connection_closed' }, 'Connection closed');
       this.socket = null;
       this.setState('disconnected');
 
@@ -295,7 +302,7 @@ export class IPCClient {
           timestamp: Date.now(),
         };
         this.send(pongMessage).catch((error) => {
-          console.error('[IPCClient] Failed to send pong:', error);
+          this.logger.error({ event: 'ipc_client_pong_failed' }, 'Failed to send pong', error instanceof Error ? error : new Error(String(error)));
         });
         return;
       }
@@ -304,11 +311,11 @@ export class IPCClient {
         try {
           handler(message);
         } catch (error) {
-          console.error('[IPCClient] Message handler error:', error);
+          this.logger.error({ event: 'ipc_client_message_handler_error' }, 'Message handler error', error instanceof Error ? error : new Error(String(error)));
         }
       }
     } catch (error) {
-      console.error('[IPCClient] Failed to parse message:', error);
+      this.logger.error({ event: 'ipc_client_parse_error' }, 'Failed to parse message', error instanceof Error ? error : new Error(String(error)));
     }
   }
 
@@ -327,7 +334,7 @@ export class IPCClient {
     };
 
     this.send(connectMessage).catch((error) => {
-      console.error('[IPCClient] Failed to send connect message:', error);
+      this.logger.error({ event: 'ipc_client_connect_message_failed' }, 'Failed to send connect message', error instanceof Error ? error : new Error(String(error)));
     });
   }
 
@@ -339,14 +346,14 @@ export class IPCClient {
       return;
     }
 
-    console.log(`[IPCClient] Flushing ${this.messageBuffer.length} buffered messages`);
+    this.logger.info({ event: 'ipc_client_flush_buffer', count: this.messageBuffer.length }, `Flushing ${this.messageBuffer.length} buffered messages`);
 
     const messages = [...this.messageBuffer];
     this.messageBuffer = [];
 
     for (const message of messages) {
       this.send(message).catch((error) => {
-        console.error('[IPCClient] Failed to send buffered message:', error);
+        this.logger.error({ event: 'ipc_client_buffered_send_failed' }, 'Failed to send buffered message', error instanceof Error ? error : new Error(String(error)));
         // Re-buffer failed message
         if (this.messageBuffer.length < this.config.maxBufferSize) {
           this.messageBuffer.push(message);
@@ -367,10 +374,10 @@ export class IPCClient {
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      console.log(`[IPCClient] Attempting to reconnect...`);
+      this.logger.info({ event: 'ipc_client_reconnect_attempt', delayMs: this.currentReconnectDelay }, 'Attempting to reconnect');
 
       this.connect().catch((error) => {
-        console.error('[IPCClient] Reconnection failed:', error);
+        this.logger.error({ event: 'ipc_client_reconnect_failed' }, 'Reconnection failed', error instanceof Error ? error : new Error(String(error)));
       });
 
       // Increase delay for next attempt (exponential backoff)
