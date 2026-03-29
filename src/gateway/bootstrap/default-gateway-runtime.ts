@@ -7,6 +7,7 @@ import type { IWorkOrderRepository } from '../../infra/persistence/repository-in
 import { WorkOrderDatabase } from '../../work-order/database/manager.js';
 import { DatabaseMigrator } from '../../infra/persistence/migrator.js';
 import { MAIN_DB_MIGRATIONS, MEMORY_DB_MIGRATIONS } from '../../infra/persistence/migrations/index.js';
+import { JsonLogger } from '../../infra/observability/logger.js';
 
 export interface DefaultGatewayPersistenceConfig {
   dbPath: string;
@@ -68,6 +69,8 @@ export async function createDefaultGatewayRuntime(
   const persistence = await createDefaultGatewayPersistence(config);
 
   try {
+    const gatewayLogger = new JsonLogger({ level: config.debugMode ? 'debug' : 'info' });
+
     const gateway = new GatewayServer(
       {
         db: persistence.db,
@@ -77,6 +80,7 @@ export async function createDefaultGatewayRuntime(
         repository: persistence.repository,
         debugMode: config.debugMode,
         schedulerSocketPath: resolveDefaultGatewaySchedulerSocketPath(),
+        logger: gatewayLogger.child({ component: 'Gateway' }),
       },
       {
         host: config.host,

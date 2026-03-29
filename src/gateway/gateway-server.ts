@@ -150,7 +150,7 @@ export class GatewayServer {
     this.logger = dependencies.logger ?? new NoopLogger();
 
     // Initialize components
-    this.eventBus = new EventBus();
+    this.eventBus = new EventBus(this.logger.child({ component: 'EventBus' }));
     this.eventBus.on('connection.authenticated', (sample: unknown) => {
       this.channelRuntime.handleConnectionAuthenticated(sample);
     });
@@ -178,6 +178,7 @@ export class GatewayServer {
           intervalMs: this.config.heartbeatIntervalMs,
           timeoutMs: this.config.heartbeatTimeoutMs,
         },
+        logger: this.logger.child({ component: 'ConnectionManager' }),
       },
       this.eventBus
     );
@@ -190,7 +191,8 @@ export class GatewayServer {
     this.messageRouter = new MessageRouter(
       this.connectionManager,
       this.rpcHandler,
-      this.authManager
+      this.authManager,
+      this.logger.child({ component: 'MessageRouter' }),
     );
 
     this.eventEmitter = new EventEmitter(this.connectionManager);
@@ -200,9 +202,9 @@ export class GatewayServer {
       configDir: getConfigDir(),
     });
     this.channelRouter = this.channelRuntime.channelRouter;
-    this.broadcastManager = new BroadcastManager(this.eventBus, this.eventEmitter, this.channelRouter);
-    this.daemonAttachment = new GatewayDaemonAttachment(this.eventBus);
-    this.schedulerBridge = new SchedulerBridge(this.eventBus);
+    this.broadcastManager = new BroadcastManager(this.eventBus, this.eventEmitter, this.channelRouter, this.logger.child({ component: 'BroadcastManager' }));
+    this.daemonAttachment = new GatewayDaemonAttachment(this.eventBus, this.logger.child({ component: 'DaemonAttachment' }));
+    this.schedulerBridge = new SchedulerBridge(this.eventBus, this.logger.child({ component: 'SchedulerBridge' }));
     this.debugEventAdapter = new DebugEventAdapter();
     this.gatewayEventAdapter = new GatewayEventAdapter(this.eventBus);
     this.schedulerEventAdapter = new SchedulerEventAdapter();
@@ -211,10 +213,11 @@ export class GatewayServer {
     // Initialize IPC server and bridge
     const ipcSocketPath = dependencies.schedulerSocketPath ?? resolveDefaultGatewaySchedulerSocketPath();
     this.ipcServer = new IPCServer({ socketPath: ipcSocketPath });
-    this.ipcBridge = new IPCBridge(this.eventBus);
+    this.ipcBridge = new IPCBridge(this.eventBus, this.logger.child({ component: 'IPCBridge' }));
     this.runtimeRolloutCoordinator = new GatewayRuntimeRolloutCoordinator({
       eventBus: this.eventBus,
       repository: this.repository,
+      logger: this.logger.child({ component: 'RolloutCoordinator' }),
       configStore: {
         load: loadRuntimeConfig,
         save: saveRuntimeConfig,
@@ -237,6 +240,7 @@ export class GatewayServer {
       eventBus: this.eventBus,
       knowledgeService: new GlobalKnowledgeService(this.db),
       repository: this.repository as any, // same cast pattern as escalation-handlers.ts
+      logger: this.logger.child({ component: 'EscalationKnowledgeObserver' }),
     });
 
     // Initialize tool components
@@ -530,6 +534,7 @@ export class GatewayServer {
       dbPath: this.dbPath,
       memoryDbPath: this.memoryDbPath,
       debugMode: this.debugMode,
+      logger: this.logger.child({ component: 'RuntimeLifecycle' }),
       eventBus: this.eventBus,
       connectionManager: this.connectionManager,
       broadcastManager: this.broadcastManager,
