@@ -20,6 +20,8 @@ import type { GlobalKnowledgeService } from '../domain/knowledge/index.js';
 import type { ContextSnapshot } from '../work-order/types/index.js';
 import type { ILogger } from '../infra/observability/logger.js';
 import { NoopLogger } from '../infra/observability/logger.js';
+import type { IMetricsRecorder } from '../infra/observability/metrics.js';
+import { NoopMetricsRecorder } from '../infra/observability/metrics.js';
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 
@@ -34,6 +36,7 @@ export interface PostGoalEvaluatorDependencies {
   globalKnowledgeService?: GlobalKnowledgeService;
   db?: Database.Database;
   logger?: ILogger;
+  metrics?: IMetricsRecorder;
 }
 
 export interface WorkItemEvaluation {
@@ -77,6 +80,7 @@ export class PostGoalEvaluator {
   private readonly globalKnowledgeService?: GlobalKnowledgeService;
   private readonly db?: Database.Database;
   private readonly logger: ILogger;
+  private readonly metrics: IMetricsRecorder;
 
   private readonly reports: GoalEvaluationReport[] = [];
   private handler: SchedulerEventHandler | null = null;
@@ -88,6 +92,7 @@ export class PostGoalEvaluator {
     this.globalKnowledgeService = deps.globalKnowledgeService;
     this.db = deps.db;
     this.logger = deps.logger ?? new NoopLogger();
+    this.metrics = deps.metrics ?? new NoopMetricsRecorder();
   }
 
   // -------------------------------------------------------------------------
@@ -489,6 +494,12 @@ export class PostGoalEvaluator {
 
     // Create ContextPack for this goal (must happen before knowledge extraction)
     this.createContextPackForGoal(goalId, trigger);
+
+    // Record metrics
+    const metricTrigger = trigger === 'goal_completed' ? 'goal.completed' : 'goal.failed';
+    this.metrics.increment(metricTrigger as any, { goalId });
+    if (summary.publish > 0) this.metrics.increment('workitem.completed', { goalId });
+    if (summary.escalate > 0) this.metrics.increment('escalation.created', { goalId });
 
     // Log summary
     this.logger.info(
