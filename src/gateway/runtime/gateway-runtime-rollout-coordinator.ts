@@ -1,6 +1,8 @@
 import type { PonyBunnyRuntimeConfig } from '../../infra/config/runtime-config.js';
 import type { IWorkOrderRepository } from '../../infra/persistence/repository-interface.js';
 import type { EventBus } from '../events/event-bus.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 import {
   RuntimeRolloutTelemetry,
   type RuntimeDryRunTelemetrySample,
@@ -45,6 +47,7 @@ export interface GatewayRuntimeRolloutCoordinatorDependencies {
   repository: IWorkOrderRepository;
   configStore: GatewayRuntimeRolloutConfigStore;
   schedulerTransport: GatewayRuntimeRolloutSchedulerTransport;
+  logger?: ILogger;
 }
 
 export class GatewayRuntimeRolloutCoordinator {
@@ -54,12 +57,14 @@ export class GatewayRuntimeRolloutCoordinator {
   private readonly schedulerTransport: GatewayRuntimeRolloutSchedulerTransport;
   private readonly telemetry = new RuntimeRolloutTelemetry();
   private readonly telemetryUnsubscribers: Array<() => void> = [];
+  private readonly logger: ILogger;
 
   constructor(dependencies: GatewayRuntimeRolloutCoordinatorDependencies) {
     this.eventBus = dependencies.eventBus;
     this.repository = dependencies.repository;
     this.configStore = dependencies.configStore;
     this.schedulerTransport = dependencies.schedulerTransport;
+    this.logger = dependencies.logger ?? new NoopLogger();
 
     this.bindTelemetry();
   }
@@ -226,7 +231,7 @@ export class GatewayRuntimeRolloutCoordinator {
     try {
       await this.schedulerTransport.applyRuntimeRollout(this.toRuntimeRolloutUpdatePayload(runtime));
     } catch (error) {
-      console.error('[GatewayServer] Failed to apply rollback rollout to scheduler daemon:', error);
+      this.logger.error({ event: 'rollout_rollback_failed' }, 'Failed to apply rollback rollout to scheduler daemon', error instanceof Error ? error : undefined);
     }
   }
 
@@ -271,8 +276,9 @@ export class GatewayRuntimeRolloutCoordinator {
       return;
     }
 
-    console.warn(
-      `[GatewayServer] Rollout threshold trigger detected: ${reasons.join('; ')}. Rolling back to legacy mode.`
+    this.logger.warn(
+      { event: 'rollout_threshold_triggered', reasons },
+      `Rollout threshold trigger detected: ${reasons.join('; ')}. Rolling back to legacy mode.`
     );
     await this.rollbackRuntimeRolloutOnFailure();
   }

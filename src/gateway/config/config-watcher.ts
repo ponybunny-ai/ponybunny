@@ -1,11 +1,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { EventEmitter } from 'events';
-import { isPonyBunnyDebugEnabled } from '../../infra/config/debug-flags.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 export interface ConfigWatcherOptions {
   configPaths: string[];
   debounceMs?: number;
+  logger?: ILogger;
 }
 
 export class ConfigWatcher extends EventEmitter {
@@ -14,11 +16,13 @@ export class ConfigWatcher extends EventEmitter {
   private configPaths: string[];
   private debounceMs: number;
   private isWatching = false;
+  private readonly logger: ILogger;
 
   constructor(options: ConfigWatcherOptions) {
     super();
     this.configPaths = options.configPaths;
     this.debounceMs = options.debounceMs ?? 1000;
+    this.logger = options.logger ?? new NoopLogger();
   }
 
   start(): void {
@@ -30,7 +34,7 @@ export class ConfigWatcher extends EventEmitter {
 
     for (const configPath of this.configPaths) {
       if (!fs.existsSync(configPath)) {
-        console.warn(`[ConfigWatcher] Config file not found: ${configPath}`);
+        this.logger.warn({ event: 'config_file_not_found', configPath }, `Config file not found: ${configPath}`);
         continue;
       }
 
@@ -42,9 +46,9 @@ export class ConfigWatcher extends EventEmitter {
         });
 
         this.watchers.push(watcher);
-        if (isPonyBunnyDebugEnabled()) console.log(`[ConfigWatcher] Watching: ${configPath}`);
+        this.logger.debug({ event: 'config_watch_started', configPath }, `Watching: ${configPath}`);
       } catch (error) {
-        console.error(`[ConfigWatcher] Failed to watch ${configPath}:`, error);
+        this.logger.error({ event: 'config_watch_failed', configPath }, `Failed to watch ${configPath}`, error instanceof Error ? error : undefined);
       }
     }
   }
@@ -66,7 +70,7 @@ export class ConfigWatcher extends EventEmitter {
     }
     this.debounceTimers.clear();
 
-    if (isPonyBunnyDebugEnabled()) console.log('[ConfigWatcher] Stopped watching config files');
+    this.logger.debug({ event: 'config_watch_stopped' }, 'Stopped watching config files');
   }
 
   private handleConfigChange(configPath: string): void {
@@ -77,7 +81,7 @@ export class ConfigWatcher extends EventEmitter {
 
     const timer = setTimeout(() => {
       this.debounceTimers.delete(configPath);
-      console.log(`[ConfigWatcher] Config changed: ${configPath}`);
+      this.logger.info({ event: 'config_changed', configPath }, `Config changed: ${configPath}`);
       this.emit('change', { path: configPath, timestamp: Date.now() });
     }, this.debounceMs);
 

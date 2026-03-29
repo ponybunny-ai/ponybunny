@@ -3,8 +3,16 @@
  */
 
 import * as ed from '@noble/ed25519';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 export class SignatureVerifier {
+  private readonly logger: ILogger;
+
+  constructor(logger?: ILogger) {
+    this.logger = logger ?? new NoopLogger();
+  }
+
   /**
    * Verify an Ed25519 signature
    * @param message - The original message (challenge) that was signed
@@ -20,17 +28,17 @@ export class SignatureVerifier {
 
       // Validate lengths
       if (signatureBytes.length !== 64) {
-        console.warn('[SignatureVerifier] Invalid signature length:', signatureBytes.length);
+        this.logger.warn({ event: 'invalid_signature_length', length: signatureBytes.length }, `Invalid signature length: ${signatureBytes.length}`);
         return false;
       }
       if (publicKeyBytes.length !== 32) {
-        console.warn('[SignatureVerifier] Invalid public key length:', publicKeyBytes.length);
+        this.logger.warn({ event: 'invalid_public_key_length', length: publicKeyBytes.length }, `Invalid public key length: ${publicKeyBytes.length}`);
         return false;
       }
 
       return await ed.verifyAsync(signatureBytes, messageBytes, publicKeyBytes);
     } catch (error) {
-      console.error('[SignatureVerifier] Verification error:', error);
+      this.logger.error({ event: 'signature_verification_error' }, 'Verification error', error instanceof Error ? error : undefined);
       return false;
     }
   }

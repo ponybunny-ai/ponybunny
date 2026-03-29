@@ -12,22 +12,27 @@ import type { RpcHandler } from '../rpc/rpc-handler.js';
 import type { AuthManager } from '../auth/auth-manager.js';
 import { Session } from '../connection/session.js';
 import { getWsConnectionId } from '../connection/ws-metadata.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 export class MessageRouter {
   private parser: MessageParser;
   private connectionManager: ConnectionManager;
   private rpcHandler: RpcHandler;
   private authManager: AuthManager;
+  private readonly logger: ILogger;
 
   constructor(
     connectionManager: ConnectionManager,
     rpcHandler: RpcHandler,
-    authManager: AuthManager
+    authManager: AuthManager,
+    logger?: ILogger
   ) {
     this.parser = new MessageParser();
     this.connectionManager = connectionManager;
     this.rpcHandler = rpcHandler;
     this.authManager = authManager;
+    this.logger = logger ?? new NoopLogger();
   }
 
   async handleMessage(ws: WebSocket, data: string | Buffer): Promise<void> {
@@ -83,7 +88,7 @@ export class MessageRouter {
       if (error instanceof GatewayError) {
         this.sendError(ws, id, error);
       } else {
-        console.error(`[MessageRouter] Unhandled error in ${method}:`, error);
+        this.logger.error({ event: 'message_router_unhandled_error', method }, `Unhandled error in ${method}`, error instanceof Error ? error : undefined);
         this.sendError(ws, id, GatewayError.internalError());
       }
     }
@@ -248,7 +253,7 @@ export class MessageRouter {
       try {
         ws.send(JSON.stringify(frame));
       } catch (error) {
-        console.error('[MessageRouter] Failed to send:', error);
+        this.logger.error({ event: 'message_router_send_failed' }, 'Failed to send', error instanceof Error ? error : undefined);
       }
     }
   }

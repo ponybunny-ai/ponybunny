@@ -6,12 +6,14 @@ import { SchedulerBridge } from '../../../src/gateway/integration/scheduler-brid
 import type { EventBus } from '../../../src/gateway/events/event-bus.js';
 import type { ISchedulerCore } from '../../../src/scheduler/core/index.js';
 import type { SchedulerEvent, SchedulerEventHandler } from '../../../src/scheduler/types.js';
+import type { ILogger } from '../../../src/infra/observability/logger.js';
 
 describe('SchedulerBridge', () => {
   let bridge: SchedulerBridge;
   let mockEventBus: EventBus;
   let mockScheduler: ISchedulerCore;
   let capturedHandler: SchedulerEventHandler | null = null;
+  let mockLogger: jest.Mocked<ILogger>;
 
   beforeEach(() => {
     // Create mock event bus
@@ -42,7 +44,15 @@ describe('SchedulerBridge', () => {
       applyRuntimeRollout: jest.fn(),
     } as unknown as ISchedulerCore;
 
-    bridge = new SchedulerBridge(mockEventBus);
+    mockLogger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      child: jest.fn(),
+    } as unknown as jest.Mocked<ILogger>;
+
+    bridge = new SchedulerBridge(mockEventBus, mockLogger);
     capturedHandler = null;
   });
 
@@ -55,13 +65,13 @@ describe('SchedulerBridge', () => {
     });
 
     it('should warn if already connected', () => {
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-
       bridge.connect(mockScheduler);
       bridge.connect(mockScheduler);
 
-      expect(warnSpy).toHaveBeenCalledWith('[SchedulerBridge] Already connected to a scheduler');
-      warnSpy.mockRestore();
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        { event: 'scheduler_already_connected' },
+        'Already connected to a scheduler'
+      );
     });
   });
 

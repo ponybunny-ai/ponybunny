@@ -10,7 +10,8 @@ import type { DebugEvent } from '../debug/types.js';
 import type { ConnectionManager } from './connection/connection-manager.js';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { isPonyBunnyDebugEnabled } from '../infra/config/debug-flags.js';
+import type { ILogger } from '../infra/observability/logger.js';
+import { NoopLogger } from '../infra/observability/logger.js';
 
 /**
  * Debug event frame sent to clients.
@@ -34,8 +35,10 @@ interface DebugEventFrame {
  */
 export function setupDebugBroadcaster(
   connectionManager: ConnectionManager,
-  debugMode: boolean
+  debugMode: boolean,
+  logger?: ILogger
 ): () => void {
+  const log = logger ?? new NoopLogger();
   if (!debugMode) {
     return () => {};
   }
@@ -53,7 +56,7 @@ export function setupDebugBroadcaster(
       `workItem=${event.workItemId ?? '-'} run=${event.runId ?? '-'} data=${JSON.stringify(event.data)}`;
 
     if (outputModes.has('console')) {
-      console.log(line);
+      log.debug({ event: 'debug_event', source: event.source, goalId: event.goalId, workItemId: event.workItemId, runId: event.runId }, line);
     }
 
     if (outputModes.has('file') && debugLogPath) {
@@ -61,7 +64,7 @@ export function setupDebugBroadcaster(
         mkdirSync(dirname(debugLogPath), { recursive: true });
         appendFileSync(debugLogPath, `${line}\n`, { encoding: 'utf8' });
       } catch (error) {
-        console.error('[DebugBroadcaster] Failed to append debug log file:', error);
+        log.error({ event: 'debug_log_write_failed', debugLogPath }, 'Failed to append debug log file', error instanceof Error ? error : undefined);
       }
     }
 
@@ -85,13 +88,13 @@ export function setupDebugBroadcaster(
   // Subscribe to debug events
   debugEmitter.onDebug(handleDebugEvent);
 
-  if (isPonyBunnyDebugEnabled()) console.log('[DebugBroadcaster] Debug mode enabled, broadcasting events to subscribed clients');
+  log.debug({ event: 'debug_broadcaster_enabled' }, 'Debug mode enabled, broadcasting events to subscribed clients');
 
   // Return cleanup function
   return () => {
     debugEmitter.offDebug(handleDebugEvent);
     debugEmitter.disable();
-    if (isPonyBunnyDebugEnabled()) console.log('[DebugBroadcaster] Debug mode disabled');
+    log.debug({ event: 'debug_broadcaster_disabled' }, 'Debug mode disabled');
   };
 }
 

@@ -28,7 +28,8 @@ import { IPCBridge } from './integration/ipc-bridge.js';
 import type { ISchedulerCore } from '../scheduler/core/index.js';
 import type { IDaemonEventEmitter } from '../runtime/events/daemon-event-emitter.js';
 import { IPCServer } from '../ipc/ipc-server.js';
-import { isPonyBunnyDebugEnabled } from '../infra/config/debug-flags.js';
+import type { ILogger } from '../infra/observability/logger.js';
+import { NoopLogger } from '../infra/observability/logger.js';
 import { setWsConnectionId, getWsConnectionId } from './connection/ws-metadata.js';
 import { isLocalAddress as isLocalAddr } from './utils/network.js';
 
@@ -84,6 +85,7 @@ export interface GatewayServerDependencies {
   personasDir?: string;
   enableConfigWatch?: boolean;
   schedulerSocketPath?: string;
+  logger?: ILogger;
 }
 
 export class GatewayServer {
@@ -94,6 +96,7 @@ export class GatewayServer {
   private memoryDbPath?: string;
   private repository: IWorkOrderRepository;
   private debugMode: boolean;
+  private readonly logger: ILogger;
 
   // Internal components
   private eventBus: EventBus;
@@ -144,6 +147,7 @@ export class GatewayServer {
     this.repository = dependencies.repository;
     this.debugMode = dependencies.debugMode ?? false;
     this.enableConfigWatch = dependencies.enableConfigWatch ?? false;
+    this.logger = dependencies.logger ?? new NoopLogger();
 
     // Initialize components
     this.eventBus = new EventBus();
@@ -159,10 +163,9 @@ export class GatewayServer {
           return;
         }
 
-        console.warn(
-          `[GatewayServer] Adapter publish had ${report.failed.length} failure(s) for event ${event}: ${report.failed
-            .map((failure) => `${failure.channel}=${failure.error}`)
-            .join(', ')}`
+        this.logger.warn(
+          { event: 'adapter_publish_failure', sourceEvent: event, failureCount: report.failed.length, failures: report.failed.map((f) => ({ channel: f.channel, error: f.error })) },
+          `Adapter publish had ${report.failed.length} failure(s) for event ${event}`
         );
       });
     });
@@ -265,13 +268,13 @@ export class GatewayServer {
     this.configWatcher = createConfigWatcher(configDir);
 
     this.configWatcher.on('change', (event: { path: string; timestamp: number }) => {
-      if (isPonyBunnyDebugEnabled()) console.log(`[GatewayServer] Config file changed: ${event.path}`);
+      this.logger.debug({ event: 'config_file_changed', path: event.path }, `Config file changed: ${event.path}`);
       this.eventBus.emit('config.changed', event);
-      
+
       if (this.config.autoRestart) {
-        console.log('[GatewayServer] Auto-restart triggered by config change');
+        this.logger.info({ event: 'auto_restart_triggered' }, 'Auto-restart triggered by config change');
         this.restartServer().catch((error: Error) => {
-          console.error('[GatewayServer] Auto-restart failed:', error);
+          this.logger.error({ event: 'auto_restart_failed' }, 'Auto-restart failed', error);
         });
       }
     });
@@ -351,7 +354,7 @@ export class GatewayServer {
         this.wss.on('connection', (ws, req) => this.handleConnection(ws, req));
 
         this.wss.on('error', (error) => {
-          console.error('[GatewayServer] Server error:', error);
+          this.logger.error({ event: 'server_error' }, 'Server error', error instanceof Error ? error : new Error(String(error)));
           if (!this.isRunning) {
             reject(error);
           }
@@ -399,7 +402,7 @@ export class GatewayServer {
     return new Promise((resolve) => {
       if (this.wss) {
         this.wss.close(() => {
-          console.log('[GatewayServer] Server stopped');
+          this.logger.info({ event: 'server_stopped' }, 'Server stopped');
           resolve();
         });
       } else {
@@ -409,11 +412,11 @@ export class GatewayServer {
   }
 
   async restartServer(): Promise<void> {
-    console.log('[GatewayServer] Restarting server...');
+    this.logger.info({ event: 'server_restarting' }, 'Restarting server');
     await this.stop();
     await new Promise(resolve => setTimeout(resolve, 1000));
     await this.start();
-    console.log('[GatewayServer] Server restarted successfully');
+    this.logger.info({ event: 'server_restarted' }, 'Server restarted successfully');
   }
 
   /**
@@ -430,7 +433,7 @@ export class GatewayServer {
     this.scheduler = scheduler;
     this.schedulerBridge.connect(scheduler);
     this.schedulerEventAdapter.connect(scheduler);
-    console.log('[GatewayServer] Scheduler connected');
+    this.logger.info({ event: 'scheduler_connected' }, 'Scheduler connected');
   }
 
   /**
@@ -440,7 +443,7 @@ export class GatewayServer {
     this.schedulerBridge.disconnect();
     this.schedulerEventAdapter.disconnect();
     this.scheduler = null;
-    console.log('[GatewayServer] Scheduler disconnected');
+    this.logger.info({ event: 'scheduler_disconnected' }, 'Scheduler disconnected');
   }
 
   /**
@@ -559,7 +562,7 @@ export class GatewayServer {
     // Check connection limit
     if (!this.connectionManager.canAcceptConnection(remoteAddress)) {
       const stats = this.connectionManager.getConnectionCount(remoteAddress);
-      console.log(`[GatewayServer] ❌ Connection limit exceeded for ${remoteAddress} [${stats.current}/${stats.max}]`);
+      this.logger.warn({ event: 'connection_limit_exceeded', remoteAddress, current: stats.current, max: stats.max }, `Connection limit exceeded for ${remoteAddress}`);
       ws.close(4006, 'Connection limit exceeded');
       return;
     }
@@ -584,7 +587,7 @@ export class GatewayServer {
 
       // Get connection stats and display
       const stats = this.connectionManager.getConnectionCount(remoteAddress);
-      console.log(`[GatewayServer] ✅ Local connection authenticated from ${remoteAddress} [${stats.current}/${stats.max}]`);
+      this.logger.info({ event: 'local_connection_authenticated', remoteAddress, current: stats.current, max: stats.max }, `Local connection authenticated from ${remoteAddress}`);
 
       // Send authentication success event to client
       const authEvent: EventFrame = {
@@ -600,7 +603,7 @@ export class GatewayServer {
       // Add as pending connection (requires authentication)
       this.connectionManager.addPendingConnection(ws, remoteAddress, this.config.authTimeoutMs);
       const stats = this.connectionManager.getConnectionCount(remoteAddress);
-      console.log(`[GatewayServer] 🔑 New connection from ${remoteAddress} [${stats.current}/${stats.max}] (auth required)`);
+      this.logger.info({ event: 'new_connection_pending_auth', remoteAddress, current: stats.current, max: stats.max }, `New connection from ${remoteAddress} (auth required)`);
     }
 
     // Set up message handler
@@ -608,21 +611,21 @@ export class GatewayServer {
       try {
         await this.messageRouter.handleMessage(ws, data as Buffer);
       } catch (error) {
-        console.error('[GatewayServer] Message handling error:', error);
+        this.logger.error({ event: 'message_handling_error', remoteAddress }, 'Message handling error', error instanceof Error ? error : new Error(String(error)));
       }
     });
 
     // Set up close handler
     ws.on('close', (code, reason) => {
       const stats = this.connectionManager.getConnectionCount(remoteAddress);
-      console.log(`[GatewayServer] 🔌 Connection closed: ${code} ${reason.toString()} from ${remoteAddress} [${stats.current - 1}/${stats.max}]`);
+      this.logger.info({ event: 'connection_closed', remoteAddress, code, reason: reason.toString(), current: stats.current - 1, max: stats.max }, `Connection closed: ${code} from ${remoteAddress}`);
       this.connectionManager.handleDisconnect(ws);
       this.authManager.cancelAuth(getWsConnectionId(ws) ?? '');
     });
 
     // Set up error handler
     ws.on('error', (error) => {
-      console.error('[GatewayServer] WebSocket error:', error);
+      this.logger.error({ event: 'websocket_error', remoteAddress }, 'WebSocket error', error);
     });
   }
 
@@ -631,7 +634,7 @@ export class GatewayServer {
    */
   private isLocalAddress(address: string): boolean {
     const isLocal = isLocalAddr(address);
-    if (isPonyBunnyDebugEnabled()) console.log(`[GatewayServer] isLocalAddress check: "${address}" => ${isLocal}`);
+    this.logger.debug({ event: 'local_address_check', address, isLocal }, `isLocalAddress check: "${address}" => ${isLocal}`);
     return isLocal;
   }
 }

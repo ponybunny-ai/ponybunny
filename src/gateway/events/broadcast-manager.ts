@@ -6,18 +6,21 @@ import type { GatewayEventType } from '../types.js';
 import type { EventBus } from './event-bus.js';
 import { EventEmitter } from './event-emitter.js';
 import type { ChannelRouter } from '../channels/channel-router.js';
-import { isPonyBunnyDebugEnabled } from '../../infra/config/debug-flags.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 export class BroadcastManager {
   private eventBus: EventBus;
   private eventEmitter: EventEmitter;
   private channelRouter: ChannelRouter;
   private unsubscribers: Array<() => void> = [];
+  private readonly logger: ILogger;
 
-  constructor(eventBus: EventBus, eventEmitter: EventEmitter, channelRouter: ChannelRouter) {
+  constructor(eventBus: EventBus, eventEmitter: EventEmitter, channelRouter: ChannelRouter, logger?: ILogger) {
     this.eventBus = eventBus;
     this.eventEmitter = eventEmitter;
     this.channelRouter = channelRouter;
+    this.logger = logger ?? new NoopLogger();
   }
 
   /**
@@ -97,7 +100,7 @@ export class BroadcastManager {
     const gatewaySessionId = this.extractGatewaySessionId(data);
     if (gatewaySessionId) {
       const sent = this.eventEmitter.emitToSession(gatewaySessionId, event, data) ? 1 : 0;
-      if (isPonyBunnyDebugEnabled()) console.log(`[BroadcastManager] Sent ${event} to session ${gatewaySessionId} (${sent})`);
+      this.logger.debug({ event: 'broadcast_to_session', eventName: event, gatewaySessionId, sent }, `Sent ${event} to session ${gatewaySessionId} (${sent})`);
       return;
     }
 
@@ -107,7 +110,7 @@ export class BroadcastManager {
     if (goalId) {
       // Broadcast to goal subscribers
       const sent = this.eventEmitter.emitToGoalSubscribers(goalId, event, data);
-      if (isPonyBunnyDebugEnabled()) console.log(`[BroadcastManager] Sent ${event} to ${sent} subscribers of goal ${goalId}`);
+      this.logger.debug({ event: 'broadcast_to_goal', eventName: event, goalId, sent }, `Sent ${event} to ${sent} subscribers of goal ${goalId}`);
     } else {
       const channelFilter = this.channelRouter.buildSessionFilter(data);
       const sent = this.eventEmitter.emitToFiltered(
@@ -115,7 +118,7 @@ export class BroadcastManager {
         data,
         (session) => session.hasPermission('read') && channelFilter(session)
       );
-      if (isPonyBunnyDebugEnabled()) console.log(`[BroadcastManager] Broadcast ${event} to ${sent} clients`);
+      this.logger.debug({ event: 'broadcast_to_filtered', eventName: event, sent }, `Broadcast ${event} to ${sent} clients`);
     }
   }
 

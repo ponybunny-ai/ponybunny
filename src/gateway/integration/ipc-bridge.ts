@@ -6,6 +6,8 @@
  */
 
 import type { EventBus } from '../events/event-bus.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 import type { IPCServer, IPCMessageHandler } from '../../ipc/ipc-server.js';
 import type {
   AnyIPCMessage,
@@ -37,9 +39,11 @@ export class IPCBridge {
   private schedulerSessionToGatewaySession = new Map<string, string>();
   private schedulerCommandAckLatenciesMs: number[] = [];
   private streamChunkLatenciesMs: number[] = [];
+  private readonly logger: ILogger;
 
-  constructor(eventBus: EventBus) {
+  constructor(eventBus: EventBus, logger?: ILogger) {
     this.eventBus = eventBus;
+    this.logger = logger ?? new NoopLogger();
   }
 
   /**
@@ -47,7 +51,7 @@ export class IPCBridge {
    */
   connect(ipcServer: IPCServer): void {
     if (this.ipcServer) {
-      console.warn('[IPCBridge] Already connected to an IPC server');
+      this.logger.warn({ event: 'ipc_already_connected' }, 'Already connected to an IPC server');
       return;
     }
 
@@ -61,7 +65,7 @@ export class IPCBridge {
     // Subscribe to IPC messages
     ipcServer.onMessage(this.messageHandler);
 
-    console.log('[IPCBridge] Connected to IPC server');
+    this.logger.info({ event: 'ipc_connected' }, 'Connected to IPC server');
   }
 
   /**
@@ -73,7 +77,7 @@ export class IPCBridge {
       this.ipcServer = null;
       this.messageHandler = null;
       this.clearPendingCommands('IPC bridge disconnected');
-      console.log('[IPCBridge] Disconnected from IPC server');
+      this.logger.info({ event: 'ipc_disconnected' }, 'Disconnected from IPC server');
     }
   }
 
@@ -602,7 +606,7 @@ export class IPCBridge {
         break;
 
       default:
-        console.warn(`[IPCBridge] Unknown scheduler event type: ${event.type}`);
+        this.logger.warn({ event: 'ipc_unknown_scheduler_event', eventType: event.type }, `Unknown scheduler event type: ${event.type}`);
     }
   }
 

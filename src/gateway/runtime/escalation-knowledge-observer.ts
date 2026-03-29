@@ -11,6 +11,8 @@
 import type { EventBus } from '../events/event-bus.js';
 import type { GlobalKnowledgeService } from '../../domain/knowledge/global-knowledge-service.js';
 import type { Escalation, EscalationType } from '../../work-order/types/index.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 // Escalation types that carry knowledge worth recording
 const KNOWLEDGE_WORTHY_TYPES: ReadonlySet<EscalationType> = new Set([
@@ -38,6 +40,7 @@ export interface EscalationKnowledgeObserverDependencies {
   eventBus: EventBus;
   knowledgeService: GlobalKnowledgeService;
   repository: EscalationReadRepository;
+  logger?: ILogger;
 }
 
 export class EscalationKnowledgeObserver {
@@ -45,11 +48,13 @@ export class EscalationKnowledgeObserver {
   private readonly knowledgeService: GlobalKnowledgeService;
   private readonly repository: EscalationReadRepository;
   private readonly unsubscribers: Array<() => void> = [];
+  private readonly logger: ILogger;
 
   constructor(dependencies: EscalationKnowledgeObserverDependencies) {
     this.eventBus = dependencies.eventBus;
     this.knowledgeService = dependencies.knowledgeService;
     this.repository = dependencies.repository;
+    this.logger = dependencies.logger ?? new NoopLogger();
   }
 
   start(): void {
@@ -100,7 +105,7 @@ export class EscalationKnowledgeObserver {
         confidence: 0.6,
       });
     } catch (error) {
-      console.warn('[EscalationKnowledgeObserver] Failed to record escalation knowledge:', error);
+      this.logger.warn({ event: 'escalation_knowledge_record_failed', error: error instanceof Error ? error.message : String(error) }, 'Failed to record escalation knowledge');
     }
   }
 }

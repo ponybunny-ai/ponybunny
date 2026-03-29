@@ -3,7 +3,8 @@
  */
 
 import type { WebSocket } from 'ws';
-import { isPonyBunnyDebugEnabled } from '../../infra/config/debug-flags.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 export interface HeartbeatConfig {
   intervalMs: number;
@@ -21,9 +22,11 @@ export class HeartbeatHandler {
   private intervalTimer?: NodeJS.Timeout;
   private readonly config: HeartbeatConfig;
   private onTimeout?: (sessionId: string) => void;
+  private readonly logger: ILogger;
 
-  constructor(config: HeartbeatConfig) {
+  constructor(config: HeartbeatConfig, logger?: ILogger) {
     this.config = config;
+    this.logger = logger ?? new NoopLogger();
   }
 
   setTimeoutCallback(callback: (sessionId: string) => void): void {
@@ -76,7 +79,7 @@ export class HeartbeatHandler {
         // Connection didn't respond to last ping
         const timeSinceLastPong = now - state.lastPong;
         if (timeSinceLastPong > this.config.timeoutMs) {
-          if (isPonyBunnyDebugEnabled()) console.log(`[Heartbeat] Connection ${sessionId} timed out`);
+          this.logger.debug({ event: 'heartbeat_timeout', sessionId }, `Connection ${sessionId} timed out`);
           this.onTimeout?.(sessionId);
           continue;
         }
@@ -87,7 +90,7 @@ export class HeartbeatHandler {
       try {
         state.ws.ping();
       } catch (error) {
-        console.error(`[Heartbeat] Failed to ping ${sessionId}:`, error);
+        this.logger.error({ event: 'heartbeat_ping_failed', sessionId }, `Failed to ping ${sessionId}`, error instanceof Error ? error : undefined);
         this.onTimeout?.(sessionId);
       }
     }

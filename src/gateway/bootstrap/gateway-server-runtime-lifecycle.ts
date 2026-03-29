@@ -19,6 +19,8 @@ import type { ConfigWatcher } from '../config/config-watcher.js';
 import { getAsciiArtBanner } from '../../infra/ui/ascii-art-banner.js';
 import { loadRuntimeConfig } from '../../infra/config/runtime-config.js';
 import { setupDebugBroadcaster } from '../debug-broadcaster.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 export interface GatewayServerRuntimeLifecycleDependencies {
   config: GatewayConfig;
@@ -39,6 +41,7 @@ export interface GatewayServerRuntimeLifecycleDependencies {
   configWatcher?: ConfigWatcher;
   setupSchedulerEventAudit: () => void;
   teardownSchedulerEventAudit: () => void;
+  logger?: ILogger;
 }
 
 export interface GatewayServerRuntimeLifecycleStartResult {
@@ -54,9 +57,11 @@ export function resolveDefaultGatewaySchedulerSocketPath(): string {
 export async function startGatewayServerRuntimeLifecycle(
   dependencies: GatewayServerRuntimeLifecycleDependencies
 ): Promise<GatewayServerRuntimeLifecycleStartResult> {
+  const logger = dependencies.logger ?? new NoopLogger();
+
   dependencies.configWatcher?.start();
   if (dependencies.configWatcher) {
-    console.log('[GatewayServer] Config watcher initialized');
+    logger.info({ event: 'config_watcher_initialized' }, 'Config watcher initialized');
   }
   const runtimeEventStoreBinding = attachRuntimeEventStore(runtimeEventBus, dependencies.runtimeEventStore);
   dependencies.debugEventAdapter.start();
@@ -78,17 +83,17 @@ export async function startGatewayServerRuntimeLifecycle(
 
   try {
     await dependencies.ipcServer.start();
-    console.log('[GatewayServer] IPC server started');
+    logger.info({ event: 'ipc_server_started' }, 'IPC server started');
     dependencies.ipcBridge.connect(dependencies.ipcServer);
   } catch (error) {
-    console.error('[GatewayServer] Failed to start IPC server:', error);
+    logger.error({ event: 'ipc_server_start_failed' }, 'Failed to start IPC server', error instanceof Error ? error : undefined);
   }
 
   const debugBroadcasterCleanup = dependencies.debugMode
     ? setupDebugBroadcaster(dependencies.connectionManager, dependencies.debugMode)
     : null;
 
-  logGatewayStartupBanner(dependencies.config, dependencies.debugMode, dependencies.dbPath, dependencies.memoryDbPath);
+  logGatewayStartupBanner(logger, dependencies.config, dependencies.debugMode, dependencies.dbPath, dependencies.memoryDbPath);
 
   return {
     runtimeEventStoreBinding,
@@ -125,32 +130,33 @@ export async function stopGatewayServerRuntimeLifecycle(
 }
 
 function logGatewayStartupBanner(
+  logger: ILogger,
   config: GatewayConfig,
   debugMode: boolean,
   dbPath?: string,
   memoryDbPath?: string
 ): void {
   const bannerSeparator = '═══════════════════════════════════════════════════════';
-  console.log(bannerSeparator);
+  logger.info({ event: 'gateway_startup_banner' }, bannerSeparator);
   const asciiArt = getAsciiArtBanner(bannerSeparator.length);
   if (asciiArt) {
-    console.log(asciiArt);
+    logger.info({ event: 'gateway_startup_banner' }, asciiArt);
   }
-  console.log('🌐 PonyBunny Gateway Server Started');
-  console.log(bannerSeparator);
-  console.log(`  Address: ws://${config.host}:${config.port}`);
+  logger.info({ event: 'gateway_started' }, 'PonyBunny Gateway Server Started');
+  logger.info({ event: 'gateway_startup_banner' }, bannerSeparator);
+  logger.info({ event: 'gateway_startup_config', host: config.host, port: config.port }, `Address: ws://${config.host}:${config.port}`);
   if (dbPath) {
-    console.log(`  Database: ${dbPath}`);
+    logger.info({ event: 'gateway_startup_config', dbPath }, `Database: ${dbPath}`);
   }
   if (memoryDbPath) {
-    console.log(`  Memory DB: ${memoryDbPath}`);
+    logger.info({ event: 'gateway_startup_config', memoryDbPath }, `Memory DB: ${memoryDbPath}`);
   }
-  console.log('  Connection Limits:');
-  console.log(`    • Local (127.0.0.1):  ${config.maxLocalConnections ?? 512} connections`);
-  console.log(`    • Remote:             ${config.maxConnectionsPerIp} connections per IP`);
-  console.log(`  Heartbeat: ${config.heartbeatIntervalMs}ms interval, ${config.heartbeatTimeoutMs}ms timeout`);
-  console.log(`  Auth Timeout: ${config.authTimeoutMs}ms`);
-  console.log(`  TLS: ${config.enableTls ? 'Enabled' : 'Disabled'}`);
-  console.log(`  Debug Mode: ${debugMode ? 'Enabled' : 'Disabled'}`);
-  console.log(`${bannerSeparator}\n`);
+  logger.info({ event: 'gateway_startup_config' }, 'Connection Limits:');
+  logger.info({ event: 'gateway_startup_config', maxLocalConnections: config.maxLocalConnections ?? 512 }, `  Local (127.0.0.1):  ${config.maxLocalConnections ?? 512} connections`);
+  logger.info({ event: 'gateway_startup_config', maxConnectionsPerIp: config.maxConnectionsPerIp }, `  Remote:             ${config.maxConnectionsPerIp} connections per IP`);
+  logger.info({ event: 'gateway_startup_config', heartbeatIntervalMs: config.heartbeatIntervalMs, heartbeatTimeoutMs: config.heartbeatTimeoutMs }, `Heartbeat: ${config.heartbeatIntervalMs}ms interval, ${config.heartbeatTimeoutMs}ms timeout`);
+  logger.info({ event: 'gateway_startup_config', authTimeoutMs: config.authTimeoutMs }, `Auth Timeout: ${config.authTimeoutMs}ms`);
+  logger.info({ event: 'gateway_startup_config', tls: config.enableTls }, `TLS: ${config.enableTls ? 'Enabled' : 'Disabled'}`);
+  logger.info({ event: 'gateway_startup_config', debugMode }, `Debug Mode: ${debugMode ? 'Enabled' : 'Disabled'}`);
+  logger.info({ event: 'gateway_startup_banner' }, `${bannerSeparator}\n`);
 }

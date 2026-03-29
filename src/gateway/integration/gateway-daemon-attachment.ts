@@ -1,5 +1,7 @@
 import type { IDaemonEventEmitter } from '../../runtime/events/daemon-event-emitter.js';
 import type { EventBus } from '../events/event-bus.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 import {
   registerDaemonEventForwarders,
   type DaemonEventForwardingBinding,
@@ -40,18 +42,21 @@ export class GatewayDaemonAttachment
 implements GatewayDaemonAttachmentSurface, GatewayDaemonDetachSurface {
   private readonly lifecycle = new GatewayDaemonLifecycle();
   private forwardingBinding: DaemonEventForwardingBinding | null = null;
+  private readonly logger: ILogger;
 
-  constructor(private readonly eventBus: EventBus) {}
+  constructor(private readonly eventBus: EventBus, logger?: ILogger) {
+    this.logger = logger ?? new NoopLogger();
+  }
 
   connect(daemon: IDaemonEventEmitter): void {
     if (this.lifecycle.hasAttachedDaemon()) {
-      console.warn('[GatewayDaemonAttachment] Already connected to a daemon');
+      this.logger.warn({ event: 'daemon_already_connected' }, 'Already connected to a daemon');
       return;
     }
 
     this.forwardingBinding = registerDaemonEventForwarders(this.eventBus, daemon);
     this.lifecycle.attach(daemon);
-    console.log('[GatewayDaemonAttachment] Connected to daemon');
+    this.logger.info({ event: 'daemon_connected' }, 'Connected to daemon');
   }
 
   detach(): void {

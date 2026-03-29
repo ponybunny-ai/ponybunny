@@ -6,6 +6,8 @@
  */
 
 import type { EventBus } from '../events/event-bus.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 import type { SchedulerEvent, SchedulerEventHandler } from '../../scheduler/types.js';
 import type { ISchedulerCore } from '../../scheduler/core/index.js';
 
@@ -16,9 +18,11 @@ export class SchedulerBridge {
   private eventBus: EventBus;
   private scheduler: ISchedulerCore | null = null;
   private eventHandler: SchedulerEventHandler | null = null;
+  private readonly logger: ILogger;
 
-  constructor(eventBus: EventBus) {
+  constructor(eventBus: EventBus, logger?: ILogger) {
     this.eventBus = eventBus;
+    this.logger = logger ?? new NoopLogger();
   }
 
   /**
@@ -26,7 +30,7 @@ export class SchedulerBridge {
    */
   connect(scheduler: ISchedulerCore): void {
     if (this.scheduler) {
-      console.warn('[SchedulerBridge] Already connected to a scheduler');
+      this.logger.warn({ event: 'scheduler_already_connected' }, 'Already connected to a scheduler');
       return;
     }
 
@@ -40,7 +44,7 @@ export class SchedulerBridge {
     // Subscribe to scheduler events
     scheduler.on(this.eventHandler);
 
-    console.log('[SchedulerBridge] Connected to scheduler');
+    this.logger.info({ event: 'scheduler_connected' }, 'Connected to scheduler');
   }
 
   /**
@@ -51,7 +55,7 @@ export class SchedulerBridge {
       this.scheduler.off(this.eventHandler);
       this.scheduler = null;
       this.eventHandler = null;
-      console.log('[SchedulerBridge] Disconnected from scheduler');
+      this.logger.info({ event: 'scheduler_disconnected' }, 'Disconnected from scheduler');
     }
   }
 
@@ -221,7 +225,7 @@ export class SchedulerBridge {
 
       default:
         // Unknown event type, log for debugging
-        console.warn('[SchedulerBridge] Unknown event type:', event.type);
+        this.logger.warn({ event: 'scheduler_unknown_event', eventType: event.type }, `Unknown event type: ${event.type}`);
     }
   }
 

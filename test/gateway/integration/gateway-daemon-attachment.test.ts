@@ -2,6 +2,7 @@ import { GatewayDaemonAttachment } from '../../../src/gateway/integration/gatewa
 import { DaemonEventEmitterMixin } from '../../../src/runtime/events/daemon-event-emitter.js';
 import type { DaemonEventForwardingBinding } from '../../../src/gateway/integration/daemon-event-forwarding.js';
 import type { EventBus } from '../../../src/gateway/events/event-bus.js';
+import type { ILogger } from '../../../src/infra/observability/logger.js';
 import type {
   Goal,
   Run,
@@ -42,6 +43,7 @@ describe('GatewayDaemonAttachment', () => {
   let attachment: GatewayDaemonAttachment;
   let mockEventBus: EventBus;
   let daemon: TestDaemonEmitter;
+  let mockLogger: jest.Mocked<ILogger>;
 
   beforeEach(() => {
     mockEventBus = {
@@ -51,7 +53,15 @@ describe('GatewayDaemonAttachment', () => {
       once: jest.fn(),
     } as unknown as EventBus;
 
-    attachment = new GatewayDaemonAttachment(mockEventBus);
+    mockLogger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      child: jest.fn(),
+    } as unknown as jest.Mocked<ILogger>;
+
+    attachment = new GatewayDaemonAttachment(mockEventBus, mockLogger);
     daemon = new TestDaemonEmitter();
   });
 
@@ -120,13 +130,13 @@ describe('GatewayDaemonAttachment', () => {
   });
 
   it('warns and preserves the first subscription if already connected', () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-
     attachment.connect(daemon);
     attachment.connect(daemon);
 
-    expect(warnSpy).toHaveBeenCalledWith('[GatewayDaemonAttachment] Already connected to a daemon');
-    warnSpy.mockRestore();
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      { event: 'daemon_already_connected' },
+      'Already connected to a daemon'
+    );
   });
 
   it('exposes connection state and direct event emission for gateway-owned callers', () => {

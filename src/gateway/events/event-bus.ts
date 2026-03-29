@@ -2,6 +2,9 @@
  * Event Bus - Internal pub/sub for Gateway events
  */
 
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
+
 export type EventHandler<T = unknown> = (data: T) => void;
 
 export interface IEventBus {
@@ -18,6 +21,11 @@ export class EventBus implements IEventBus {
   private handlers = new Map<string, Set<EventHandler>>();
   private onceHandlers = new Map<string, Set<EventHandler>>();
   private anyHandlers = new Set<AnyEventHandler>();
+  private readonly logger: ILogger;
+
+  constructor(logger?: ILogger) {
+    this.logger = logger ?? new NoopLogger();
+  }
 
   on<T>(event: string, handler: EventHandler<T>): () => void {
     if (!this.handlers.has(event)) {
@@ -60,7 +68,7 @@ export class EventBus implements IEventBus {
         try {
           handler(data);
         } catch (error) {
-          console.error(`[EventBus] Error in handler for '${event}':`, error);
+          this.logger.error({ event: 'eventbus_handler_error', eventName: event }, `Error in handler for '${event}'`, error instanceof Error ? error : undefined);
         }
       }
     }
@@ -71,7 +79,7 @@ export class EventBus implements IEventBus {
         try {
           handler(data);
         } catch (error) {
-          console.error(`[EventBus] Error in once handler for '${event}':`, error);
+          this.logger.error({ event: 'eventbus_once_handler_error', eventName: event }, `Error in once handler for '${event}'`, error instanceof Error ? error : undefined);
         }
       }
       this.onceHandlers.delete(event);
@@ -82,7 +90,7 @@ export class EventBus implements IEventBus {
       try {
         handler(event, data);
       } catch (error) {
-        console.error(`[EventBus] Error in any handler for '${event}':`, error);
+        this.logger.error({ event: 'eventbus_any_handler_error', eventName: event }, `Error in any handler for '${event}'`, error instanceof Error ? error : undefined);
       }
     }
   }

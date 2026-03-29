@@ -6,6 +6,7 @@ import {
 } from '../../../src/gateway/runtime/escalation-knowledge-observer.js';
 import type { GlobalKnowledgeService } from '../../../src/domain/knowledge/global-knowledge-service.js';
 import type { Escalation } from '../../../src/work-order/types/index.js';
+import type { ILogger } from '../../../src/infra/observability/logger.js';
 
 function makeEscalation(overrides: Partial<Escalation> = {}): Escalation {
   return {
@@ -37,12 +38,20 @@ describe('EscalationKnowledgeObserver', () => {
   let eventBus: EventBus;
   let knowledgeService: jest.Mocked<Pick<GlobalKnowledgeService, 'record'>>;
   let repository: EscalationReadRepository;
+  let mockLogger: jest.Mocked<ILogger>;
 
   beforeEach(() => {
     eventBus = new EventBus();
     knowledgeService = {
       record: jest.fn(),
     };
+    mockLogger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      child: jest.fn(),
+    } as unknown as jest.Mocked<ILogger>;
   });
 
   function createObserver(repo?: EscalationReadRepository) {
@@ -50,6 +59,7 @@ describe('EscalationKnowledgeObserver', () => {
       eventBus,
       knowledgeService: knowledgeService as unknown as GlobalKnowledgeService,
       repository: repo ?? repository,
+      logger: mockLogger,
     });
   }
 
@@ -187,19 +197,15 @@ describe('EscalationKnowledgeObserver', () => {
     const observer = createObserver();
     observer.start();
 
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-
     // Should not throw
     expect(() => {
       eventBus.emit('escalation.resolved', makeEvent());
     }).not.toThrow();
 
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[EscalationKnowledgeObserver] Failed to record escalation knowledge:',
-      expect.any(Error)
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      { event: 'escalation_knowledge_record_failed', error: 'DB write failed' },
+      'Failed to record escalation knowledge'
     );
-
-    warnSpy.mockRestore();
   });
 
   it('includes resolution_data in content when present', () => {

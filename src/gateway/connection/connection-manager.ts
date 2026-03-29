@@ -8,11 +8,14 @@ import { HeartbeatHandler, type HeartbeatConfig } from './heartbeat.js';
 import type { SessionData, Permission, ResponseFrame, EventFrame } from '../types.js';
 import { EventBus } from '../events/event-bus.js';
 import { isLocalAddress } from '../utils/network.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 export interface ConnectionManagerConfig {
   maxConnectionsPerIp: number;
   maxLocalConnections?: number; // Separate limit for local connections
   heartbeat: HeartbeatConfig;
+  logger?: ILogger;
 }
 
 interface PendingConnection {
@@ -31,11 +34,13 @@ export class ConnectionManager {
   private heartbeat: HeartbeatHandler;
   private eventBus: EventBus;
   private config: ConnectionManagerConfig;
+  private readonly logger: ILogger;
 
   constructor(config: ConnectionManagerConfig, eventBus: EventBus) {
     this.config = config;
     this.eventBus = eventBus;
-    this.heartbeat = new HeartbeatHandler(config.heartbeat);
+    this.logger = config.logger ?? new NoopLogger();
+    this.heartbeat = new HeartbeatHandler(config.heartbeat, this.logger);
 
     this.heartbeat.setTimeoutCallback((sessionId) => {
       this.disconnectSession(sessionId, 'heartbeat_timeout');
@@ -258,7 +263,7 @@ export class ConnectionManager {
       ws.send(JSON.stringify(frame));
       return true;
     } catch (error) {
-      console.error(`[ConnectionManager] Failed to send to ${sessionId}:`, error);
+      this.logger.error({ event: 'connection_send_failed', sessionId }, `Failed to send to ${sessionId}`, error instanceof Error ? error : undefined);
       return false;
     }
   }
