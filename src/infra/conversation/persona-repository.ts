@@ -7,13 +7,17 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { IPersona, IPersonaSummary } from '../../domain/conversation/persona.js';
 import type { IPersonaRepository } from '../../app/conversation/persona-engine.js';
+import type { ILogger } from '../observability/logger.js';
+import { NoopLogger } from '../observability/logger.js';
 
 export class FilePersonaRepository implements IPersonaRepository {
   private personasDir: string;
   private cache = new Map<string, IPersona>();
+  private readonly logger: ILogger;
 
-  constructor(personasDir: string) {
+  constructor(personasDir: string, logger?: ILogger) {
     this.personasDir = personasDir;
+    this.logger = (logger ?? new NoopLogger()).child({ component: 'PersonaRepository' });
     this.loadAllPersonas();
   }
 
@@ -34,7 +38,7 @@ export class FilePersonaRepository implements IPersonaRepository {
           const persona = JSON.parse(content) as IPersona;
           this.cache.set(persona.id, persona);
         } catch (error) {
-          console.error(`[PersonaRepository] Failed to load ${file}:`, error);
+          this.logger.error({ file }, `Failed to load persona file`, error instanceof Error ? error : new Error(String(error)));
         }
       }
     }

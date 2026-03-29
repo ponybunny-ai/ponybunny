@@ -7,6 +7,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { Skill, SkillMetadata, SkillSource } from './types.js';
+import type { ILogger } from '../observability/logger.js';
+import { NoopLogger } from '../observability/logger.js';
 
 const readFile = promisify(fs.readFile);
 const readdir = promisify(fs.readdir);
@@ -109,7 +111,8 @@ export function parseFrontmatter(content: string): SkillMetadata {
  */
 export async function loadSkill(
   skillDir: string,
-  source: SkillSource
+  source: SkillSource,
+  logger?: ILogger
 ): Promise<Skill | null> {
   try {
     const skillMdPath = path.join(skillDir, 'SKILL.md');
@@ -150,7 +153,8 @@ export async function loadSkill(
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return null;
     }
-    console.warn(`[skills] Failed to load skill from ${skillDir}:`, error);
+    const log = logger ?? new NoopLogger();
+    log.warn({ component: 'SkillLoader', skillDir }, `Failed to load skill from ${skillDir}`);
     return null;
   }
 }

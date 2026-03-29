@@ -32,6 +32,8 @@ import {
   type ExecutionCycleRuntimeFactory,
 } from '../../../runtime/execution-boundary/index.js';
 import type { RuntimeToolingContext } from '../../../runtime/tooling-context/index.js';
+import type { ILogger } from '../../../infra/observability/logger.js';
+import { NoopLogger } from '../../../infra/observability/logger.js';
 
 interface ExecutionServiceRuntimeDeps {
   executionCycleRunner?: ExecutionCycleRunner;
@@ -56,6 +58,7 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
   private executionRunResultNormalizer: ExecutionRunResultNormalizer;
   private executionResourcePreparer: ExecutionResourcePreparer;
   private mcpInitialized = false;
+  private readonly logger: ILogger;
 
   constructor(
     private repository: IWorkOrderRepository,
@@ -63,8 +66,10 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
       maxConsecutiveErrors: number;
     },
     llmProvider?: ILLMProvider,
-    runtimeDeps: ExecutionServiceRuntimeDeps = {}
+    runtimeDeps: ExecutionServiceRuntimeDeps = {},
+    logger?: ILogger
   ) {
+    this.logger = logger ?? new NoopLogger();
     this.toolRegistry = new ToolRegistry();
     this.toolAllowlist = new ToolAllowlist();
 
@@ -119,7 +124,7 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
       managedSkillsDir,
     });
 
-    console.log(`[ExecutionService] Loaded ${this.skillRegistry.getSkills().length} skills`);
+    this.logger.info({ event: 'skills_loaded', count: this.skillRegistry.getSkills().length }, 'Skills loaded');
   }
 
   /**
@@ -139,9 +144,9 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
       }
 
       this.mcpInitialized = true;
-      console.log(`[ExecutionService] MCP initialized with ${mcpTools.length} tools`);
+      this.logger.info({ event: 'mcp_initialized', toolCount: mcpTools.length }, 'MCP initialized');
     } catch (error) {
-      console.warn(`[ExecutionService] MCP initialization failed (non-fatal): ${error}`);
+      this.logger.warn({ event: 'mcp_init_failed', error: String(error) }, 'MCP initialization failed (non-fatal)');
     }
   }
 
@@ -197,7 +202,7 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
           description: humanApprovalGate.reason,
         });
       } catch (error) {
-        console.warn('[ExecutionService] Failed to persist human approval escalation:', error);
+        this.logger.warn({ event: 'escalation_persist_failed', type: 'human_approval' }, 'Failed to persist human approval escalation');
       }
 
       this.repository.completeRun(run.id, {
@@ -240,7 +245,7 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
           description: reason,
         });
       } catch (error) {
-        console.warn('[ExecutionService] Failed to persist resource selection escalation:', error);
+        this.logger.warn({ event: 'escalation_persist_failed', type: 'resource_selection' }, 'Failed to persist resource selection escalation');
       }
 
       this.repository.completeRun(run.id, {

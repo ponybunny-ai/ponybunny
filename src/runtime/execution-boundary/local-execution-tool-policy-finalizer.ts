@@ -1,7 +1,15 @@
 import type { CreateDecisionParams, IWorkOrderRepository } from '../../infra/persistence/repository-interface.js';
 import type { ExecutionToolPolicyFinalizer, ExecutionToolPolicyDecisionParams, ExecutionToolPolicyLogParams } from './execution-tool-policy-finalizer.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 export class LocalExecutionToolPolicyFinalizer implements ExecutionToolPolicyFinalizer {
+  private readonly logger: ILogger;
+
+  constructor(logger: ILogger = new NoopLogger()) {
+    this.logger = logger.child({ component: 'LocalExecutionToolPolicyFinalizer' });
+  }
+
   buildExecutionLog(params: ExecutionToolPolicyLogParams): string {
     const logs: string[] = [];
 
@@ -66,7 +74,7 @@ export class LocalExecutionToolPolicyFinalizer implements ExecutionToolPolicyFin
     try {
       repository.createDecision(decision);
     } catch (error) {
-      console.warn('[ExecutionService] Failed to persist tool policy decision:', error);
+      this.logger.warn({}, 'Failed to persist tool policy decision');
     }
   }
 }

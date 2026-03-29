@@ -1,5 +1,7 @@
 import { LocalExecutionRunCompletionFinalizer } from '../../../src/runtime/execution-boundary/local-execution-run-completion-finalizer.js';
 import type { IWorkOrderRepository } from '../../../src/infra/persistence/repository-interface.js';
+import type { ILogger } from '../../../src/infra/observability/logger.js';
+import { NoopLogger } from '../../../src/infra/observability/logger.js';
 
 describe('LocalExecutionRunCompletionFinalizer', () => {
   it('builds the same run completion payload shape from execution results', () => {
@@ -55,13 +57,20 @@ describe('LocalExecutionRunCompletionFinalizer', () => {
   });
 
   it('swallows goal spending persistence failures', () => {
-    const finalizer = new LocalExecutionRunCompletionFinalizer();
+    const noopLogger = new NoopLogger();
+    const mockLogger: ILogger = {
+      debug: noopLogger.debug.bind(noopLogger),
+      info: noopLogger.info.bind(noopLogger),
+      error: noopLogger.error.bind(noopLogger),
+      child: () => mockLogger,
+      warn: jest.fn(),
+    };
+    const finalizer = new LocalExecutionRunCompletionFinalizer(mockLogger);
     const repository = {
       updateGoalSpending: jest.fn(() => {
         throw new Error('write failed');
       }),
     } as unknown as IWorkOrderRepository;
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     finalizer.persistGoalSpending(repository, {
       goalId: 'goal-1',
@@ -70,11 +79,9 @@ describe('LocalExecutionRunCompletionFinalizer', () => {
       costUsd: 0.4,
     });
 
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[ExecutionService] Failed to update goal spending after run completion:',
-      expect.any(Error)
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ goalId: 'goal-1' }),
+      expect.stringContaining('Failed to update goal spending')
     );
-
-    warnSpy.mockRestore();
   });
 });

@@ -7,6 +7,8 @@
 import https from 'node:https';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
+import type { ILogger } from '../observability/logger.js';
+import { NoopLogger } from '../observability/logger.js';
 
 export interface SkillsShSkill {
   name: string;
@@ -36,6 +38,11 @@ export interface SkillSearchResult {
  */
 export class SkillsShClient {
   private readonly baseUrl = 'https://skills.sh';
+  private readonly logger: ILogger;
+
+  constructor(logger?: ILogger) {
+    this.logger = (logger ?? new NoopLogger()).child({ component: 'SkillsShClient' });
+  }
 
   /**
    * Search for skills using the find-skills skill
@@ -53,7 +60,7 @@ export class SkillsShClient {
         total: skills.length,
       };
     } catch (error) {
-      console.error('[SkillsShClient] Search failed:', error);
+      this.logger.error({}, 'Search failed', error instanceof Error ? error : new Error(String(error)));
       throw new Error(`Failed to search skills: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -150,7 +157,7 @@ export class SkillsShClient {
       const content = await this.makeRequest(downloadUrl, { method: 'GET' });
       return content;
     } catch (error) {
-      console.error('[SkillsShClient] Download failed:', error);
+      this.logger.error({}, 'Download failed', error instanceof Error ? error : new Error(String(error)));
       throw new Error(`Failed to download skill: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -174,7 +181,7 @@ export class SkillsShClient {
         downloadUrl: data.downloadUrl || `${this.baseUrl}/${skillPath}/SKILL.md`,
       };
     } catch (error) {
-      console.error('[SkillsShClient] Get details failed:', error);
+      this.logger.error({}, 'Get details failed', error instanceof Error ? error : new Error(String(error)));
       throw new Error(`Failed to get skill details: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }

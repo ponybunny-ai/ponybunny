@@ -3,6 +3,8 @@ import type { WorkItem } from '../../work-order/types/index.js';
 import type { ExecutionRunner } from './execution-runner.js';
 import type { LocalExecutionAgentTickResolver } from './local-execution-agent-tick-resolver.js';
 import type { ExecutionPort, ExecutionRequest, ExecutionResult } from './types.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 interface ActiveExecution {
   runId: string;
@@ -13,11 +15,15 @@ interface ActiveExecution {
 
 export class LocalExecutionAdapter implements ExecutionPort {
   private activeExecutions: Map<string, ActiveExecution> = new Map();
+  private readonly logger: ILogger;
 
   constructor(
     private executionRunner: ExecutionRunner,
-    private readonly agentTickResolver: LocalExecutionAgentTickResolver
-  ) {}
+    private readonly agentTickResolver: LocalExecutionAgentTickResolver,
+    logger: ILogger = new NoopLogger()
+  ) {
+    this.logger = logger.child({ component: 'LocalExecutionAdapter' });
+  }
 
   async execute(request: ExecutionRequest): Promise<ExecutionResult> {
     const { workItem } = request;
@@ -32,7 +38,7 @@ export class LocalExecutionAdapter implements ExecutionPort {
   async abort(runId: string): Promise<void> {
     const execution = this.activeExecutions.get(runId);
     if (!execution) {
-      console.warn(`[LocalExecutionAdapter] No active execution found for runId: ${runId}`);
+      this.logger.warn({ runId }, 'No active execution found for runId');
       return;
     }
 
@@ -67,10 +73,11 @@ export class LocalExecutionAdapter implements ExecutionPort {
     }
 
     if (definition.definitionHash !== agentTick.definition_hash) {
-      console.warn(
-        `[LocalExecutionAdapter] Agent definition hash mismatch for ${agentTick.agent_id}: ` +
-        `expected ${definition.definitionHash}, got ${agentTick.definition_hash}`
-      );
+      this.logger.warn({
+        agentId: agentTick.agent_id,
+        expectedHash: definition.definitionHash,
+        actualHash: agentTick.definition_hash,
+      }, 'Agent definition hash mismatch');
     }
 
     if (!this.agentTickResolver.hasRunnerPath(definition)) {

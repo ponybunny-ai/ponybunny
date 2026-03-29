@@ -6,6 +6,8 @@
  */
 
 import type Database from 'better-sqlite3';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 // ---------------------------------------------------------------------------
 // Result interfaces
@@ -52,7 +54,7 @@ export interface KnowledgeStats {
 // ---------------------------------------------------------------------------
 
 export class HarnessMetricsService {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: Database.Database, private readonly logger: ILogger = new NoopLogger()) {}
 
   /**
    * Cluster runs by error_signature, ordered by frequency descending.
@@ -81,7 +83,7 @@ export class HarnessMetricsService {
 
       return rows;
     } catch (err) {
-      console.error('[HarnessMetricsService] getErrorSignatureClusters failed:', err);
+      this.logger.error({ event: 'query_failed', method: 'getErrorSignatureClusters' }, 'getErrorSignatureClusters failed', err instanceof Error ? err : new Error(String(err)));
       return [];
     }
   }
@@ -115,7 +117,7 @@ export class HarnessMetricsService {
         failure_rate: r.total_runs > 0 ? r.failed_runs / r.total_runs : 0,
       }));
     } catch (err) {
-      console.error('[HarnessMetricsService] getWorkItemTypeFailureRates failed:', err);
+      this.logger.error({ event: 'query_failed', method: 'getWorkItemTypeFailureRates' }, 'getWorkItemTypeFailureRates failed', err instanceof Error ? err : new Error(String(err)));
       return [];
     }
   }
@@ -149,7 +151,7 @@ export class HarnessMetricsService {
 
       return rows;
     } catch (err) {
-      console.error('[HarnessMetricsService] getGoalSuccessTimeline failed:', err);
+      this.logger.error({ event: 'query_failed', method: 'getGoalSuccessTimeline' }, 'getGoalSuccessTimeline failed', err instanceof Error ? err : new Error(String(err)));
       return [];
     }
   }
@@ -192,7 +194,7 @@ export class HarnessMetricsService {
 
       return row ?? empty;
     } catch (err) {
-      console.error('[HarnessMetricsService] getEvaluationDecisionDistribution failed:', err);
+      this.logger.error({ event: 'query_failed', method: 'getEvaluationDecisionDistribution' }, 'getEvaluationDecisionDistribution failed', err instanceof Error ? err : new Error(String(err)));
       return empty;
     }
   }
@@ -254,7 +256,7 @@ export class HarnessMetricsService {
         recently_reinforced: recentRow?.cnt ?? 0,
       };
     } catch (err) {
-      console.error('[HarnessMetricsService] getKnowledgeEffectiveness failed:', err);
+      this.logger.error({ event: 'query_failed', method: 'getKnowledgeEffectiveness' }, 'getKnowledgeEffectiveness failed', err instanceof Error ? err : new Error(String(err)));
       return empty;
     }
   }

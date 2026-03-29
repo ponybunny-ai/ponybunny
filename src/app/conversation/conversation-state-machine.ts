@@ -9,6 +9,8 @@ import type {
 } from '../../domain/conversation/state-machine-rules.js';
 import { canTransitionConversation } from '../../domain/conversation/state-machine-rules.js';
 import type { IInputAnalysis, IntentCategory } from '../../domain/conversation/analysis.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 export interface IConversationStateMachine {
   getCurrentState(): ConversationState;
@@ -25,7 +27,7 @@ export class ConversationStateMachine implements IConversationStateMachine {
   private transitionHistory: IStateTransitionEvent[] = [];
   private stateChangeCallbacks: StateChangeCallback[] = [];
 
-  constructor(initialState: ConversationState = 'idle') {
+  constructor(initialState: ConversationState = 'idle', private readonly logger: ILogger = new NoopLogger()) {
     this.currentState = initialState;
   }
 
@@ -35,9 +37,7 @@ export class ConversationStateMachine implements IConversationStateMachine {
 
   transition(to: ConversationState, trigger: string): boolean {
     if (!canTransitionConversation(this.currentState, to)) {
-      console.warn(
-        `[ConversationStateMachine] Invalid transition: ${this.currentState} -> ${to}`
-      );
+      this.logger.warn({ event: 'invalid_transition', from: this.currentState, to }, `Invalid transition: ${this.currentState} -> ${to}`);
       return false;
     }
 
@@ -56,7 +56,7 @@ export class ConversationStateMachine implements IConversationStateMachine {
       try {
         callback(event);
       } catch (error) {
-        console.error('[ConversationStateMachine] Callback error:', error);
+        this.logger.error({ event: 'callback_error', from: event.from, to: event.to }, 'State change callback error', error instanceof Error ? error : new Error(String(error)));
       }
     }
 

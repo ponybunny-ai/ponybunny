@@ -1,4 +1,6 @@
 import { isPonyBunnyDebugEnabled } from '../config/debug-flags.js';
+import type { ILogger } from '../observability/logger.js';
+import { NoopLogger } from '../observability/logger.js';
 
 export interface ToolCall {
   id: string;              // Unique ID for the tool call
@@ -123,12 +125,14 @@ export class LLMRouter implements ILLMProvider {
   private providers: ILLMProvider[];
   private currentProviderIndex = 0;
   private failedProviders = new Set<string>();
+  private readonly logger: ILogger;
 
-  constructor(providers: ILLMProvider[]) {
+  constructor(providers: ILLMProvider[], logger: ILogger = new NoopLogger()) {
     if (providers.length === 0) {
       throw new Error('LLMRouter requires at least one provider');
     }
     this.providers = providers;
+    this.logger = logger;
   }
 
   getName(): string {
@@ -164,7 +168,7 @@ export class LLMRouter implements ILLMProvider {
         const isAvailable = await provider.isAvailable();
         
         if (!isAvailable) {
-          console.warn(`[LLMRouter] Provider ${provider.getName()} is unavailable`);
+          this.logger.warn({ provider: provider.getName() }, `[LLMRouter] Provider ${provider.getName()} is unavailable`);
           this.markProviderFailed(provider.getName());
           this.rotateProvider();
           continue;
@@ -180,7 +184,8 @@ export class LLMRouter implements ILLMProvider {
           throw error;
         }
 
-        console.warn(
+        this.logger.warn(
+          { provider: provider.getName(), error: (error as Error).message },
           `[LLMRouter] Provider ${provider.getName()} failed: ${(error as Error).message}`
         );
         
@@ -207,7 +212,7 @@ export class LLMRouter implements ILLMProvider {
 
     setTimeout(() => {
       this.failedProviders.delete(providerName);
-      if (isPonyBunnyDebugEnabled()) console.log(`[LLMRouter] Re-enabled provider ${providerName}`);
+      if (isPonyBunnyDebugEnabled()) this.logger.debug({ provider: providerName }, `[LLMRouter] Re-enabled provider ${providerName}`);
     }, 60000);
   }
 

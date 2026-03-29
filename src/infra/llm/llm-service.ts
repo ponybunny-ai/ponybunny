@@ -9,6 +9,8 @@ import type { ModelTier } from '../../scheduler/model-selector/types.js';
 import { getLLMProviderManager } from './provider-manager/index.js';
 import type { WorkloadId, LLMCompletionOptions } from './provider-manager/index.js';
 import { debug } from '../../debug/index.js';
+import type { ILogger } from '../observability/logger.js';
+import { NoopLogger } from '../observability/logger.js';
 
 /**
  * Model tier configuration with primary and fallback models
@@ -83,10 +85,12 @@ export class LLMService implements ILLMProvider {
   private config: LLMServiceConfig;
   private providerCache = new Map<string, ILLMProvider>();
   private unifiedProvider: UnifiedLLMProvider | null = null;
+  private readonly logger: ILogger;
 
-  constructor(config: LLMServiceConfig = {}) {
+  constructor(config: LLMServiceConfig = {}, logger: ILogger = new NoopLogger()) {
     this.registry = getProviderRegistry();
     this.config = config;
+    this.logger = logger;
 
     // Load tier models with environment overrides
     const envTierModels = loadTierModels();
@@ -101,7 +105,7 @@ export class LLMService implements ILLMProvider {
       this.unifiedProvider = new UnifiedLLMProvider({
         defaultTimeout: config.defaultTimeout,
         defaultMaxTokens: config.defaultMaxTokens,
-      });
+      }, logger);
     }
   }
 
@@ -200,7 +204,7 @@ export class LLMService implements ILLMProvider {
 
         const isAvailable = await provider.isAvailable();
         if (!isAvailable) {
-          console.warn(`[LLMService] Provider for ${model} is unavailable, trying fallback`);
+          this.logger.warn({ model }, `[LLMService] Provider for ${model} is unavailable, trying fallback`);
           continue;
         }
 
@@ -221,7 +225,7 @@ export class LLMService implements ILLMProvider {
         return response;
       } catch (error) {
         lastError = error as Error;
-        console.warn(`[LLMService] Model ${model} failed: ${(error as Error).message}`);
+        this.logger.warn({ model, error: (error as Error).message }, `[LLMService] Model ${model} failed: ${(error as Error).message}`);
 
         debug.custom('llm.model.failed', 'llm-service', {
           tier,

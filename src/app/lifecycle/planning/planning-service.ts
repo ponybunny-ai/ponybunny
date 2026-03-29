@@ -5,6 +5,8 @@ import type { ILLMProvider } from '../../../infra/llm/llm-provider.js';
 import type { IModelSelector } from '../../../scheduler/model-selector/types.js';
 import type { RuntimeToolingContext } from '../../../runtime/tooling-context/index.js';
 import type { GlobalKnowledgeService } from '../../../domain/knowledge/index.js';
+import type { ILogger } from '../../../infra/observability/logger.js';
+import { NoopLogger } from '../../../infra/observability/logger.js';
 import { PromptProvider } from '../../../infra/prompts/prompt-provider.js';
 import { ModelSelector } from '../../../scheduler/model-selector/model-selector.js';
 import { getLegacyCompatiblePromptProvider } from '../../../infra/prompts/legacy-prompt-tooling-compatibility.js';
@@ -24,18 +26,21 @@ export class PlanningService implements IPlanningService {
   private modelSelector: IModelSelector;
   private promptProvider: PromptProvider;
   private globalKnowledge?: GlobalKnowledgeService;
+  private readonly logger: ILogger;
 
   constructor(
     private repository: IWorkOrderRepository,
     private llmProvider: ILLMProvider,
     modelSelector?: IModelSelector,
     runtimeToolingContext?: RuntimeToolingContext,
-    globalKnowledge?: GlobalKnowledgeService
+    globalKnowledge?: GlobalKnowledgeService,
+    logger?: ILogger
   ) {
     this.modelSelector = modelSelector ?? new ModelSelector();
     this.promptProvider = runtimeToolingContext?.getPromptProvider()
       ?? getLegacyCompatiblePromptProvider(() => new PromptProvider());
     this.globalKnowledge = globalKnowledge;
+    this.logger = logger ?? new NoopLogger();
   }
 
   async planWorkItems(goal: Goal): Promise<PlanningResult> {
@@ -151,7 +156,7 @@ Each object must have:
 
     try {
       const selection = this.modelSelector.selectModelForPlanning(goal);
-      console.log(`[PlanningService] ${selection.reasoning}`);
+      this.logger.debug({ event: 'model_selected', reasoning: selection.reasoning }, 'Model selection reasoning');
 
       const response = await this.llmProvider.complete([
         { role: 'system', content: systemPrompt },

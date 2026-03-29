@@ -7,6 +7,8 @@ import type {
   RawApiResponse,
 } from './protocol-adapter.js';
 import { BaseProtocolAdapter } from './protocol-adapter.js';
+import type { ILogger } from '../../observability/logger.js';
+import { NoopLogger } from '../../observability/logger.js';
 
 /**
  * Google Gemini API protocol adapter
@@ -14,6 +16,12 @@ import { BaseProtocolAdapter } from './protocol-adapter.js';
  */
 export class GeminiProtocolAdapter extends BaseProtocolAdapter {
   readonly protocolId = 'gemini' as const;
+  private readonly logger: ILogger;
+
+  constructor(logger: ILogger = new NoopLogger()) {
+    super();
+    this.logger = logger;
+  }
 
   formatRequest(messages: LLMMessage[], config: ProtocolRequestConfig): unknown {
     // Extract system message and conversation messages
@@ -331,7 +339,7 @@ export class GeminiProtocolAdapter extends BaseProtocolAdapter {
 
       return null;
     } catch (error) {
-      console.warn('[GeminiProtocol] Failed to parse stream chunk:', error);
+      this.logger.warn({ error: (error as Error).message }, '[GeminiProtocol] Failed to parse stream chunk');
       return null;
     }
   }

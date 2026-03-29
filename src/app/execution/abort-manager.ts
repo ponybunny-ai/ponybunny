@@ -14,6 +14,8 @@ import type {
   AbortScope,
   AbortEventHandler,
 } from '../../domain/abort/types.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 // ============================================================================
 // Abort Manager Implementation
@@ -29,6 +31,8 @@ export class AbortManager implements IAbortManager {
     activeRegistrations: 0,
     byScope: { goal: 0, work_item: 0, run: 0 },
   };
+
+  constructor(private readonly logger: ILogger = new NoopLogger()) {}
 
   /**
    * Generate a unique key for a registration
@@ -356,7 +360,7 @@ export class AbortManager implements IAbortManager {
       try {
         await handler(event);
       } catch (error) {
-        console.error('Error in abort event handler:', error);
+        this.logger.error({ event: 'abort_handler_error', abortEventType: event.type, scope: event.scope, id: event.id }, 'Error in abort event handler', error instanceof Error ? error : new Error(String(error)));
       }
     }
   }

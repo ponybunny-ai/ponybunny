@@ -6,6 +6,8 @@ import type {
   RawApiResponse,
 } from './protocol-adapter.js';
 import { BaseProtocolAdapter } from './protocol-adapter.js';
+import type { ILogger } from '../../observability/logger.js';
+import { NoopLogger } from '../../observability/logger.js';
 
 /**
  * OpenAI Responses API protocol adapter
@@ -21,6 +23,12 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
 
   // Streaming tool_calls accumulator state
   private streamingToolCalls = new Map<number, { id: string; type: string; name: string; arguments: string }>();
+  private readonly logger: ILogger;
+
+  constructor(logger: ILogger = new NoopLogger()) {
+    super();
+    this.logger = logger;
+  }
 
   private shouldUseMaxCompletionTokens(model: string): boolean {
     const normalized = model.toLowerCase();
@@ -577,7 +585,7 @@ export class OpenAIProtocolAdapter extends BaseProtocolAdapter {
         // Skip chunks without content or finish reason
         return null;
       } catch (error) {
-        console.warn('[OpenAIProtocol] Failed to parse stream chunk:', error);
+        this.logger.warn({ error: (error as Error).message }, '[OpenAIProtocol] Failed to parse stream chunk');
         return null;
       }
     }

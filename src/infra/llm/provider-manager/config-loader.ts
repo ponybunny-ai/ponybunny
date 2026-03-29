@@ -14,6 +14,16 @@ import type {
 import { ConfigValidationError } from './types.js';
 import { getConfigDir as getGlobalConfigDir } from '../../config/config-paths.js';
 import { isPonyBunnyDebugEnabled } from '../../config/debug-flags.js';
+import type { ILogger } from '../../observability/logger.js';
+import { NoopLogger } from '../../observability/logger.js';
+
+/** Module-level logger for config-loader functions */
+let moduleLogger: ILogger = new NoopLogger();
+
+/** Set the module-level logger for config-loader */
+export function setConfigLoaderLogger(logger: ILogger): void {
+  moduleLogger = logger;
+}
 
 /**
  * Get the PonyBunny config directory path
@@ -765,7 +775,7 @@ function loadSchema(): object {
       return patchSchema(JSON.parse(content));
     }
   } catch (error) {
-    console.warn(`[ConfigLoader] Failed to load schema file, using embedded schema: ${(error as Error).message}`);
+    moduleLogger.warn({ error: (error as Error).message }, '[ConfigLoader] Failed to load schema file, using embedded schema');
   }
 
   return patchSchema(EMBEDDED_SCHEMA);
@@ -835,7 +845,7 @@ export function loadLLMConfig(configPath?: string): LLMConfig {
 
   try {
     if (!fs.existsSync(filePath)) {
-      if (isPonyBunnyDebugEnabled()) console.log(`[ConfigLoader] Config file not found at ${filePath}, using defaults`);
+      if (isPonyBunnyDebugEnabled()) moduleLogger.debug({ filePath }, '[ConfigLoader] Config file not found, using defaults');
       return defaultConfig;
     }
 
@@ -861,7 +871,7 @@ export function loadLLMConfig(configPath?: string): LLMConfig {
       throw error;
     }
 
-    console.warn(`[ConfigLoader] Failed to load config: ${(error as Error).message}, using defaults`);
+    moduleLogger.warn({ error: (error as Error).message }, '[ConfigLoader] Failed to load config, using defaults');
     return { ...DEFAULT_LLM_CONFIG };
   }
 }

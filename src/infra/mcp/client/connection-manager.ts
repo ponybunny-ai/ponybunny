@@ -12,7 +12,8 @@ import type {
 } from './types.js';
 import { MCPConnectionError } from './types.js';
 import { loadMCPConfig, listEnabledMCPServers } from '../config/mcp-config-loader.js';
-import { isPonyBunnyDebugEnabled } from '../../config/debug-flags.js';
+import type { ILogger } from '../../observability/logger.js';
+import { NoopLogger } from '../../observability/logger.js';
 
 export interface ConnectionManagerOptions {
   onConnectionStateChange?: (serverName: string, state: MCPConnectionState) => void;
@@ -27,8 +28,11 @@ export interface ConnectionManagerOptions {
 export class MCPConnectionManager {
   private clients = new Map<string, MCPClient>();
   private connectionStatus = new Map<string, MCPConnectionStatus>();
+  private readonly logger: ILogger;
 
-  constructor(private options: ConnectionManagerOptions = {}) {}
+  constructor(private options: ConnectionManagerOptions = {}, logger?: ILogger) {
+    this.logger = (logger ?? new NoopLogger()).child({ component: 'MCPConnectionManager' });
+  }
 
   /**
    * Initialize connections to all enabled MCP servers
@@ -36,12 +40,12 @@ export class MCPConnectionManager {
   async initialize(): Promise<void> {
     const config = loadMCPConfig();
     if (!config?.mcpServers) {
-      if (isPonyBunnyDebugEnabled()) console.log('[MCPConnectionManager] No MCP servers configured');
+      this.logger.debug({}, 'No MCP servers configured');
       return;
     }
 
     const enabledServers = listEnabledMCPServers();
-    if (isPonyBunnyDebugEnabled()) console.log(`[MCPConnectionManager] Initializing ${enabledServers.length} MCP servers...`);
+    this.logger.debug({ count: enabledServers.length }, 'Initializing MCP servers');
 
     const connectionPromises = enabledServers.map(async (serverName) => {
       const serverConfig = config.mcpServers[serverName];
@@ -49,9 +53,9 @@ export class MCPConnectionManager {
 
       try {
         await this.connectServer(serverName, serverConfig);
-        if (isPonyBunnyDebugEnabled()) console.log(`[MCPConnectionManager] Connected to ${serverName}`);
+        this.logger.debug({ server: serverName }, 'Connected');
       } catch (error) {
-        console.error(`[MCPConnectionManager] Failed to connect to ${serverName}:`, error);
+        this.logger.error({ server: serverName }, 'Failed to connect', error instanceof Error ? error : new Error(String(error)));
       }
     });
 
@@ -66,7 +70,7 @@ export class MCPConnectionManager {
     if (this.clients.has(serverName)) {
       const client = this.clients.get(serverName)!;
       if (client.getState() === 'connected') {
-        if (isPonyBunnyDebugEnabled()) console.log(`[MCPConnectionManager] Already connected to ${serverName}`);
+        this.logger.debug({ server: serverName }, 'Already connected');
         return;
       }
     }
@@ -91,7 +95,7 @@ export class MCPConnectionManager {
     };
 
     // Create and connect client
-    const client = new MCPClient(clientOptions);
+    const client = new MCPClient(clientOptions, this.logger);
     this.clients.set(serverName, client);
 
     await client.connect();
@@ -183,7 +187,7 @@ export class MCPConnectionManager {
         const tools = await client.listTools();
         toolsMap.set(serverName, tools);
       } catch (error) {
-        console.error(`[MCPConnectionManager] Failed to list tools from ${serverName}:`, error);
+        this.logger.error({ server: serverName }, 'Failed to list tools', error instanceof Error ? error : new Error(String(error)));
       }
     });
 
@@ -253,7 +257,7 @@ export class MCPConnectionManager {
    * Reload configuration and reconnect servers
    */
   async reloadConfiguration(): Promise<void> {
-    if (isPonyBunnyDebugEnabled()) console.log('[MCPConnectionManager] Reloading configuration...');
+    this.logger.debug({}, 'Reloading configuration');
 
     // Disconnect all current connections
     await this.disconnectAll();

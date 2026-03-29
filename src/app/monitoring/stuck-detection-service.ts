@@ -17,6 +17,8 @@ import type {
 } from '../../domain/stuck/types.js';
 import { DEFAULT_STUCK_CONFIG } from '../../domain/stuck/types.js';
 import type { WorkItem, Run, WorkItemStatus, RunStatus } from '../../work-order/types/index.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 // ============================================================================
 // Repository Interfaces (for dependency injection)
@@ -50,7 +52,8 @@ export class StuckDetectionService implements IStuckDetectionService {
   constructor(
     workItemRepo: IWorkItemRepository,
     runRepo: IRunRepository,
-    config: Partial<IStuckDetectionConfig> = {}
+    config: Partial<IStuckDetectionConfig> = {},
+    private readonly logger: ILogger = new NoopLogger()
   ) {
     this.workItemRepo = workItemRepo;
     this.runRepo = runRepo;
@@ -470,7 +473,7 @@ export class StuckDetectionService implements IStuckDetectionService {
         await handler(event);
       } catch (error) {
         // Log but don't throw
-        console.error('Error in stuck event handler:', error);
+        this.logger.error({ event: 'stuck_handler_error', stuckEventType: event.type }, 'Error in stuck event handler', error instanceof Error ? error : new Error(String(error)));
       }
     }
   }

@@ -7,6 +7,8 @@ import type {
   ExecutionResourcePreparer,
   PreparedExecutionResources,
 } from './execution-resource-preparer.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 interface ResourcePolicyConfig {
   available: string[];
@@ -26,7 +28,14 @@ interface LocalExecutionResourcePreparerParams {
 }
 
 export class LocalExecutionResourcePreparer implements ExecutionResourcePreparer {
-  constructor(private readonly params: LocalExecutionResourcePreparerParams) {}
+  private readonly logger: ILogger;
+
+  constructor(
+    private readonly params: LocalExecutionResourcePreparerParams,
+    logger: ILogger = new NoopLogger()
+  ) {
+    this.logger = logger.child({ component: 'LocalExecutionResourcePreparer' });
+  }
 
   async prepareForWorkItem(workItem: WorkItem): Promise<PreparedExecutionResources> {
     const resourceSelection = await this.applyResourcePolicySelection(workItem);
@@ -105,7 +114,7 @@ export class LocalExecutionResourcePreparer implements ExecutionResourcePreparer
             suggestedSkills.push(...filtered);
           }
         } catch (error) {
-          console.warn(`[ExecutionService] Skill pre-search failed for "${keyword}":`, error);
+          this.logger.warn({ keyword }, 'Skill pre-search failed for keyword');
         }
       }
 
@@ -115,10 +124,10 @@ export class LocalExecutionResourcePreparer implements ExecutionResourcePreparer
           ...workItem.context,
           suggestedSkills: uniqueSkills.slice(0, 5),
         };
-        console.log(`[ExecutionService] Pre-searched ${uniqueSkills.length} skills for work item ${workItem.id}`);
+        this.logger.info({ workItemId: workItem.id, skillCount: uniqueSkills.length }, 'Pre-searched skills for work item');
       }
     } catch (error) {
-      console.warn('[ExecutionService] Skill pre-search failed:', error);
+      this.logger.warn({}, 'Skill pre-search failed');
     }
   }
 

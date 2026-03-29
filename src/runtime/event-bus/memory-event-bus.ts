@@ -1,6 +1,8 @@
 import { EventEmitter } from 'events';
 import type { AnyEventHandler, EventBus, EventHandler } from './event-bus.js';
 import type { RuntimeEvent } from './runtime-event.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 /**
  * Conservative in-memory event bus for the first migration stage.
@@ -11,7 +13,7 @@ export class MemoryEventBus implements EventBus {
   private readonly emitter = new EventEmitter();
   private readonly anyHandlers = new Set<AnyEventHandler>();
 
-  constructor() {
+  constructor(private readonly logger: ILogger = new NoopLogger()) {
     this.emitter.setMaxListeners(0);
   }
 
@@ -33,7 +35,7 @@ export class MemoryEventBus implements EventBus {
       try {
         await handler(event);
       } catch (error) {
-        console.error(`[MemoryEventBus] Error in handler for '${event.type}':`, error);
+        this.logger.error({ event: 'handler_error', eventType: event.type }, 'Error in event handler', error instanceof Error ? error : new Error(String(error)));
       }
     }
 
@@ -41,7 +43,7 @@ export class MemoryEventBus implements EventBus {
       try {
         await handler(event);
       } catch (error) {
-        console.error(`[MemoryEventBus] Error in any handler for '${event.type}':`, error);
+        this.logger.error({ event: 'any_handler_error', eventType: event.type }, 'Error in any handler', error instanceof Error ? error : new Error(String(error)));
       }
     }
   }

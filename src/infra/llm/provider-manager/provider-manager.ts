@@ -17,6 +17,8 @@ import { WorkloadModelResolver, getWorkloadModelResolver } from './agent-model-r
 import { getProtocolAdapter } from '../protocols/index.js';
 import type { EndpointCredentials } from '../protocols/index.js';
 import { isPonyBunnyDebugEnabled } from '../../config/debug-flags.js';
+import type { ILogger } from '../../observability/logger.js';
+import { NoopLogger } from '../../observability/logger.js';
 import { randomUUID } from 'crypto';
 import type { OpenAIOperation, ProtocolRequestConfig } from '../protocols/protocol-adapter.js';
 import { resolveProviderRequestModel as resolveProviderRequestModelId } from './model-resolution.js';
@@ -39,11 +41,13 @@ export class LLMProviderManager implements ILLMProviderManager {
   private defaultTemperature: number;
   private streamEventSink: LLMStreamEventSink;
   private readonly circuitBreakers = new Map<string, CircuitBreaker>();
+  private readonly logger: ILogger;
 
-  constructor(streamEventSink: LLMStreamEventSink = configuredStreamEventSink) {
+  constructor(streamEventSink: LLMStreamEventSink = configuredStreamEventSink, logger: ILogger = new NoopLogger()) {
     this.endpointManager = getEndpointManager();
     this.workloadModelResolver = getWorkloadModelResolver();
     this.streamEventSink = streamEventSink;
+    this.logger = logger;
 
     const config = getCachedConfig();
     this.defaultTimeout = config.defaults.timeout || 120000;
@@ -185,7 +189,7 @@ export class LLMProviderManager implements ILLMProviderManager {
       const resolvedModelId = resolution.modelId;
 
       if (endpoints.length === 0) {
-        console.warn(`[ProviderManager] No available endpoints for model: ${modelId}`);
+        this.logger.warn({ modelId }, `[ProviderManager] No available endpoints for model: ${modelId}`);
         continue;
       }
 
@@ -193,7 +197,7 @@ export class LLMProviderManager implements ILLMProviderManager {
       for (const endpointId of endpoints) {
         const breaker = this.getCircuitBreaker(endpointId);
         if (!breaker.isCallAllowed()) {
-          console.warn(`[ProviderManager] Circuit open for ${endpointId}, skipping`);
+          this.logger.warn({ endpointId }, `[ProviderManager] Circuit open for ${endpointId}, skipping`);
           continue;
         }
 
@@ -209,7 +213,8 @@ export class LLMProviderManager implements ILLMProviderManager {
           return result;
         } catch (error) {
           lastError = error as Error;
-          console.warn(
+          this.logger.warn(
+            { endpointId, modelId, error: (error as Error).message },
             `[ProviderManager] Endpoint ${endpointId} failed for ${modelId}: ${(error as Error).message}`
           );
 
@@ -298,7 +303,7 @@ export class LLMProviderManager implements ILLMProviderManager {
 
     // Debug log the request body
     if (isPonyBunnyDebugEnabled()) {
-      console.log(`[ProviderManager] Request to ${endpointId}:`, JSON.stringify(requestBody, null, 2));
+      this.logger.debug({ endpointId }, `[ProviderManager] Request to ${endpointId}`);
     }
 
     // Add streaming to request body if enabled
@@ -313,8 +318,8 @@ export class LLMProviderManager implements ILLMProviderManager {
 
     // Debug log URL and headers
     if (isPonyBunnyDebugEnabled()) {
-      console.log(`[ProviderManager] URL: ${url}`);
-      console.log(`[ProviderManager] Headers:`, JSON.stringify(this.sanitizeHeadersForDebug(headers), null, 2));
+      this.logger.debug({ endpointId, url }, `[ProviderManager] URL: ${url}`);
+      this.logger.debug({ endpointId, headers: this.sanitizeHeadersForDebug(headers) }, `[ProviderManager] Headers`);
     }
 
     // Make request
@@ -348,7 +353,7 @@ export class LLMProviderManager implements ILLMProviderManager {
 
       // Debug log
       if (isPonyBunnyDebugEnabled()) {
-        console.log(`[ProviderManager] Response from ${endpointId}:`, JSON.stringify(data, null, 2));
+        this.logger.debug({ endpointId }, `[ProviderManager] Response from ${endpointId}`);
       }
 
       if (!response.ok) {

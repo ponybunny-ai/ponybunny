@@ -9,6 +9,8 @@ import { loadMCPConfig } from '../mcp/config/mcp-config-loader.js';
 import { getGlobalSubagentExecutionBoundary } from '../agents/subagent-execution-boundary.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import { getManagedSkillsDir } from '../config/config-paths.js';
+import type { ILogger } from '../observability/logger.js';
+import { NoopLogger } from '../observability/logger.js';
 
 export interface ModelInfo {
   name: string;
@@ -90,7 +92,8 @@ export interface SchedulerCapabilities {
 /**
  * Get all models information
  */
-export function getModelsInfo(): ModelInfo[] {
+export function getModelsInfo(logger?: ILogger): ModelInfo[] {
+  const log = (logger ?? new NoopLogger()).child({ component: 'SchedulerCapabilities' });
   try {
     const config = loadLLMConfig();
     const models: ModelInfo[] = [];
@@ -119,7 +122,7 @@ export function getModelsInfo(): ModelInfo[] {
 
     return models;
   } catch (error) {
-    console.error('[SchedulerCapabilities] Failed to load models info:', error);
+    log.error({}, 'Failed to load models info', error instanceof Error ? error : new Error(String(error)));
     return [];
   }
 }
@@ -127,7 +130,8 @@ export function getModelsInfo(): ModelInfo[] {
 /**
  * Get all providers information
  */
-export function getProvidersInfo(): ProviderInfo[] {
+export function getProvidersInfo(logger?: ILogger): ProviderInfo[] {
+  const log = (logger ?? new NoopLogger()).child({ component: 'SchedulerCapabilities' });
   try {
     const config = loadLLMConfig();
     const providers: ProviderInfo[] = [];
@@ -145,7 +149,7 @@ export function getProvidersInfo(): ProviderInfo[] {
 
     return providers;
   } catch (error) {
-    console.error('[SchedulerCapabilities] Failed to load providers info:', error);
+    log.error({}, 'Failed to load providers info', error instanceof Error ? error : new Error(String(error)));
     return [];
   }
 }
@@ -153,7 +157,8 @@ export function getProvidersInfo(): ProviderInfo[] {
 /**
  * Get all tools information
  */
-export function getToolsInfo(toolRegistry?: ToolRegistry): ToolInfo[] {
+export function getToolsInfo(toolRegistry?: ToolRegistry, logger?: ILogger): ToolInfo[] {
+  const log = (logger ?? new NoopLogger()).child({ component: 'SchedulerCapabilities' });
   try {
     if (!toolRegistry) {
       return [];
@@ -168,7 +173,7 @@ export function getToolsInfo(toolRegistry?: ToolRegistry): ToolInfo[] {
       description: tool.description,
     }));
   } catch (error) {
-    console.error('[SchedulerCapabilities] Failed to load tools info:', error);
+    log.error({}, 'Failed to load tools info', error instanceof Error ? error : new Error(String(error)));
     return [];
   }
 }
@@ -176,7 +181,8 @@ export function getToolsInfo(toolRegistry?: ToolRegistry): ToolInfo[] {
 /**
  * Get all MCP servers information
  */
-export function getMCPServersInfo(): MCPServerInfo[] {
+export function getMCPServersInfo(logger?: ILogger): MCPServerInfo[] {
+  const log = (logger ?? new NoopLogger()).child({ component: 'SchedulerCapabilities' });
   try {
     const config = loadMCPConfig();
     if (!config) {
@@ -199,7 +205,7 @@ export function getMCPServersInfo(): MCPServerInfo[] {
 
     return servers;
   } catch (error) {
-    console.error('[SchedulerCapabilities] Failed to load MCP servers info:', error);
+    log.error({}, 'Failed to load MCP servers info', error instanceof Error ? error : new Error(String(error)));
     return [];
   }
 }
@@ -207,7 +213,8 @@ export function getMCPServersInfo(): MCPServerInfo[] {
 /**
  * Get all skills information
  */
-export async function getSkillsInfo(): Promise<SkillInfo[]> {
+export async function getSkillsInfo(logger?: ILogger): Promise<SkillInfo[]> {
+  const log = (logger ?? new NoopLogger()).child({ component: 'SchedulerCapabilities' });
   try {
     const registry = getGlobalSkillRegistry();
     if (registry.getSkills().length === 0) {
@@ -228,12 +235,13 @@ export async function getSkillsInfo(): Promise<SkillInfo[]> {
       tags: skill.metadata.tags,
     }));
   } catch (error) {
-    console.error('[SchedulerCapabilities] Failed to load skills info:', error);
+    log.error({}, 'Failed to load skills info', error instanceof Error ? error : new Error(String(error)));
     return [];
   }
 }
 
-export async function getAgentsInfo(): Promise<AgentInfo[]> {
+export async function getAgentsInfo(logger?: ILogger): Promise<AgentInfo[]> {
+  const log = (logger ?? new NoopLogger()).child({ component: 'SchedulerCapabilities' });
   try {
     const subagentExecutionBoundary = getGlobalSubagentExecutionBoundary();
     const agents = await subagentExecutionBoundary.listAgentCapabilities({ ensureLoaded: true });
@@ -248,7 +256,7 @@ export async function getAgentsInfo(): Promise<AgentInfo[]> {
       scheduleKind: agent.scheduleKind,
     }));
   } catch (error) {
-    console.error('[SchedulerCapabilities] Failed to load agents info:', error);
+    log.error({}, 'Failed to load agents info', error instanceof Error ? error : new Error(String(error)));
     return [];
   }
 }
@@ -256,13 +264,13 @@ export async function getAgentsInfo(): Promise<AgentInfo[]> {
 /**
  * Get complete scheduler capabilities
  */
-export async function getSchedulerCapabilities(toolRegistry?: ToolRegistry): Promise<SchedulerCapabilities> {
-  const allModels = getModelsInfo();
-  const providers = getProvidersInfo();
-  const tools = getToolsInfo(toolRegistry);
-  const mcpServers = getMCPServersInfo();
-  const skills = await getSkillsInfo();
-  const agents = await getAgentsInfo();
+export async function getSchedulerCapabilities(toolRegistry?: ToolRegistry, logger?: ILogger): Promise<SchedulerCapabilities> {
+  const allModels = getModelsInfo(logger);
+  const providers = getProvidersInfo(logger);
+  const tools = getToolsInfo(toolRegistry, logger);
+  const mcpServers = getMCPServersInfo(logger);
+  const skills = await getSkillsInfo(logger);
+  const agents = await getAgentsInfo(logger);
 
   const enabledHealthyProviderNames = new Set(
     providers

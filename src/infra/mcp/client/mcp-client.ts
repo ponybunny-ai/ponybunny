@@ -17,7 +17,8 @@ import type {
   MCPConnectionState,
 } from './types.js';
 import { MCPConnectionError, MCPToolError } from './types.js';
-import { isPonyBunnyDebugEnabled } from '../../config/debug-flags.js';
+import type { ILogger } from '../../observability/logger.js';
+import { NoopLogger } from '../../observability/logger.js';
 
 export interface MCPClientOptions {
   serverName: string;
@@ -42,8 +43,11 @@ export class MCPClient {
   private readonly maxReconnectAttempts = 5;
   private readonly reconnectDelayMs = 5000;
   private intentionalDisconnect = false;
+  private readonly logger: ILogger;
 
-  constructor(private options: MCPClientOptions) {}
+  constructor(private options: MCPClientOptions, logger?: ILogger) {
+    this.logger = (logger ?? new NoopLogger()).child({ component: 'MCPClient', server: options.serverName });
+  }
 
   /**
    * Get current connection state
@@ -126,18 +130,18 @@ export class MCPClient {
 
     // Handle process errors
     this.process.on('error', (error) => {
-      console.error(`[MCPClient:${this.options.serverName}] Process error:`, error);
+      this.logger.error({}, 'Process error', error);
       this.handleDisconnection();
     });
 
     this.process.on('exit', (code, signal) => {
-      console.warn(`[MCPClient:${this.options.serverName}] Process exited: code=${code}, signal=${signal}`);
+      this.logger.warn({ exitCode: code, signal }, 'Process exited');
       this.handleDisconnection();
     });
 
     // Pipe stderr for debugging
     this.process.stderr?.on('data', (data) => {
-      console.error(`[MCPClient:${this.options.serverName}] stderr:`, data.toString());
+      this.logger.error({ stream: 'stderr' }, data.toString());
     });
 
     // Create stdio transport
@@ -161,30 +165,30 @@ export class MCPClient {
           tools: {
             onChanged: (error) => {
               if (error) {
-                console.error(`[MCPClient:${this.options.serverName}] Tools list changed error:`, error);
+                this.logger.error({}, 'Tools list changed error', error instanceof Error ? error : new Error(String(error)));
                 return;
               }
-              if (isPonyBunnyDebugEnabled()) console.log(`[MCPClient:${this.options.serverName}] Tools list changed`);
+              this.logger.debug({}, 'Tools list changed');
               this.options.onToolsChanged?.();
             },
           },
           resources: {
             onChanged: (error) => {
               if (error) {
-                console.error(`[MCPClient:${this.options.serverName}] Resources list changed error:`, error);
+                this.logger.error({}, 'Resources list changed error', error instanceof Error ? error : new Error(String(error)));
                 return;
               }
-              if (isPonyBunnyDebugEnabled()) console.log(`[MCPClient:${this.options.serverName}] Resources list changed`);
+              this.logger.debug({}, 'Resources list changed');
               this.options.onResourcesChanged?.();
             },
           },
           prompts: {
             onChanged: (error) => {
               if (error) {
-                console.error(`[MCPClient:${this.options.serverName}] Prompts list changed error:`, error);
+                this.logger.error({}, 'Prompts list changed error', error instanceof Error ? error : new Error(String(error)));
                 return;
               }
-              if (isPonyBunnyDebugEnabled()) console.log(`[MCPClient:${this.options.serverName}] Prompts list changed`);
+              this.logger.debug({}, 'Prompts list changed');
               this.options.onPromptsChanged?.();
             },
           },
@@ -253,12 +257,12 @@ export class MCPClient {
 
     // Set up transport event handlers
     this.transport.onclose = () => {
-      console.warn(`[MCPClient:${this.options.serverName}] HTTP transport closed`);
+      this.logger.warn({}, 'HTTP transport closed');
       this.handleDisconnection();
     };
 
     this.transport.onerror = (error) => {
-      console.error(`[MCPClient:${this.options.serverName}] HTTP transport error:`, error);
+      this.logger.error({}, 'HTTP transport error', error instanceof Error ? error : new Error(String(error)));
       this.handleDisconnection();
     };
 
@@ -284,9 +288,7 @@ export class MCPClient {
 
     if (this.options.serverName === 'playwright' && parsedUrl.pathname === '/') {
       parsedUrl.pathname = '/mcp';
-      console.warn(
-        `[MCPClient:${this.options.serverName}] URL '${rawUrl}' is missing '/mcp'; using '${parsedUrl.toString()}'`
-      );
+      this.logger.warn({ rawUrl, resolvedUrl: parsedUrl.toString() }, "URL is missing '/mcp'; appending it");
     }
 
     return parsedUrl;
@@ -354,14 +356,12 @@ export class MCPClient {
       this.reconnectAttempts < this.maxReconnectAttempts
     ) {
       this.reconnectAttempts++;
-      if (isPonyBunnyDebugEnabled()) console.log(
-        `[MCPClient:${this.options.serverName}] Reconnecting (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`
-      );
+      this.logger.debug({ attempt: this.reconnectAttempts, maxAttempts: this.maxReconnectAttempts }, 'Reconnecting');
 
       this.setState('reconnecting');
       this.reconnectTimer = setTimeout(() => {
         this.connect().catch((error) => {
-          console.error(`[MCPClient:${this.options.serverName}] Reconnection failed:`, error);
+          this.logger.error({}, 'Reconnection failed', error instanceof Error ? error : new Error(String(error)));
         });
       }, this.reconnectDelayMs);
     } else {
@@ -539,7 +539,7 @@ export class MCPClient {
       try {
         await this.client.close();
       } catch (error) {
-        console.error(`[MCPClient:${this.options.serverName}] Error closing client:`, error);
+        this.logger.error({}, 'Error closing client', error instanceof Error ? error : new Error(String(error)));
       }
       this.client = null;
     }
@@ -549,7 +549,7 @@ export class MCPClient {
       try {
         await this.transport.close();
       } catch (error) {
-        console.error(`[MCPClient:${this.options.serverName}] Error closing transport:`, error);
+        this.logger.error({}, 'Error closing transport', error instanceof Error ? error : new Error(String(error)));
       }
       this.transport = null;
     }

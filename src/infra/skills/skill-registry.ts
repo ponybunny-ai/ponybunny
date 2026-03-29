@@ -8,13 +8,19 @@ import { promisify } from 'node:util';
 import path from 'node:path';
 import type { Skill, SkillLoadOptions, SkillPromptFormat, ISkillRegistry } from './types.js';
 import { loadSkillsWithPrecedence } from './skill-loader.js';
-import { isPonyBunnyDebugEnabled } from '../config/debug-flags.js';
+import type { ILogger } from '../observability/logger.js';
+import { NoopLogger } from '../observability/logger.js';
 
 const readFile = promisify(fs.readFile);
 
 export class SkillRegistry implements ISkillRegistry {
   private skills: Map<string, Skill> = new Map();
   private loaded = false;
+  private readonly logger: ILogger;
+
+  constructor(logger?: ILogger) {
+    this.logger = (logger ?? new NoopLogger()).child({ component: 'SkillRegistry' });
+  }
 
   async loadSkills(options: SkillLoadOptions): Promise<void> {
     const allSkills = await loadSkillsWithPrecedence({
@@ -48,7 +54,7 @@ export class SkillRegistry implements ISkillRegistry {
     }
 
     this.loaded = true;
-    if (isPonyBunnyDebugEnabled()) console.log(`[SkillRegistry] Loaded ${this.skills.size} skills`);
+    this.logger.debug({ count: this.skills.size }, 'Loaded skills');
   }
 
   getSkills(): Skill[] {

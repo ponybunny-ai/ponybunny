@@ -6,6 +6,8 @@
 import type { IExtractedRequirements } from '../../domain/conversation/analysis.js';
 import type { IConversationSession } from '../../domain/conversation/session.js';
 import type { Goal, WorkItem, SuccessCriterion } from '../../work-order/types/index.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 export interface IWorkItemInfo {
   id: string;
@@ -73,7 +75,8 @@ export class TaskBridge implements ITaskBridge {
 
   constructor(
     private repository: IWorkOrderRepository,
-    private getScheduler: () => ISchedulerCore | null
+    private getScheduler: () => ISchedulerCore | null,
+    private readonly logger: ILogger = new NoopLogger()
   ) {}
 
   async createGoalFromConversation(
@@ -114,7 +117,7 @@ export class TaskBridge implements ITaskBridge {
       // Queue the execution asynchronously
       setImmediate(() => {
         scheduler.submitGoal(goal).catch(error => {
-          console.error(`[TaskBridge] Failed to submit goal: ${error}`);
+          this.logger.error({ event: 'goal_submit_failed', goalId: goal.id }, 'Failed to submit goal', error instanceof Error ? error : new Error(String(error)));
         });
       });
     }
@@ -202,7 +205,7 @@ export class TaskBridge implements ITaskBridge {
             try {
               callback(progress);
             } catch (error) {
-              console.error('[TaskBridge] Progress callback error:', error);
+              this.logger.error({ event: 'progress_callback_error', goalId }, 'Progress callback error', error instanceof Error ? error : new Error(String(error)));
             }
           }
         }

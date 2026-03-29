@@ -3,6 +3,8 @@ import type { EventBus as GatewayEventBus } from '../../../gateway/events/event-
 import type { EventBus as RuntimeEventBus } from '../event-bus.js';
 import type { RuntimeEvent } from '../runtime-event.js';
 import { runtimeEventBus } from '../runtime-event-bus.js';
+import type { ILogger } from '../../../infra/observability/logger.js';
+import { NoopLogger } from '../../../infra/observability/logger.js';
 
 const FORWARDED_GATEWAY_EVENTS = [
   'goal.created',
@@ -21,11 +23,15 @@ type ForwardedGatewayEvent = (typeof FORWARDED_GATEWAY_EVENTS)[number];
 export class GatewayEventAdapter {
   private readonly unsubscribers: Array<() => void> = [];
   private started = false;
+  private readonly logger: ILogger;
 
   constructor(
     private readonly gatewayEventBus: GatewayEventBus,
-    private readonly bus: RuntimeEventBus = runtimeEventBus
-  ) {}
+    private readonly bus: RuntimeEventBus = runtimeEventBus,
+    logger: ILogger = new NoopLogger()
+  ) {
+    this.logger = logger;
+  }
 
   start(): void {
     if (this.started) {
@@ -38,7 +44,7 @@ export class GatewayEventAdapter {
       const unsubscribe = this.gatewayEventBus.on(eventType, (payload: unknown) => {
         const runtimeEvent = this.toRuntimeEvent(eventType, payload);
         void this.bus.publish(runtimeEvent).catch((error) => {
-          console.error(`[GatewayEventAdapter] Failed to publish '${eventType}' runtime event:`, error);
+          this.logger.error({ event: 'publish_failed', eventType }, 'Failed to publish runtime event', error instanceof Error ? error : new Error(String(error)));
         });
       });
       this.unsubscribers.push(unsubscribe);

@@ -7,12 +7,14 @@ import { ToolRegistry } from '../../tools/tool-registry.js';
 import { getMCPConnectionManager } from '../client/connection-manager.js';
 import { adaptMCPTools } from '../adapters/tool-adapter.js';
 import { clearMCPToolSchemaCache } from '../../tools/tool-provider.js';
-import { isPonyBunnyDebugEnabled } from '../../config/debug-flags.js';
+import type { ILogger } from '../../observability/logger.js';
+import { NoopLogger } from '../../observability/logger.js';
 
 /**
  * Register all tools from all connected MCP servers into the ToolRegistry
  */
-export async function registerMCPTools(registry: ToolRegistry): Promise<void> {
+export async function registerMCPTools(registry: ToolRegistry, logger?: ILogger): Promise<void> {
+  const log = (logger ?? new NoopLogger()).child({ component: 'MCPRegistryIntegration' });
   const connectionManager = getMCPConnectionManager();
 
   // Get all tools from all connected servers
@@ -21,7 +23,7 @@ export async function registerMCPTools(registry: ToolRegistry): Promise<void> {
   let totalRegistered = 0;
 
   for (const [serverName, mcpTools] of toolsMap.entries()) {
-    if (isPonyBunnyDebugEnabled()) console.log(`[MCP] Registering ${mcpTools.length} tools from ${serverName}...`);
+    log.debug({ server: serverName, count: mcpTools.length }, 'Registering tools from server');
 
     // Convert MCP tools to PonyBunny ToolDefinitions
     const adaptedTools = adaptMCPTools(serverName, mcpTools);
@@ -33,14 +35,15 @@ export async function registerMCPTools(registry: ToolRegistry): Promise<void> {
     }
   }
 
-  if (isPonyBunnyDebugEnabled()) console.log(`[MCP] Registered ${totalRegistered} tools from ${toolsMap.size} servers`);
+  log.debug({ totalRegistered, serverCount: toolsMap.size }, 'Registered MCP tools');
 }
 
 /**
  * Refresh MCP tools in the registry (useful after tool list changes)
  */
-export async function refreshMCPTools(registry: ToolRegistry): Promise<void> {
-  if (isPonyBunnyDebugEnabled()) console.log('[MCP] Refreshing MCP tools...');
+export async function refreshMCPTools(registry: ToolRegistry, logger?: ILogger): Promise<void> {
+  const log = (logger ?? new NoopLogger()).child({ component: 'MCPRegistryIntegration' });
+  log.debug({}, 'Refreshing MCP tools');
 
   // Clear cached MCP tool schemas
   clearMCPToolSchemaCache();
@@ -55,17 +58,18 @@ export async function refreshMCPTools(registry: ToolRegistry): Promise<void> {
     }
   }
 
-  if (isPonyBunnyDebugEnabled()) console.log(`[MCP] Removed ${removedCount} existing MCP tools`);
+  log.debug({ removedCount }, 'Removed existing MCP tools');
 
   // Re-register all MCP tools
-  await registerMCPTools(registry);
+  await registerMCPTools(registry, logger);
 }
 
 /**
  * Initialize MCP integration and register tools
  */
-export async function initializeMCPIntegration(registry: ToolRegistry): Promise<void> {
-  if (isPonyBunnyDebugEnabled()) console.log('[MCP] Initializing MCP integration...');
+export async function initializeMCPIntegration(registry: ToolRegistry, logger?: ILogger): Promise<void> {
+  const log = (logger ?? new NoopLogger()).child({ component: 'MCPRegistryIntegration' });
+  log.debug({}, 'Initializing MCP integration');
 
   const connectionManager = getMCPConnectionManager();
 
@@ -73,7 +77,7 @@ export async function initializeMCPIntegration(registry: ToolRegistry): Promise<
   await connectionManager.initialize();
 
   // Register initial tools
-  await registerMCPTools(registry);
+  await registerMCPTools(registry, logger);
 
-  if (isPonyBunnyDebugEnabled()) console.log('[MCP] MCP integration initialized');
+  log.debug({}, 'MCP integration initialized');
 }

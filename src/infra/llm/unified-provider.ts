@@ -10,10 +10,8 @@ import { getCachedConfig } from './provider-manager/config-loader.js';
 import { resolveProviderRequestModel } from './provider-manager/model-resolution.js';
 import { authManagerV2 } from '../../cli/lib/auth-manager-v2.js';
 import { isPonyBunnyDebugEnabled } from '../config/debug-flags.js';
-
-function debugLog(...args: unknown[]): void {
-  if (isPonyBunnyDebugEnabled()) console.log(...args);
-}
+import type { ILogger } from '../observability/logger.js';
+import { NoopLogger } from '../observability/logger.js';
 
 /**
  * Configuration for UnifiedLLMProvider
@@ -53,10 +51,12 @@ export class UnifiedLLMProvider implements ILLMProvider {
   private config: UnifiedProviderConfig;
   private previousRequestMeta = new Map<string, RequestDebugMeta>();
   private requestCounter = 0;
+  private readonly logger: ILogger;
 
-  constructor(config: UnifiedProviderConfig = {}) {
+  constructor(config: UnifiedProviderConfig = {}, logger: ILogger = new NoopLogger()) {
     this.router = config.router || getModelRouter();
     this.config = config;
+    this.logger = logger;
   }
 
   async complete(
@@ -68,7 +68,7 @@ export class UnifiedLLMProvider implements ILLMProvider {
       throw new LLMProviderError('Model must be specified', 'unified-provider', false);
     }
 
-    debugLog(`🚀 [UnifiedProvider] Received request for model: ${model}`);
+    if (isPonyBunnyDebugEnabled()) this.logger.debug({ model }, '[UnifiedProvider] Received request for model');
 
     const protocol = this.router.getProtocolForModel(model);
     if (!protocol) {
@@ -88,7 +88,7 @@ export class UnifiedLLMProvider implements ILLMProvider {
       );
     }
 
-    debugLog(`📋 [UnifiedProvider] Endpoints candidates: ${endpoints.map(e => e.id).join(', ')}`);
+    if (isPonyBunnyDebugEnabled()) this.logger.debug({ model, endpoints: endpoints.map(e => e.id) }, '[UnifiedProvider] Endpoints candidates');
     let lastError: Error | null = null;
 
     // Try endpoints in priority order with fallback
@@ -96,15 +96,16 @@ export class UnifiedLLMProvider implements ILLMProvider {
       try {
         const adapter = getProtocolAdapter(endpoint.protocol);
         const response = await this.callEndpoint(adapter, endpoint, messages, model, options);
-        debugLog(`🎉 [UnifiedProvider] Success from ${endpoint.id}`);
+        if (isPonyBunnyDebugEnabled()) this.logger.debug({ endpointId: endpoint.id }, '[UnifiedProvider] Success');
         return response;
       } catch (error) {
         lastError = error as Error;
 
-        debugLog(`⚠️ [UnifiedProvider] Failed call to ${endpoint.id}: ${(error as Error).message}`);
+        if (isPonyBunnyDebugEnabled()) this.logger.debug({ endpointId: endpoint.id, error: (error as Error).message }, '[UnifiedProvider] Failed call');
 
         // Log the failure
-        console.warn(
+        this.logger.warn(
+          { endpointId: endpoint.id, model },
           `[UnifiedProvider] Endpoint ${endpoint.id} failed for ${model}: ${(error as Error).message}`
         );
 
@@ -163,10 +164,10 @@ export class UnifiedLLMProvider implements ILLMProvider {
         } else {
           // If we can't get a token, we should probably warn or throw, 
           // but the adapter might have other ways to auth (unlikely for Codex)
-          console.warn('[UnifiedProvider] No OAuth token available for Codex');
+          this.logger.warn({ endpointId: endpoint.id }, '[UnifiedProvider] No OAuth token available for Codex');
         }
       } catch (error) {
-        console.warn(`[UnifiedProvider] Failed to get Codex token: ${(error as Error).message}`);
+        this.logger.warn({ endpointId: endpoint.id, error: (error as Error).message }, '[UnifiedProvider] Failed to get Codex token');
       }
     }
 
@@ -200,8 +201,9 @@ export class UnifiedLLMProvider implements ILLMProvider {
       ? 'credentials'
       : (endpoint.baseUrl ? 'config' : 'default');
 
-    debugLog(
-      `pw [UnifiedProvider] Attempting endpoint: ${endpoint.id} protocol=${adapter.protocolId} baseUrl=${baseUrl} baseUrlSource=${baseUrlSource} url=${url}`
+    if (isPonyBunnyDebugEnabled()) this.logger.debug(
+      { endpointId: endpoint.id, protocol: adapter.protocolId, baseUrl, baseUrlSource, url },
+      '[UnifiedProvider] Attempting endpoint'
     );
 
     const headers = this.buildHeaders(adapter, endpoint, endpointCreds);
@@ -239,7 +241,7 @@ export class UnifiedLLMProvider implements ILLMProvider {
       const data = await response.json().catch(() => ({ error: { message: response.statusText } }));
 
       // Debug log the raw response
-      debugLog(`[UnifiedProvider] Raw response from ${endpoint.id}:`, JSON.stringify(data, null, 2));
+      if (isPonyBunnyDebugEnabled()) this.logger.debug({ endpointId: endpoint.id }, `[UnifiedProvider] Raw response from ${endpoint.id}`);
 
       if (!response.ok) {
         const errorMessage = adapter.extractErrorMessage(data);
@@ -476,8 +478,8 @@ export class UnifiedLLMProvider implements ILLMProvider {
       tool_call_id: message.tool_call_id,
     }));
 
-    debugLog(`[UnifiedProvider][#${requestId}] Outbound messages:`, JSON.stringify(outboundMessages, null, 2));
-    debugLog(`[UnifiedProvider][#${requestId}] Request meta:`, JSON.stringify(meta));
+    if (isPonyBunnyDebugEnabled()) this.logger.debug({ requestId }, `[UnifiedProvider] Outbound messages`);
+    if (isPonyBunnyDebugEnabled()) this.logger.debug({ requestId, ...meta }, `[UnifiedProvider] Request meta`);
 
     if (previous) {
       const diff: Record<string, { from: unknown; to: unknown }> = {};
@@ -492,9 +494,9 @@ export class UnifiedLLMProvider implements ILLMProvider {
       }
 
       if (Object.keys(diff).length > 0) {
-        debugLog(`[UnifiedProvider][#${requestId}] Request meta diff from previous call:`, JSON.stringify(diff));
+        if (isPonyBunnyDebugEnabled()) this.logger.debug({ requestId }, `[UnifiedProvider] Request meta diff from previous call`);
       } else {
-        debugLog(`[UnifiedProvider][#${requestId}] Request meta unchanged from previous call.`);
+        if (isPonyBunnyDebugEnabled()) this.logger.debug({ requestId }, `[UnifiedProvider] Request meta unchanged from previous call.`);
       }
     }
 
@@ -512,7 +514,7 @@ export class UnifiedLLMProvider implements ILLMProvider {
       thinking: response.thinking,
     };
 
-    debugLog(`[UnifiedProvider][#${requestId}] Inbound parsed message from ${endpointId}:`, JSON.stringify(inboundMessage, null, 2));
+    if (isPonyBunnyDebugEnabled()) this.logger.debug({ requestId, endpointId }, `[UnifiedProvider] Inbound parsed message`);
   }
 
   private assertNoProviderPrefixLeak(modelId: string, config: import('./provider-manager/types.js').LLMConfig): void {

@@ -3,6 +3,8 @@ import * as path from 'path';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { getConfigDir } from './config-paths.js';
+import type { ILogger } from '../observability/logger.js';
+import { NoopLogger } from '../observability/logger.js';
 
 export { getConfigDir } from './config-paths.js';
 
@@ -102,7 +104,8 @@ function createValidator(): Ajv2020 {
 /**
  * Load schema from file or use embedded
  */
-function loadSchema(): object {
+function loadSchema(logger?: ILogger): object {
+  const log = logger ?? new NoopLogger();
   const schemaPath = getCredentialsSchemaPath();
 
   try {
@@ -111,7 +114,7 @@ function loadSchema(): object {
       return JSON.parse(content);
     }
   } catch (error) {
-    console.warn(`[CredentialsLoader] Failed to load schema file, using embedded: ${(error as Error).message}`);
+    log.warn({ component: 'CredentialsLoader' }, `Failed to load schema file, using embedded: ${(error as Error).message}`);
   }
 
   return EMBEDDED_SCHEMA;
@@ -145,7 +148,8 @@ export function validateCredentials(credentials: unknown): CredentialsFile {
  * Returns null if file doesn't exist
  * Throws CredentialsValidationError if file is invalid
  */
-export function loadCredentialsFile(): CredentialsFile | null {
+export function loadCredentialsFile(logger?: ILogger): CredentialsFile | null {
+  const log = logger ?? new NoopLogger();
   const credentialsPath = getCredentialsPath();
 
   try {
@@ -162,7 +166,7 @@ export function loadCredentialsFile(): CredentialsFile | null {
     if (error instanceof CredentialsValidationError) {
       throw error;
     }
-    console.warn(`[CredentialsLoader] Failed to load credentials: ${(error as Error).message}`);
+    log.warn({ component: 'CredentialsLoader' }, `Failed to load credentials: ${(error as Error).message}`);
     return null;
   }
 }
@@ -266,15 +270,16 @@ const CACHE_TTL_MS = 5000; // 5 seconds
 /**
  * Get credentials with caching (for performance in hot paths)
  */
-export function getCachedCredentials(): CredentialsFile | null {
+export function getCachedCredentials(logger?: ILogger): CredentialsFile | null {
+  const log = logger ?? new NoopLogger();
   const now = Date.now();
 
   if (credentialsCache === undefined || now - cacheTimestamp > CACHE_TTL_MS) {
     try {
-      credentialsCache = loadCredentialsFile();
+      credentialsCache = loadCredentialsFile(logger);
     } catch (error) {
       if (error instanceof CredentialsValidationError) {
-        console.warn(`[CredentialsLoader] Invalid credentials file: ${error.message}`);
+        log.warn({ component: 'CredentialsLoader' }, `Invalid credentials file: ${error.message}`);
         credentialsCache = null;
       } else {
         throw error;

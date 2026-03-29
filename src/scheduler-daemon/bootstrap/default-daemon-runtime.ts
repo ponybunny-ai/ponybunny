@@ -23,7 +23,8 @@ import { GoalHarness } from '../../harness/goal-harness.js';
 import type { IGoalHarness } from '../../harness/goal-harness-interface.js';
 import { PostGoalEvaluator } from '../../harness/post-goal-evaluator.js';
 import { EvaluationService } from '../../app/lifecycle/evaluation/evaluation-service.js';
-import { JsonLogger } from '../../infra/observability/logger.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { JsonLogger, NoopLogger } from '../../infra/observability/logger.js';
 import type { IMetricsRecorder } from '../../infra/observability/metrics.js';
 import type { ITracer } from '../../infra/observability/tracer.js';
 
@@ -137,20 +138,27 @@ export interface GoalHarnessAssemblyDependencies {
   runtimeToolingContext?: RuntimeToolingContext;
   /** Explicit database handle for GlobalKnowledgeService. If not provided, GoalHarness is not created. */
   knowledgeDb?: Database.Database;
+  /** Optional logger — defaults to NoopLogger if not provided. */
+  logger?: ILogger;
 }
 
 export function assembleGoalHarness(
   deps: GoalHarnessAssemblyDependencies
 ): IGoalHarness | undefined {
+  const logger = deps.logger ?? new NoopLogger();
+  const assemblyLogger = logger.child({ component: 'GoalHarnessAssembly' });
+
   let globalKnowledge: GlobalKnowledgeService | undefined;
   if (deps.knowledgeDb) {
     try {
       globalKnowledge = new GlobalKnowledgeService(deps.knowledgeDb);
-      console.log('[GoalHarness Assembly] Global Knowledge Service initialized');
+      assemblyLogger.info({}, 'Global Knowledge Service initialized');
     } catch {
-      console.warn('[GoalHarness Assembly] Global Knowledge Service unavailable — GoalHarness will proceed without it');
+      assemblyLogger.warn({}, 'Global Knowledge Service unavailable — GoalHarness will proceed without it');
     }
   }
+
+  const harnessLogger = deps.logger ?? new JsonLogger({ level: 'info' });
 
   const elaborationService = new ElaborationService(deps.repository, globalKnowledge);
   const planningService = new PlanningService(
@@ -158,20 +166,19 @@ export function assembleGoalHarness(
     deps.llmProvider,
     undefined,
     deps.runtimeToolingContext,
-    globalKnowledge
+    globalKnowledge,
+    harnessLogger.child({ component: 'PlanningService' })
   );
-
-  const logger = new JsonLogger({ level: 'info' });
 
   const harness = new GoalHarness({
     repository: deps.repository,
     elaborationService,
     planningService,
     schedulerCore: deps.scheduler,
-    logger: logger.child({ component: 'GoalHarness' }),
+    logger: harnessLogger.child({ component: 'GoalHarness' }),
   });
 
-  console.log('[GoalHarness Assembly] GoalHarness assembled successfully');
+  assemblyLogger.info({}, 'GoalHarness assembled successfully');
   return harness;
 }
 
@@ -196,19 +203,20 @@ export interface PostGoalEvaluatorAssemblyDependencies {
 export function assemblePostGoalEvaluator(
   deps: PostGoalEvaluatorAssemblyDependencies
 ): PostGoalEvaluator {
+  const evalLogger = deps.logger ?? new JsonLogger({ level: 'info' });
+  const assemblyLogger = evalLogger.child({ component: 'PostGoalEvaluatorAssembly' });
   const evaluationService = new EvaluationService(deps.repository);
 
   let globalKnowledgeService: GlobalKnowledgeService | undefined;
   if (deps.knowledgeDb) {
     try {
       globalKnowledgeService = new GlobalKnowledgeService(deps.knowledgeDb);
-      console.log('[PostGoalEvaluator Assembly] Global Knowledge Service wired for flywheel');
+      assemblyLogger.info({}, 'Global Knowledge Service wired for flywheel');
     } catch {
-      console.warn('[PostGoalEvaluator Assembly] Global Knowledge Service unavailable — knowledge extraction disabled');
+      assemblyLogger.warn({}, 'Global Knowledge Service unavailable — knowledge extraction disabled');
     }
   }
 
-  const evalLogger = deps.logger ?? new JsonLogger({ level: 'info' });
   const evaluator = new PostGoalEvaluator({
     schedulerCore: deps.scheduler,
     evaluationService,
@@ -219,6 +227,6 @@ export function assemblePostGoalEvaluator(
     metrics: deps.metrics,
   });
 
-  console.log('[PostGoalEvaluator Assembly] PostGoalEvaluator assembled successfully');
+  assemblyLogger.info({}, 'PostGoalEvaluator assembled successfully');
   return evaluator;
 }

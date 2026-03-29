@@ -6,6 +6,8 @@ import type {
   RawApiResponse,
 } from './protocol-adapter.js';
 import { BaseProtocolAdapter } from './protocol-adapter.js';
+import type { ILogger } from '../../observability/logger.js';
+import { NoopLogger } from '../../observability/logger.js';
 
 /**
  * Anthropic Messages API protocol adapter
@@ -16,6 +18,12 @@ export class AnthropicProtocolAdapter extends BaseProtocolAdapter {
 
   // Streaming tool_calls accumulator state
   private streamingToolCalls = new Map<number, { id: string; name: string; arguments: string }>();
+  private readonly logger: ILogger;
+
+  constructor(logger: ILogger = new NoopLogger()) {
+    super();
+    this.logger = logger;
+  }
 
   /**
    * Reset streaming state (call before each new stream)
@@ -355,7 +363,7 @@ export class AnthropicProtocolAdapter extends BaseProtocolAdapter {
         // Skip other event types (message_start, content_block_start, etc.)
         return null;
       } catch (error) {
-        console.warn('[AnthropicProtocol] Failed to parse stream chunk:', error);
+        this.logger.warn({ error: (error as Error).message }, '[AnthropicProtocol] Failed to parse stream chunk');
         return null;
       }
     }

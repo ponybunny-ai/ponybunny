@@ -6,6 +6,8 @@ import type {
   AuditEntityType,
   ActorType,
 } from '../../domain/audit/types.js';
+import type { ILogger } from '../observability/logger.js';
+import { NoopLogger } from '../observability/logger.js';
 
 /**
  * Audit Service
@@ -38,7 +40,8 @@ export class AuditService implements IAuditService {
 
   constructor(
     private repository: IAuditLogRepository,
-    private options: AuditServiceConfig = {}
+    private options: AuditServiceConfig = {},
+    private readonly logger: ILogger = new NoopLogger()
   ) {
     this.batchSize = options.batchSize ?? DEFAULT_AUDIT_CONFIG.batchSize;
     this.flushIntervalMs = options.flushIntervalMs ?? DEFAULT_AUDIT_CONFIG.flushIntervalMs;
@@ -76,7 +79,7 @@ export class AuditService implements IAuditService {
       // On error, add logs back to pending (up to a limit to prevent memory issues)
       const maxPending = this.batchSize * 10;
       this.pendingLogs = [...logsToFlush, ...this.pendingLogs].slice(0, maxPending);
-      console.error('[AuditService] Failed to flush logs:', error);
+      this.logger.error({ event: 'flush_failed', pendingCount: logsToFlush.length }, 'Failed to flush audit logs', error instanceof Error ? error : new Error(String(error)));
     }
   }
 

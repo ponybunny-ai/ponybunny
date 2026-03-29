@@ -8,6 +8,8 @@ import type {
   FailedExecutionResult,
   ExecutionError,
 } from '../execution-boundary/index.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 const EXECUTION_WORKER_SOURCE = 'local-execution-worker';
 
@@ -28,11 +30,15 @@ export class LocalExecutionWorker {
   private subscribed = false;
   private started = false;
   private readonly processedRunIds = new Set<string>();
+  private readonly logger: ILogger;
 
   constructor(
     private readonly executionPort: ExecutionPort,
-    private readonly bus: RuntimeEventBus = runtimeEventBus
-  ) {}
+    private readonly bus: RuntimeEventBus = runtimeEventBus,
+    logger: ILogger = new NoopLogger()
+  ) {
+    this.logger = logger.child({ component: 'LocalExecutionWorker' });
+  }
 
   start(): void {
     this.started = true;
@@ -92,7 +98,7 @@ export class LocalExecutionWorker {
   private parseTaskReadyEvent(event: RuntimeEvent): ExecutionRequest | null {
     const payload = event.payload;
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      console.warn('[LocalExecutionWorker] Ignoring task.ready event without ExecutionRequest payload');
+      this.logger.warn({}, 'Ignoring task.ready event without ExecutionRequest payload');
       return null;
     }
 
@@ -110,7 +116,7 @@ export class LocalExecutionWorker {
       request.laneId.length === 0 ||
       !request.workItem
     ) {
-      console.warn('[LocalExecutionWorker] Ignoring task.ready event with invalid ExecutionRequest payload');
+      this.logger.warn({}, 'Ignoring task.ready event with invalid ExecutionRequest payload');
       return null;
     }
 

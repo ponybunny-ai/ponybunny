@@ -4,17 +4,22 @@ import type { DebugEvent } from '../../../debug/types.js';
 import type { EventBus as RuntimeEventBus } from '../event-bus.js';
 import type { RuntimeEvent } from '../runtime-event.js';
 import { runtimeEventBus } from '../runtime-event-bus.js';
+import type { ILogger } from '../../../infra/observability/logger.js';
+import { NoopLogger } from '../../../infra/observability/logger.js';
 
 export class DebugEventAdapter {
   private started = false;
+  private readonly logger: ILogger;
   private readonly handler = (event: DebugEvent) => {
     const runtimeEvent = this.toRuntimeEvent(event);
     void this.bus.publish(runtimeEvent).catch((error) => {
-      console.error(`[DebugEventAdapter] Failed to publish '${runtimeEvent.type}' runtime event:`, error);
+      this.logger.error({ event: 'publish_failed', eventType: runtimeEvent.type }, 'Failed to publish runtime event', error instanceof Error ? error : new Error(String(error)));
     });
   };
 
-  constructor(private readonly bus: RuntimeEventBus = runtimeEventBus) {}
+  constructor(private readonly bus: RuntimeEventBus = runtimeEventBus, logger: ILogger = new NoopLogger()) {
+    this.logger = logger;
+  }
 
   start(): void {
     if (this.started) {

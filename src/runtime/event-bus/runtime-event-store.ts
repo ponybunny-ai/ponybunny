@@ -2,6 +2,8 @@ import type Database from 'better-sqlite3';
 
 import type { EventBus } from './event-bus.js';
 import type { RuntimeEvent } from './runtime-event.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 interface RuntimeEventRow {
   row_id: number;
@@ -249,7 +251,8 @@ export interface RuntimeEventStoreBinding {
  */
 export function attachRuntimeEventStore(
   bus: EventBus,
-  store: RuntimeEventStore
+  store: RuntimeEventStore,
+  logger: ILogger = new NoopLogger()
 ): RuntimeEventStoreBinding {
   const queue: RuntimeEvent[] = [];
   let scheduled = false;
@@ -284,7 +287,7 @@ export function attachRuntimeEventStore(
         try {
           store.append(event);
         } catch (error) {
-          console.error(`[RuntimeEventStore] Failed to persist '${event.type}' (${event.id}):`, error);
+          logger.error({ event: 'persist_failed', eventType: event.type, eventId: event.id }, 'Failed to persist event', error instanceof Error ? error : new Error(String(error)));
         }
       }
     } finally {

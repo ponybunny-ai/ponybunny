@@ -38,6 +38,8 @@ import {
   materializeCompatibilityRunModelProjection,
   materializeCompatibilitySelectedModelProjection,
 } from '../../infra/llm/provider-manager/model-selection-compatibility.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 const DEFAULT_CONFIG: SchedulerConfig = {
   tickIntervalMs: 1000,
@@ -77,10 +79,12 @@ export class SchedulerCore implements ISchedulerCore {
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private metrics: SchedulerMetrics;
   private runtimeEventUnsubscribe: (() => void) | null = null;
+  private readonly logger: ILogger;
 
-  constructor(deps: SchedulerDependencies, config?: Partial<SchedulerConfig>) {
+  constructor(deps: SchedulerDependencies, config?: Partial<SchedulerConfig>, logger: ILogger = new NoopLogger()) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.deps = deps;
+    this.logger = logger.child({ component: 'SchedulerCore' });
     this.state = this.createInitialState();
     this.metrics = this.createInitialMetrics();
     this.ensureRuntimeEventSubscription();
@@ -1490,7 +1494,7 @@ export class SchedulerCore implements ISchedulerCore {
    */
   private debug(...args: unknown[]): void {
     if (this.config.debug) {
-      console.log('[Scheduler]', ...args);
+      this.logger.debug({}, args.map(String).join(' '));
     }
   }
 }

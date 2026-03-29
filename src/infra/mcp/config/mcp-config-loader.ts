@@ -10,6 +10,8 @@ import addFormats from 'ajv-formats';
 import { getConfigDir } from '../../config/credentials-loader.js';
 import type { MCPConfig, MCPServerConfig } from '../client/types.js';
 import { MCPConfigError } from '../client/types.js';
+import type { ILogger } from '../../observability/logger.js';
+import { NoopLogger } from '../../observability/logger.js';
 
 /**
  * Get the MCP config file path
@@ -77,7 +79,8 @@ function createValidator(): Ajv2020 {
 /**
  * Load schema from file or use embedded
  */
-function loadSchema(): object {
+function loadSchema(logger?: ILogger): object {
+  const log = logger ?? new NoopLogger();
   const schemaPath = getMCPConfigSchemaPath();
 
   try {
@@ -86,7 +89,7 @@ function loadSchema(): object {
       return JSON.parse(content);
     }
   } catch (error) {
-    console.warn(`[MCPConfigLoader] Failed to load schema file, using embedded: ${(error as Error).message}`);
+    log.warn({ component: 'MCPConfigLoader' }, `Failed to load schema file, using embedded: ${(error as Error).message}`);
   }
 
   return EMBEDDED_SCHEMA;
@@ -157,7 +160,8 @@ function expandServerConfigEnvVars(config: MCPServerConfig): MCPServerConfig {
  * Returns null if file doesn't exist
  * Throws MCPConfigError if file is invalid
  */
-export function loadMCPConfig(): MCPConfig | null {
+export function loadMCPConfig(logger?: ILogger): MCPConfig | null {
+  const log = logger ?? new NoopLogger();
   const configPath = getMCPConfigPath();
 
   try {
@@ -186,7 +190,7 @@ export function loadMCPConfig(): MCPConfig | null {
     if (error instanceof MCPConfigError) {
       throw error;
     }
-    console.warn(`[MCPConfigLoader] Failed to load MCP config: ${(error as Error).message}`);
+    log.warn({ component: 'MCPConfigLoader' }, `Failed to load MCP config: ${(error as Error).message}`);
     return null;
   }
 }

@@ -34,7 +34,8 @@ import {
   assemblePostGoalEvaluator,
 } from './bootstrap/default-daemon-runtime.js';
 import { SQLiteMetricsRecorder } from '../infra/observability/sqlite-metrics-recorder.js';
-import { JsonLogger } from '../infra/observability/logger.js';
+import type { ILogger } from '../infra/observability/logger.js';
+import { JsonLogger, NoopLogger } from '../infra/observability/logger.js';
 import { RuntimeEventTracer } from '../infra/observability/runtime-event-tracer.js';
 import { prepareDaemonActivation } from './daemon-activation-preparation.js';
 import { startDaemonRecurringStartup } from './daemon-recurring-startup.js';
@@ -102,18 +103,21 @@ export class SchedulerDaemon {
   private executionWorker: LocalExecutionWorker | null = null;
   private startupReconciliationSummary: EventedStartupReconciliationSummary | null = null;
   private postGoalEvaluator: PostGoalEvaluator | null = null;
+  private readonly logger: ILogger;
 
   constructor(
     repository: IWorkOrderRepository,
     executionService: IExecutionService,
     llmProvider: ILLMProvider,
-    config: SchedulerDaemonConfig
+    config: SchedulerDaemonConfig,
+    logger: ILogger = new NoopLogger()
   ) {
     this.repository = repository;
     this.executionService = executionService;
     this.llmProvider = llmProvider;
     this.config = config;
     this.memoryDb = config.memoryDb ?? null;
+    this.logger = logger.child({ component: 'SchedulerDaemon' });
     this.schedulerEventEnvelopeResolver = new SchedulerEventEnvelopeResolver(this.repository);
 
     // Initialize IPC client
@@ -140,7 +144,7 @@ export class SchedulerDaemon {
       throw new Error('Scheduler Daemon is already running');
     }
 
-    console.log('[SchedulerDaemon] Starting...');
+    this.logger.info({}, 'Starting...');
 
     acquireSchedulerDaemonLock();
     this.hasPidLock = true;
@@ -160,31 +164,28 @@ export class SchedulerDaemon {
         });
 
         if (!activationPreparation.mainAgentId) {
-          console.warn('[SchedulerDaemon] No valid agents available; skipping cron job reconciliation');
+          this.logger.warn({}, 'No valid agents available; skipping cron job reconciliation');
         }
 
         if (activationPreparation.mainAgentId) {
-          console.log(
-            `[SchedulerDaemon] Main agent selected: ${activationPreparation.mainAgentId}`
-          );
+          this.logger.info({ agentId: activationPreparation.mainAgentId }, 'Main agent selected');
         }
-        console.log(
-          `[SchedulerDaemon] Cron job reconciliation complete: ` +
-          `upserted=${activationPreparation.cronJobReconcileSummary.upserted}, ` +
-          `disabled=${activationPreparation.cronJobReconcileSummary.disabled}, ` +
-          `skipped=${activationPreparation.cronJobReconcileSummary.skipped}`
-        );
+        this.logger.info({
+          upserted: activationPreparation.cronJobReconcileSummary.upserted,
+          disabled: activationPreparation.cronJobReconcileSummary.disabled,
+          skipped: activationPreparation.cronJobReconcileSummary.skipped,
+        }, 'Cron job reconciliation complete');
 
         if (this.config.personaEnabled) {
-          console.log('[SchedulerDaemon] Persona loading is enabled via runtime config');
+          this.logger.info({}, 'Persona loading is enabled via runtime config');
         }
       } catch (error) {
-        console.warn('[SchedulerDaemon] Cron job reconciliation failed:', error);
+        this.logger.error({}, 'Cron job reconciliation failed', error instanceof Error ? error : undefined);
       }
 
       // Connect to Gateway IPC
       await this.ipcClient.connect();
-      console.log('[SchedulerDaemon] Connected to Gateway IPC');
+      this.logger.info({}, 'Connected to Gateway IPC');
 
       await this.startControlServer();
 
@@ -211,12 +212,17 @@ export class SchedulerDaemon {
       if (this.config.debug) {
         debugEmitter.enable();
         debugEmitter.onDebug((event: DebugEvent) => {
-          console.log(
-            `[SchedulerDebug] ${event.type} source=${event.source} goal=${event.goalId ?? '-'} workItem=${event.workItemId ?? '-'} run=${event.runId ?? '-'} data=${JSON.stringify(event.data)}`
-          );
+          this.logger.debug({
+            event: event.type,
+            goalId: event.goalId,
+            workItemId: event.workItemId,
+            runId: event.runId,
+            source: event.source,
+            data: JSON.stringify(event.data),
+          }, `Debug event: ${event.type}`);
           this.handleDebugEvent(event);
         });
-        console.log('[SchedulerDaemon] Debug mode enabled');
+        this.logger.info({}, 'Debug mode enabled');
       }
 
       // Start scheduler
@@ -255,7 +261,7 @@ export class SchedulerDaemon {
 
       this.startRunEventRetentionLoop();
 
-      console.log('[SchedulerDaemon] Started successfully');
+      this.logger.info({}, 'Started successfully');
     } catch (error) {
       if (this.agentSchedulerInterval) {
         clearInterval(this.agentSchedulerInterval);
@@ -291,7 +297,7 @@ export class SchedulerDaemon {
       return;
     }
 
-    console.log('[SchedulerDaemon] Stopping...');
+    this.logger.info({}, 'Stopping...');
 
     this.isRunning = false;
 
@@ -347,7 +353,7 @@ export class SchedulerDaemon {
       this.hasPidLock = false;
     }
 
-    console.log('[SchedulerDaemon] Stopped');
+    this.logger.info({}, 'Stopped');
   }
 
   /**
@@ -359,7 +365,7 @@ export class SchedulerDaemon {
 
   private createSessionIntake(): SchedulerSessionIntake | null {
     if (!this.memoryDb) {
-      console.warn('[SchedulerDaemon] Session intake disabled: memoryDb not configured');
+      this.logger.warn({}, 'Session intake disabled: memoryDb not configured');
       return null;
     }
 
@@ -417,11 +423,11 @@ export class SchedulerDaemon {
     };
 
     this.ipcClient.send(message).catch((error) => {
-      console.error('[SchedulerDaemon] Failed to send scheduler event:', error);
+      this.logger.error({}, 'Failed to send scheduler event', error instanceof Error ? error : undefined);
     });
 
     this.agentScheduler?.handleSchedulerEvent(event).catch((error) => {
-      console.error('[SchedulerDaemon] Failed to handle scheduler event:', error);
+      this.logger.error({}, 'Failed to handle scheduler event', error instanceof Error ? error : undefined);
     });
   }
 
@@ -436,7 +442,7 @@ export class SchedulerDaemon {
     };
 
     this.ipcClient.send(message).catch((error) => {
-      console.error('[SchedulerDaemon] Failed to send debug event:', error);
+      this.logger.error({}, 'Failed to send debug event', error instanceof Error ? error : undefined);
     });
   }
 
@@ -483,7 +489,7 @@ export class SchedulerDaemon {
     });
 
     await this.controlServer.start();
-    console.log(`[SchedulerDaemon] Control socket listening on ${controlSocketPath}`);
+    this.logger.info({ controlSocketPath }, 'Control socket listening');
   }
 
   private async reconcileEventedInFlightRunsOnStartup(): Promise<void> {
@@ -499,15 +505,14 @@ export class SchedulerDaemon {
     );
     this.startupReconciliationSummary = summary;
 
-    console.log(
-      '[SchedulerDaemon] Evented startup reconciliation: ' +
-      `scanned=${summary.scanned} ` +
-      `stale_timeout_exceeded=${summary.staleTimeoutExceeded} ` +
-      `likely_orphaned=${summary.byClassification.likely_orphaned} ` +
-      `maybe_reattachable=${summary.byClassification.maybe_reattachable} ` +
-      `already_terminal_in_db=${summary.byClassification.already_terminal_in_db} ` +
-      `not_evented_candidate=${summary.byClassification.not_evented_candidate}`
-    );
+    this.logger.info({
+      scanned: summary.scanned,
+      staleTimeoutExceeded: summary.staleTimeoutExceeded,
+      likelyOrphaned: summary.byClassification.likely_orphaned,
+      maybeReattachable: summary.byClassification.maybe_reattachable,
+      alreadyTerminalInDb: summary.byClassification.already_terminal_in_db,
+      notEventedCandidate: summary.byClassification.not_evented_candidate,
+    }, 'Evented startup reconciliation');
 
     for (const finding of summary.findings) {
       if (finding.staleTimeoutExceeded) {
@@ -516,12 +521,14 @@ export class SchedulerDaemon {
         });
 
         if (markResult.status === 'marked') {
-          console.warn(
-            '[SchedulerDaemon] Evented run marked orphaned: ' +
-            `run=${finding.runId} workItem=${finding.workItemId} lane=${finding.laneId ?? '-'} ` +
-            `ageMs=${finding.ageMs ?? '-'} dispatchedAt=${finding.dispatchedAt ?? '-'} ` +
-            `reason=${finding.reason}`
-          );
+          this.logger.warn({
+            runId: finding.runId,
+            workItemId: finding.workItemId,
+            laneId: finding.laneId,
+            ageMs: finding.ageMs,
+            dispatchedAt: finding.dispatchedAt,
+            reason: finding.reason,
+          }, 'Evented run marked orphaned');
           debugEmitter.emitDebug('evented_run.orphan_marked', 'scheduler-daemon', {
             runId: finding.runId,
             goalId: finding.goalId,
@@ -535,13 +542,16 @@ export class SchedulerDaemon {
         }
       }
 
-      console.log(
-        '[SchedulerDaemon] Evented startup finding: ' +
-        `run=${finding.runId} workItem=${finding.workItemId} classification=${finding.classification} ` +
-        `workItemStatus=${finding.workItemStatus} lane=${finding.laneId ?? '-'} ` +
-        `dispatchedAt=${finding.dispatchedAt ?? '-'} staleTimeoutExceeded=${finding.staleTimeoutExceeded} ` +
-        `reason=${finding.reason}`
-      );
+      this.logger.info({
+        runId: finding.runId,
+        workItemId: finding.workItemId,
+        classification: finding.classification,
+        workItemStatus: finding.workItemStatus,
+        laneId: finding.laneId,
+        dispatchedAt: finding.dispatchedAt,
+        staleTimeoutExceeded: finding.staleTimeoutExceeded,
+        reason: finding.reason,
+      }, 'Evented startup finding');
     }
   }
 
@@ -947,7 +957,7 @@ export class SchedulerDaemon {
     try {
       await this.ipcClient.send(message);
     } catch (sendError) {
-      console.error('[SchedulerDaemon] Failed to send scheduler command result:', sendError);
+      this.logger.error({}, 'Failed to send scheduler command result', sendError instanceof Error ? sendError : undefined);
     }
   }
 
@@ -968,11 +978,11 @@ export class SchedulerDaemon {
         await scheduler.submitGoal(goal);
         recovered += 1;
       } catch (error) {
-        console.error(`[SchedulerDaemon] Failed to recover queued goal ${goal.id}:`, error);
+        this.logger.error({ goalId: goal.id }, 'Failed to recover queued goal', error instanceof Error ? error : undefined);
       }
     }
 
-    console.log(`[SchedulerDaemon] Recovered ${recovered}/${queuedGoals.length} queued goals`);
+    this.logger.info({ recovered, total: queuedGoals.length }, 'Recovered queued goals');
   }
 
   private startRunEventRetentionLoop(): void {
@@ -1000,7 +1010,7 @@ export class SchedulerDaemon {
         deleted = result.deleted;
         ok = true;
       } catch (error) {
-        console.error('[SchedulerDaemon] Run event retention failed:', error);
+        this.logger.error({}, 'Run event retention failed', error instanceof Error ? error : undefined);
       } finally {
         this.retentionDispatchActive = false;
         await this.ipcClient.send({
@@ -1012,7 +1022,7 @@ export class SchedulerDaemon {
             timestamp,
           },
         }).catch((error) => {
-          console.error('[SchedulerDaemon] Failed to send retention telemetry:', error);
+          this.logger.error({}, 'Failed to send retention telemetry', error instanceof Error ? error : undefined);
         });
       }
     };

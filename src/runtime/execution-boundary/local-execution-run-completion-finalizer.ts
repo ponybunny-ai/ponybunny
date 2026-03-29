@@ -5,8 +5,16 @@ import type {
   ExecutionRunCompletionFinalizer,
   ExecutionRunCompletionParams,
 } from './execution-run-completion-finalizer.js';
+import type { ILogger } from '../../infra/observability/logger.js';
+import { NoopLogger } from '../../infra/observability/logger.js';
 
 export class LocalExecutionRunCompletionFinalizer implements ExecutionRunCompletionFinalizer {
+  private readonly logger: ILogger;
+
+  constructor(logger: ILogger = new NoopLogger()) {
+    this.logger = logger.child({ component: 'LocalExecutionRunCompletionFinalizer' });
+  }
+
   buildRunCompletion(params: ExecutionRunCompletionParams): CompleteRunParams {
     const { executionResult, executionLog, timeSeconds, selectedModel, requestedModel } = params;
     const compatibilityProjection = materializeCompatibilityRunModelProjection({
@@ -43,7 +51,7 @@ export class LocalExecutionRunCompletionFinalizer implements ExecutionRunComplet
         params.costUsd
       );
     } catch (error) {
-      console.warn('[ExecutionService] Failed to update goal spending after run completion:', error);
+      this.logger.warn({ goalId: params.goalId }, 'Failed to update goal spending after run completion');
     }
   }
 }

@@ -8,7 +8,8 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { getSkillsShClient, type SkillsShSkill } from './skills-sh-client.js';
 import { parseFrontmatter } from './skill-loader.js';
-import { isPonyBunnyDebugEnabled } from '../config/debug-flags.js';
+import type { ILogger } from '../observability/logger.js';
+import { NoopLogger } from '../observability/logger.js';
 
 const mkdir = promisify(fs.mkdir);
 const writeFile = promisify(fs.writeFile);
@@ -33,6 +34,11 @@ export interface SkillInstallResult {
  */
 export class SkillInstaller {
   private client = getSkillsShClient();
+  private readonly logger: ILogger;
+
+  constructor(logger?: ILogger) {
+    this.logger = (logger ?? new NoopLogger()).child({ component: 'SkillInstaller' });
+  }
 
   /**
    * Install a skill from skills.sh by path (e.g., "vercel-labs/skills/find-skills")
@@ -42,7 +48,7 @@ export class SkillInstaller {
     options: SkillInstallOptions
   ): Promise<SkillInstallResult> {
     try {
-      if (isPonyBunnyDebugEnabled()) console.log(`[SkillInstaller] Installing skill: ${skillPath}`);
+      this.logger.debug({ skillPath }, 'Installing skill');
 
       // Download skill content
       const content = await this.client.downloadSkill(skillPath);
@@ -58,7 +64,7 @@ export class SkillInstaller {
       // Check if skill already exists
       const exists = await this.skillExists(skillMdPath);
       if (exists && !options.overwrite) {
-        if (isPonyBunnyDebugEnabled()) console.log(`[SkillInstaller] Skill already exists: ${skillName}`);
+        this.logger.debug({ skillName }, 'Skill already exists');
         return {
           success: true,
           skillName,
@@ -73,7 +79,7 @@ export class SkillInstaller {
       // Write SKILL.md
       await writeFile(skillMdPath, content, 'utf-8');
 
-      if (isPonyBunnyDebugEnabled()) console.log(`[SkillInstaller] Successfully installed: ${skillName} at ${skillDir}`);
+      this.logger.debug({ skillName, path: skillDir }, 'Successfully installed skill');
 
       return {
         success: true,
@@ -82,7 +88,7 @@ export class SkillInstaller {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error(`[SkillInstaller] Installation failed:`, error);
+      this.logger.error({ skillPath }, 'Installation failed', error instanceof Error ? error : new Error(String(error)));
 
       return {
         success: false,

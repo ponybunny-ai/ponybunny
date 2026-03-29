@@ -10,10 +10,8 @@ import {
 } from '../provider-manager/config-loader.js';
 import { authManagerV2 } from '../../../cli/lib/auth-manager-v2.js';
 import { isPonyBunnyDebugEnabled } from '../../config/debug-flags.js';
-
-function debugLog(...args: unknown[]): void {
-  if (isPonyBunnyDebugEnabled()) console.log(...args);
-}
+import type { ILogger } from '../../observability/logger.js';
+import { NoopLogger } from '../../observability/logger.js';
 
 function safeGetEndpointConfig(endpointId: string): EndpointConfig | null {
   try {
@@ -30,10 +28,12 @@ export class ModelRouter {
   private routingConfig: ModelRoutingConfig[];
   private useLLMConfig: boolean;
   private availabilityCache = new Map<EndpointId, boolean>();
+  private readonly logger: ILogger;
 
-  constructor(routingConfig?: ModelRoutingConfig[]) {
+  constructor(routingConfig?: ModelRoutingConfig[], logger: ILogger = new NoopLogger()) {
     this.routingConfig = routingConfig ?? getRoutingConfig();
     this.useLLMConfig = routingConfig === undefined;
+    this.logger = logger;
   }
 
   /**
@@ -44,12 +44,12 @@ export class ModelRouter {
       ? this.resolveModelSelector(modelId)
       : { modelId };
     if (this.useLLMConfig && selectorResolution.strictError) {
-      debugLog(`❌ [ModelRouter] ${selectorResolution.strictError}`);
+      if (isPonyBunnyDebugEnabled()) this.logger.debug({}, `[ModelRouter] ${selectorResolution.strictError}`);
       return undefined;
     }
     const llmModelConfig = this.useLLMConfig ? getLLMModelConfig(selectorResolution.modelId) : undefined;
     if (this.useLLMConfig && !llmModelConfig) {
-      debugLog(`❌ [ModelRouter] Model '${selectorResolution.modelId}' not found in llm-config.models`);
+      if (isPonyBunnyDebugEnabled()) this.logger.debug({ modelId: selectorResolution.modelId }, '[ModelRouter] Model not found in llm-config.models');
       return undefined;
     }
     if (llmModelConfig) {
@@ -87,18 +87,18 @@ export class ModelRouter {
    * Get available endpoints for a model, ordered by priority
    */
   getEndpointsForModel(modelId: string): EndpointConfig[] {
-    debugLog(`🔍 [ModelRouter] Resolving endpoints for model: ${modelId}`);
+    if (isPonyBunnyDebugEnabled()) this.logger.debug({ modelId }, '[ModelRouter] Resolving endpoints for model');
 
     const selectorResolution = this.useLLMConfig
       ? this.resolveModelSelector(modelId)
       : { modelId };
     if (this.useLLMConfig && selectorResolution.strictError) {
-      debugLog(`❌ [ModelRouter] ${selectorResolution.strictError}`);
+      if (isPonyBunnyDebugEnabled()) this.logger.debug({}, `[ModelRouter] ${selectorResolution.strictError}`);
       return [];
     }
     const llmModelConfig = this.useLLMConfig ? getLLMModelConfig(selectorResolution.modelId) : undefined;
     if (this.useLLMConfig && !llmModelConfig) {
-      debugLog(`❌ [ModelRouter] Model '${selectorResolution.modelId}' not found in llm-config.models`);
+      if (isPonyBunnyDebugEnabled()) this.logger.debug({ modelId: selectorResolution.modelId }, '[ModelRouter] Model not found in llm-config.models');
       return [];
     }
     const modelProviders = llmModelConfig
@@ -116,10 +116,10 @@ export class ModelRouter {
       : [];
 
     if (llmModelConfig) {
-      debugLog(`✅ [ModelRouter] Exact model match in llm-config: ${selectorResolution.modelId}`);
-      debugLog(`📋 [ModelRouter] Candidate providers from llm-config.models['${selectorResolution.modelId}'].providers: ${candidateEndpointIds.join(', ')}`);
+      if (isPonyBunnyDebugEnabled()) this.logger.debug({ modelId: selectorResolution.modelId }, '[ModelRouter] Exact model match in llm-config');
+      if (isPonyBunnyDebugEnabled()) this.logger.debug({ modelId: selectorResolution.modelId, providers: candidateEndpointIds }, '[ModelRouter] Candidate providers from llm-config.models');
     } else if (!this.useLLMConfig) {
-      debugLog(`⚠️ [ModelRouter] No exact model match in llm-config for: ${modelId}`);
+      if (isPonyBunnyDebugEnabled()) this.logger.debug({ modelId }, '[ModelRouter] No exact model match in llm-config');
     }
 
     const routingConfig = !this.useLLMConfig && !llmModelConfig ? this.findRoutingConfig(modelId) : undefined;
@@ -128,12 +128,12 @@ export class ModelRouter {
     const endpointIdsToTry = llmModelConfig ? candidateEndpointIds : fallbackEndpointIds;
 
     if (!llmModelConfig && routingConfig) {
-      debugLog(`✅ [ModelRouter] Matched pattern '${routingConfig.pattern}' -> Protocol '${routingConfig.protocol}'`);
-      debugLog(`📋 [ModelRouter] Candidate endpoints from routing-config: ${endpointIdsToTry.join(', ')}`);
+      if (isPonyBunnyDebugEnabled()) this.logger.debug({ pattern: routingConfig.pattern, protocol: routingConfig.protocol }, '[ModelRouter] Matched pattern');
+      if (isPonyBunnyDebugEnabled()) this.logger.debug({ endpoints: endpointIdsToTry }, '[ModelRouter] Candidate endpoints from routing-config');
     }
 
     if (endpointIdsToTry.length === 0) {
-      debugLog(`❌ [ModelRouter] No candidate endpoints for model: ${modelId}`);
+      if (isPonyBunnyDebugEnabled()) this.logger.debug({ modelId }, '[ModelRouter] No candidate endpoints for model');
       return [];
     }
 
@@ -144,21 +144,21 @@ export class ModelRouter {
 
         const llmEndpointConfig = getLLMEndpointConfig(endpointId);
         if (this.useLLMConfig && !llmEndpointConfig) {
-          debugLog(`⚠️ [ModelRouter] Provider ${endpointId} not configured in llm-config.providers`);
+          if (isPonyBunnyDebugEnabled()) this.logger.debug({ endpointId }, '[ModelRouter] Provider not configured in llm-config.providers');
           return null;
         }
         if (llmEndpointConfig && llmEndpointConfig.enabled === false) {
-          debugLog(`⚠️ [ModelRouter] Provider ${endpointId} disabled in llm-config.providers`);
+          if (isPonyBunnyDebugEnabled()) this.logger.debug({ endpointId }, '[ModelRouter] Provider disabled in llm-config.providers');
           return null;
         }
 
         if (llmEndpointConfig?.health?.available === false) {
-          debugLog(`⚠️ [ModelRouter] Endpoint ${endpointId} marked unavailable by probe health`);
+          if (isPonyBunnyDebugEnabled()) this.logger.debug({ endpointId }, '[ModelRouter] Endpoint marked unavailable by probe health');
           return null;
         }
 
         if (llmModelConfig?.health?.available === false) {
-          debugLog(`⚠️ [ModelRouter] Endpoint ${endpointId} marked unavailable for model ${modelId} by probe health`);
+          if (isPonyBunnyDebugEnabled()) this.logger.debug({ endpointId, modelId }, '[ModelRouter] Endpoint marked unavailable for model by probe health');
           return null;
         }
 
@@ -169,7 +169,7 @@ export class ModelRouter {
       .filter(config => {
         const available = this.isEndpointAvailable(config.id);
         if (!available) {
-          debugLog(`⚠️ [ModelRouter] Endpoint ${config.id} is unavailable (missing credentials/disabled)`);
+          if (isPonyBunnyDebugEnabled()) this.logger.debug({ endpointId: config.id }, '[ModelRouter] Endpoint is unavailable (missing credentials/disabled)');
         }
         return available;
       });
@@ -185,7 +185,7 @@ export class ModelRouter {
       })
       .map(x => x.endpoint);
 
-    debugLog(`✅ [ModelRouter] Final available endpoints (oauth preferred): ${endpoints.map(e => e.id).join(', ')}`);
+    if (isPonyBunnyDebugEnabled()) this.logger.debug({ endpoints: endpoints.map(e => e.id) }, '[ModelRouter] Final available endpoints (oauth preferred)');
     return endpoints;
   }
 
@@ -275,7 +275,7 @@ export class ModelRouter {
   private findRoutingConfig(modelId: string): ModelRoutingConfig | undefined {
     for (const config of this.routingConfig) {
       if (this.matchPattern(modelId, config.pattern)) {
-        debugLog(`✅ [ModelRouter] Matched pattern '${config.pattern}' -> Protocol '${config.protocol}'`);
+        if (isPonyBunnyDebugEnabled()) this.logger.debug({ pattern: config.pattern, protocol: config.protocol }, '[ModelRouter] Matched pattern');
         return config;
       }
     }

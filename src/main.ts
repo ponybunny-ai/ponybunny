@@ -98,10 +98,16 @@ async function main() {
     console.warn('[PonyBunny] ⚠️  Global Knowledge Service unavailable (table may not exist yet)');
   }
 
+  // ADR-002 C1: Structured logger created early so all services can receive it
+  const logger = new JsonLogger({ level: 'info' });
+  const metrics = new SQLiteMetricsRecorder(repository.getDatabase());
+
   const executionService = new ExecutionService(
     repository,
     { maxConsecutiveErrors: 3 },
-    llmProvider
+    llmProvider,
+    {},
+    logger.child({ component: 'ExecutionService' })
   );
 
   const planningService = new PlanningService(
@@ -109,7 +115,8 @@ async function main() {
     llmProvider,
     undefined,
     executionService.getRuntimeToolingContext(),
-    globalKnowledge
+    globalKnowledge,
+    logger.child({ component: 'PlanningService' })
   );
   console.log('[PonyBunny] ✅ Planning Service (Enhanced) initialized');
 
@@ -139,10 +146,6 @@ async function main() {
   );
   await scheduler.start();
   console.log('[PonyBunny] ✅ SchedulerCore initialized');
-
-  // Structured logger and metrics for harness components (ADR-002 C1, C2)
-  const logger = new JsonLogger({ level: 'info' });
-  const metrics = new SQLiteMetricsRecorder(repository.getDatabase());
   const tracer = new RuntimeEventTracer(repository.getDatabase(), logger);
 
   // ADR-001: Create GoalHarness (elaborate → plan → delegate to SchedulerCore)

@@ -4,6 +4,8 @@ import type { SchedulerEvent, SchedulerEventHandler, SchedulerEventType } from '
 import type { EventBus as RuntimeEventBus } from '../event-bus.js';
 import type { RuntimeEvent } from '../runtime-event.js';
 import { runtimeEventBus } from '../runtime-event-bus.js';
+import type { ILogger } from '../../../infra/observability/logger.js';
+import { NoopLogger } from '../../../infra/observability/logger.js';
 
 const SCHEDULER_EVENT_TYPE_MAP: Partial<Record<SchedulerEventType, string>> = {
   work_item_started: 'workitem.started',
@@ -21,12 +23,15 @@ const SCHEDULER_EVENT_TYPE_MAP: Partial<Record<SchedulerEventType, string>> = {
 export class SchedulerEventAdapter {
   private scheduler: ISchedulerCore | null = null;
   private handler: SchedulerEventHandler | null = null;
+  private readonly logger: ILogger;
 
-  constructor(private readonly bus: RuntimeEventBus = runtimeEventBus) {}
+  constructor(private readonly bus: RuntimeEventBus = runtimeEventBus, logger: ILogger = new NoopLogger()) {
+    this.logger = logger;
+  }
 
   connect(scheduler: ISchedulerCore): void {
     if (this.scheduler) {
-      console.warn('[SchedulerEventAdapter] Already connected to a scheduler');
+      this.logger.warn({ event: 'already_connected' }, 'Already connected to a scheduler');
       return;
     }
 
@@ -56,7 +61,7 @@ export class SchedulerEventAdapter {
 
     const runtimeEvent = this.toRuntimeEvent(runtimeType, event);
     void this.bus.publish(runtimeEvent).catch((error) => {
-      console.error(`[SchedulerEventAdapter] Failed to publish '${runtimeType}' runtime event:`, error);
+      this.logger.error({ event: 'publish_failed', eventType: runtimeType }, 'Failed to publish runtime event', error instanceof Error ? error : new Error(String(error)));
     });
   }
 
