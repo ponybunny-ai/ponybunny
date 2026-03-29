@@ -39,6 +39,29 @@ export const MAIN_DB_MIGRATIONS: Migration[] = [
       return readPersistenceAsset('schema.sql');
     },
   },
+  {
+    version: 2,
+    name: 'metrics_tables',
+    up: `
+      CREATE TABLE IF NOT EXISTS metric_counters (
+        name       TEXT    NOT NULL,
+        labels     TEXT    NOT NULL,
+        value      REAL    NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (name, labels)
+      );
+
+      CREATE TABLE IF NOT EXISTS metric_samples (
+        name        TEXT    NOT NULL,
+        labels      TEXT    NOT NULL,
+        value       REAL    NOT NULL,
+        recorded_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_metric_samples_name
+        ON metric_samples (name, recorded_at);
+    `,
+  },
 ];
 
 /**

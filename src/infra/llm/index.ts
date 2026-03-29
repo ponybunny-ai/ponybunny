@@ -25,6 +25,9 @@ export type {
   ProviderHealthSnapshot,
 } from './llm-service.interface.js';
 
+// Unified LLM service implementation (ADR-002 Phase B2)
+export { UnifiedLLMService } from './unified-llm-service.js';
+
 // Provider implementations (legacy, kept for backward compatibility)
 export { OpenAIProvider, AnthropicProvider } from './providers.js';
 export { GeminiProvider } from './gemini-provider.js';
