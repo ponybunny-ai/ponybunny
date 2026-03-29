@@ -10,6 +10,7 @@ import type { AnyIPCMessage, IPCConnectionState } from './types.js';
 import { IPCError, IPCErrorType } from './types.js';
 import type { ILogger } from '../infra/observability/logger.js';
 import { NoopLogger } from '../infra/observability/logger.js';
+import { BackpressureBuffer, type BackpressureConfig } from './backpressure-buffer.js';
 
 export interface IPCClientConfig {
   /** Unix socket path to connect to */
@@ -22,6 +23,8 @@ export interface IPCClientConfig {
   maxReconnectDelayMs?: number;
   /** Maximum number of buffered messages during disconnection (default: 1000) */
   maxBufferSize?: number;
+  /** Backpressure buffer configuration (overrides maxBufferSize when provided) */
+  backpressure?: Partial<BackpressureConfig>;
   /** Client identification */
   clientInfo?: {
     clientType: string;
@@ -41,7 +44,7 @@ export class IPCClient {
   private state: IPCConnectionState = 'disconnected';
   private reconnectTimer: NodeJS.Timeout | null = null;
   private currentReconnectDelay: number;
-  private messageBuffer: AnyIPCMessage[] = [];
+  private messageBuffer: BackpressureBuffer<AnyIPCMessage>;
   private stateHandlers: Set<IPCConnectionStateHandler> = new Set();
   private messageHandlers: Set<IPCMessageHandler> = new Set();
   private socketBuffer = '';
@@ -55,6 +58,7 @@ export class IPCClient {
       reconnectDelayMs: config.reconnectDelayMs ?? 1000,
       maxReconnectDelayMs: config.maxReconnectDelayMs ?? 30000,
       maxBufferSize: config.maxBufferSize ?? 1000,
+      backpressure: config.backpressure ?? {},
       clientInfo: config.clientInfo ?? {
         clientType: 'scheduler-daemon',
         version: '1.0.0',
@@ -62,6 +66,20 @@ export class IPCClient {
       },
       logger: this.logger,
     };
+
+    const bpConfig: Partial<BackpressureConfig> = {
+      maxSize: this.config.maxBufferSize,
+      ...this.config.backpressure,
+    };
+
+    this.messageBuffer = new BackpressureBuffer<AnyIPCMessage>(
+      bpConfig,
+      {
+        onDrop: (_msg, size) => this.logger.warn({ event: 'ipc.message.dropped', bufferSize: size }, 'Message dropped from buffer'),
+        onPressure: (size) => this.logger.warn({ event: 'ipc.backpressure.warning', bufferSize: size }, 'Buffer backpressure threshold reached'),
+      },
+    );
+
     this.currentReconnectDelay = this.config.reconnectDelayMs;
   }
 
@@ -155,15 +173,8 @@ export class IPCClient {
    */
   async send(message: AnyIPCMessage): Promise<void> {
     if (this.state !== 'connected' || !this.socket) {
-      // Buffer message if disconnected
-      if (this.messageBuffer.length < this.config.maxBufferSize) {
-        this.messageBuffer.push(message);
-      } else {
-        // Drop oldest message
-        this.messageBuffer.shift();
-        this.messageBuffer.push(message);
-        this.logger.warn({ event: 'ipc_client_buffer_full', bufferSize: this.config.maxBufferSize }, 'Message buffer full, dropped oldest message');
-      }
+      // Buffer message if disconnected; BackpressureBuffer handles drop policy and callbacks
+      this.messageBuffer.enqueue(message);
       return;
     }
 
@@ -197,7 +208,7 @@ export class IPCClient {
    * Get number of buffered messages.
    */
   getBufferSize(): number {
-    return this.messageBuffer.length;
+    return this.messageBuffer.size;
   }
 
   /**
@@ -342,22 +353,19 @@ export class IPCClient {
    * Flush buffered messages.
    */
   private flushBuffer(): void {
-    if (this.messageBuffer.length === 0) {
+    if (this.messageBuffer.size === 0) {
       return;
     }
 
-    this.logger.info({ event: 'ipc_client_flush_buffer', count: this.messageBuffer.length }, `Flushing ${this.messageBuffer.length} buffered messages`);
+    this.logger.info({ event: 'ipc_client_flush_buffer', count: this.messageBuffer.size }, `Flushing ${this.messageBuffer.size} buffered messages`);
 
-    const messages = [...this.messageBuffer];
-    this.messageBuffer = [];
+    const messages = this.messageBuffer.drain();
 
     for (const message of messages) {
       this.send(message).catch((error) => {
         this.logger.error({ event: 'ipc_client_buffered_send_failed' }, 'Failed to send buffered message', error instanceof Error ? error : new Error(String(error)));
         // Re-buffer failed message
-        if (this.messageBuffer.length < this.config.maxBufferSize) {
-          this.messageBuffer.push(message);
-        }
+        this.messageBuffer.enqueue(message);
       });
     }
   }

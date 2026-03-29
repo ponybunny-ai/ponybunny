@@ -78,6 +78,7 @@ import { getConfigDir } from '../infra/config/config-paths.js';
 import { ConfigWatcher, createConfigWatcher } from './config/config-watcher.js';
 import { loadRuntimeConfig, saveRuntimeConfig } from '../infra/config/runtime-config.js';
 import { GatewayLLMStreamEventSink } from './events/llm-stream-event-sink.js';
+import { type GatewayAuthConfig, DEFAULT_GATEWAY_AUTH_CONFIG, resolveLocalPermissions } from './auth/auth-config.js';
 
 export interface GatewayServerDependencies {
   db: Database.Database;
@@ -92,6 +93,7 @@ export interface GatewayServerDependencies {
   logger?: ILogger;
   metrics?: IMetricsRecorder;
   tracer?: ITracer;
+  authConfig?: GatewayAuthConfig;
 }
 
 export class GatewayServer {
@@ -139,6 +141,7 @@ export class GatewayServer {
   private isRunning = false;
   private readonly metrics: IMetricsRecorder;
   private readonly tracer: ITracer;
+  private readonly authConfig: GatewayAuthConfig;
   private runtimeRolloutCoordinator: GatewayRuntimeRolloutCoordinator;
   private runtimeRpcSurface: GatewayRuntimeRpcSurface;
   private schedulerEventAuditObserver: GatewaySchedulerEventAuditObserver;
@@ -158,6 +161,7 @@ export class GatewayServer {
     this.logger = dependencies.logger ?? new NoopLogger();
     this.metrics = dependencies.metrics ?? new NoopMetricsRecorder();
     this.tracer = dependencies.tracer ?? new NoopTracer();
+    this.authConfig = dependencies.authConfig ?? DEFAULT_GATEWAY_AUTH_CONFIG;
 
     // Initialize components
     this.eventBus = new EventBus(this.logger.child({ component: 'EventBus' }));
@@ -586,34 +590,43 @@ export class GatewayServer {
     const isLocalConnection = this.isLocalAddress(remoteAddress);
 
     if (isLocalConnection) {
-      // Auto-authenticate local connections with full permissions
-      const sessionData = {
-        id: `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        publicKey: `local:${remoteAddress}`,
-        permissions: ['read', 'write', 'admin'] as Permission[],
-        connectedAt: Date.now(),
-        lastActivityAt: Date.now(),
-        metadata: {
-          channelType: 'tui',
-        },
-      };
-      this.connectionManager.addPendingConnection(ws, remoteAddress, this.config.authTimeoutMs);
-      const session = this.connectionManager.promoteConnection(ws, sessionData);
+      const localPermissions = resolveLocalPermissions(this.authConfig);
+      if (!localPermissions) {
+        // 'none' policy — local connections must authenticate like remote ones
+        this.connectionManager.addPendingConnection(ws, remoteAddress, this.config.authTimeoutMs);
+        const stats = this.connectionManager.getConnectionCount(remoteAddress);
+        this.logger.info({ event: 'local_connection_pending_auth', remoteAddress, current: stats.current, max: stats.max, policy: this.authConfig.localConnectionPolicy }, `Local connection from ${remoteAddress} requires auth (policy: ${this.authConfig.localConnectionPolicy})`);
+        // Fall through to message/close/error handlers below
+      } else {
+        // Auto-authenticate local connections with configured permissions
+        const sessionData = {
+          id: `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          publicKey: `local:${remoteAddress}`,
+          permissions: localPermissions as Permission[],
+          connectedAt: Date.now(),
+          lastActivityAt: Date.now(),
+          metadata: {
+            channelType: 'tui',
+          },
+        };
+        this.connectionManager.addPendingConnection(ws, remoteAddress, this.config.authTimeoutMs);
+        const session = this.connectionManager.promoteConnection(ws, sessionData);
 
-      // Get connection stats and display
-      const stats = this.connectionManager.getConnectionCount(remoteAddress);
-      this.logger.info({ event: 'local_connection_authenticated', remoteAddress, current: stats.current, max: stats.max }, `Local connection authenticated from ${remoteAddress}`);
+        // Get connection stats and display
+        const stats = this.connectionManager.getConnectionCount(remoteAddress);
+        this.logger.info({ event: 'local_connection_authenticated', remoteAddress, current: stats.current, max: stats.max }, `Local connection authenticated from ${remoteAddress}`);
 
-      // Send authentication success event to client
-      const authEvent: EventFrame = {
-        type: 'event',
-        event: 'connection.authenticated',
-        data: {
-          sessionId: session.id,
-          permissions: session.permissions,
-        },
-      };
-      ws.send(JSON.stringify(authEvent));
+        // Send authentication success event to client
+        const authEvent: EventFrame = {
+          type: 'event',
+          event: 'connection.authenticated',
+          data: {
+            sessionId: session.id,
+            permissions: session.permissions,
+          },
+        };
+        ws.send(JSON.stringify(authEvent));
+      }
     } else {
       // Add as pending connection (requires authentication)
       this.connectionManager.addPendingConnection(ws, remoteAddress, this.config.authTimeoutMs);
