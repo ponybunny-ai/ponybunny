@@ -1,6 +1,6 @@
 # ADR-001: GoalHarness Composition Over SchedulerCore
 
-**Status:** implemented (Phases 1-4 verified, Phase 5 complete 2026-03-28)
+**Status:** verified (all 5 phases verified, 2026-03-29)
 **Date:** 2026-03-28
 **Deciders:** Architecture session
 **Scope:** Goal lifecycle unification across all execution paths
@@ -126,9 +126,9 @@ Modified:
 
 Removed `src/autonomy/daemon.ts`, deprecated export from `src/public.ts`, and two dedicated test files. Updated CLAUDE.md failure pattern, architecture-discovery.md, and gateway comment. No external consumers affected. Test count: 1897 (was 1905; delta = 8 tests in deleted files).
 
-### Phase 5: Add post-goal evaluation hook ✅ (2026-03-28)
+### Phase 5: Add post-goal evaluation hook ✅ (verified 2026-03-29)
 
-PostGoalEvaluator subscribes to SchedulerCore's `goal_completed` and `goal_failed` events. For each completed goal, evaluates every work item's final run via EvaluationService and produces a GoalEvaluationReport. Wired into both HarnessDaemon (main.ts) and SchedulerDaemon entry points. The `replan` decision path is logged as unactionable (no replanning infrastructure exists). Test count: 1925 (was 1897; +22 unit + 6 integration).
+PostGoalEvaluator subscribes to SchedulerCore's `goal_completed` and `goal_failed` events. For each completed goal, evaluates every work item's final run via EvaluationService and produces a GoalEvaluationReport. Wired into both HarnessDaemon (main.ts) and SchedulerDaemon entry points. The `replan` decision path is logged as unactionable (no replanning infrastructure exists). HarnessDaemon lifecycle tests verify PostGoalEvaluator start/stop delegation. Test count: 1928 (was 1897; +22 unit + 6 integration + 3 lifecycle).
 
 ---
 

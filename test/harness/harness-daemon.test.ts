@@ -7,6 +7,7 @@
 import { HarnessDaemon } from '../../src/harness/harness-daemon.js';
 import type { IGoalHarness, GoalHarnessResult } from '../../src/harness/goal-harness-interface.js';
 import type { IWorkOrderRepository } from '../../src/infra/persistence/repository-interface.js';
+import type { PostGoalEvaluator } from '../../src/harness/post-goal-evaluator.js';
 import type { Goal } from '../../src/work-order/types/index.js';
 
 function makeGoal(overrides: Partial<Goal> = {}): Goal {
@@ -224,5 +225,65 @@ describe('HarnessDaemon', () => {
     daemon = null; // prevent afterEach double-stop
 
     expect(repository.close).toHaveBeenCalledTimes(1);
+  });
+
+  describe('PostGoalEvaluator lifecycle', () => {
+    function createMockPostGoalEvaluator(): jest.Mocked<Pick<PostGoalEvaluator, 'start' | 'stop'>> {
+      return {
+        start: jest.fn(),
+        stop: jest.fn(),
+      };
+    }
+
+    it('calls PostGoalEvaluator.start() during daemon start', async () => {
+      const evaluator = createMockPostGoalEvaluator();
+
+      daemon = new HarnessDaemon(
+        repository as unknown as IWorkOrderRepository,
+        goalHarness,
+        { pollingIntervalMs: 100, maxConcurrentGoals: 2 },
+        evaluator as unknown as PostGoalEvaluator,
+      );
+
+      startDaemonNonBlocking(daemon);
+      await new Promise((r) => setTimeout(r, 30));
+
+      expect(evaluator.start).toHaveBeenCalledTimes(1);
+    });
+
+    it('calls PostGoalEvaluator.stop() during daemon stop', async () => {
+      const evaluator = createMockPostGoalEvaluator();
+
+      daemon = new HarnessDaemon(
+        repository as unknown as IWorkOrderRepository,
+        goalHarness,
+        { pollingIntervalMs: 100, maxConcurrentGoals: 2 },
+        evaluator as unknown as PostGoalEvaluator,
+      );
+
+      startDaemonNonBlocking(daemon);
+      await new Promise((r) => setTimeout(r, 30));
+      daemon.stop();
+      daemon = null;
+
+      expect(evaluator.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('works without PostGoalEvaluator (optional dependency)', async () => {
+      daemon = new HarnessDaemon(
+        repository as unknown as IWorkOrderRepository,
+        goalHarness,
+        { pollingIntervalMs: 100, maxConcurrentGoals: 2 },
+        // no evaluator passed
+      );
+
+      startDaemonNonBlocking(daemon);
+      await new Promise((r) => setTimeout(r, 30));
+      daemon.stop();
+      daemon = null;
+
+      // Should not throw — evaluator is optional
+      expect(repository.close).toHaveBeenCalledTimes(1);
+    });
   });
 });
