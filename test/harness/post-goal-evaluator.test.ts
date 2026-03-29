@@ -809,6 +809,45 @@ describe('PostGoalEvaluator', () => {
       errorSpy.mockRestore();
     });
 
+    it('creates an error_recovery ContextPack via createBlockedGoalContextPack', () => {
+      const { deps, repository } = createMockDeps();
+      const wi = makeWorkItem({ id: 'wi-queued', status: 'queued' });
+      repository.getWorkItemsByGoal.mockReturnValue([wi]);
+      repository.getRunsByWorkItem.mockReturnValue([]);
+
+      const logSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      const evaluator = new PostGoalEvaluator(deps);
+      evaluator.createBlockedGoalContextPack('goal-blocked-1');
+
+      expect(repository.createContextPack).toHaveBeenCalledTimes(1);
+      const callArgs = repository.createContextPack.mock.calls[0][0];
+      expect(callArgs.goal_id).toBe('goal-blocked-1');
+      expect(callArgs.pack_type).toBe('error_recovery');
+      expect(callArgs.snapshot_data.goal_state.current_work_items).toContain('wi-queued');
+
+      logSpy.mockRestore();
+    });
+
+    it('createBlockedGoalContextPack does not crash on errors', () => {
+      const { deps, repository } = createMockDeps();
+      repository.getWorkItemsByGoal.mockImplementation(() => {
+        throw new Error('DB read failed');
+      });
+
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation();
+
+      const evaluator = new PostGoalEvaluator(deps);
+      // Should not throw
+      expect(() => evaluator.createBlockedGoalContextPack('goal-blocked-2')).not.toThrow();
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to create ContextPack'),
+        expect.any(Error),
+      );
+      errorSpy.mockRestore();
+    });
+
     it('creates ContextPack before knowledge extraction runs', async () => {
       const { deps, repository } = createMockDeps();
       const mockGKS = {

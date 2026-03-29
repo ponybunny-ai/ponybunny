@@ -229,10 +229,11 @@ describe('HarnessDaemon', () => {
   });
 
   describe('PostGoalEvaluator lifecycle', () => {
-    function createMockPostGoalEvaluator(): jest.Mocked<Pick<PostGoalEvaluator, 'start' | 'stop'>> {
+    function createMockPostGoalEvaluator(): jest.Mocked<Pick<PostGoalEvaluator, 'start' | 'stop' | 'createBlockedGoalContextPack'>> {
       return {
         start: jest.fn(),
         stop: jest.fn(),
+        createBlockedGoalContextPack: jest.fn(),
       };
     }
 
@@ -285,6 +286,93 @@ describe('HarnessDaemon', () => {
 
       // Should not throw — evaluator is optional
       expect(repository.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('calls createBlockedGoalContextPack when a goal is blocked (not delegated, has escalations)', async () => {
+      const evaluator = createMockPostGoalEvaluator();
+      const blockedGoal = makeGoal({ id: 'blocked-1' });
+
+      repository.listGoals
+        .mockReturnValueOnce([blockedGoal])
+        .mockReturnValue([]);
+
+      goalHarness.processQueuedGoal.mockResolvedValueOnce(
+        makeHarnessResult({
+          goal: blockedGoal,
+          delegatedToScheduler: false,
+          escalations: ['Elaboration failed: missing context'],
+        }),
+      );
+
+      daemon = new HarnessDaemon(
+        repository as unknown as IWorkOrderRepository,
+        goalHarness,
+        { pollingIntervalMs: 50, maxConcurrentGoals: 5 },
+        evaluator as unknown as PostGoalEvaluator,
+      );
+
+      startDaemonNonBlocking(daemon);
+      await new Promise((r) => setTimeout(r, 80));
+
+      expect(evaluator.createBlockedGoalContextPack).toHaveBeenCalledWith('blocked-1');
+    });
+
+    it('does NOT call createBlockedGoalContextPack when goal is delegated successfully', async () => {
+      const evaluator = createMockPostGoalEvaluator();
+      const successGoal = makeGoal({ id: 'success-1' });
+
+      repository.listGoals
+        .mockReturnValueOnce([successGoal])
+        .mockReturnValue([]);
+
+      goalHarness.processQueuedGoal.mockResolvedValueOnce(
+        makeHarnessResult({
+          goal: successGoal,
+          delegatedToScheduler: true,
+          escalations: [],
+        }),
+      );
+
+      daemon = new HarnessDaemon(
+        repository as unknown as IWorkOrderRepository,
+        goalHarness,
+        { pollingIntervalMs: 50, maxConcurrentGoals: 5 },
+        evaluator as unknown as PostGoalEvaluator,
+      );
+
+      startDaemonNonBlocking(daemon);
+      await new Promise((r) => setTimeout(r, 80));
+
+      expect(evaluator.createBlockedGoalContextPack).not.toHaveBeenCalled();
+    });
+
+    it('does NOT call createBlockedGoalContextPack when goal has no escalations', async () => {
+      const evaluator = createMockPostGoalEvaluator();
+      const noEscGoal = makeGoal({ id: 'no-esc-1' });
+
+      repository.listGoals
+        .mockReturnValueOnce([noEscGoal])
+        .mockReturnValue([]);
+
+      goalHarness.processQueuedGoal.mockResolvedValueOnce(
+        makeHarnessResult({
+          goal: noEscGoal,
+          delegatedToScheduler: false,
+          escalations: [],
+        }),
+      );
+
+      daemon = new HarnessDaemon(
+        repository as unknown as IWorkOrderRepository,
+        goalHarness,
+        { pollingIntervalMs: 50, maxConcurrentGoals: 5 },
+        evaluator as unknown as PostGoalEvaluator,
+      );
+
+      startDaemonNonBlocking(daemon);
+      await new Promise((r) => setTimeout(r, 80));
+
+      expect(evaluator.createBlockedGoalContextPack).not.toHaveBeenCalled();
     });
   });
 });

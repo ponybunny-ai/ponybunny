@@ -104,6 +104,13 @@ export class HarnessDaemon {
       const goal = goalsToProcess[i];
       if (result.status === 'rejected') {
         console.error(`[HarnessDaemon] Failed to process goal ${goal.id}:`, result.reason);
+      } else if (result.status === 'fulfilled') {
+        const harnessResult = result.value;
+        // Goal was blocked during elaboration (not delegated, has escalations).
+        // Create a ContextPack so blocked goals participate in the knowledge flywheel.
+        if (harnessResult && !harnessResult.delegatedToScheduler && harnessResult.escalations.length > 0) {
+          this.postGoalEvaluator?.createBlockedGoalContextPack(goal.id);
+        }
       }
     }
   }

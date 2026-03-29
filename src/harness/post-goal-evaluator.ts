@@ -43,7 +43,7 @@ export interface WorkItemEvaluation {
 export interface GoalEvaluationReport {
   goalId: string;
   timestamp: number;
-  trigger: 'goal_completed' | 'goal_failed';
+  trigger: 'goal_completed' | 'goal_failed' | 'goal_blocked';
   workItemResults: WorkItemEvaluation[];
   summary: {
     total: number;
@@ -99,7 +99,7 @@ export class PostGoalEvaluator {
         id TEXT PRIMARY KEY,
         created_at INTEGER NOT NULL,
         goal_id TEXT NOT NULL,
-        "trigger" TEXT NOT NULL CHECK("trigger" IN ('goal_completed', 'goal_failed')),
+        "trigger" TEXT NOT NULL CHECK("trigger" IN ('goal_completed', 'goal_failed', 'goal_blocked')),
         work_item_results TEXT NOT NULL,
         summary_total INTEGER NOT NULL DEFAULT 0,
         summary_publish INTEGER NOT NULL DEFAULT 0,
@@ -183,6 +183,19 @@ export class PostGoalEvaluator {
   }
 
   // -------------------------------------------------------------------------
+  // Blocked goal ContextPack (Gap 2.A completion)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Create a ContextPack for a goal that was blocked during elaboration.
+   * Called by HarnessDaemon when GoalHarness reports a blocked goal.
+   * Does NOT trigger full evaluation — blocked goals may resume later.
+   */
+  createBlockedGoalContextPack(goalId: string): void {
+    this.createContextPackForGoal(goalId, 'goal_blocked');
+  }
+
+  // -------------------------------------------------------------------------
   // Reports
   // -------------------------------------------------------------------------
 
@@ -218,7 +231,7 @@ export class PostGoalEvaluator {
         id: string;
         created_at: number;
         goal_id: string;
-        trigger: 'goal_completed' | 'goal_failed';
+        trigger: 'goal_completed' | 'goal_failed' | 'goal_blocked';
         work_item_results: string;
         summary_total: number;
         summary_publish: number;
@@ -300,7 +313,7 @@ export class PostGoalEvaluator {
    */
   private createContextPackForGoal(
     goalId: string,
-    trigger: 'goal_completed' | 'goal_failed',
+    trigger: 'goal_completed' | 'goal_failed' | 'goal_blocked',
   ): void {
     try {
       const workItems = this.repository.getWorkItemsByGoal(goalId);
@@ -390,7 +403,7 @@ export class PostGoalEvaluator {
 
   async evaluateGoal(
     goalId: string,
-    trigger: 'goal_completed' | 'goal_failed',
+    trigger: 'goal_completed' | 'goal_failed' | 'goal_blocked',
   ): Promise<GoalEvaluationReport> {
     const workItems = this.repository.getWorkItemsByGoal(goalId);
 

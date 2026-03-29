@@ -49,6 +49,42 @@ async function callGatewayRPC<T>(method: string, params: unknown = {}): Promise<
   });
 }
 
+export interface ErrorCluster {
+  error_signature: string;
+  count: number;
+  most_recent: number;
+  affected_goals: number;
+}
+
+export interface ItemTypeFailureRate {
+  item_type: string;
+  total_runs: number;
+  failed_runs: number;
+  failure_rate: number;
+}
+
+export interface GoalTimelineEntry {
+  date: string;
+  completed: number;
+  failed: number;
+}
+
+export interface EvaluationDistribution {
+  total_reports: number;
+  total_publish: number;
+  total_retry: number;
+  total_replan: number;
+  total_escalate: number;
+  total_skipped: number;
+}
+
+export interface KnowledgeStats {
+  total_entries: number;
+  by_type: Record<string, number>;
+  avg_confidence: number;
+  recently_reinforced: number;
+}
+
 export interface DashboardData {
   scheduler: {
     totalGoalsProcessed: number;
@@ -64,18 +100,41 @@ export interface DashboardData {
     by_action: Record<string, number>;
     by_entity_type: Record<string, number>;
   } | null;
+  errorClusters: ErrorCluster[] | null;
+  failureRates: ItemTypeFailureRate[] | null;
+  timeline: GoalTimelineEntry[] | null;
+  evaluationDistribution: EvaluationDistribution | null;
+  knowledgeStats: KnowledgeStats | null;
 }
 
 export async function GET() {
   try {
-    const [schedulerResult, auditResult] = await Promise.allSettled([
+    const [
+      schedulerResult,
+      auditResult,
+      errorClustersResult,
+      failureRatesResult,
+      timelineResult,
+      evalDistResult,
+      knowledgeStatsResult,
+    ] = await Promise.allSettled([
       callGatewayRPC<{ metrics: DashboardData['scheduler'] }>('debug.scheduler', {}),
       callGatewayRPC<DashboardData['audit']>('audit.stats', {}),
+      callGatewayRPC<{ clusters: ErrorCluster[] }>('harness.errorClusters', {}),
+      callGatewayRPC<{ rates: ItemTypeFailureRate[] }>('harness.failureRates', {}),
+      callGatewayRPC<{ timeline: GoalTimelineEntry[] }>('harness.timeline', { days: 30 }),
+      callGatewayRPC<{ distribution: EvaluationDistribution }>('harness.evaluationDistribution', {}),
+      callGatewayRPC<{ stats: KnowledgeStats }>('harness.knowledgeStats', {}),
     ]);
 
     const data: DashboardData = {
       scheduler: schedulerResult.status === 'fulfilled' ? schedulerResult.value.metrics : null,
       audit: auditResult.status === 'fulfilled' ? auditResult.value : null,
+      errorClusters: errorClustersResult.status === 'fulfilled' ? errorClustersResult.value.clusters : null,
+      failureRates: failureRatesResult.status === 'fulfilled' ? failureRatesResult.value.rates : null,
+      timeline: timelineResult.status === 'fulfilled' ? timelineResult.value.timeline : null,
+      evaluationDistribution: evalDistResult.status === 'fulfilled' ? evalDistResult.value.distribution : null,
+      knowledgeStats: knowledgeStatsResult.status === 'fulfilled' ? knowledgeStatsResult.value.stats : null,
     };
 
     return NextResponse.json(data);

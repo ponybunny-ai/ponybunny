@@ -494,7 +494,7 @@ CREATE TABLE IF NOT EXISTS goal_evaluation_reports (
     id TEXT PRIMARY KEY,
     created_at INTEGER NOT NULL,
     goal_id TEXT NOT NULL,
-    "trigger" TEXT NOT NULL CHECK("trigger" IN ('goal_completed', 'goal_failed')),
+    "trigger" TEXT NOT NULL CHECK("trigger" IN ('goal_completed', 'goal_failed', 'goal_blocked')),
     work_item_results TEXT NOT NULL,    -- JSON array of WorkItemEvaluation
     summary_total INTEGER NOT NULL DEFAULT 0,
     summary_publish INTEGER NOT NULL DEFAULT 0,

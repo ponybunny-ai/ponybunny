@@ -9,12 +9,52 @@ import {
   AlertTriangle,
   TrendingUp,
   ShieldCheck,
-  DollarSign,
+  Bug,
+  BarChart3,
+  Calendar,
+  BookOpen,
+  Activity,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
+
+interface ErrorCluster {
+  error_signature: string;
+  count: number;
+  most_recent: number;
+  affected_goals: number;
+}
+
+interface ItemTypeFailureRate {
+  item_type: string;
+  total_runs: number;
+  failed_runs: number;
+  failure_rate: number;
+}
+
+interface GoalTimelineEntry {
+  date: string;
+  completed: number;
+  failed: number;
+}
+
+interface EvaluationDistribution {
+  total_reports: number;
+  total_publish: number;
+  total_retry: number;
+  total_replan: number;
+  total_escalate: number;
+  total_skipped: number;
+}
+
+interface KnowledgeStats {
+  total_entries: number;
+  by_type: Record<string, number>;
+  avg_confidence: number;
+  recently_reinforced: number;
+}
 
 interface DashboardData {
   scheduler: {
@@ -31,6 +71,11 @@ interface DashboardData {
     by_action: Record<string, number>;
     by_entity_type: Record<string, number>;
   } | null;
+  errorClusters: ErrorCluster[] | null;
+  failureRates: ItemTypeFailureRate[] | null;
+  timeline: GoalTimelineEntry[] | null;
+  evaluationDistribution: EvaluationDistribution | null;
+  knowledgeStats: KnowledgeStats | null;
 }
 
 function MetricCard({
@@ -162,6 +207,41 @@ export default function DashboardPage() {
         />
       </div>
 
+      {/* Harness metrics cards */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <MetricCard
+          title="Error Clusters"
+          value={data?.errorClusters?.length ?? 0}
+          subtitle="Distinct error signatures"
+          icon={Bug}
+          trend={
+            (data?.errorClusters?.length ?? 0) === 0
+              ? 'good'
+              : (data?.errorClusters?.length ?? 0) > 5
+                ? 'bad'
+                : 'warning'
+          }
+        />
+        <MetricCard
+          title="Evaluation Reports"
+          value={data?.evaluationDistribution?.total_reports ?? 0}
+          subtitle={`${data?.evaluationDistribution?.total_publish ?? 0} published`}
+          icon={Activity}
+        />
+        <MetricCard
+          title="Knowledge Entries"
+          value={data?.knowledgeStats?.total_entries ?? 0}
+          subtitle={`Avg confidence: ${((data?.knowledgeStats?.avg_confidence ?? 0) * 100).toFixed(0)}%`}
+          icon={BookOpen}
+        />
+        <MetricCard
+          title="Recently Reinforced"
+          value={data?.knowledgeStats?.recently_reinforced ?? 0}
+          subtitle="Knowledge entries reinforced recently"
+          icon={TrendingUp}
+        />
+      </div>
+
       {/* Audit and activity section */}
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
@@ -235,6 +315,224 @@ export default function DashboardPage() {
                 <span className="text-lg font-semibold">{scheduler?.currentActiveWorkItems ?? 0}</span>
               </div>
             </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Error Signature Clusters */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Bug className="h-5 w-5" />
+            Error Signature Clusters
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {data?.errorClusters && data.errorClusters.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 pr-4 font-medium text-muted-foreground">Signature</th>
+                    <th className="text-right py-2 px-4 font-medium text-muted-foreground">Count</th>
+                    <th className="text-right py-2 px-4 font-medium text-muted-foreground">Affected Goals</th>
+                    <th className="text-right py-2 pl-4 font-medium text-muted-foreground">Most Recent</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.errorClusters.map((cluster) => (
+                    <tr key={cluster.error_signature} className="border-b last:border-0">
+                      <td className="py-2 pr-4 font-mono text-xs max-w-md truncate" title={cluster.error_signature}>
+                        {cluster.error_signature}
+                      </td>
+                      <td className="text-right py-2 px-4">
+                        <Badge variant={cluster.count > 5 ? 'destructive' : 'outline'}>{cluster.count}</Badge>
+                      </td>
+                      <td className="text-right py-2 px-4">{cluster.affected_goals}</td>
+                      <td className="text-right py-2 pl-4 text-muted-foreground">
+                        {new Date(cluster.most_recent).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No error clusters recorded.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Work Item Failure Rates + Evaluation Distribution */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5" />
+              Work Item Failure Rates
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {data?.failureRates && data.failureRates.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-2 pr-4 font-medium text-muted-foreground">Item Type</th>
+                      <th className="text-right py-2 px-4 font-medium text-muted-foreground">Total</th>
+                      <th className="text-right py-2 px-4 font-medium text-muted-foreground">Failed</th>
+                      <th className="text-right py-2 pl-4 font-medium text-muted-foreground">Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.failureRates.map((rate) => (
+                      <tr key={rate.item_type} className="border-b last:border-0">
+                        <td className="py-2 pr-4">{rate.item_type}</td>
+                        <td className="text-right py-2 px-4">{rate.total_runs}</td>
+                        <td className="text-right py-2 px-4">{rate.failed_runs}</td>
+                        <td className="text-right py-2 pl-4">
+                          <Badge
+                            variant={rate.failure_rate > 0.5 ? 'destructive' : rate.failure_rate > 0.2 ? 'outline' : 'secondary'}
+                          >
+                            {(rate.failure_rate * 100).toFixed(1)}%
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No failure rate data available.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5" />
+              Evaluation Decision Distribution
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {data?.evaluationDistribution ? (
+              <div className="space-y-3">
+                {[
+                  { label: 'Publish', value: data.evaluationDistribution.total_publish, color: 'bg-green-500' },
+                  { label: 'Retry', value: data.evaluationDistribution.total_retry, color: 'bg-yellow-500' },
+                  { label: 'Replan', value: data.evaluationDistribution.total_replan, color: 'bg-orange-500' },
+                  { label: 'Escalate', value: data.evaluationDistribution.total_escalate, color: 'bg-red-500' },
+                  { label: 'Skipped', value: data.evaluationDistribution.total_skipped, color: 'bg-gray-400' },
+                ].map(({ label, value, color }) => {
+                  const total = data.evaluationDistribution!.total_reports || 1;
+                  const pct = ((value / total) * 100).toFixed(1);
+                  return (
+                    <div key={label} className="space-y-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span>{label}</span>
+                        <span className="text-muted-foreground">{value} ({pct}%)</span>
+                      </div>
+                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${color}`}
+                          style={{ width: `${Math.min(parseFloat(pct), 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No evaluation data available.</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Goal Timeline + Knowledge Stats */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5" />
+              Goal Timeline (Last 30 Days)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {data?.timeline && data.timeline.length > 0 ? (
+              <div className="overflow-x-auto max-h-80 overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-background">
+                    <tr className="border-b">
+                      <th className="text-left py-2 pr-4 font-medium text-muted-foreground">Date</th>
+                      <th className="text-right py-2 px-4 font-medium text-muted-foreground">Completed</th>
+                      <th className="text-right py-2 pl-4 font-medium text-muted-foreground">Failed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.timeline.map((entry) => (
+                      <tr key={entry.date} className="border-b last:border-0">
+                        <td className="py-2 pr-4">{entry.date}</td>
+                        <td className="text-right py-2 px-4">
+                          <span className="text-green-600 font-medium">{entry.completed}</span>
+                        </td>
+                        <td className="text-right py-2 pl-4">
+                          <span className={entry.failed > 0 ? 'text-red-500 font-medium' : 'text-muted-foreground'}>
+                            {entry.failed}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No timeline data available.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BookOpen className="h-5 w-5" />
+              Knowledge Store
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {data?.knowledgeStats ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Total Entries</p>
+                    <p className="text-2xl font-bold">{data.knowledgeStats.total_entries}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Avg Confidence</p>
+                    <p className="text-2xl font-bold">{(data.knowledgeStats.avg_confidence * 100).toFixed(0)}%</p>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground mb-1">Recently Reinforced</p>
+                  <p className="text-lg font-semibold">{data.knowledgeStats.recently_reinforced}</p>
+                </div>
+                {Object.keys(data.knowledgeStats.by_type).length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium mb-2">By Type</p>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(data.knowledgeStats.by_type).map(([type, count]) => (
+                        <Badge key={type} variant="secondary">
+                          {type}: {count}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No knowledge data available.</p>
+            )}
           </CardContent>
         </Card>
       </div>
