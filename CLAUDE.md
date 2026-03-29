@@ -57,7 +57,7 @@ Use the appropriate subagent whenever the task clearly matches its role:
 
 - architecture, harness boundaries, migration strategy -> harness-architect
 - phase planning, milestone breakdown, dependency sequencing -> planner
-- verification plan generation for work items -> planner
+- verification plan generation for work items -> planner (not generator — generator must not define its own acceptance criteria)
 - implementation of an approved narrow scope -> generator
 - validation, checks, acceptance review, regression analysis -> evaluator
 - runtime failure analysis and root-cause work -> debugger
@@ -225,3 +225,4 @@ Claude Code should help turn PonyBunny into a harness-first system by:
 - When adding a method to an interface (e.g., IGoalHarness), find ALL mock implementations in test files (`jest.Mocked<IGoalHarness>`) and add the new method — TypeScript strict typing will catch these at compile time but they manifest as test suite failures, not individual test failures
 - [Phase 3 plan_review] GoalStatus now includes `plan_review`. State transitions: `queued → plan_review → active` (on approve) or `plan_review → cancelled` (on reject). Goals with `context.review_plan: true` pause at plan_review after planning. RPC: `plan.get`, `plan.approve`, `plan.reject`. IPC: `approve_plan` command. When adding new GoalStatus consumers, handle `plan_review` explicitly.
 - [ContextPack triggers] PostGoalEvaluator creates ContextPacks on `goal_completed` (daily_checkpoint), `goal_failed` (error_recovery), AND `goal_blocked` (error_recovery). Blocked goals are caught by HarnessDaemon (not scheduler events) since GoalHarness blocks during elaboration before reaching SchedulerCore. The `createBlockedGoalContextPack()` public method on PostGoalEvaluator is the entry point — called by HarnessDaemon when `delegatedToScheduler=false` and escalations present.
+- [Gap 4.B closed] EscalationKnowledgeObserver in `src/gateway/runtime/` subscribes to `escalation.resolved` events on Gateway EventBus, fetches full Escalation, filters for knowledge-worthy types (`stuck`, `risk`, `validation_failed`), and records `decision`-type knowledge entries via GlobalKnowledgeService.record(). Wired into GatewayServer alongside the audit observer (same setup/teardown lifecycle). When adding new event observers to GatewayServer, add them to the setupSchedulerEventAudit/teardownSchedulerEventAudit callbacks.

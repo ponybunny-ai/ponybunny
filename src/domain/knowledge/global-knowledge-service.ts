@@ -111,6 +111,18 @@ export class GlobalKnowledgeService {
   /**
    * Get knowledge entries relevant to a goal context.
    * Returns highest-confidence entries, optionally filtered by type or tags.
+   *
+   * Query strategy:
+   * - Ordering: confidence DESC → occurrence_count DESC → last_reinforced_at DESC
+   * - Tag matching: client-side set intersection (SQLite JSON support varies);
+   *   fetches limit entries first, then filters by tags, so effective results
+   *   may be fewer than limit when tag filtering is active.
+   * - Default minConfidence: 0.0 (no threshold). Call sites should set explicit
+   *   thresholds based on injection context:
+   *     Elaboration: limit=5, minConfidence=0.4 (high-signal pitfalls only)
+   *     Planning: limit=3-5, minConfidence=0.3 (broader patterns acceptable)
+   *   Higher minConfidence reduces prompt cost; lower values catch emerging patterns.
+   * - Default limit: 10 entries max to bound prompt injection size.
    */
   getRelevantKnowledge(options?: {
     knowledgeType?: KnowledgeType;

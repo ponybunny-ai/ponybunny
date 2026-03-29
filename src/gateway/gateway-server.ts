@@ -45,6 +45,7 @@ import { registerHarnessMetricsHandlers } from './rpc/handlers/harness-metrics-h
 import { HarnessMetricsService } from '../app/observability/harness-metrics-service.js';
 import { GatewayRuntimeRolloutCoordinator } from './runtime/gateway-runtime-rollout-coordinator.js';
 import { GatewaySchedulerEventAuditObserver } from './runtime/gateway-scheduler-event-audit-observer.js';
+import { EscalationKnowledgeObserver } from './runtime/escalation-knowledge-observer.js';
 import type { GatewayRuntimeRpcSurface } from './runtime/gateway-runtime-rpc-surface.js';
 import type { GatewayToolProviderRuntime } from './runtime/gateway-tool-provider-runtime.js';
 import { createGatewayToolProviderRuntimeCluster } from './runtime/gateway-tool-provider-runtime-cluster.js';
@@ -66,6 +67,7 @@ import {
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
 import { AuditLogRepository } from '../infra/persistence/audit-repository.js';
 import { AuditService } from '../infra/audit/audit-service.js';
+import { GlobalKnowledgeService } from '../domain/knowledge/global-knowledge-service.js';
 import { getConfigDir } from '../infra/config/config-paths.js';
 
 import { ConfigWatcher, createConfigWatcher } from './config/config-watcher.js';
@@ -129,6 +131,7 @@ export class GatewayServer {
   private runtimeRolloutCoordinator: GatewayRuntimeRolloutCoordinator;
   private runtimeRpcSurface: GatewayRuntimeRpcSurface;
   private schedulerEventAuditObserver: GatewaySchedulerEventAuditObserver;
+  private escalationKnowledgeObserver: EscalationKnowledgeObserver;
 
   constructor(
     dependencies: GatewayServerDependencies,
@@ -226,6 +229,11 @@ export class GatewayServer {
     this.schedulerEventAuditObserver = new GatewaySchedulerEventAuditObserver({
       eventBus: this.eventBus,
       auditService: this.auditService,
+    });
+    this.escalationKnowledgeObserver = new EscalationKnowledgeObserver({
+      eventBus: this.eventBus,
+      knowledgeService: new GlobalKnowledgeService(this.db),
+      repository: this.repository as any, // same cast pattern as escalation-handlers.ts
     });
 
     // Initialize tool components
@@ -531,8 +539,14 @@ export class GatewayServer {
       ipcServer: this.ipcServer,
       ipcBridge: this.ipcBridge,
       configWatcher: this.configWatcher,
-      setupSchedulerEventAudit: () => this.schedulerEventAuditObserver.start(),
-      teardownSchedulerEventAudit: () => this.schedulerEventAuditObserver.stop(),
+      setupSchedulerEventAudit: () => {
+        this.schedulerEventAuditObserver.start();
+        this.escalationKnowledgeObserver.start();
+      },
+      teardownSchedulerEventAudit: () => {
+        this.schedulerEventAuditObserver.stop();
+        this.escalationKnowledgeObserver.stop();
+      },
     };
   }
 
