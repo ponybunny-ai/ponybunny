@@ -66,6 +66,13 @@ function createMockDeps(): {
   handlers: SchedulerEventHandler[];
   evaluationService: jest.Mocked<IEvaluationService>;
   repository: jest.Mocked<Pick<IWorkOrderRepository, 'getWorkItemsByGoal' | 'getRunsByWorkItem' | 'getLatestContextPack' | 'createContextPack'>>;
+  mockLogger: {
+    debug: jest.Mock;
+    info: jest.Mock;
+    warn: jest.Mock;
+    error: jest.Mock;
+    child: jest.Mock;
+  };
 } {
   const handlers: SchedulerEventHandler[] = [];
 
@@ -88,15 +95,25 @@ function createMockDeps(): {
     createContextPack: jest.fn(),
   } as unknown as jest.Mocked<Pick<IWorkOrderRepository, 'getWorkItemsByGoal' | 'getRunsByWorkItem' | 'getLatestContextPack' | 'createContextPack'>>;
 
+  const mockLogger = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn().mockReturnThis(),
+  };
+
   return {
     deps: {
       schedulerCore,
       evaluationService,
       repository: repository as unknown as IWorkOrderRepository,
+      logger: mockLogger,
     },
     handlers,
     evaluationService,
     repository: repository as any,
+    mockLogger,
   };
 }
 
@@ -229,8 +246,7 @@ describe('PostGoalEvaluator', () => {
     });
 
     it('ignores events without goalId', async () => {
-      const { deps, handlers, evaluationService } = createMockDeps();
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const { deps, handlers, evaluationService, mockLogger } = createMockDeps();
 
       const evaluator = new PostGoalEvaluator(deps);
       evaluator.start();
@@ -239,8 +255,7 @@ describe('PostGoalEvaluator', () => {
       await new Promise(r => setTimeout(r, 10));
 
       expect(evaluationService.evaluateRun).not.toHaveBeenCalled();
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('without goalId'));
-      warnSpy.mockRestore();
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.objectContaining({}), expect.stringContaining('without goalId'));
     });
   });
 
@@ -362,14 +377,12 @@ describe('PostGoalEvaluator', () => {
     });
 
     it('handles evaluation errors gracefully (counts as skipped)', async () => {
-      const { deps, evaluationService, repository } = createMockDeps();
+      const { deps, evaluationService, repository, mockLogger } = createMockDeps();
       const wi = makeWorkItem();
       const run = makeRun();
       repository.getWorkItemsByGoal.mockReturnValue([wi]);
       repository.getRunsByWorkItem.mockReturnValue([run]);
       evaluationService.evaluateRun.mockRejectedValue(new Error('LLM timeout'));
-
-      const errorSpy = jest.spyOn(console, 'error').mockImplementation();
 
       const evaluator = new PostGoalEvaluator(deps);
       const report = await evaluator.evaluateGoal('goal-1', 'goal_completed');
@@ -377,11 +390,11 @@ describe('PostGoalEvaluator', () => {
       expect(report.workItemResults[0].skipped).toBe(true);
       expect(report.workItemResults[0].evaluation).toBeNull();
       expect(report.summary.skipped).toBe(1);
-      expect(errorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('failed to evaluate work item'),
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({}),
+        expect.stringContaining('Failed to evaluate work item'),
         expect.any(Error),
       );
-      errorSpy.mockRestore();
     });
   });
 
@@ -389,7 +402,7 @@ describe('PostGoalEvaluator', () => {
 
   describe('replan decisions', () => {
     it('logs replan as unactionable', async () => {
-      const { deps, evaluationService, repository } = createMockDeps();
+      const { deps, evaluationService, repository, mockLogger } = createMockDeps();
       const wi = makeWorkItem({ id: 'wi-replan' });
       const run = makeRun();
       repository.getWorkItemsByGoal.mockReturnValue([wi]);
@@ -400,8 +413,6 @@ describe('PostGoalEvaluator', () => {
         nextActions: ['replan'],
       });
 
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
-
       const evaluator = new PostGoalEvaluator(deps);
       const report = await evaluator.evaluateGoal('goal-1', 'goal_completed');
 
@@ -409,10 +420,10 @@ describe('PostGoalEvaluator', () => {
       expect(report.unactionableDecisions).toHaveLength(1);
       expect(report.unactionableDecisions[0]).toContain('wi-replan');
       expect(report.unactionableDecisions[0]).toContain('replan requested but not implemented');
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('replan decision is unactionable'),
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({}),
+        expect.stringContaining('replan requested but not implemented'),
       );
-      warnSpy.mockRestore();
     });
   });
 
@@ -487,8 +498,6 @@ describe('PostGoalEvaluator', () => {
         nextActions: [],
       }));
 
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
-
       const evaluator = new PostGoalEvaluator(deps);
       const report = await evaluator.evaluateGoal('goal-1', 'goal_completed');
 
@@ -500,8 +509,6 @@ describe('PostGoalEvaluator', () => {
         escalate: 1,
         skipped: 0,
       });
-
-      warnSpy.mockRestore();
     });
   });
 
@@ -509,12 +516,10 @@ describe('PostGoalEvaluator', () => {
 
   describe('error containment', () => {
     it('event handler errors do not propagate', async () => {
-      const { deps, handlers, repository } = createMockDeps();
+      const { deps, handlers, repository, mockLogger } = createMockDeps();
       repository.getWorkItemsByGoal.mockImplementation(() => {
         throw new Error('repository crash');
       });
-
-      const errorSpy = jest.spyOn(console, 'error').mockImplementation();
 
       const evaluator = new PostGoalEvaluator(deps);
       evaluator.start();
@@ -523,11 +528,11 @@ describe('PostGoalEvaluator', () => {
       await handlers[0](makeEvent({ type: 'goal_completed', goalId: 'goal-1' }));
       await new Promise(r => setTimeout(r, 10));
 
-      expect(errorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('evaluation failed for goal'),
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({}),
+        expect.stringContaining('Evaluation failed for goal'),
         expect.any(Error),
       );
-      errorSpy.mockRestore();
     });
 
     it('does not evaluate after stop()', async () => {
@@ -584,7 +589,7 @@ describe('PostGoalEvaluator', () => {
     }
 
     it('calls extractFromContextPack when GlobalKnowledgeService and ContextPack are available', async () => {
-      const { deps, repository } = createMockDeps();
+      const { deps, repository, mockLogger } = createMockDeps();
       const mockGKS = {
         extractFromContextPack: jest.fn().mockReturnValue([
           { id: 'gk-1', knowledge_type: 'pitfall', content: 'Pitfall X' },
@@ -598,17 +603,15 @@ describe('PostGoalEvaluator', () => {
       repository.getLatestContextPack.mockReturnValue(contextPack);
       repository.getWorkItemsByGoal.mockReturnValue([]);
 
-      const logSpy = jest.spyOn(console, 'log').mockImplementation();
-
       const evaluator = new PostGoalEvaluator(deps);
       await evaluator.evaluateGoal('goal-1', 'goal_completed');
 
       expect(repository.getLatestContextPack).toHaveBeenCalledWith('goal-1');
       expect(mockGKS.extractFromContextPack).toHaveBeenCalledWith(contextPack);
-      expect(logSpy).toHaveBeenCalledWith(
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.objectContaining({}),
         expect.stringContaining('Extracted 3 knowledge entries'),
       );
-      logSpy.mockRestore();
     });
 
     it('skips knowledge extraction when no GlobalKnowledgeService is provided', async () => {
@@ -623,27 +626,25 @@ describe('PostGoalEvaluator', () => {
     });
 
     it('skips knowledge extraction when no ContextPack exists for the goal', async () => {
-      const { deps, repository } = createMockDeps();
+      const { deps, repository, mockLogger } = createMockDeps();
       const mockGKS = { extractFromContextPack: jest.fn() };
       deps.globalKnowledgeService = mockGKS as any;
 
       repository.getLatestContextPack.mockReturnValue(undefined);
       repository.getWorkItemsByGoal.mockReturnValue([]);
 
-      const logSpy = jest.spyOn(console, 'log').mockImplementation();
-
       const evaluator = new PostGoalEvaluator(deps);
       await evaluator.evaluateGoal('goal-1', 'goal_completed');
 
       expect(mockGKS.extractFromContextPack).not.toHaveBeenCalled();
-      expect(logSpy).toHaveBeenCalledWith(
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        expect.objectContaining({}),
         expect.stringContaining('No ContextPack found'),
       );
-      logSpy.mockRestore();
     });
 
     it('catches and logs errors from knowledge extraction without failing evaluation', async () => {
-      const { deps, repository } = createMockDeps();
+      const { deps, repository, mockLogger } = createMockDeps();
       const mockGKS = {
         extractFromContextPack: jest.fn().mockImplementation(() => {
           throw new Error('DB write failed');
@@ -654,38 +655,33 @@ describe('PostGoalEvaluator', () => {
       repository.getLatestContextPack.mockReturnValue(makeContextPack());
       repository.getWorkItemsByGoal.mockReturnValue([]);
 
-      const errorSpy = jest.spyOn(console, 'error').mockImplementation();
-
       const evaluator = new PostGoalEvaluator(deps);
       const report = await evaluator.evaluateGoal('goal-1', 'goal_completed');
 
       // Report should still be returned successfully
       expect(report.goalId).toBe('goal-1');
-      expect(errorSpy).toHaveBeenCalledWith(
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({}),
         expect.stringContaining('Knowledge extraction failed'),
         expect.any(Error),
       );
-      errorSpy.mockRestore();
     });
 
     it('does not log extraction count when no entries are extracted', async () => {
-      const { deps, repository } = createMockDeps();
+      const { deps, repository, mockLogger } = createMockDeps();
       const mockGKS = { extractFromContextPack: jest.fn().mockReturnValue([]) };
       deps.globalKnowledgeService = mockGKS as any;
 
       repository.getLatestContextPack.mockReturnValue(makeContextPack());
       repository.getWorkItemsByGoal.mockReturnValue([]);
 
-      const logSpy = jest.spyOn(console, 'log').mockImplementation();
-
       const evaluator = new PostGoalEvaluator(deps);
       await evaluator.evaluateGoal('goal-1', 'goal_completed');
 
-      const extractionLogs = logSpy.mock.calls.filter(
-        call => typeof call[0] === 'string' && call[0].includes('Extracted'),
+      const extractionLogs = mockLogger.info.mock.calls.filter(
+        (call: unknown[]) => typeof call[1] === 'string' && call[1].includes('Extracted'),
       );
       expect(extractionLogs).toHaveLength(0);
-      logSpy.mockRestore();
     });
   });
 
@@ -699,8 +695,6 @@ describe('PostGoalEvaluator', () => {
       repository.getWorkItemsByGoal.mockReturnValue([wi]);
       repository.getRunsByWorkItem.mockReturnValue([run]);
 
-      const logSpy = jest.spyOn(console, 'log').mockImplementation();
-
       const evaluator = new PostGoalEvaluator(deps);
       await evaluator.evaluateGoal('goal-1', 'goal_completed');
 
@@ -710,8 +704,6 @@ describe('PostGoalEvaluator', () => {
       expect(callArgs.pack_type).toBe('daily_checkpoint');
       expect(callArgs.snapshot_data.goal_state.completed_work_items).toContain('wi-done');
       expect(callArgs.snapshot_data.execution_summary.success_count).toBe(1);
-
-      logSpy.mockRestore();
     });
 
     it('creates an error_recovery ContextPack on goal_failed', async () => {
@@ -720,8 +712,6 @@ describe('PostGoalEvaluator', () => {
       const run = makeRun({ status: 'failure', error_signature: 'ERR_001' });
       repository.getWorkItemsByGoal.mockReturnValue([wi]);
       repository.getRunsByWorkItem.mockReturnValue([run]);
-
-      const logSpy = jest.spyOn(console, 'log').mockImplementation();
 
       const evaluator = new PostGoalEvaluator(deps);
       await evaluator.evaluateGoal('goal-1', 'goal_failed');
@@ -735,8 +725,6 @@ describe('PostGoalEvaluator', () => {
       expect(callArgs.snapshot_data.execution_summary.most_common_errors).toEqual(
         expect.arrayContaining([{ signature: 'ERR_001', count: 1 }]),
       );
-
-      logSpy.mockRestore();
     });
 
     it('categorises work items by status in the snapshot', async () => {
@@ -750,8 +738,6 @@ describe('PostGoalEvaluator', () => {
       repository.getWorkItemsByGoal.mockReturnValue(items);
       repository.getRunsByWorkItem.mockReturnValue([]);
 
-      const logSpy = jest.spyOn(console, 'log').mockImplementation();
-
       const evaluator = new PostGoalEvaluator(deps);
       await evaluator.evaluateGoal('goal-1', 'goal_completed');
 
@@ -759,8 +745,6 @@ describe('PostGoalEvaluator', () => {
       expect(snapshot.goal_state.completed_work_items).toEqual(['wi-done']);
       expect(snapshot.goal_state.blocked_work_items).toEqual(['wi-blocked']);
       expect(snapshot.goal_state.current_work_items).toEqual(['wi-progress', 'wi-queued']);
-
-      logSpy.mockRestore();
     });
 
     it('aggregates error signatures across runs', async () => {
@@ -774,8 +758,6 @@ describe('PostGoalEvaluator', () => {
       repository.getWorkItemsByGoal.mockReturnValue([wi]);
       repository.getRunsByWorkItem.mockReturnValue(runs);
 
-      const logSpy = jest.spyOn(console, 'log').mockImplementation();
-
       const evaluator = new PostGoalEvaluator(deps);
       await evaluator.evaluateGoal('goal-1', 'goal_failed');
 
@@ -784,29 +766,25 @@ describe('PostGoalEvaluator', () => {
       // SIG_A should come first (count 2)
       expect(errors[0]).toEqual({ signature: 'SIG_A', count: 2 });
       expect(errors[1]).toEqual({ signature: 'SIG_B', count: 1 });
-
-      logSpy.mockRestore();
     });
 
     it('does not crash evaluateGoal when createContextPack throws', async () => {
-      const { deps, repository } = createMockDeps();
+      const { deps, repository, mockLogger } = createMockDeps();
       repository.getWorkItemsByGoal.mockReturnValue([]);
       repository.createContextPack.mockImplementation(() => {
         throw new Error('DB full');
       });
-
-      const errorSpy = jest.spyOn(console, 'error').mockImplementation();
 
       const evaluator = new PostGoalEvaluator(deps);
       const report = await evaluator.evaluateGoal('goal-1', 'goal_completed');
 
       // Report should still be returned successfully
       expect(report.goalId).toBe('goal-1');
-      expect(errorSpy).toHaveBeenCalledWith(
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({}),
         expect.stringContaining('Failed to create ContextPack'),
         expect.any(Error),
       );
-      errorSpy.mockRestore();
     });
 
     it('creates an error_recovery ContextPack via createBlockedGoalContextPack', () => {
@@ -814,8 +792,6 @@ describe('PostGoalEvaluator', () => {
       const wi = makeWorkItem({ id: 'wi-queued', status: 'queued' });
       repository.getWorkItemsByGoal.mockReturnValue([wi]);
       repository.getRunsByWorkItem.mockReturnValue([]);
-
-      const logSpy = jest.spyOn(console, 'log').mockImplementation();
 
       const evaluator = new PostGoalEvaluator(deps);
       evaluator.createBlockedGoalContextPack('goal-blocked-1');
@@ -825,27 +801,23 @@ describe('PostGoalEvaluator', () => {
       expect(callArgs.goal_id).toBe('goal-blocked-1');
       expect(callArgs.pack_type).toBe('error_recovery');
       expect(callArgs.snapshot_data.goal_state.current_work_items).toContain('wi-queued');
-
-      logSpy.mockRestore();
     });
 
     it('createBlockedGoalContextPack does not crash on errors', () => {
-      const { deps, repository } = createMockDeps();
+      const { deps, repository, mockLogger } = createMockDeps();
       repository.getWorkItemsByGoal.mockImplementation(() => {
         throw new Error('DB read failed');
       });
-
-      const errorSpy = jest.spyOn(console, 'error').mockImplementation();
 
       const evaluator = new PostGoalEvaluator(deps);
       // Should not throw
       expect(() => evaluator.createBlockedGoalContextPack('goal-blocked-2')).not.toThrow();
 
-      expect(errorSpy).toHaveBeenCalledWith(
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({}),
         expect.stringContaining('Failed to create ContextPack'),
         expect.any(Error),
       );
-      errorSpy.mockRestore();
     });
 
     it('creates ContextPack before knowledge extraction runs', async () => {
@@ -868,16 +840,12 @@ describe('PostGoalEvaluator', () => {
         return undefined;
       });
 
-      const logSpy = jest.spyOn(console, 'log').mockImplementation();
-
       const evaluator = new PostGoalEvaluator(deps);
       await evaluator.evaluateGoal('goal-1', 'goal_completed');
 
       expect(callOrder.indexOf('createContextPack')).toBeLessThan(
         callOrder.indexOf('getLatestContextPack'),
       );
-
-      logSpy.mockRestore();
     });
   });
 });

@@ -18,6 +18,8 @@ import type { IWorkOrderRepository } from '../infra/persistence/repository-inter
 import type { SchedulerEvent, SchedulerEventHandler } from '../scheduler/types.js';
 import type { GlobalKnowledgeService } from '../domain/knowledge/index.js';
 import type { ContextSnapshot } from '../work-order/types/index.js';
+import type { ILogger } from '../infra/observability/logger.js';
+import { NoopLogger } from '../infra/observability/logger.js';
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 
@@ -31,6 +33,7 @@ export interface PostGoalEvaluatorDependencies {
   repository: IWorkOrderRepository;
   globalKnowledgeService?: GlobalKnowledgeService;
   db?: Database.Database;
+  logger?: ILogger;
 }
 
 export interface WorkItemEvaluation {
@@ -73,6 +76,7 @@ export class PostGoalEvaluator {
   private readonly repository: IWorkOrderRepository;
   private readonly globalKnowledgeService?: GlobalKnowledgeService;
   private readonly db?: Database.Database;
+  private readonly logger: ILogger;
 
   private readonly reports: GoalEvaluationReport[] = [];
   private handler: SchedulerEventHandler | null = null;
@@ -83,37 +87,12 @@ export class PostGoalEvaluator {
     this.repository = deps.repository;
     this.globalKnowledgeService = deps.globalKnowledgeService;
     this.db = deps.db;
-    if (this.db) {
-      this.ensureTable();
-    }
+    this.logger = deps.logger ?? new NoopLogger();
   }
 
   // -------------------------------------------------------------------------
-  // Persistence
+  // Persistence (table created by migration v3 in migrations/index.ts)
   // -------------------------------------------------------------------------
-
-  private ensureTable(): void {
-    if (!this.db) return;
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS goal_evaluation_reports (
-        id TEXT PRIMARY KEY,
-        created_at INTEGER NOT NULL,
-        goal_id TEXT NOT NULL,
-        "trigger" TEXT NOT NULL CHECK("trigger" IN ('goal_completed', 'goal_failed', 'goal_blocked')),
-        work_item_results TEXT NOT NULL,
-        summary_total INTEGER NOT NULL DEFAULT 0,
-        summary_publish INTEGER NOT NULL DEFAULT 0,
-        summary_retry INTEGER NOT NULL DEFAULT 0,
-        summary_replan INTEGER NOT NULL DEFAULT 0,
-        summary_escalate INTEGER NOT NULL DEFAULT 0,
-        summary_skipped INTEGER NOT NULL DEFAULT 0,
-        unactionable_decisions TEXT,
-        FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE
-      )
-    `);
-    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_goal_eval_reports_goal ON goal_evaluation_reports(goal_id)`);
-    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_goal_eval_reports_created ON goal_evaluation_reports(created_at DESC)`);
-  }
 
   private persistReport(report: GoalEvaluationReport): void {
     if (!this.db) return;
@@ -139,7 +118,7 @@ export class PostGoalEvaluator {
         JSON.stringify(report.unactionableDecisions),
       );
     } catch (err) {
-      console.error(`${LOG_PREFIX} Failed to persist report for goal ${report.goalId}:`, err);
+      this.logger.error({ goalId: report.goalId, event: 'persist_report_failed' }, `Failed to persist report for goal ${report.goalId}`, err as Error);
     }
   }
 
@@ -159,7 +138,7 @@ export class PostGoalEvaluator {
 
       const goalId = event.goalId;
       if (!goalId) {
-        console.warn(`${LOG_PREFIX} received ${event.type} event without goalId — ignoring`);
+        this.logger.warn({ event: event.type }, `Received ${event.type} event without goalId — ignoring`);
         return;
       }
 
@@ -167,7 +146,7 @@ export class PostGoalEvaluator {
 
       // Fire-and-forget async evaluation — errors logged, never rethrown
       void this.evaluateGoal(goalId, trigger).catch((err) => {
-        console.error(`${LOG_PREFIX} evaluation failed for goal ${goalId}:`, err);
+        this.logger.error({ goalId, event: 'evaluation_failed' }, `Evaluation failed for goal ${goalId}`, err as Error);
       });
     };
 
@@ -260,7 +239,7 @@ export class PostGoalEvaluator {
           : [],
       }));
     } catch (err) {
-      console.error(`${LOG_PREFIX} Failed to load reports from DB:`, err);
+      this.logger.error({ event: 'load_reports_failed' }, 'Failed to load reports from DB', err as Error);
       return [...this.reports];
     }
   }
@@ -285,18 +264,16 @@ export class PostGoalEvaluator {
     try {
       const contextPack = this.repository.getLatestContextPack(goalId);
       if (!contextPack) {
-        console.log(`${LOG_PREFIX} No ContextPack found for goal ${goalId} — skipping knowledge extraction`);
+        this.logger.debug({ goalId, event: 'no_context_pack' }, `No ContextPack found for goal ${goalId} — skipping knowledge extraction`);
         return;
       }
 
       const extracted = this.globalKnowledgeService.extractFromContextPack(contextPack);
       if (extracted.length > 0) {
-        console.log(
-          `${LOG_PREFIX} Extracted ${extracted.length} knowledge entries from goal ${goalId}`,
-        );
+        this.logger.info({ goalId, event: 'knowledge_extracted', count: extracted.length }, `Extracted ${extracted.length} knowledge entries from goal ${goalId}`);
       }
     } catch (err) {
-      console.error(`${LOG_PREFIX} Knowledge extraction failed for goal ${goalId}:`, err);
+      this.logger.error({ goalId, event: 'knowledge_extraction_failed' }, `Knowledge extraction failed for goal ${goalId}`, err as Error);
     }
   }
 
@@ -391,9 +368,9 @@ export class PostGoalEvaluator {
         snapshot_data: snapshotData,
       });
 
-      console.log(`${LOG_PREFIX} Created ${packType} ContextPack for goal ${goalId}`);
+      this.logger.info({ goalId, event: 'context_pack_created', packType }, `Created ${packType} ContextPack for goal ${goalId}`);
     } catch (err) {
-      console.error(`${LOG_PREFIX} Failed to create ContextPack for goal ${goalId}:`, err);
+      this.logger.error({ goalId, event: 'context_pack_failed' }, `Failed to create ContextPack for goal ${goalId}`, err as Error);
     }
   }
 
@@ -468,7 +445,7 @@ export class PostGoalEvaluator {
             summary.replan++;
             const msg = `Work item ${workItem.id}: replan requested but not implemented`;
             unactionableDecisions.push(msg);
-            console.warn(`${LOG_PREFIX} replan decision is unactionable: ${msg}`);
+            this.logger.warn({ goalId, workItemId: workItem.id, event: 'replan_unactionable' }, msg);
             break;
           }
           case 'escalate':
@@ -477,9 +454,10 @@ export class PostGoalEvaluator {
         }
       } catch (evalErr) {
         // Individual work item evaluation failure — log and record as skipped
-        console.error(
-          `${LOG_PREFIX} failed to evaluate work item ${workItem.id} run ${latestRun.id}:`,
-          evalErr,
+        this.logger.error(
+          { goalId, workItemId: workItem.id, runId: latestRun.id, event: 'work_item_evaluation_failed' },
+          `Failed to evaluate work item ${workItem.id} run ${latestRun.id}`,
+          evalErr as Error,
         );
         workItemResults.push({
           workItemId: workItem.id,
@@ -513,9 +491,9 @@ export class PostGoalEvaluator {
     this.createContextPackForGoal(goalId, trigger);
 
     // Log summary
-    console.log(
-      `${LOG_PREFIX} Goal ${goalId} evaluated: ` +
-      `${summary.publish}p/${summary.retry}r/${summary.escalate}e/${summary.replan}rp/${summary.skipped}s`,
+    this.logger.info(
+      { goalId, event: 'post_goal_evaluated', ...summary },
+      `Goal ${goalId} evaluated: ${summary.publish}p/${summary.retry}r/${summary.escalate}e/${summary.replan}rp/${summary.skipped}s`,
     );
 
     // Extract knowledge from ContextPack into GlobalKnowledge (flywheel write side)

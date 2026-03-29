@@ -72,6 +72,11 @@ describe('SchemaDrivenAgentRunner', () => {
 
   beforeEach(() => {
     completeMock.mockReset();
+    completeMock.mockResolvedValue({
+      content: '{}',
+      model: 'test-model',
+      tokensUsed: 0,
+    });
     checkPermissionMock.mockReset();
     requestPermissionMock.mockReset();
     revokeAllForGoalMock.mockReset();

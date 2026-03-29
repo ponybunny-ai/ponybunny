@@ -17,6 +17,7 @@ import { HarnessDaemon } from './harness/harness-daemon.js';
 import { PostGoalEvaluator } from './harness/post-goal-evaluator.js';
 import { EvaluationService } from './app/lifecycle/evaluation/evaluation-service.js';
 import { getLLMService } from './infra/llm/index.js';
+import { JsonLogger } from './infra/observability/logger.js';
 import type { ILLMProvider } from './infra/llm/llm-provider.js';
 import { MockLLMProvider, LLMRouter } from './infra/llm/llm-provider.js';
 import { getGlobalSkillRegistry } from './infra/skills/skill-registry.js';
@@ -136,12 +137,16 @@ async function main() {
   await scheduler.start();
   console.log('[PonyBunny] ✅ SchedulerCore initialized');
 
+  // Structured logger for harness components (ADR-002 C1)
+  const logger = new JsonLogger({ level: 'info' });
+
   // ADR-001: Create GoalHarness (elaborate → plan → delegate to SchedulerCore)
   const goalHarness = new GoalHarness({
     repository,
     elaborationService,
     planningService,
     schedulerCore: scheduler,
+    logger: logger.child({ component: 'GoalHarness' }),
   });
   console.log('[PonyBunny] ✅ GoalHarness initialized');
 
@@ -153,6 +158,7 @@ async function main() {
     repository,
     globalKnowledgeService: globalKnowledge,
     db: repository.getDatabase(),
+    logger: logger.child({ component: 'PostGoalEvaluator' }),
   });
   console.log('[PonyBunny] ✅ PostGoalEvaluator initialized');
 
@@ -165,6 +171,7 @@ async function main() {
       pollingIntervalMs: 5000,
     },
     postGoalEvaluator,
+    logger.child({ component: 'HarnessDaemon' }),
   );
   console.log('[PonyBunny] ✅ HarnessDaemon initialized\n');
 

@@ -62,6 +62,33 @@ export const MAIN_DB_MIGRATIONS: Migration[] = [
         ON metric_samples (name, recorded_at);
     `,
   },
+  {
+    version: 3,
+    name: 'goal_evaluation_reports',
+    up: `
+      CREATE TABLE IF NOT EXISTS goal_evaluation_reports (
+        id         TEXT PRIMARY KEY,
+        created_at INTEGER NOT NULL,
+        goal_id    TEXT NOT NULL,
+        "trigger"  TEXT NOT NULL CHECK("trigger" IN ('goal_completed', 'goal_failed', 'goal_blocked')),
+        work_item_results      TEXT NOT NULL,
+        summary_total          INTEGER NOT NULL DEFAULT 0,
+        summary_publish        INTEGER NOT NULL DEFAULT 0,
+        summary_retry          INTEGER NOT NULL DEFAULT 0,
+        summary_replan         INTEGER NOT NULL DEFAULT 0,
+        summary_escalate       INTEGER NOT NULL DEFAULT 0,
+        summary_skipped        INTEGER NOT NULL DEFAULT 0,
+        unactionable_decisions TEXT,
+        FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_goal_eval_reports_goal
+        ON goal_evaluation_reports(goal_id);
+
+      CREATE INDEX IF NOT EXISTS idx_goal_eval_reports_created
+        ON goal_evaluation_reports(created_at DESC);
+    `,
+  },
 ];
 
 /**

@@ -14,12 +14,15 @@ import type { IWorkOrderRepository } from '../infra/persistence/repository-inter
 import type { IElaborationService, IPlanningService } from '../app/lifecycle/stage-interfaces.js';
 import type { ISchedulerCore } from '../scheduler/core/types.js';
 import type { IGoalHarness, GoalSubmission, GoalHarnessResult } from './goal-harness-interface.js';
+import type { ILogger } from '../infra/observability/logger.js';
+import { NoopLogger } from '../infra/observability/logger.js';
 
 export interface GoalHarnessDependencies {
   repository: IWorkOrderRepository;
   elaborationService: IElaborationService;
   planningService: IPlanningService;
   schedulerCore: ISchedulerCore;
+  logger?: ILogger;
 }
 
 export class GoalHarness implements IGoalHarness {
@@ -27,12 +30,14 @@ export class GoalHarness implements IGoalHarness {
   private readonly elaborationService: IElaborationService;
   private readonly planningService: IPlanningService;
   private readonly schedulerCore: ISchedulerCore;
+  private readonly logger: ILogger;
 
   constructor(deps: GoalHarnessDependencies) {
     this.repository = deps.repository;
     this.elaborationService = deps.elaborationService;
     this.planningService = deps.planningService;
     this.schedulerCore = deps.schedulerCore;
+    this.logger = deps.logger ?? new NoopLogger();
   }
 
   async submitGoal(submission: GoalSubmission): Promise<GoalHarnessResult> {
@@ -48,7 +53,7 @@ export class GoalHarness implements IGoalHarness {
       context: submission.context,
     });
 
-    console.log(`[GoalHarness] Created goal: ${goal.title} (${goal.id})`);
+    this.logger.info({ goalId: goal.id, event: 'goal_created' }, `Created goal: ${goal.title} (${goal.id})`);
 
     // Steps 2-6: elaborate → plan → delegate
     return this.elaboratePlanDelegate(goal);
@@ -66,7 +71,7 @@ export class GoalHarness implements IGoalHarness {
       );
     }
 
-    console.log(`[GoalHarness] Processing queued goal: ${goal.title} (${goal.id})`);
+    this.logger.info({ goalId: goal.id, event: 'processing_queued_goal' }, `Processing queued goal: ${goal.title} (${goal.id})`);
 
     return this.elaboratePlanDelegate(goal);
   }
@@ -83,12 +88,12 @@ export class GoalHarness implements IGoalHarness {
     }
 
     this.repository.updateGoalStatus(goalId, 'active');
-    console.log(`[GoalHarness] Plan approved for goal ${goalId} — delegating to SchedulerCore`);
+    this.logger.info({ goalId, event: 'plan_approved' }, `Plan approved for goal ${goalId} — delegating to SchedulerCore`);
     await this.schedulerCore.submitGoal(goal);
   }
 
   async cancelGoal(goalId: string): Promise<void> {
-    console.log(`[GoalHarness] Cancelling goal: ${goalId}`);
+    this.logger.info({ goalId, event: 'goal_cancelling' }, `Cancelling goal: ${goalId}`);
     await this.schedulerCore.cancelGoal(goalId);
   }
 
@@ -98,21 +103,21 @@ export class GoalHarness implements IGoalHarness {
    */
   private async elaboratePlanDelegate(goal: Goal): Promise<GoalHarnessResult> {
     // Step 2: Elaborate — inject GlobalKnowledgeService pitfalls, validate
-    console.log(`[GoalHarness] Elaborating goal: ${goal.id}`);
+    this.logger.info({ goalId: goal.id, event: 'elaborating' }, `Elaborating goal: ${goal.id}`);
     const elaboration = await this.elaborationService.elaborateGoal(goal);
 
     if (elaboration.clarifications.length > 0) {
-      console.log(`[GoalHarness] Elaboration clarifications for goal ${goal.id}:`);
-      for (const clarification of elaboration.clarifications) {
-        console.log(`  - ${clarification}`);
-      }
+      this.logger.info(
+        { goalId: goal.id, event: 'elaboration_clarifications', count: elaboration.clarifications.length },
+        `Elaboration clarifications for goal ${goal.id}: ${elaboration.clarifications.join('; ')}`,
+      );
     }
 
     // Step 3: If escalations → block goal, do not delegate
     if (elaboration.escalations.length > 0) {
-      console.warn(
-        `[GoalHarness] Elaboration escalated goal ${goal.id} ` +
-          `(${elaboration.escalations.length} issue(s)) — goal blocked, not delegated to scheduler`
+      this.logger.warn(
+        { goalId: goal.id, event: 'elaboration_escalated', count: elaboration.escalations.length },
+        `Elaboration escalated goal ${goal.id} (${elaboration.escalations.length} issue(s)) — goal blocked`,
       );
       this.repository.updateGoalStatus(goal.id, 'blocked');
 
@@ -127,11 +132,11 @@ export class GoalHarness implements IGoalHarness {
     }
 
     // Step 4: Plan — generate WorkItem DAG from elaborated goal
-    console.log(`[GoalHarness] Planning goal: ${goal.id}`);
+    this.logger.info({ goalId: goal.id, event: 'planning' }, `Planning goal: ${goal.id}`);
     const plan = await this.planningService.planWorkItems(goal);
 
     if (plan.workItems.length === 0) {
-      console.warn(`[GoalHarness] Planning returned 0 work items for goal ${goal.id}`);
+      this.logger.warn({ goalId: goal.id, event: 'empty_plan' }, `Planning returned 0 work items for goal ${goal.id}`);
       return {
         goal,
         elaborationApplied: true,
@@ -142,15 +147,16 @@ export class GoalHarness implements IGoalHarness {
       };
     }
 
-    console.log(
-      `[GoalHarness] Plan created with ${plan.workItems.length} work items for goal ${goal.id}`
+    this.logger.info(
+      { goalId: goal.id, event: 'plan_created', workItemCount: plan.workItems.length },
+      `Plan created with ${plan.workItems.length} work items for goal ${goal.id}`,
     );
 
     // Step 4.5: If review_plan mode, pause at plan_review instead of delegating
     const reviewPlan = goal.context?.review_plan === true;
     if (reviewPlan) {
       this.repository.updateGoalStatus(goal.id, 'plan_review');
-      console.log(`[GoalHarness] Goal ${goal.id} paused at plan_review — awaiting approval`);
+      this.logger.info({ goalId: goal.id, event: 'plan_review_paused' }, `Goal ${goal.id} paused at plan_review — awaiting approval`);
 
       return {
         goal: { ...goal, status: 'plan_review' as const },
@@ -167,7 +173,7 @@ export class GoalHarness implements IGoalHarness {
     this.repository.updateGoalStatus(goal.id, 'active');
 
     // Step 6: Delegate to SchedulerCore
-    console.log(`[GoalHarness] Delegating goal ${goal.id} to SchedulerCore`);
+    this.logger.info({ goalId: goal.id, event: 'delegating_to_scheduler' }, `Delegating goal ${goal.id} to SchedulerCore`);
     await this.schedulerCore.submitGoal(goal);
 
     return {

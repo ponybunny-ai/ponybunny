@@ -8,6 +8,8 @@
 
 import Database from 'better-sqlite3';
 import { PostGoalEvaluator } from '../../src/harness/post-goal-evaluator.js';
+import { DatabaseMigrator } from '../../src/infra/persistence/migrator.js';
+import { MAIN_DB_MIGRATIONS } from '../../src/infra/persistence/migrations/index.js';
 
 describe('PostGoalEvaluator SQLite persistence', () => {
   let db: Database.Database;
@@ -17,6 +19,8 @@ describe('PostGoalEvaluator SQLite persistence', () => {
     db.pragma('journal_mode = WAL');
     // Create minimal goals table for FK constraint
     db.exec(`CREATE TABLE goals (id TEXT PRIMARY KEY)`);
+    // Apply migrations to create goal_evaluation_reports table (v3)
+    new DatabaseMigrator(db).run(MAIN_DB_MIGRATIONS);
     db.exec(`INSERT INTO goals (id) VALUES ('goal-1'), ('goal-2'), ('goal-3')`);
   });
 

@@ -23,6 +23,7 @@ import { GoalHarness } from '../../harness/goal-harness.js';
 import type { IGoalHarness } from '../../harness/goal-harness-interface.js';
 import { PostGoalEvaluator } from '../../harness/post-goal-evaluator.js';
 import { EvaluationService } from '../../app/lifecycle/evaluation/evaluation-service.js';
+import { JsonLogger } from '../../infra/observability/logger.js';
 
 export interface DefaultSchedulerDaemonRuntimeConfig {
   tickIntervalMs?: number;
@@ -158,11 +159,14 @@ export function assembleGoalHarness(
     globalKnowledge
   );
 
+  const logger = new JsonLogger({ level: 'info' });
+
   const harness = new GoalHarness({
     repository: deps.repository,
     elaborationService,
     planningService,
     schedulerCore: deps.scheduler,
+    logger: logger.child({ component: 'GoalHarness' }),
   });
 
   console.log('[GoalHarness Assembly] GoalHarness assembled successfully');
@@ -180,6 +184,8 @@ export interface PostGoalEvaluatorAssemblyDependencies {
   scheduler: SchedulerCore;
   /** Database handle for GlobalKnowledgeService. If provided, enables automatic knowledge extraction. */
   knowledgeDb?: Database.Database;
+  /** Optional logger — defaults to JsonLogger if not provided. */
+  logger?: import('../../infra/observability/logger.js').ILogger;
 }
 
 export function assemblePostGoalEvaluator(
@@ -197,12 +203,14 @@ export function assemblePostGoalEvaluator(
     }
   }
 
+  const evalLogger = deps.logger ?? new JsonLogger({ level: 'info' });
   const evaluator = new PostGoalEvaluator({
     schedulerCore: deps.scheduler,
     evaluationService,
     repository: deps.repository,
     globalKnowledgeService,
     db: deps.knowledgeDb,
+    logger: evalLogger.child({ component: 'PostGoalEvaluator' }),
   });
 
   console.log('[PostGoalEvaluator Assembly] PostGoalEvaluator assembled successfully');

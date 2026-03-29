@@ -10,7 +10,11 @@ import { PersonaEngine } from '../../app/conversation/persona-engine.js';
 import { InMemoryPersonaRepository } from '../conversation/persona-repository.js';
 import type { AgentRunner, AgentRunnerInput } from './runner-types.js';
 import type { LLMMessage } from '../llm/llm-provider.js';
+import type { ILLMService } from '../llm/llm-service.interface.js';
 import { getLLMProviderManager } from '../llm/provider-manager/provider-manager.js';
+import { UnifiedLLMService } from '../llm/unified-llm-service.js';
+import { NoopLogger } from '../observability/logger.js';
+import { NoopTracer } from '../observability/noop-tracer.js';
 import { loadRuntimeConfig } from '../config/runtime-config.js';
 import { OSPermissionRepository, OSServiceChecker } from '../permission/os-service-checker.js';
 import {
@@ -287,10 +291,19 @@ export class SchemaDrivenAgentInterpreter implements AgentDefinitionInterpreter 
 }
 
 export class DefaultAgentExecutionEngine implements AgentExecutionEngine {
+  private readonly llmService: ILLMService;
+
   constructor(
     private readonly subagentExecutionBoundary: SubagentExecutionBoundary =
-      getGlobalSubagentExecutionBoundary()
-  ) {}
+      getGlobalSubagentExecutionBoundary(),
+    llmService?: ILLMService,
+  ) {
+    this.llmService = llmService ?? new UnifiedLLMService(
+      getLLMProviderManager(),
+      new NoopLogger(),
+      new NoopTracer(),
+    );
+  }
 
   async execute(plan: AgentExecutionPlan): Promise<void> {
     if (plan.approval?.required && (!plan.approval.actions || plan.approval.actions.length === 0)) {
@@ -303,7 +316,7 @@ export class DefaultAgentExecutionEngine implements AgentExecutionEngine {
       );
     }
 
-    const llm = getLLMProviderManager();
+    const llm = this.llmService;
     const osChecker = plan.osPermissions.length > 0 ? getOSServiceChecker() : null;
 
     if (plan.osPermissions.length > 0 && !plan.goalId) {

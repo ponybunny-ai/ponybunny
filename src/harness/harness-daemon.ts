@@ -12,6 +12,8 @@
 import type { IWorkOrderRepository } from '../infra/persistence/repository-interface.js';
 import type { IGoalHarness } from './goal-harness-interface.js';
 import type { PostGoalEvaluator } from './post-goal-evaluator.js';
+import type { ILogger } from '../infra/observability/logger.js';
+import { NoopLogger } from '../infra/observability/logger.js';
 
 export interface HarnessDaemonConfig {
   pollingIntervalMs: number;
@@ -23,13 +25,17 @@ export class HarnessDaemon {
   private pollingTimer?: NodeJS.Timeout;
   private activeGoalCount = 0;
   private wakeResolve: (() => void) | null = null;
+  private readonly logger: ILogger;
 
   constructor(
     private readonly repository: IWorkOrderRepository,
     private readonly goalHarness: IGoalHarness,
     private readonly config: HarnessDaemonConfig,
     private readonly postGoalEvaluator?: PostGoalEvaluator,
-  ) {}
+    logger?: ILogger,
+  ) {
+    this.logger = logger ?? new NoopLogger();
+  }
 
   async start(): Promise<void> {
     if (this.isRunning) {
@@ -39,7 +45,7 @@ export class HarnessDaemon {
     await this.repository.initialize();
     this.postGoalEvaluator?.start();
     this.isRunning = true;
-    console.log('[HarnessDaemon] Started');
+    this.logger.info({ event: 'harness_daemon_started' }, 'HarnessDaemon started');
     await this.mainLoop();
   }
 
@@ -55,7 +61,7 @@ export class HarnessDaemon {
       this.pollingTimer = undefined;
     }
     this.repository.close();
-    console.log('[HarnessDaemon] Stopped');
+    this.logger.info({ event: 'harness_daemon_stopped' }, 'HarnessDaemon stopped');
   }
 
   isActive(): boolean {
@@ -79,7 +85,7 @@ export class HarnessDaemon {
       try {
         await this.cycle();
       } catch (error) {
-        console.error('[HarnessDaemon] Cycle error:', error);
+        this.logger.error({ event: 'harness_daemon_cycle_error' }, 'Cycle error', error as Error);
       }
 
       if (this.isRunning) {
@@ -121,7 +127,7 @@ export class HarnessDaemon {
       const result = results[i];
       const goal = goalsToProcess[i];
       if (result.status === 'rejected') {
-        console.error(`[HarnessDaemon] Failed to process goal ${goal.id}:`, result.reason);
+        this.logger.error({ goalId: goal.id, event: 'goal_processing_failed' }, `Failed to process goal ${goal.id}`, result.reason as Error);
       } else if (result.status === 'fulfilled') {
         const harnessResult = result.value;
         // Goal was blocked during elaboration (not delegated, has escalations).
