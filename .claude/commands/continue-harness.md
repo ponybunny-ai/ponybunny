@@ -5,7 +5,7 @@ description: Aggressively continue PonyBunny's harness-first migration using exp
 Read and obey the repository-root CLAUDE.md as the operating constitution for this repository.
 
 Then read and treat the following file as the active migration brief and roadmap:
-docs/plans/20260328-harness-gap-analysis.md
+docs/plans/2026-03-28-harness-gap-analysis-v3.md
 
 You are in:
 
@@ -40,7 +40,7 @@ Your job is to reduce it through bounded forward action, not to hand it back pre
 Continuously advance the repository toward the harness-first target state defined by:
 
 1. CLAUDE.md
-2. docs/plans/20260328-harness-gap-analysis.md
+2. docs/plans/2026-03-28-harness-gap-analysis-v3.md
 
 Do real work.
 Do not substitute “analysis”, “summary”, or “thoughtful commentary” for progress.
@@ -269,8 +269,8 @@ If a required subagent is not invoked, you must explicitly explain why the task 
 When deciding what to do, use this precedence:
 
 1. CLAUDE.md
-2. docs/plans/20260328-harness-gap-analysis.md
-3. docs/reverse-engineering/20260328/*
+2. docs/plans/2026-03-28-harness-gap-analysis-v3.md
+3. docs/reverse-engineering/20260329/*
 4. actual code, tests, interfaces, schemas, and runtime behaviour
 
 If these sources disagree:
@@ -285,45 +285,51 @@ Do not freeze just because the system is imperfect.
 
 # STRATEGIC FOCUS
 
-Do not lose focus on the main architectural flywheel gap:
+The flywheel infrastructure is complete:
+- `GlobalKnowledgeService` exists and is tested (24 tests)
+- `global_knowledge` table exists in SQLite
+- Global knowledge injection into Elaboration stage is integration tested
+- `pb learn` and `pb failure-analysis` commands are verified
+- GoalHarness, HarnessDaemon, PostGoalEvaluator are verified (ADR-001 all 5 phases)
 
-## cross-goal failure learning and reusable knowledge propagation
+## the last mile: closing the learning loop
 
-This is not optional garnish.
-This is central to PonyBunny becoming a real harness-first system.
+The only remaining medium-rated gap is the write side of the flywheel.
+PostGoalEvaluator produces a GoalEvaluationReport but does not yet persist extracted knowledge.
+The read side works. The write side is disconnected.
 
-You should prefer work that strengthens the system’s ability to:
-- learn from prior failures
-- persist useful knowledge
-- reuse that knowledge across goals
-- reduce repeated mistakes
-- improve future autonomy
+Strategic focus is now on connecting:
+PostGoalEvaluator output → GlobalKnowledge write → next goal Elaboration read
 
-When in doubt, bias toward the flywheel.
+You should prefer work that:
+- closes this loop (PostGoalEvaluator → extractFromContextPack → GlobalKnowledgeService)
+- exposes evaluation data via RPC for the web UI
+- persists evaluation reports to survive daemon restarts
+- makes the existing flywheel observable and manageable
+
+When in doubt, bias toward closing the loop.
 
 ---
 
 # PHASE EXECUTION ORDER
 
-Unless a direct dependency requires local reordering, drive work in this order:
+Unless a direct dependency requires local reordering, drive work in this order.
+Source: `docs/plans/2026-03-28-harness-gap-analysis-v3.md`
 
-## Phase 1 — Immediate Structural Improvements
-1. Add or refine `Known Failure Patterns` in `CLAUDE.md`
-2. Complete `pb webui start/stop/status/logs`
-3. Implement `pb work --plan-first`
-4. Explicitly assign `verification_plan` generation to planner and align implementation if needed
+## Phase 1 — Last Mile (highest priority, low risk)
+1. PostGoalEvaluator → GlobalKnowledge write pipeline (Gap 4.A) — close the flywheel by calling `extractFromContextPack()` in PostGoalEvaluator's `onGoalEvent`
+2. `evaluation.list` / `evaluation.get` RPC interfaces (Gap 3.A / 6.B) — expose GoalEvaluationReport via Gateway RPC
 
-## Phase 2 — Core Harness Flywheel
-5. Implement `global_knowledge` persistence layer
-6. Implement `GlobalKnowledgeService`
-7. Implement `pb learn`
-8. Implement `pb failure-analysis`
-9. Inject global knowledge into Elaboration stage
+## Phase 2 — Tool Polish
+3. `pb knowledge list/stats/reinforce` CLI (Gap 4.C) — GlobalKnowledge management
+4. ContextPack auto-trigger on goal completed/blocked (Gap 2.A) — reliability
+5. GoalEvaluationReport persistence to SQLite (Gap 6.B) — daemon restart survival
 
-## Phase 3 — Extended Harness Capability
-10. Integrate Playwright MCP for browser verification
-11. Implement Entropy Agent
-12. Implement Harness Dashboard / cross-goal failure clustering / related observability improvements
+## Phase 3 — UX & Extended Capability
+6. `pb work --review-plan` plan approval mode (Gap 5.A) — plan review before execution
+7. Entropy Agent weekly cron (Gap 4.D) — doc/code drift detection
+8. Web UI Harness Dashboard (Gap 6.C) — cross-goal failure clustering
+9. Playwright MCP for browser verification (Gap 3.C) — optional
 
 Do not wander.
 Do not chase side quests.

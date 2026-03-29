@@ -1,7 +1,7 @@
 Read and follow the repository-root CLAUDE.md as the operating constitution for this repository.
 
 Then read and treat the following file as the active migration brief and roadmap:
-docs/plans/2026-03-28-harness-gap-analysis.md
+docs/plans/2026-03-28-harness-gap-analysis-v3.md
 
 You are not here to merely assist with coding.
 You are here to autonomously and continuously move PonyBunny toward a harness-first system, following the architecture, discipline, and phased migration model defined by the repository constitution and the migration brief.
@@ -118,8 +118,8 @@ Keep the role boundaries explicit in your reasoning and output.
 Use the following precedence order when deciding what to do:
 
 1. CLAUDE.md
-2. docs/plans/2026-03-28-harness-gap-analysis.md
-3. docs/reverse-engineering/20260328/*
+2. docs/plans/2026-03-28-harness-gap-analysis-v3.md
+3. docs/reverse-engineering/20260329/*
 4. actual repository code and tests
 5. existing runtime behaviour
 
@@ -134,13 +134,21 @@ You must follow the migration priority implied by the current gap analysis.
 
 ## Highest-level strategic rule:
 The most important unresolved architectural gap is:
-### cross-goal failure learning and reusable knowledge propagation
+### closing the last mile of the cross-goal failure learning flywheel
 
-This means the system should eventually be able to:
-- learn from failed or successful goals
-- persist reusable knowledge
-- inject that knowledge into future goal elaboration
-- improve over time instead of repeating the same mistakes
+The flywheel infrastructure is complete:
+- GlobalKnowledgeService exists and is tested (24 tests)
+- `global_knowledge` table exists (schema 1.4.0)
+- `pb learn` and `pb failure-analysis` commands exist
+- Global knowledge injection into the Elaboration stage is implemented and integration-tested
+- PostGoalEvaluator subscribes to goal lifecycle events (ADR-001 Phase 5, verified)
+
+What is missing is the automatic connection:
+- PostGoalEvaluator does not yet write extracted knowledge back to GlobalKnowledgeService
+- Without this pipeline, knowledge capture requires manual `pb learn` invocation
+- The flywheel does not close automatically
+
+The immediate priority is wiring PostGoalEvaluator's `onGoalEvent` handler to call `extractFromContextPack()` and persist the result, so that completed or failed goals automatically feed reusable knowledge into future elaboration.
 
 Do not lose sight of this flywheel.
 
@@ -150,23 +158,20 @@ Do not lose sight of this flywheel.
 
 Default order unless a direct dependency forces a small reordering:
 
-## Phase 1 — Immediate Structural Improvements
-1. Add or refine `Known Failure Patterns` section in `CLAUDE.md`
-2. Complete `pb webui start/stop/status/logs`
-3. Implement `pb work --plan-first`
-4. Explicitly assign `verification_plan` generation responsibility to planner in CLAUDE.md and align implementation if needed
+## Phase 1 — Last Mile (highest priority, low risk)
+1. PostGoalEvaluator → GlobalKnowledge write pipeline (Gap 4.A) — close the flywheel by calling `extractFromContextPack()` in PostGoalEvaluator's `onGoalEvent`, no new interfaces needed
+2. `evaluation.list` / `evaluation.get` RPC interfaces (Gap 3.A / 6.B) — expose existing GoalEvaluationReport via Gateway RPC
 
-## Phase 2 — Core Harness Flywheel
-5. Implement `global_knowledge` persistence layer
-6. Implement `GlobalKnowledgeService`
-7. Implement `pb learn`
-8. Implement `pb failure-analysis`
-9. Inject global knowledge into Elaboration stage
+## Phase 2 — Tool Polish
+3. `pb knowledge list/stats/reinforce` CLI (Gap 4.C) — GlobalKnowledge management CLI
+4. ContextPack auto-trigger on goal completed/blocked (Gap 2.A) — reliability for context preservation
+5. GoalEvaluationReport persistence to SQLite (Gap 6.B) — survive daemon restarts
 
-## Phase 3 — Extended Harness Capability
-10. Integrate Playwright MCP for browser verification
-11. Implement Entropy Agent
-12. Implement Harness Dashboard / cross-goal failure clustering / related observability improvements
+## Phase 3 — UX & Extended Capability
+6. `pb work --review-plan` plan approval mode (Gap 5.A) — show WorkItem DAG before execution, wait for user confirmation
+7. Entropy Agent weekly cron (Gap 4.D) — detect doc/code semantic drift
+8. Web UI Harness Dashboard (Gap 6.C) — cross-goal failure clustering view
+9. Playwright MCP for browser verification (Gap 3.C) — optional, on-demand
 
 Do not jump randomly between phases unless a concrete dependency requires it.
 
