@@ -47,6 +47,7 @@ import { registerAuditHandlers } from './rpc/handlers/audit-handlers.js';
 import { registerEvaluationHandlers } from './rpc/handlers/evaluation-handlers.js';
 import { registerPlanReviewHandlers } from './rpc/handlers/plan-review-handlers.js';
 import { registerHarnessMetricsHandlers } from './rpc/handlers/harness-metrics-handlers.js';
+import { registerGoalIntentHandlers } from './rpc/handlers/goal-intent-handlers.js';
 import { HarnessMetricsService } from '../app/observability/harness-metrics-service.js';
 import { GatewayRuntimeRolloutCoordinator } from './runtime/gateway-runtime-rollout-coordinator.js';
 import { GatewaySchedulerEventAuditObserver } from './runtime/gateway-scheduler-event-audit-observer.js';
@@ -342,6 +343,8 @@ export class GatewayServer {
       this.rpcHandler,
       new HarnessMetricsService(this.db),
     );
+
+    registerGoalIntentHandlers(this.rpcHandler, this.repository);
 
     this.runtimeRpcSurface.register();
 

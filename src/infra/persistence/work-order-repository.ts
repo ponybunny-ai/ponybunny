@@ -307,6 +307,11 @@ export class WorkOrderDatabase implements IWorkOrderRepository {
     stmt.run(status, Date.now(), id);
   }
 
+  updateGoalContext(id: string, context: Record<string, unknown>): void {
+    const stmt = this.db.prepare('UPDATE goals SET context = ?, updated_at = ? WHERE id = ?');
+    stmt.run(JSON.stringify(context), Date.now(), id);
+  }
+
   deleteGoal(id: string): void {
     const stmt = this.db.prepare('DELETE FROM goals WHERE id = ?');
     stmt.run(id);

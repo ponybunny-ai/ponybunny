@@ -218,7 +218,8 @@ export class HarnessMetricsService {
           `SELECT
              COUNT(*)                    AS total_entries,
              COALESCE(AVG(confidence), 0) AS avg_confidence
-           FROM global_knowledge`,
+           FROM global_knowledge
+           WHERE decayed_at IS NULL`,
         )
         .get() as { total_entries: number; avg_confidence: number } | undefined;
 
@@ -231,6 +232,7 @@ export class HarnessMetricsService {
         .prepare(
           `SELECT knowledge_type, COUNT(*) AS cnt
            FROM global_knowledge
+           WHERE decayed_at IS NULL
            GROUP BY knowledge_type`,
         )
         .all() as Array<{ knowledge_type: string; cnt: number }>;
@@ -245,7 +247,8 @@ export class HarnessMetricsService {
         .prepare(
           `SELECT COUNT(*) AS cnt
            FROM global_knowledge
-           WHERE last_reinforced_at >= (strftime('%s', 'now') - 7 * 86400) * 1000`,
+           WHERE decayed_at IS NULL
+             AND last_reinforced_at >= (strftime('%s', 'now') - 7 * 86400) * 1000`,
         )
         .get() as { cnt: number } | undefined;
 

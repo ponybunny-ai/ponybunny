@@ -40,6 +40,8 @@ import {
 } from '../../infra/llm/provider-manager/model-selection-compatibility.js';
 import type { ILogger } from '../../infra/observability/logger.js';
 import { NoopLogger } from '../../infra/observability/logger.js';
+import type { IContextPackCheckpointService } from '../../app/execution/context-pack-checkpoint-service.js';
+import { NoopContextPackCheckpointService } from '../../app/execution/context-pack-checkpoint-service.js';
 
 const DEFAULT_CONFIG: SchedulerConfig = {
   tickIntervalMs: 1000,
@@ -80,11 +82,13 @@ export class SchedulerCore implements ISchedulerCore {
   private metrics: SchedulerMetrics;
   private runtimeEventUnsubscribe: (() => void) | null = null;
   private readonly logger: ILogger;
+  private readonly contextPackCheckpoint: IContextPackCheckpointService;
 
   constructor(deps: SchedulerDependencies, config?: Partial<SchedulerConfig>, logger: ILogger = new NoopLogger()) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.deps = deps;
     this.logger = logger.child({ component: 'SchedulerCore' });
+    this.contextPackCheckpoint = deps.contextPackCheckpoint ?? new NoopContextPackCheckpointService();
     this.state = this.createInitialState();
     this.metrics = this.createInitialMetrics();
     this.ensureRuntimeEventSubscription();
@@ -1297,6 +1301,14 @@ export class SchedulerCore implements ISchedulerCore {
         data: { outcome: 'success', progress: 100 },
       });
 
+      // Fire-and-forget checkpoint — must never block the tick loop
+      this.contextPackCheckpoint
+        .checkpointAfterWorkItem(goal, workItem, run)
+        .catch((err) => this.logger.warn(
+          { goalId: goal.id, workItemId: workItem.id },
+          `ContextPack checkpoint failed after work item completion: ${err instanceof Error ? err.message : String(err)}`,
+        ));
+
       // Update average duration
       const duration = Date.now() - context.startedAt;
       this.updateAverageDuration(duration);
@@ -1364,6 +1376,14 @@ export class SchedulerCore implements ISchedulerCore {
     } else {
       // No retry, mark as failed
       await this.deps.workItemManager.updateStatus(workItem.id, 'failed');
+
+      // Fire-and-forget error checkpoint — must never block the tick loop
+      this.contextPackCheckpoint
+        .checkpointOnError(goal, workItem, context.run, error.code)
+        .catch((err) => this.logger.warn(
+          { goalId: goal.id, workItemId: workItem.id },
+          `ContextPack checkpoint failed after work item error: ${err instanceof Error ? err.message : String(err)}`,
+        ));
 
       this.emitEvent({
         type: 'work_item_failed',

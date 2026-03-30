@@ -1,0 +1,12 @@
+{
+  "agent_id": "knowledge-decay-agent",
+  "name": "Knowledge Decay Agent",
+  "schedule": "0 2 * * 0",
+  "timezone": "UTC",
+  "task": "Run knowledge decay and semantic deduplication on the global_knowledge store. Apply age-based confidence reduction for entries older than 90 days with low occurrence. Soft-delete entries below 0.1 confidence. Deduplicate semantically similar entries (>0.95 cosine similarity). Report summary.",
+  "policy": {
+    "allowed_tools": [],
+    "max_tokens": 4000,
+    "max_cost_usd": 0.10
+  }
+}

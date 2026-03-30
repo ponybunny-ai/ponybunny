@@ -30,6 +30,7 @@ function createRepositoryMock(): IWorkOrderRepository {
     },
     getGoal: () => undefined,
     updateGoalStatus: () => {},
+    updateGoalContext: () => {},
     deleteGoal: () => {},
     listGoals: () => [],
     createWorkItem: () => {

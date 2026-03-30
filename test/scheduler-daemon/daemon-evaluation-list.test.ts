@@ -29,6 +29,7 @@ function createRepositoryMock(): IWorkOrderRepository {
     createGoal: () => { throw new Error('not used'); },
     getGoal: () => undefined,
     updateGoalStatus: () => {},
+    updateGoalContext: () => {},
     deleteGoal: () => {},
     listGoals: () => [],
     createWorkItem: () => { throw new Error('not used'); },

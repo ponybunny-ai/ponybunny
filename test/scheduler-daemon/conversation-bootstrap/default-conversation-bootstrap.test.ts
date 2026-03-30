@@ -16,6 +16,7 @@ function createRepositoryStub() {
     getWorkItemsByGoal: jest.fn(() => []),
     listGoals: jest.fn(() => []),
     updateGoalStatus: jest.fn(),
+    updateGoalContext: jest.fn(),
     updateWorkItemStatus: jest.fn(),
     getWorkItem: jest.fn(),
     listWorkItems: jest.fn(() => []),

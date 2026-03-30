@@ -1,6 +1,7 @@
 import type { Goal } from '../../../work-order/types/index.js';
 import type { IWorkOrderRepository } from '../../../infra/persistence/repository-interface.js';
 import type { GlobalKnowledgeService } from '../../../domain/knowledge/index.js';
+import type { GoalIntent, ExtractedConstraint } from '../../../domain/work-order/types/goal-intent.js';
 import type { IElaborationService, ElaborationResult } from '../stage-interfaces.js';
 
 export class ElaborationService implements IElaborationService {
@@ -47,28 +48,14 @@ export class ElaborationService implements IElaborationService {
       }
     }
 
-    // Inject known pitfalls from global knowledge into clarifications
-    // so the goal owner is aware of past failures relevant to this goal
-    if (this.globalKnowledge) {
-      try {
-        const pitfalls = this.globalKnowledge.getRelevantKnowledge({
-          knowledgeType: 'pitfall',
-          limit: 5,
-          minConfidence: 0.4,
-        });
-        if (pitfalls.length > 0) {
-          const pitfallWarnings = pitfalls.map(
-            p => `[Known pitfall, confidence ${p.confidence.toFixed(1)}]: ${p.content}`
-          );
-          clarifications.push(
-            `Global knowledge contains ${pitfalls.length} relevant pitfall(s) from previous goals:\n` +
-            pitfallWarnings.join('\n')
-          );
-        }
-      } catch {
-        // global_knowledge table may not exist yet — graceful degradation
-      }
-    }
+    // Inject structured constraints from GoalIntent (if available)
+    this.injectIntentConstraints(goal, clarifications);
+
+    // Inject known constraints, pitfalls, and failure modes from global knowledge
+    this.injectGlobalKnowledge(clarifications);
+
+    // Suggest budgets based on historical time_estimate knowledge
+    this.suggestBudgets(goal, clarifications);
 
     const updatedGoal = { ...goal };
 
@@ -94,5 +81,92 @@ export class ElaborationService implements IElaborationService {
       clarifications,
       escalations,
     };
+  }
+
+  /**
+   * Inject structured constraint blocks from GoalIntent (extracted during intake).
+   * Reads goal.context.intent — does NOT call LLM.
+   */
+  private injectIntentConstraints(goal: Goal, clarifications: string[]): void {
+    const intent = goal.context?.intent as GoalIntent | undefined;
+    if (!intent?.extracted_constraints || intent.extracted_constraints.length === 0) {
+      return;
+    }
+
+    const constraints = intent.extracted_constraints;
+    const constraintLines = constraints.map(
+      (c: ExtractedConstraint) => `- [${c.type}] ${c.description} (confidence: ${c.confidence.toFixed(2)})`
+    );
+
+    let block = 'TASK CONSTRAINTS (extracted before planning began):\n' + constraintLines.join('\n');
+
+    // Append scope boundary if present
+    if (intent.scope_boundary) {
+      block += '\n\nSCOPE BOUNDARY:\n' + intent.scope_boundary;
+    }
+
+    clarifications.push(block);
+  }
+
+  /**
+   * Inject known constraints, pitfalls, and failure modes from global knowledge.
+   * Queries with type array, cap 10, minConfidence 0.5.
+   */
+  private injectGlobalKnowledge(clarifications: string[]): void {
+    if (!this.globalKnowledge) {
+      return;
+    }
+
+    try {
+      const relevantKnowledge = this.globalKnowledge.getRelevantKnowledge({
+        knowledgeType: ['pitfall', 'constraint', 'failure_mode'],
+        limit: 10,
+        minConfidence: 0.5,
+      });
+
+      if (relevantKnowledge.length > 0) {
+        const lines = relevantKnowledge.map(
+          k => `[${k.knowledge_type.toUpperCase()}] ${k.content} (confidence: ${k.confidence.toFixed(1)})`
+        );
+        clarifications.push(
+          'KNOWN CONSTRAINTS AND PITFALLS:\n' + lines.join('\n')
+        );
+      }
+    } catch {
+      // global_knowledge table may not exist yet — graceful degradation
+    }
+  }
+
+  /**
+   * Suggest budgets based on historical time_estimate knowledge entries.
+   * Advisory only — added to clarifications, not escalations.
+   */
+  private suggestBudgets(goal: Goal, clarifications: string[]): void {
+    // Skip if budget is already set
+    if (goal.budget_tokens) {
+      return;
+    }
+
+    if (!this.globalKnowledge) {
+      return;
+    }
+
+    try {
+      const estimates = this.globalKnowledge.getRelevantKnowledge({
+        knowledgeType: 'time_estimate',
+        limit: 3,
+        minConfidence: 0.6,
+      });
+
+      if (estimates.length > 0) {
+        const estimateDescriptions = estimates.map(e => e.content).join('; ');
+        clarifications.push(
+          'Budget suggestion based on similar tasks: consider setting budget_tokens. ' +
+          `Past similar tasks used approximately: ${estimateDescriptions}`
+        );
+      }
+    } catch {
+      // graceful degradation
+    }
   }
 }

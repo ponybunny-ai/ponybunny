@@ -474,18 +474,28 @@ CREATE TABLE IF NOT EXISTS global_knowledge (
     created_at INTEGER NOT NULL,
     source_goal_id TEXT,
     source_context_pack_id TEXT,
-    knowledge_type TEXT NOT NULL CHECK(knowledge_type IN ('pitfall', 'pattern', 'approach', 'decision')),
+    knowledge_type TEXT NOT NULL CHECK(knowledge_type IN (
+        'pitfall', 'pattern', 'approach', 'decision',
+        'constraint', 'failure_mode', 'time_estimate', 'tool_preference'
+    )),
     domain_tags TEXT,               -- JSON array: ["typescript", "api", "testing"]
+    scope TEXT,                     -- e.g. 'github-api', 'nodejs-fs'
     content TEXT NOT NULL,
-    confidence REAL DEFAULT 0.5,    -- Rises with occurrence_count
+    confidence REAL NOT NULL DEFAULT 0.5,    -- Rises with occurrence_count
     occurrence_count INTEGER DEFAULT 1,
     last_reinforced_at INTEGER NOT NULL,
+    embedding BLOB,                 -- nullable; generated async on record
+    embedding_dim INTEGER,
+    embedding_model TEXT,
+    decayed_at INTEGER,             -- null = active; non-null = soft-deleted
     FOREIGN KEY(source_goal_id) REFERENCES goals(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_global_knowledge_type ON global_knowledge(knowledge_type);
 CREATE INDEX IF NOT EXISTS idx_global_knowledge_confidence ON global_knowledge(confidence DESC);
 CREATE INDEX IF NOT EXISTS idx_global_knowledge_source_goal ON global_knowledge(source_goal_id);
+CREATE INDEX IF NOT EXISTS idx_gk_scope ON global_knowledge(scope);
+CREATE INDEX IF NOT EXISTS idx_gk_active ON global_knowledge(decayed_at) WHERE decayed_at IS NULL;
 
 -- ============================================================================
 -- Goal Evaluation Reports — PostGoalEvaluator output persistence

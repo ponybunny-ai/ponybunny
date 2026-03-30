@@ -13,6 +13,7 @@ import type { IWorkOrderRepository } from '../infra/persistence/repository-inter
 import type { IGoalHarness } from './goal-harness-interface.js';
 import type { PostGoalEvaluator } from './post-goal-evaluator.js';
 import type { PersistentSchedulerMetrics } from '../scheduler/core/persistent-metrics.js';
+import type { FeatureExtractionService } from '../app/lifecycle/evaluation/feature-extraction-service.js';
 import type { ILogger } from '../infra/observability/logger.js';
 import { NoopLogger } from '../infra/observability/logger.js';
 
@@ -36,6 +37,7 @@ export class HarnessDaemon {
     private readonly postGoalEvaluator?: PostGoalEvaluator,
     logger?: ILogger,
     private readonly persistentMetrics?: PersistentSchedulerMetrics,
+    private readonly featureExtractionService?: FeatureExtractionService,
   ) {
     this.logger = logger ?? new NoopLogger();
   }
@@ -47,6 +49,18 @@ export class HarnessDaemon {
 
     await this.repository.initialize();
     this.postGoalEvaluator?.start();
+
+    // Wire feature extraction callback: when PostGoalEvaluator produces a report,
+    // fire-and-forget LLM-based knowledge extraction via FeatureExtractionService.
+    if (this.featureExtractionService && this.postGoalEvaluator) {
+      this.postGoalEvaluator.onReport = (report, goalId) => {
+        const goal = this.repository.getGoal(goalId);
+        if (!goal) return;
+        this.featureExtractionService!.extractAndRecord(report, goal)
+          .catch(err => this.logger.warn({ goalId, err }, 'Feature extraction failed'));
+      };
+    }
+
     this.persistentMetrics?.restore();
     this.isRunning = true;
 

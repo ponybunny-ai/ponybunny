@@ -11,6 +11,10 @@ import type { IWorkOrderRepository } from '../../src/infra/persistence/repositor
 import type { IElaborationService, IPlanningService } from '../../src/app/lifecycle/stage-interfaces.js';
 import type { ISchedulerCore } from '../../src/scheduler/core/types.js';
 import type { Goal, WorkItem } from '../../src/work-order/types/index.js';
+import { IntentClassificationService } from '../../src/app/lifecycle/intake/intent-classification-service.js';
+import type { GoalIntent } from '../../src/domain/work-order/types/goal-intent.js';
+import type { ILLMService } from '../../src/infra/llm/llm-service.interface.js';
+import { NoopLogger } from '../../src/infra/observability/logger.js';
 
 // --- Helpers ---
 
@@ -64,11 +68,12 @@ function makeSubmission(overrides: Partial<GoalSubmission> = {}): GoalSubmission
   };
 }
 
-function createMockRepository(): jest.Mocked<Pick<IWorkOrderRepository, 'createGoal' | 'getGoal' | 'updateGoalStatus' | 'listGoals' | 'initialize' | 'close'>> {
+function createMockRepository(): jest.Mocked<Pick<IWorkOrderRepository, 'createGoal' | 'getGoal' | 'updateGoalStatus' | 'updateGoalContext' | 'listGoals' | 'initialize' | 'close'>> {
   return {
     createGoal: jest.fn(),
     getGoal: jest.fn(),
     updateGoalStatus: jest.fn(),
+    updateGoalContext: jest.fn(),
     listGoals: jest.fn(),
     initialize: jest.fn().mockResolvedValue(undefined),
     close: jest.fn(),
@@ -468,6 +473,206 @@ describe('GoalHarness', () => {
       expect(result.workItemCount).toBe(3);
       expect(result.delegatedToScheduler).toBe(true);
       expect(schedulerCore.submitGoal).toHaveBeenCalledWith(goal);
+    });
+  });
+
+  describe('intent classification integration', () => {
+    function makeHighConfidenceIntent(): GoalIntent {
+      return {
+        task_type: 'code_implementation',
+        domain_tags: ['api'],
+        extracted_constraints: [],
+        scope_boundary: 'API layer',
+        classification_confidence: 0.9,
+      };
+    }
+
+    function makeLowConfidenceIntent(): GoalIntent {
+      return {
+        task_type: 'unknown',
+        domain_tags: [],
+        extracted_constraints: [],
+        scope_boundary: '',
+        classification_confidence: 0.3,
+        clarification_questions: ['What exactly should be implemented?'],
+      };
+    }
+
+    function createMockLLMService(): jest.Mocked<ILLMService> {
+      return {
+        complete: jest.fn(),
+        completeWithModel: jest.fn(),
+        getProviderHealth: jest.fn().mockReturnValue([]),
+      };
+    }
+
+    it('proceeds to elaboration when classification confidence is high', async () => {
+      const mockLLM = createMockLLMService();
+      mockLLM.complete.mockResolvedValue({
+        content: JSON.stringify(makeHighConfidenceIntent()),
+        tokensUsed: 100,
+        model: 'test',
+        finishReason: 'stop',
+      });
+
+      const intentService = new IntentClassificationService(mockLLM, new NoopLogger());
+
+      const harnessWithIntent = new GoalHarness({
+        repository: repository as unknown as IWorkOrderRepository,
+        elaborationService,
+        planningService,
+        schedulerCore: schedulerCore as unknown as ISchedulerCore,
+        intentClassificationService: intentService,
+      });
+
+      const goal = makeGoal();
+      repository.createGoal.mockReturnValue(goal);
+      elaborationService.elaborateGoal.mockResolvedValue({
+        goal,
+        clarifications: [],
+        escalations: [],
+      });
+      planningService.planWorkItems.mockResolvedValue({
+        workItems: [makeWorkItem()],
+        dependencies: new Map(),
+      });
+
+      const result = await harnessWithIntent.submitGoal(makeSubmission());
+
+      // Should persist intent to context
+      expect(repository.updateGoalContext).toHaveBeenCalledWith(
+        goal.id,
+        expect.objectContaining({ intent: makeHighConfidenceIntent() }),
+      );
+
+      // Should proceed to elaboration and delegation
+      expect(elaborationService.elaborateGoal).toHaveBeenCalled();
+      expect(result.delegatedToScheduler).toBe(true);
+      expect(result.elaborationApplied).toBe(true);
+    });
+
+    it('blocks goal and returns early when classification confidence is low', async () => {
+      const mockLLM = createMockLLMService();
+      mockLLM.complete.mockResolvedValue({
+        content: JSON.stringify(makeLowConfidenceIntent()),
+        tokensUsed: 100,
+        model: 'test',
+        finishReason: 'stop',
+      });
+
+      const intentService = new IntentClassificationService(mockLLM, new NoopLogger());
+
+      const harnessWithIntent = new GoalHarness({
+        repository: repository as unknown as IWorkOrderRepository,
+        elaborationService,
+        planningService,
+        schedulerCore: schedulerCore as unknown as ISchedulerCore,
+        intentClassificationService: intentService,
+      });
+
+      const goal = makeGoal();
+      repository.createGoal.mockReturnValue(goal);
+
+      const result = await harnessWithIntent.submitGoal(makeSubmission());
+
+      // Should block goal
+      expect(repository.updateGoalStatus).toHaveBeenCalledWith(goal.id, 'blocked');
+
+      // Should NOT proceed to elaboration
+      expect(elaborationService.elaborateGoal).not.toHaveBeenCalled();
+
+      // Should return escalation about low confidence
+      expect(result.delegatedToScheduler).toBe(false);
+      expect(result.elaborationApplied).toBe(false);
+      expect(result.escalations.length).toBeGreaterThan(0);
+      expect(result.escalations[0]).toContain('confidence too low');
+    });
+
+    it('blocks goal when intent classification throws an error', async () => {
+      const mockLLM = createMockLLMService();
+      mockLLM.complete.mockRejectedValue(new Error('LLM provider unavailable'));
+
+      const intentService = new IntentClassificationService(mockLLM, new NoopLogger());
+
+      const harnessWithIntent = new GoalHarness({
+        repository: repository as unknown as IWorkOrderRepository,
+        elaborationService,
+        planningService,
+        schedulerCore: schedulerCore as unknown as ISchedulerCore,
+        intentClassificationService: intentService,
+      });
+
+      const goal = makeGoal();
+      repository.createGoal.mockReturnValue(goal);
+
+      const result = await harnessWithIntent.submitGoal(makeSubmission());
+
+      expect(repository.updateGoalStatus).toHaveBeenCalledWith(goal.id, 'blocked');
+      expect(elaborationService.elaborateGoal).not.toHaveBeenCalled();
+      expect(result.delegatedToScheduler).toBe(false);
+      expect(result.escalations[0]).toContain('Intent classification failed');
+    });
+
+    it('works without intentClassificationService (backward compatibility)', async () => {
+      // The default harness (no intentClassificationService) should work as before
+      const goal = makeGoal();
+      repository.createGoal.mockReturnValue(goal);
+      elaborationService.elaborateGoal.mockResolvedValue({
+        goal,
+        clarifications: [],
+        escalations: [],
+      });
+      planningService.planWorkItems.mockResolvedValue({
+        workItems: [makeWorkItem()],
+        dependencies: new Map(),
+      });
+
+      const result = await harness.submitGoal(makeSubmission());
+
+      // No intent classification call
+      expect(repository.updateGoalContext).not.toHaveBeenCalled();
+
+      // Should proceed normally
+      expect(result.delegatedToScheduler).toBe(true);
+      expect(result.elaborationApplied).toBe(true);
+    });
+
+    it('skips low-confidence blocking when skip_clarification is set', async () => {
+      const mockLLM = createMockLLMService();
+      mockLLM.complete.mockResolvedValue({
+        content: JSON.stringify(makeLowConfidenceIntent()),
+        tokensUsed: 100,
+        model: 'test',
+        finishReason: 'stop',
+      });
+
+      const intentService = new IntentClassificationService(mockLLM, new NoopLogger());
+
+      const harnessWithIntent = new GoalHarness({
+        repository: repository as unknown as IWorkOrderRepository,
+        elaborationService,
+        planningService,
+        schedulerCore: schedulerCore as unknown as ISchedulerCore,
+        intentClassificationService: intentService,
+      });
+
+      const goal = makeGoal({ context: { skip_clarification: true } });
+      repository.createGoal.mockReturnValue(goal);
+      elaborationService.elaborateGoal.mockResolvedValue({
+        goal,
+        clarifications: [],
+        escalations: [],
+      });
+      planningService.planWorkItems.mockResolvedValue({
+        workItems: [makeWorkItem()],
+        dependencies: new Map(),
+      });
+
+      const result = await harnessWithIntent.submitGoal(makeSubmission({ context: { skip_clarification: true } }));
+
+      // Should proceed despite low confidence
+      expect(elaborationService.elaborateGoal).toHaveBeenCalled();
+      expect(result.delegatedToScheduler).toBe(true);
     });
   });
 });

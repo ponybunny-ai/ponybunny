@@ -16,6 +16,8 @@ import type { ISchedulerCore } from '../scheduler/core/types.js';
 import type { IGoalHarness, GoalSubmission, GoalHarnessResult } from './goal-harness-interface.js';
 import type { ILogger } from '../infra/observability/logger.js';
 import { NoopLogger } from '../infra/observability/logger.js';
+import type { IntentClassificationService } from '../app/lifecycle/intake/intent-classification-service.js';
+import { CLARIFICATION_THRESHOLD } from '../app/lifecycle/intake/intent-classification-service.js';
 
 export interface GoalHarnessDependencies {
   repository: IWorkOrderRepository;
@@ -23,6 +25,7 @@ export interface GoalHarnessDependencies {
   planningService: IPlanningService;
   schedulerCore: ISchedulerCore;
   logger?: ILogger;
+  intentClassificationService?: IntentClassificationService;
 }
 
 export class GoalHarness implements IGoalHarness {
@@ -31,6 +34,7 @@ export class GoalHarness implements IGoalHarness {
   private readonly planningService: IPlanningService;
   private readonly schedulerCore: ISchedulerCore;
   private readonly logger: ILogger;
+  private readonly intentClassificationService?: IntentClassificationService;
 
   constructor(deps: GoalHarnessDependencies) {
     this.repository = deps.repository;
@@ -38,6 +42,7 @@ export class GoalHarness implements IGoalHarness {
     this.planningService = deps.planningService;
     this.schedulerCore = deps.schedulerCore;
     this.logger = deps.logger ?? new NoopLogger();
+    this.intentClassificationService = deps.intentClassificationService;
   }
 
   async submitGoal(submission: GoalSubmission): Promise<GoalHarnessResult> {
@@ -102,6 +107,58 @@ export class GoalHarness implements IGoalHarness {
    * Used by both submitGoal (new goal) and processQueuedGoal (existing goal).
    */
   private async elaboratePlanDelegate(goal: Goal): Promise<GoalHarnessResult> {
+    // Step 0: Intent Classification (optional — only when service is provided)
+    if (this.intentClassificationService) {
+      try {
+        this.logger.info({ goalId: goal.id, event: 'intent_classification' }, `Classifying intent for goal: ${goal.id}`);
+        const intent = await this.intentClassificationService.classify(goal);
+
+        // Persist intent to goal context immediately (stateless invariant)
+        const updatedContext = { ...(goal.context ?? {}), intent };
+        this.repository.updateGoalContext(goal.id, updatedContext);
+        goal = { ...goal, context: updatedContext };
+
+        // Check confidence threshold
+        if (intent.classification_confidence < CLARIFICATION_THRESHOLD && !goal.context?.skip_clarification) {
+          const clarificationMsg = intent.clarification_questions?.length
+            ? `Intent classification confidence too low (${intent.classification_confidence}). Questions: ${intent.clarification_questions.join('; ')}`
+            : `Intent classification confidence too low (${intent.classification_confidence}). Goal may be ambiguous.`;
+
+          this.logger.warn(
+            { goalId: goal.id, event: 'intent_low_confidence', confidence: intent.classification_confidence },
+            clarificationMsg,
+          );
+          this.repository.updateGoalStatus(goal.id, 'blocked');
+
+          return {
+            goal,
+            elaborationApplied: false,
+            planGenerated: false,
+            workItemCount: 0,
+            escalations: [clarificationMsg],
+            delegatedToScheduler: false,
+          };
+        }
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        this.logger.error(
+          { goalId: goal.id, event: 'intent_classification_error' },
+          `Intent classification failed for goal ${goal.id}: ${errorMsg}`,
+          err instanceof Error ? err : undefined,
+        );
+        this.repository.updateGoalStatus(goal.id, 'blocked');
+
+        return {
+          goal,
+          elaborationApplied: false,
+          planGenerated: false,
+          workItemCount: 0,
+          escalations: [`Intent classification failed: ${errorMsg}`],
+          delegatedToScheduler: false,
+        };
+      }
+    }
+
     // Step 2: Elaborate — inject GlobalKnowledgeService pitfalls, validate
     this.logger.info({ goalId: goal.id, event: 'elaborating' }, `Elaborating goal: ${goal.id}`);
     const elaboration = await this.elaborationService.elaborateGoal(goal);

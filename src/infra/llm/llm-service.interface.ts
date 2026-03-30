@@ -21,7 +21,9 @@ export type LLMWorkload =
   | 'quality-review'
   | 'input-analysis'
   | 'response-generation'
-  | 'verification';
+  | 'verification'
+  | 'intent-classification'
+  | 'feature-extraction';
 
 export interface ILLMService {
   /**

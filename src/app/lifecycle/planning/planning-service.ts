@@ -6,6 +6,7 @@ import type { IModelSelector } from '../../../scheduler/model-selector/types.js'
 import type { RuntimeToolingContext } from '../../../runtime/tooling-context/index.js';
 import type { GlobalKnowledgeService } from '../../../domain/knowledge/index.js';
 import type { ILogger } from '../../../infra/observability/logger.js';
+import type { GoalIntent, ExtractedConstraint } from '../../../domain/work-order/types/goal-intent.js';
 import { NoopLogger } from '../../../infra/observability/logger.js';
 import { PromptProvider } from '../../../infra/prompts/prompt-provider.js';
 import { ModelSelector } from '../../../scheduler/model-selector/model-selector.js';
@@ -125,10 +126,13 @@ export class PlanningService implements IPlanningService {
       }
     }
 
+    // Extract scope_limit constraints from GoalIntent for negative-example instructions
+    const scopeExclusions = this.extractScopeLimitExclusions(goal);
+
     const userPrompt = `Goal Title: ${goal.title}
 Goal Description: ${goal.description}
 Budget Tokens: ${goal.budget_tokens || 'N/A'}
-${knowledgeSection}
+${knowledgeSection}${scopeExclusions}
 Break this down into execution steps.
 
 Output format: JSON array of objects.
@@ -173,6 +177,33 @@ Each object must have:
     } catch (error) {
       throw new Error(`Failed to generate plan: ${error}`);
     }
+  }
+
+  /**
+   * Extract scope_limit constraints from GoalIntent to use as negative-example
+   * instructions in the planning prompt.
+   */
+  private extractScopeLimitExclusions(goal: Goal): string {
+    const intent = goal.context?.intent as GoalIntent | undefined;
+    if (!intent?.extracted_constraints || intent.extracted_constraints.length === 0) {
+      return '';
+    }
+
+    const scopeLimits = intent.extracted_constraints.filter(
+      (c: ExtractedConstraint) => c.type === 'scope_limit'
+    );
+
+    if (scopeLimits.length === 0) {
+      return '';
+    }
+
+    const lines = scopeLimits.map(
+      (c: ExtractedConstraint) => `- DO NOT include work items that touch: ${c.description}`
+    );
+
+    return '\n--- SCOPE EXCLUSIONS (do not plan work outside these boundaries) ---\n' +
+      lines.join('\n') +
+      '\n--- END SCOPE EXCLUSIONS ---\n';
   }
 
   private topologicalSort(items: PlannedItem[]): PlannedItem[] {

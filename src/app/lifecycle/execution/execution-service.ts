@@ -2,6 +2,7 @@ import type { WorkItem } from '../../../work-order/types/index.js';
 import type { IWorkOrderRepository } from '../../../infra/persistence/repository-interface.js';
 import type { IExecutionService, ExecutionResult } from '../stage-interfaces.js';
 import type { ILLMProvider } from '../../../infra/llm/llm-provider.js';
+import { extractIntraGoalContext, formatIntraGoalContext } from './intra-goal-context.js';
 import { ToolRegistry, ToolAllowlist, ToolEnforcer } from '../../../infra/tools/tool-registry.js';
 import type { ToolPolicyAuditSnapshot } from '../../../infra/tools/tool-registry.js';
 import { ReadFileTool } from '../../../infra/tools/implementations/read-file-tool.js';
@@ -266,6 +267,11 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
       };
     }
 
+    // Global knowledge (from GlobalKnowledgeService) = cross-goal, permanent
+    // Intra-goal context (from ContextPack) = within-goal, transient
+    // These are distinct sections in the prompt and are sourced independently
+    this.injectIntraGoalContext(workItem);
+
     const runSequence = this.repository.getRunsByWorkItem(workItem.id).length + 1;
     const runContextProjection = materializeCompatibilityDirectExecutionRunProjection({
       selectedModel: workItem.context?.selected_model,
@@ -441,6 +447,32 @@ export class ExecutionService implements IExecutionService, ExecutionRunner {
       hash = hash & hash;
     }
     return Math.abs(hash).toString(16);
+  }
+
+  /**
+   * Fetch the latest ContextPack for this goal and inject formatted
+   * intra-goal discoveries into the workItem context for prompt injection.
+   * No-op if no ContextPack exists or knowledge_base is empty.
+   */
+  private injectIntraGoalContext(workItem: WorkItem): void {
+    try {
+      const contextPack = this.repository.getLatestContextPack(workItem.goal_id);
+      if (!contextPack) return;
+
+      const intraGoal = extractIntraGoalContext(contextPack.snapshot_data);
+      const formatted = formatIntraGoalContext(intraGoal);
+      if (!formatted) return;
+
+      workItem.context = {
+        ...(workItem.context ?? {}),
+        intra_goal_prompt: formatted,
+      };
+    } catch (error) {
+      this.logger.warn(
+        { event: 'intra_goal_context_failed', error: String(error) },
+        'Failed to inject intra-goal context (non-fatal)',
+      );
+    }
   }
 
 }

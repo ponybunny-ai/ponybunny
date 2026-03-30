@@ -15,6 +15,7 @@ import type { BudgetStatus } from '../budget-tracker/index.js';
 import type { VerificationResult } from '../quality-gate-runner/index.js';
 import type { ExecutionPort } from '../../runtime/execution-boundary/index.js';
 import type { EventBus as RuntimeEventBus } from '../../runtime/event-bus/index.js';
+import type { IContextPackCheckpointService } from '../../app/execution/context-pack-checkpoint-service.js';
 
 export type SchedulerExecutionMode = 'direct' | 'evented';
 
@@ -143,6 +144,8 @@ export interface SchedulerDependencies {
   executionPort: ExecutionPort;
   /** Runtime event bus used for evented execution handoff */
   runtimeEventBus: RuntimeEventBus;
+  /** Optional checkpoint service for creating ContextPacks at work-item boundaries */
+  contextPackCheckpoint?: IContextPackCheckpointService;
 }
 
 // Adapter interfaces to decouple from concrete implementations

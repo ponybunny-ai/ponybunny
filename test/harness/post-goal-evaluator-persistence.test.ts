@@ -7,6 +7,8 @@
  */
 
 import Database from 'better-sqlite3';
+import fs from 'node:fs';
+import path from 'node:path';
 import { PostGoalEvaluator } from '../../src/harness/post-goal-evaluator.js';
 import { DatabaseMigrator } from '../../src/infra/persistence/migrator.js';
 import { MAIN_DB_MIGRATIONS } from '../../src/infra/persistence/migrations/index.js';
@@ -17,11 +19,11 @@ describe('PostGoalEvaluator SQLite persistence', () => {
   beforeEach(() => {
     db = new Database(':memory:');
     db.pragma('journal_mode = WAL');
-    // Create minimal goals table for FK constraint
-    db.exec(`CREATE TABLE goals (id TEXT PRIMARY KEY)`);
-    // Apply migrations to create goal_evaluation_reports table (v3)
+    // Load full schema so all tables exist, then apply migrations for v2+ additions
+    const schemaPath = path.join(process.cwd(), 'src', 'infra', 'persistence', 'schema.sql');
+    db.exec(fs.readFileSync(schemaPath, 'utf-8'));
     new DatabaseMigrator(db).run(MAIN_DB_MIGRATIONS);
-    db.exec(`INSERT INTO goals (id) VALUES ('goal-1'), ('goal-2'), ('goal-3')`);
+    db.exec(`INSERT INTO goals (id, created_at, updated_at, title, description, success_criteria, status, priority) VALUES ('goal-1', 0, 0, 't', 'd', '[]', 'active', 50), ('goal-2', 0, 0, 't', 'd', '[]', 'active', 50), ('goal-3', 0, 0, 't', 'd', '[]', 'active', 50)`);
   });
 
   afterEach(() => {

@@ -89,6 +89,7 @@ export const PREFIXED_ACTIONS = {
   SYSTEM_BUDGET_EXCEEDED: 'system.budget.exceeded',
   SYSTEM_GOAL_EVALUATED: 'system.goal.evaluated',
   SYSTEM_CIRCUIT_OPENED: 'system.circuit.opened',
+  SYSTEM_KNOWLEDGE_EXTRACT: 'system.knowledge.extract',
 
   // Agent-initiated
   AGENT_TOOL_CALL: 'agent.tool.call',

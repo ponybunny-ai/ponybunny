@@ -85,6 +85,14 @@ export class PostGoalEvaluator {
   private readonly reports: GoalEvaluationReport[] = [];
   private handler: SchedulerEventHandler | null = null;
 
+  /**
+   * Optional callback invoked after evaluateGoal() produces a report.
+   * Set by HarnessDaemon to trigger feature extraction (fire-and-forget).
+   * PostGoalEvaluator does NOT perform LLM calls — this callback delegates
+   * that responsibility to the caller.
+   */
+  public onReport?: (report: GoalEvaluationReport, goalId: string) => void;
+
   constructor(deps: PostGoalEvaluatorDependencies) {
     this.schedulerCore = deps.schedulerCore;
     this.evaluationService = deps.evaluationService;
@@ -509,6 +517,11 @@ export class PostGoalEvaluator {
 
     // Extract knowledge from ContextPack into GlobalKnowledge (flywheel write side)
     await this.extractKnowledgeForGoal(goalId);
+
+    // Notify listeners (e.g. HarnessDaemon for feature extraction)
+    if (this.onReport) {
+      try { this.onReport(report, goalId); } catch { /* caller error — swallow */ }
+    }
 
     return report;
   }

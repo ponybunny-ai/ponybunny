@@ -89,6 +89,13 @@ export const MAIN_DB_MIGRATIONS: Migration[] = [
         ON goal_evaluation_reports(created_at DESC);
     `,
   },
+  {
+    version: 4,
+    name: 'global_knowledge_extension',
+    get up() {
+      return readPersistenceAsset('migrations/v4-global-knowledge-extension.sql');
+    },
+  },
 ];
 
 /**

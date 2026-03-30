@@ -19,6 +19,7 @@ export interface IWorkOrderRepository {
   createGoal(params: CreateGoalParams): Goal;
   getGoal(id: string): Goal | undefined;
   updateGoalStatus(id: string, status: Goal['status']): void;
+  updateGoalContext(id: string, context: Record<string, unknown>): void;
   deleteGoal(id: string): void;
   listGoals(filters?: GoalFilters): Goal[];
   

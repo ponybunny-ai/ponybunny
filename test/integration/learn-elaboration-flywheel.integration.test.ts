@@ -137,18 +137,17 @@ describe('Integration: extractFromContextPack → ElaborationService flywheel', 
     const extracted = knowledgeService.extractFromContextPack(pack);
     expect(extracted).toHaveLength(4); // 2 pitfalls + 1 pattern + 1 approach
 
-    // Now elaborate a new goal — only pitfalls should appear
+    // Now elaborate a new goal — only pitfalls (and constraint/failure_mode) should appear
     const result = await elaborationService.elaborateGoal(makeGoal());
 
-    const pitfallClarification = result.clarifications.find(c => c.includes('relevant pitfall'));
-    expect(pitfallClarification).toBeDefined();
-    expect(pitfallClarification).toContain('Never use eval() in production code');
-    expect(pitfallClarification).toContain('Always validate user input');
-    expect(pitfallClarification).toContain('2 relevant pitfall(s)');
+    const knowledgeBlock = result.clarifications.find(c => c.includes('KNOWN CONSTRAINTS AND PITFALLS:'));
+    expect(knowledgeBlock).toBeDefined();
+    expect(knowledgeBlock).toContain('Never use eval() in production code');
+    expect(knowledgeBlock).toContain('Always validate user input');
 
-    // Patterns and approaches should NOT appear in clarifications
-    expect(pitfallClarification).not.toContain('dependency injection');
-    expect(pitfallClarification).not.toContain('integration tests first');
+    // Patterns and approaches should NOT appear in clarifications (not in queried types)
+    expect(knowledgeBlock).not.toContain('dependency injection');
+    expect(knowledgeBlock).not.toContain('integration tests first');
   });
 
   test('duplicate extraction reinforces confidence rather than creating duplicates', async () => {
@@ -181,15 +180,14 @@ describe('Integration: extractFromContextPack → ElaborationService flywheel', 
     // Confidence should be reinforced (0.5 default + 0.1 = 0.6)
     expect(allPitfalls[0].confidence).toBeCloseTo(0.6, 1);
 
-    // Elaboration should show 1 pitfall with reinforced confidence
+    // Elaboration should show the pitfall with reinforced confidence in structured format
     const result = await elaborationService.elaborateGoal(makeGoal());
-    const pitfallClarification = result.clarifications.find(c => c.includes('relevant pitfall'));
-    expect(pitfallClarification).toBeDefined();
-    expect(pitfallClarification).toContain('1 relevant pitfall(s)');
-    expect(pitfallClarification).toContain('[Known pitfall, confidence 0.6]');
+    const knowledgeBlock = result.clarifications.find(c => c.includes('KNOWN CONSTRAINTS AND PITFALLS:'));
+    expect(knowledgeBlock).toBeDefined();
+    expect(knowledgeBlock).toContain('[PITFALL] Never use eval() (confidence: 0.6)');
   });
 
-  test('extracted pitfall with default confidence (0.5) meets the 0.4 threshold', async () => {
+  test('extracted pitfall with default confidence (0.5) meets the 0.5 threshold', async () => {
     insertGoal(db, 'goal-source');
 
     const pack = makeContextPack({
@@ -201,15 +199,16 @@ describe('Integration: extractFromContextPack → ElaborationService flywheel', 
 
     knowledgeService.extractFromContextPack(pack);
 
-    // Default confidence is 0.5 which is above the 0.4 threshold
+    // Default confidence is 0.5 which meets the 0.5 threshold (>=)
     const result = await elaborationService.elaborateGoal(makeGoal());
-    const pitfallClarification = result.clarifications.find(c => c.includes('relevant pitfall'));
-    expect(pitfallClarification).toBeDefined();
-    expect(pitfallClarification).toContain('Watch out for circular imports');
-    expect(pitfallClarification).toContain('[Known pitfall, confidence 0.5]');
+    const knowledgeBlock = result.clarifications.find(c => c.includes('KNOWN CONSTRAINTS AND PITFALLS:'));
+    expect(knowledgeBlock).toBeDefined();
+    expect(knowledgeBlock).toContain('Watch out for circular imports');
+    expect(knowledgeBlock).toContain('[PITFALL]');
+    expect(knowledgeBlock).toContain('(confidence: 0.5)');
   });
 
-  test('well-formed goal with knowledge gets only pitfall clarification, no noise', async () => {
+  test('well-formed goal with knowledge gets only knowledge clarification, no noise', async () => {
     insertGoal(db, 'goal-source');
 
     const pack = makeContextPack({
@@ -224,9 +223,10 @@ describe('Integration: extractFromContextPack → ElaborationService flywheel', 
     // Goal has success criteria, budget, long description — no validation clarifications
     const result = await elaborationService.elaborateGoal(makeGoal());
 
-    // The only clarification should be the pitfall injection
+    // The only clarification should be the structured knowledge injection
     expect(result.escalations).toHaveLength(0);
     expect(result.clarifications).toHaveLength(1);
     expect(result.clarifications[0]).toContain('Beware of race conditions');
+    expect(result.clarifications[0]).toContain('KNOWN CONSTRAINTS AND PITFALLS:');
   });
 });

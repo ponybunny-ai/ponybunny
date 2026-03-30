@@ -101,6 +101,11 @@ export class ReActIntegration {
       : this.toolProvider;
 
     // Generate phase-aware system prompt
+    // Intra-goal context (from ContextPack checkpoint) is injected via extraSystemPrompt
+    // when ExecutionService attaches it to workItem.context.intra_goal_prompt
+    const intraGoalPrompt = typeof params.workItem.context?.intra_goal_prompt === 'string'
+      ? params.workItem.context.intra_goal_prompt
+      : undefined;
     const systemPrompt = this.promptProvider.generateExecutionPrompt({
       workspaceDir: process.cwd(),
       goal: params.goal,
@@ -109,6 +114,7 @@ export class ReActIntegration {
       spentTokens: params.goal?.spent_tokens,
       modelName: params.model,
       promptMode: 'minimal',
+      extraSystemPrompt: intraGoalPrompt,
     });
 
     const context: ReActContext = {
@@ -377,6 +383,9 @@ export class ReActIntegration {
       ? new ToolProvider(activeToolEnforcer)
       : this.toolProvider;
 
+    const chatIntraGoalPrompt = typeof params.workItem.context?.intra_goal_prompt === 'string'
+      ? params.workItem.context.intra_goal_prompt
+      : undefined;
     const systemPrompt = this.promptProvider.generateExecutionPrompt({
       workspaceDir: process.cwd(),
       goal: params.goal,
@@ -385,6 +394,7 @@ export class ReActIntegration {
       spentTokens: params.goal?.spent_tokens,
       modelName: params.model,
       promptMode: 'minimal',
+      extraSystemPrompt: chatIntraGoalPrompt,
     });
 
     const context: ReActContext = {
